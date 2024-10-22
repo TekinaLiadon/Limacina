@@ -1,9 +1,13 @@
-<script setup></script>
+<script setup>
+import DashboardWrapper from "@/03-widgets/dashboard/DashboardWrapper.vue";
+</script>
 
 <template>
   <main class="app">
-    <router-view />
-    <slot />
+    <DashboardWrapper>
+      <router-view />
+      <slot />
+    </DashboardWrapper>
   </main>
 </template>
 
