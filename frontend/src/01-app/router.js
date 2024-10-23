@@ -18,6 +18,11 @@ const router = createRouter({
             name: "Profile",
             component: () => import("@/02-pages/Profile.vue"),
         },
+        {
+            path: "/settings",
+            name: "Settings",
+            component: () => import("@/02-pages/Profile.vue"),
+        },
     ],
 });
 export default router;

@@ -1,5 +1,6 @@
 <script setup>
 import IconButton from "@/06-shared/components/IconButton.vue";
+import {Quit} from "../../../wailsjs/runtime/runtime.js";
 
 const items = [
   {
@@ -11,20 +12,8 @@ const items = [
     link: "profile",
   },
   {
-    icon: "wallet",
-    link: "dashboard/finance",
-  },
-  {
-    icon: "robot",
-    link: "dashboard/robot",
-  },
-  {
-    icon: "chat-info",
-    link: "dashboard/manual",
-  },
-  {
     icon: "settings",
-    link: "dashboard/settings",
+    link: "settings",
   },
 ];
 
@@ -35,7 +24,7 @@ const items = [
     <router-link v-for="item in items" :key="item.href" :to="item.link">
       <IconButton tag="span" :icon="item.icon" />
     </router-link>
-    <IconButton class="sidebar__exit-btn" icon="exit" />
+    <IconButton class="sidebar__exit-btn" icon="exit" @click="Quit" />
   </div>
 </template>
 
