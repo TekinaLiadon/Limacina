@@ -1,17 +1,39 @@
 <script setup>
+import Dropdown from "@/06-shared/components/Dropdown.vue";
+import {ref} from "vue";
+import IconButton from "@/06-shared/components/IconButton.vue";
+import Login from "@/03-widgets/Login.vue";
+import Popup from "@/06-shared/components/Popup.vue";
 
-
+const users = ref([
+  { title: "Тестовый пользователь", value: "ru",},
+  { title: "Тестовый пользователь 2", value: "en",},
+])
+const currentUsers = ref('Тестовый пользователь')
+const shownDropdown = ref(false)
+const isLogin = ref(false)
 </script>
 
 <template>
   <div class="header-menu">
-
+    <Dropdown
+        class="home__dropdown"
+        :options="users"
+        v-model="currentUsers"
+        :shown="shownDropdown"
+        :width="'220px'"
+    />
+    <IconButton tag="span" icon="user-photo" @click="isLogin = !isLogin" />
+    <Popup v-model:visible="isLogin"
+           maxWidth="340px">
+      <Login />
+    </Popup>
   </div>
 </template>
 
 <style lang="scss">
 .header-menu {
-  width: 60px;
+  width: 320px;
   display: flex;
   align-items: center;
   gap: 20px;

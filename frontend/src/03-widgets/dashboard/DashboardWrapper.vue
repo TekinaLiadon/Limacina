@@ -9,7 +9,7 @@ import Sidebar from "@/03-widgets/dashboard/Sidebar.vue";
     <div class="dashboard-wrapper__container">
       <Header />
       <div class="dashboard-wrapper__content">
-        <Sidebar class="dashboard-wrapper__sidebar" />
+<!--        <Sidebar class="dashboard-wrapper__sidebar" />-->
         <slot></slot>
       </div>
     </div>
