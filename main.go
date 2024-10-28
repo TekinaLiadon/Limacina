@@ -14,12 +14,15 @@ var assets embed.FS
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
+	fileInfo := &FileInfo{}
 
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "Limacina",
-		Width:  1024,
-		Height: 768,
+		Width:  924,
+		Height: 668,
+		MinWidth: 400,
+        MinHeight: 400,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -27,6 +30,7 @@ func main() {
 		OnStartup:        app.startup,
 		Bind: []interface{}{
 			app,
+			fileInfo,
 		},
 	})
 

@@ -7,8 +7,10 @@ export const useServerStore = defineStore("server", {
     }),
     actions: {
         async getServerInfo() {
-            const result = await ky(`https://api.mcsrvstat.us/2/play.mclucky.net`).json()
+            const response = await ky(`https://api.mcsrvstat.us/2/play.mclucky.net`)
+            const result = await response.json()
             this.serverInfo = result
+            return true
         }
     }
 });

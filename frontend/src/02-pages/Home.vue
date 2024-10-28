@@ -5,17 +5,19 @@ import IconButton from "@/06-shared/components/IconButton.vue";
 import Button from "@/06-shared/components/Button.vue";
 import {getStore, saveStore} from "@/06-shared/utils/presistStore.js";
 import {useServerStore} from "@/05-entities/server/serverStore.js";
+import {useCoreStore} from "@/05-entities/core/coreStore.js";
+import {GetFileInfo} from "../../wailsjs/go/main/App.js";
 
 const servers = ref([])
 const currentServers = ref("Тестовый сервер");
 const shownDropdown = ref(false);
+const coreStore = useCoreStore()
 const serverStore = useServerStore()
 const nodeList = ref({})
 const updateTimer = ref()
 
 onBeforeMount(() => {
   const serversList = getStore('servers')
-  serverStore.getServerInfo()
   if(!serversList) currentServers.value = "Нет серверов"
   else {
     currentServers.value = serversList[0].title
@@ -29,6 +31,9 @@ onMounted(() => {
     if(!nodeList.value[keys[0]]) nodeList.value[keys[0]] = {}
     nodeList.value[keys[0]][keys[1]] = el
   })
+  // TODO Перенести
+  animateValue(nodeList.value.stats.min, 0, serverStore.serverInfo.players.online, 1000)
+  animateValue(nodeList.value.stats.max, 0, serverStore.serverInfo.players.max, 1 )
 })
 
 const online = computed(() => {
@@ -60,6 +65,10 @@ const getServers = () => {
   ], 'servers')
 }
 
+const test = async () => {
+  const result = await GetFileInfo(`${coreStore.homeDir}/1.webp`)
+  alert(`${result.Name}, ${result.Size}, ${result.ModTime}, ${result.MD5Hash}`)
+}
 
 onBeforeUnmount(() => {
   clearInterval(updateTimer.value)
@@ -85,7 +94,7 @@ onBeforeUnmount(() => {
             :shown="shownDropdown"
             :width="'200px'"
         />
-        <Button class="btn-db-green">Играть</Button>
+        <Button class="btn-db-green" @click="test">Играть</Button>
         <IconButton tag="span" icon="settings" @click="getServers" />
       </div>
     </div>
