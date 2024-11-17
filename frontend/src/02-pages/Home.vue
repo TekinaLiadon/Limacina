@@ -6,7 +6,7 @@ import Button from "@/06-shared/components/Button.vue";
 import {getStore, saveStore} from "@/06-shared/utils/presistStore.js";
 import {useServerStore} from "@/05-entities/server/serverStore.js";
 import {useCoreStore} from "@/05-entities/core/coreStore.js";
-import {GetFileInfo} from "../../wailsjs/go/main/App.js";
+import {GetFile, GetFileInfo, GetFileList} from "../../wailsjs/go/main/App.js";
 
 const servers = ref([])
 const currentServers = ref("Тестовый сервер");
@@ -58,15 +58,13 @@ watch(() => serverStore.serverInfo, (newV, oldV) => {
   animateValue(nodeList.value.stats.max, oldV.players?.max ||0, newV.players.max, !oldV.players?.online ? 1 : 1000)
 })
 
-const getServers = () => {
-  saveStore([
-    { title: "Тестовый сервер", value: "ru",},
-    { title: "Тестовый сервер 2", value: "en",},
-  ], 'servers')
+const getServers = async () => {
+  const jsonHash = await GetFileList()
+    // GetFile(`${coreStore.homeDir}/test/config/watut-client.toml`)
 }
 
 const test = async () => {
-  const result = await GetFileInfo(`${coreStore.homeDir}/1.webp`)
+  const result = await GetFileInfo(`${coreStore.homeDir}/G.png`)
   alert(`${result.Name}, ${result.Size}, ${result.ModTime}, ${result.MD5Hash}`)
 }
 
@@ -94,7 +92,7 @@ onBeforeUnmount(() => {
             :shown="shownDropdown"
             :width="'200px'"
         />
-        <Button class="btn-db-green" @click="test">Играть</Button>
+        <Button class="btn-db-green" @click="getServers">Играть</Button>
         <IconButton tag="span" icon="settings" @click="getServers" />
       </div>
     </div>

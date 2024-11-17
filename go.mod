@@ -1,4 +1,4 @@
-module myproject
+module Limacina
 
 go 1.21
 
