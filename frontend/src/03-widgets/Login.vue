@@ -1,6 +1,5 @@
 <script setup>
 import {reactive} from 'vue'
-import {Greet} from '../../wailsjs/go/main/App'
 import Input from "@/06-shared/components/Input.vue";
 import Button from "@/06-shared/components/Button.vue";
 
@@ -9,11 +8,6 @@ const data = reactive({
   resultText: "Please enter your name below 👇",
 })
 
-function greet() {
-  Greet(data.name).then(result => {
-    data.resultText = result
-  })
-}
 </script>
 
 <template>
@@ -30,7 +24,7 @@ function greet() {
     }"
            type="password"
     />
-    <Button @click="greet" class="btn-yellow">
+    <Button class="btn-yellow">
       Войти
     </Button>
   </div>

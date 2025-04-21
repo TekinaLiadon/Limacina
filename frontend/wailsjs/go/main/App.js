@@ -6,8 +6,8 @@ export function CheckDir() {
   return window['go']['main']['App']['CheckDir']();
 }
 
-export function GetFile(arg1) {
-  return window['go']['main']['App']['GetFile'](arg1);
+export function GetFile(arg1, arg2) {
+  return window['go']['main']['App']['GetFile'](arg1, arg2);
 }
 
 export function GetFileInfo(arg1) {
@@ -18,6 +18,6 @@ export function GetFileList() {
   return window['go']['main']['App']['GetFileList']();
 }
 
-export function Greet(arg1) {
-  return window['go']['main']['App']['Greet'](arg1);
+export function StartJvm() {
+  return window['go']['main']['App']['StartJvm']();
 }

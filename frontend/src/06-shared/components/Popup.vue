@@ -53,6 +53,7 @@ function close() {
 
 .popup {
   max-height: 95%;
+  min-height: 70%;
   display: flex;
   flex-direction: column;
   border-radius: 30px;
@@ -60,7 +61,7 @@ function close() {
   position: relative;
   padding: 40px;
   width: 90%;
-  max-width: 360px;
+  max-width: 460px;
 
   &__header {
     margin-bottom: 20px;

@@ -6,7 +6,9 @@ import Button from "@/06-shared/components/Button.vue";
 import {getStore, saveStore} from "@/06-shared/utils/presistStore.js";
 import {useServerStore} from "@/05-entities/server/serverStore.js";
 import {useCoreStore} from "@/05-entities/core/coreStore.js";
-import {GetFile, GetFileInfo, GetFileList} from "../../wailsjs/go/main/App.js";
+import {GetFile, GetFileInfo, GetFileList, StartJvm} from "../../wailsjs/go/main/App.js";
+import Popup from "@/06-shared/components/Popup.vue";
+import Progress from "@/06-shared/components/Progress.vue";
 
 const servers = ref([])
 const currentServers = ref("Тестовый сервер");
@@ -34,7 +36,37 @@ onMounted(() => {
   // TODO Перенести
   animateValue(nodeList.value.stats.min, 0, serverStore.serverInfo.players.online, 1000)
   animateValue(nodeList.value.stats.max, 0, serverStore.serverInfo.players.max, 1 )
+
+  //
+  /*const BigInt = window.BigInt,
+      bigThirtyTwo = BigInt(32),
+      bigZero = BigInt(0);
+  function getUint64(dataview, byteOffset, littleEndian = false) {
+    const left = BigInt(dataview.getUint32(byteOffset | 0, !!littleEndian) >>> 0);
+    const right = BigInt(
+        dataview.getUint32(((byteOffset | 0) + 4) | 0, !!littleEndian) >>> 0,
+    );
+    return littleEndian
+        ? (right << bigThirtyTwo) | left
+        : (left << bigThirtyTwo) | right;
+  }
+
+  function generateUUIDFromUsername(username) {
+    const bytes = new TextEncoder().encode(username);
+
+    const buffer = new Uint8Array(16);
+    buffer.set(bytes);
+    buffer.fill(0, bytes.length);
+    const mostSignificantBits = getUint64(new DataView(buffer.buffer), 0)
+    const leastSignificantBits = getUint64(new DataView(buffer.buffer), 8)
+
+    const uuid = crypto.randomUUID(mostSignificantBits, leastSignificantBits);
+
+    return uuid.toString();
+  }
+  console.log(generateUUIDFromUsername('Break'))*/
 })
+
 
 const online = computed(() => {
   return serverStore.serverInfo?.online ? 'Онлайн' : "Выключен"
@@ -58,13 +90,41 @@ watch(() => serverStore.serverInfo, (newV, oldV) => {
   animateValue(nodeList.value.stats.max, oldV.players?.max ||0, newV.players.max, !oldV.players?.online ? 1 : 1000)
 })
 
+const fileInfo = ref({
+  total: 0,
+  current: 0,
+})
+const fileName = ref('')
+const progress = ref({
+  percent: 0,
+  read: 0,
+  total: 0,
+  speed: 0,
+})
+const isLoading = ref(false)
+
 const getServers = async () => {
-  const jsonHash = await GetFileList()
-    // GetFile(`${coreStore.homeDir}/test/config/watut-client.toml`)
+  window.runtime.EventsOn("totalFile", (el) => fileInfo.value.total = el)
+  window.runtime.EventsOn("progress", (el) => {
+    progress.value.percent = el.percent
+    progress.value.read = el.read
+    progress.value.total = el.total
+    if(el.speed) progress.value.speed = el.speed
+  })
+  window.runtime.EventsOn("numberFile", (el) => {
+    fileInfo.value.current = el.number
+    fileName.value = el.file
+  })
+  isLoading.value = true
+  await GetFileList()
+  isLoading.value = false
+
 }
 
 const test = async () => {
   const result = await GetFileInfo(`${coreStore.homeDir}/G.png`)
+  // /home/tekina/test/updates/StargazerPrologue/imgui.ini
+
   alert(`${result.Name}, ${result.Size}, ${result.ModTime}, ${result.MD5Hash}`)
 }
 
@@ -95,6 +155,18 @@ onBeforeUnmount(() => {
         <Button class="btn-db-green" @click="getServers">Играть</Button>
         <IconButton tag="span" icon="settings" @click="getServers" />
       </div>
+      <Popup v-model:visible="isLoading">
+        <div>
+<!--          <img src="@/01-app/preloader/preloader.svg" alt="" width="50" />-->
+          <Progress :current="fileInfo.current" :total="fileInfo.total" style="margin: auto"/>
+          <p>Идет загрузка файла:</p>
+          <p>{{fileName}}</p>
+          <p>Загружено {{progress.percent}}% ({{progress.read}} МБ из {{progress.total}} МБ)</p>
+          <p>Приемрная скорость {{progress.speed}} Mb/сек</p>
+          <p>Скачано файлов:</p>
+          <p>{{fileInfo.current}} / {{fileInfo.total}}</p>
+        </div>
+      </Popup>
     </div>
 </template>
 

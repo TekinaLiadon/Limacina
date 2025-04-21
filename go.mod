@@ -1,8 +1,6 @@
 module Limacina
 
-go 1.21
-
-toolchain go1.23.2
+go 1.24.2
 
 require github.com/wailsapp/wails/v2 v2.9.2
 
