@@ -3,10 +3,6 @@
 
 export function CheckDir():Promise<string>;
 
-export function GetFile(arg1:string,arg2:string):Promise<string>;
-
-export function GetFileInfo(arg1:string):Promise<string>;
-
 export function GetFileList():Promise<string>;
 
-export function StartJvm():Promise<void>;
+export function StartJvm():Promise<string>;

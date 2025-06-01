@@ -6,7 +6,7 @@ import Button from "@/06-shared/components/Button.vue";
 import {getStore, saveStore} from "@/06-shared/utils/presistStore.js";
 import {useServerStore} from "@/05-entities/server/serverStore.js";
 import {useCoreStore} from "@/05-entities/core/coreStore.js";
-import {GetFile, GetFileInfo, GetFileList, StartJvm} from "../../wailsjs/go/main/App.js";
+import { GetFileList, StartJvm} from "../../wailsjs/go/main/App.js";
 import Popup from "@/06-shared/components/Popup.vue";
 import Progress from "@/06-shared/components/Progress.vue";
 
@@ -26,6 +26,18 @@ onBeforeMount(() => {
     servers.value = serversList
   }
   updateTimer.value = setInterval(serverStore.getServerInfo, 15000)
+
+  window.runtime.EventsOn("totalFile", (el) => fileInfo.value.total = el)
+  window.runtime.EventsOn("progress", (el) => {
+    progress.value.percent = el.percent
+    progress.value.read = el.read
+    progress.value.total = el.total
+    if(el.speed) progress.value.speed = el.speed
+  })
+  window.runtime.EventsOn("numberFile", (el) => {
+    fileInfo.value.current = el.number
+    fileName.value = el.file
+  })
 })
 onMounted(() => {
   document.querySelectorAll(`[data-stats]`).forEach((el) => {
@@ -104,21 +116,10 @@ const progress = ref({
 const isLoading = ref(false)
 
 const getServers = async () => {
-  window.runtime.EventsOn("totalFile", (el) => fileInfo.value.total = el)
-  window.runtime.EventsOn("progress", (el) => {
-    progress.value.percent = el.percent
-    progress.value.read = el.read
-    progress.value.total = el.total
-    if(el.speed) progress.value.speed = el.speed
-  })
-  window.runtime.EventsOn("numberFile", (el) => {
-    fileInfo.value.current = el.number
-    fileName.value = el.file
-  })
+  //StartJvm()
   isLoading.value = true
   await GetFileList()
   isLoading.value = false
-
 }
 
 const test = async () => {
