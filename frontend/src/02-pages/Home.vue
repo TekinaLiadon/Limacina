@@ -6,12 +6,36 @@ import Button from "@/06-shared/components/Button.vue";
 import {getStore, saveStore} from "@/06-shared/utils/presistStore.js";
 import {useServerStore} from "@/05-entities/server/serverStore.js";
 import {useCoreStore} from "@/05-entities/core/coreStore.js";
-import { GetFileList, StartJvm} from "../../wailsjs/go/main/App.js";
-import Popup from "@/06-shared/components/Popup.vue";
+import {DeleteDir, GetFileList, StartJvm,DownloadMinecraftVersion, DownloadFabric} from "../../wailsjs/go/main/App.js";
 import Progress from "@/06-shared/components/Progress.vue";
 
-const servers = ref([])
-const currentServers = ref("Тестовый сервер");
+const servers = computed({
+  get() {
+    if(serverStore.serversList) return  serverStoreserversList.map((el) => {
+      var result = {
+        title: el.name,
+        value: el.name
+      }
+      return result
+    })
+    else return []
+  },
+  set(newValue){
+    serverStore.$patch((state) => {
+      state.serverName = newValue.value;
+    })
+  }
+})
+const currentServers = computed( {
+  get() {
+    return serverStore.serverName || '';
+  },
+  set(newValue) {
+    serverStore.$patch((state) => {
+      state.serverName = newValue;
+    });
+  },
+});
 const shownDropdown = ref(false);
 const coreStore = useCoreStore()
 const serverStore = useServerStore()
@@ -20,12 +44,12 @@ const updateTimer = ref()
 
 onBeforeMount(() => {
   const serversList = getStore('servers')
-  if(!serversList) currentServers.value = "Нет серверов"
-  else {
-    currentServers.value = serversList[0].title
-    servers.value = serversList
+  if(serversList)  {
+    serverStore.$patch((state) => {
+      state.serverList = [...state, ...serversList]
+    })
   }
-  updateTimer.value = setInterval(serverStore.getServerInfo, 15000)
+  updateTimer.value = setInterval(() => serverStore.getServerInfo(serversList.currentServer.urlStatus), 15000)
 
   window.runtime.EventsOn("totalFile", (el) => fileInfo.value.total = el)
   window.runtime.EventsOn("progress", (el) => {
@@ -116,7 +140,12 @@ const progress = ref({
 const isLoading = ref(false)
 
 const getServers = async () => {
-  //StartJvm()
+  /*DownloadFabric("1.20.1")
+  return
+  DownloadMinecraftVersion("1.20.1")
+  return*/
+  StartJvm()
+  return
   isLoading.value = true
   await GetFileList()
   isLoading.value = false
@@ -129,13 +158,19 @@ const test = async () => {
   alert(`${result.Name}, ${result.Size}, ${result.ModTime}, ${result.MD5Hash}`)
 }
 
+const updateConfig = () =>{
+  DeleteDir(`${coreStore.homeDir}/test/updates/StargazerPrologue/config`)
+  getServers()
+}
+
 onBeforeUnmount(() => {
   clearInterval(updateTimer.value)
 })
 </script>
 
 <template>
-    <div class="home db-page">
+  <div style="width: 100%">
+    <div class="home db-page" v-if="!isLoading">
       <div class="d-flex d-flex-colum home__servers">
         <div class="d-flex d-flex-colum home__servers-block">
 <!--          <div><span class="home-header">Аккаунт:</span> <span>1234</span></div>-->
@@ -143,32 +178,32 @@ onBeforeUnmount(() => {
           <div><span class="home-header">Статус сервера:</span> <span>{{online}}</span></div>
           <div><span class="home-header">Озу:</span> <span>1080</span> <span>МБ</span></div>
         </div>
-<!--        <div><Button class="btn-db-green">Перекачать конфиги</Button></div>-->
+     <div><Button class="btn-db-green" @click="updateConfig">Перекачать конфиги</Button></div>
       </div>
       <div class="d-flex home__players">
         <Dropdown
+            v-if="servers.length > 1"
             class="home__dropdown"
             :options="servers"
             v-model="currentServers"
             :shown="shownDropdown"
             :width="'200px'"
         />
+        <div class="home__players-solo-server" v-else>{{currentServers}}</div>
         <Button class="btn-db-green" @click="getServers">Играть</Button>
         <IconButton tag="span" icon="settings" @click="getServers" />
       </div>
-      <Popup v-model:visible="isLoading">
-        <div>
-<!--          <img src="@/01-app/preloader/preloader.svg" alt="" width="50" />-->
-          <Progress :current="fileInfo.current" :total="fileInfo.total" style="margin: auto"/>
-          <p>Идет загрузка файла:</p>
-          <p>{{fileName}}</p>
-          <p>Загружено {{progress.percent}}% ({{progress.read}} МБ из {{progress.total}} МБ)</p>
-          <p>Приемрная скорость {{progress.speed}} Mb/сек</p>
-          <p>Скачано файлов:</p>
-          <p>{{fileInfo.current}} / {{fileInfo.total}}</p>
-        </div>
-      </Popup>
     </div>
+  <div class="home db-page" v-else>
+    <Progress :current="fileInfo.current" :total="fileInfo.total" style="margin: auto"/>
+    <p>Идет загрузка файла:</p>
+    <p>{{fileName}}</p>
+    <p>Загружено {{progress.percent}}% ({{progress.read}} МБ из {{progress.total}} МБ)</p>
+    <p>Примерная скорость {{progress.speed}} Mb/сек</p>
+    <p>Скачано файлов:</p>
+    <p>{{fileInfo.current}} / {{fileInfo.total}}</p>
+  </div>
+  </div>
 </template>
 
 <style lang="scss">
@@ -183,6 +218,14 @@ onBeforeUnmount(() => {
     padding: 10px;
     align-items: center;
     grid-gap: 10px;
+
+    &-solo-server {
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid black;
+      cursor: default;
+      width: 200px;
+    }
   }
   &__servers {
     width: 60%;

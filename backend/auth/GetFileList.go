@@ -36,7 +36,6 @@ func GetFileList(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	core = core + "/test/" // name dir
 	sliceKey := []string{}
 	for key, val := range res {
 		_, err := os.Stat(core + key)
@@ -64,7 +63,7 @@ func GetFileList(ctx context.Context) (string, error) {
 				"file":   filepath.Base(val),
 				"number": count,
 			})
-		_, err := GetFile(core+val, val, ctx)
+		_, err := GetFile(core+"/"+val, val, ctx)
 		if err != nil {
 			return "", err
 		}

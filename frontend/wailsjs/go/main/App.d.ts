@@ -3,6 +3,12 @@
 
 export function CheckDir():Promise<string>;
 
+export function DeleteDir(arg1:string):Promise<void>;
+
+export function DownloadFabric(arg1:string):Promise<void>;
+
+export function DownloadMinecraftVersion(arg1:string):Promise<void>;
+
 export function GetFileList():Promise<string>;
 
 export function StartJvm():Promise<string>;

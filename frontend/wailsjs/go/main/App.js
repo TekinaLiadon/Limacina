@@ -6,6 +6,18 @@ export function CheckDir() {
   return window['go']['main']['App']['CheckDir']();
 }
 
+export function DeleteDir(arg1) {
+  return window['go']['main']['App']['DeleteDir'](arg1);
+}
+
+export function DownloadFabric(arg1) {
+  return window['go']['main']['App']['DownloadFabric'](arg1);
+}
+
+export function DownloadMinecraftVersion(arg1) {
+  return window['go']['main']['App']['DownloadMinecraftVersion'](arg1);
+}
+
 export function GetFileList() {
   return window['go']['main']['App']['GetFileList']();
 }

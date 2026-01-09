@@ -2,6 +2,7 @@ package main
 
 import (
 	"Limacina/backend/auth"
+	"Limacina/backend/manifest"
 	"Limacina/backend/minecraft"
 	"Limacina/backend/utils"
 	"context"
@@ -28,11 +29,22 @@ func (a *App) GetFileList() (string, error) {
 }
 
 func (a *App) StartJvm() (string, error) {
-	return minecraft.StartJvm("Break", "cabb620d78524907963fb7c0aaa97dc6", "5730aacc7d65c752b53ca07500e24735")
+	return minecraft.StartJvm("Break", "cabb620d78524907963fb7c0aaa97dc6", "5730aacc7d65c752b53ca07500e24735", "fabric")
 }
 
 func (a *App) CheckDir() (string, error) {
 	return utils.CheckDir()
+}
+
+func (a *App) DeleteDir(dir string) error {
+	return utils.DeleteDir(dir)
+}
+
+func (a *App) DownloadMinecraftVersion(version string) error {
+	return manifest.DownloadMinecraftVersion(version)
+}
+func (a *App) DownloadFabric(version string) error {
+	return manifest.GetFabric(version)
 }
 
 /*

@@ -10,7 +10,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -38,7 +37,7 @@ type BodyFile struct {
 func GetFile(filePath string, url string, ctx context.Context) (string, error) {
 	user := BodyFile{url}
 	jsonData, err := json.Marshal(user)
-	resp, err := http.Post("http://85.193.85.49:3005/api/test", "application/json", bytes.NewReader(jsonData)) // "http://85.193.85.49:3005/api/files"
+	resp, err := http.Post("http://85.193.85.49:3005/api/files", "application/json", bytes.NewReader(jsonData)) // "http://85.193.85.49:3005/api/files"
 	if err != nil {
 		return "", fmt.Errorf("Не удалось получить файл от сервера: %w", err)
 	}
@@ -48,19 +47,10 @@ func GetFile(filePath string, url string, ctx context.Context) (string, error) {
 		contentLength = -1
 		return "", fmt.Errorf("Не удалось получить размер файла из заголовков: %w", err)
 	}
-	dir := filepath.Dir(filePath)
-	_, err = os.Stat(dir)
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("Нет прав на создание каталога: %w", err)
-		}
-	} else if err != nil {
-		return "", fmt.Errorf("Нет вышло получить информацию об папке: %w", err)
-	}
+
 	file, err := os.Create(filePath)
 	if err != nil {
-		return "", fmt.Errorf("Нет вышло создать папку по пути %v: %w", filePath, err)
+		return "", fmt.Errorf("Нет вышло создать файл по пути %v: %w", filePath, err)
 	}
 	defer file.Close()
 
