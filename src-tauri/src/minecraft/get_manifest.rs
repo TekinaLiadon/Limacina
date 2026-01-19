@@ -141,7 +141,7 @@ async fn get_version_manifest() -> Result<VersionsIndexManifest> {
  #[tauri::command]
  pub async fn download_minecraft_version(version: &str) -> Result<String, String> {
      let manifest = get_version_manifest().await.map_err(|e| format!("Ошибка получения манифеста: {}", e))?;
-
+        println!("Downloading version {}", "test");
      let version_url = manifest.versions.iter()
          .find(|v| v.id == version)
          .map(|v| v.url.clone());

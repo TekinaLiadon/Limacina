@@ -65,7 +65,11 @@ fn fabric_start(
         "--accessToken".to_string(), access_token,
         "--userProperties".to_string(), r#"{"skinURL":["..."]}"#.to_string(),
         "--assetsDir".to_string(), dir.join("assets").to_string_lossy().into(),
+        "--assetIndex".to_string(), "1.20".to_string(),
         "--gameDir".to_string(), dir.join("resourcepacks").to_string_lossy().into(),
+        "--width".to_string(), "1280".to_string(),
+        "--height".to_string(), "720".to_string(),
+        "--versionType".to_string(), "release".to_string(),
     ];
 
     args.extend(minecraft_args);
@@ -88,7 +92,7 @@ fn fabric_start(
 }
 
 #[tauri::command]
-pub fn start_jvm(username: String,
+pub async fn start_jvm(username: String,
                     uuid: String,
                     access_token: String,
                     type_minecraft: String)-> Result<String, String>  {

@@ -133,15 +133,21 @@ const getServers = async () => {
   return
   DownloadMinecraftVersion("1.20.1")
   return*/
-  const result = await invoke('download_minecraft_version', {
+  /*const result = await invoke('download_minecraft_version', {
     version: "1.20.1"
-  }); // Err?
-  /*const result = await invoke('start_jvm', {
+  }); */
+  const result = await invoke('get_fabric', {
+    mcVersion: "1.20.1"
+  });
+  const result2 = await invoke('download_minecraft_version', {
+    version: "1.20.1"
+  });
+  const result3 = await invoke('start_jvm', {
     username: "Break",
     uuid: "cabb620d78524907963fb7c0aaa97dc6",
     accessToken: "5730aacc7d65c752b53ca07500e24735",
     typeMinecraft: "fabric"
-  });*/
+  });
   isLoading.value = !isLoading.value
   fileName.value = result
 }
