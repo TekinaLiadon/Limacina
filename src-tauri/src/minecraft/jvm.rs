@@ -36,10 +36,6 @@ fn fabric_start(
     uuid: String,
     access_token: String
 ) -> Result<(), Box<dyn Error>> {
-    let home_dir: PathBuf = env::home_dir().ok_or("Home directory not found")?;
-    let launcher_name: String = env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "default_launcher".to_string());
-    let dir: PathBuf = home_dir.join(&launcher_name); // TODO
 
     let libraries_path = dir.join("libraries");
     let jar_files = find_all_jar_files(&libraries_path.to_string_lossy())?;
