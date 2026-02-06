@@ -2,7 +2,11 @@ use anyhow::{bail, Context, Result};
 use futures::future;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tokio::sync::Semaphore;
+use std::sync::Arc;
 use std::env;
+
+const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LoaderVersion {
@@ -142,11 +146,16 @@ pub struct LoggingFile {
     pub url: String,
 }
 
-async fn download_file(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {
+async fn download_file(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> { // TODO
+    if dest.exists() {
+              println!("Файл уже существует: {:?}", dest);
+              return Ok(());
+     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .with_context(|| format!("Не удалось создать директорию для {:?}", dest))?;
+            // fs::create_dir_all(parent)?;
     }
 
     let response = client.get(url).send().await?.error_for_status()?;
@@ -165,62 +174,69 @@ async fn download_fabric_libraries(
     libraries_dir: &Path,
 ) -> Result<()> {
     let json_data = tokio::fs::read_to_string(json_path).await?;
-    let profile: FabricProfile = serde_json::from_str(&json_data)?;
+        let profile: FabricProfile = serde_json::from_str(&json_data)?;
 
-    println!("Скачивание библиотек Fabric...");
+        println!("Скачивание библиотек Fabric...");
 
-    let mut download_futures = Vec::new();
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
+        let mut download_futures = Vec::new();
 
-    for lib in profile.libraries {
-        if lib.url.is_empty() {
-            println!("Пропуск библиотеки без URL: {}", lib.name);
-            continue;
-        }
-
-        let parts: Vec<&str> = lib.name.split(':').collect();
-        if parts.len() != 3 {
-            eprintln!("Ошибка: некорректное имя библиотеки: {}", lib.name);
-            continue;
-        }
-        let group_id = parts[0];
-        let artifact_id = parts[1];
-        let version = parts[2];
-
-        let group_path = group_id.replace('.', "/");
-        let file_name = format!("{}-{}.jar", artifact_id, version);
-
-        let mut local_path = PathBuf::from(libraries_dir);
-        local_path.push(&group_path);
-        local_path.push(artifact_id);
-        local_path.push(version);
-        local_path.push(&file_name);
-
-        let download_url = format!(
-            "{}{}/{}/{}/{}",
-            lib.url, group_path, artifact_id, version, file_name
-        );
-
-        download_futures.push(async move {
-            println!("Скачивание {}", lib.name);
-            match download_file(client, &download_url, &local_path).await {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    eprintln!("Ошибка скачивания {}: {:?}", lib.name, e);
-                    Err(e)
-                }
+        for lib in profile.libraries {
+            if lib.url.is_empty() {
+                println!("Пропуск библиотеки без URL: {}", lib.name);
+                continue;
             }
-        });
-    }
 
-    let results = future::join_all(download_futures).await;
-    let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
+            let parts: Vec<&str> = lib.name.split(':').collect();
+            if parts.len() != 3 {
+                eprintln!("Ошибка: некорректное имя библиотеки: {}", lib.name);
+                continue;
+            }
+            let group_id = parts[0];
+            let artifact_id = parts[1];
+            let version = parts[2];
 
-    if errors.is_empty() {
-        println!("Все библиотеки Fabric успешно скачаны!");
-        Ok(())
-    } else {
-        bail!("Не удалось скачать {} библиотек.", errors.len())
-    }
+            let group_path = group_id.replace('.', "/");
+            let file_name = format!("{}-{}.jar", artifact_id, version);
+
+            let mut local_path = PathBuf::from(libraries_dir);
+            local_path.push(&group_path);
+            local_path.push(artifact_id);
+            local_path.push(version);
+            local_path.push(&file_name);
+
+            let download_url = format!(
+                "{}{}/{}/{}/{}",
+                lib.url, group_path, artifact_id, version, file_name
+            );
+
+            let client = client.clone();
+            let sem = semaphore.clone();
+            let lib_name = lib.name.clone();
+
+            download_futures.push(async move {
+                let _permit = sem.acquire_owned().await.expect("semaphore closed");
+
+                println!("Скачивание {}", lib_name);
+                match download_file(&client, &download_url, &local_path).await {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        eprintln!("Ошибка скачивания {}: {:?}", lib_name, e);
+                        Err(e)
+                    }
+                }
+            });
+        }
+
+        let results = future::join_all(download_futures).await;
+        let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
+
+        if errors.is_empty() {
+            println!("Все библиотеки Fabric успешно скачаны!");
+            Ok(())
+        } else {
+            anyhow::bail!("Не удалось скачать {} библиотек.", errors.len())
+        }
 }
 
 #[tauri::command]

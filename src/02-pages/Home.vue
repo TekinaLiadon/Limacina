@@ -1,243 +1,318 @@
 <script setup>
-import {computed, onBeforeMount, onMounted, watch, ref, onBeforeUnmount} from "vue";
-import Dropdown from "@/06-shared/components/Dropdown.vue";
-import IconButton from "@/06-shared/components/IconButton.vue";
+import {ref} from "vue";
 import Button from "@/06-shared/components/Button.vue";
-import {getStore, saveStore} from "@/06-shared/utils/presistStore.js";
-import {useServerStore} from "@/05-entities/server/serverStore.js";
-import {useCoreStore} from "@/05-entities/core/coreStore.js";
-import Progress from "@/06-shared/components/Progress.vue";
-import { invoke } from '@tauri-apps/api/core';
+import {invoke} from '@tauri-apps/api/core';
+import Input from "@/06-shared/components/Input.vue";
+import {listen} from '@tauri-apps/api/event';
 
-const servers = computed({
-  get() {
-    if(serverStore.serversList) return  serverStoreserversList.map((el) => {
-      var result = {
-        title: el.name,
-        value: el.name
-      }
-      return result
-    })
-    else return []
-  },
-  set(newValue){
-    serverStore.$patch((state) => {
-      state.serverName = newValue.value;
-    })
-  }
-})
-const currentServers = computed( {
-  get() {
-    return serverStore.serverName || '';
-  },
-  set(newValue) {
-    serverStore.$patch((state) => {
-      state.serverName = newValue;
-    });
-  },
-});
-const shownDropdown = ref(false);
-const coreStore = useCoreStore()
-const serverStore = useServerStore()
-const nodeList = ref({})
-const updateTimer = ref()
-
-onBeforeMount(() => {
-  const serversList = getStore('servers')
-  if(serversList)  {
-    serverStore.$patch((state) => {
-      state.serverList = [...state, ...serversList]
-    })
-  }
-  updateTimer.value = setInterval(() => serverStore.getServerInfo(serversList.currentServer.urlStatus), 15000)
-
-})
-onMounted(() => {
-  document.querySelectorAll(`[data-stats]`).forEach((el) => {
-    const keys = Object.entries(el.dataset)[0]
-    if(!nodeList.value[keys[0]]) nodeList.value[keys[0]] = {}
-    nodeList.value[keys[0]][keys[1]] = el
-  })
-  // TODO Перенести
-  animateValue(nodeList.value.stats.min, 0, serverStore.serverInfo.players.online, 1000)
-  animateValue(nodeList.value.stats.max, 0, serverStore.serverInfo.players.max, 1 )
-
-  //
-  /*const BigInt = window.BigInt,
-      bigThirtyTwo = BigInt(32),
-      bigZero = BigInt(0);
-  function getUint64(dataview, byteOffset, littleEndian = false) {
-    const left = BigInt(dataview.getUint32(byteOffset | 0, !!littleEndian) >>> 0);
-    const right = BigInt(
-        dataview.getUint32(((byteOffset | 0) + 4) | 0, !!littleEndian) >>> 0,
-    );
-    return littleEndian
-        ? (right << bigThirtyTwo) | left
-        : (left << bigThirtyTwo) | right;
-  }
-
-  function generateUUIDFromUsername(username) {
-    const bytes = new TextEncoder().encode(username);
-
-    const buffer = new Uint8Array(16);
-    buffer.set(bytes);
-    buffer.fill(0, bytes.length);
-    const mostSignificantBits = getUint64(new DataView(buffer.buffer), 0)
-    const leastSignificantBits = getUint64(new DataView(buffer.buffer), 8)
-
-    const uuid = crypto.randomUUID(mostSignificantBits, leastSignificantBits);
-
-    return uuid.toString();
-  }
-  console.log(generateUUIDFromUsername('Break'))*/
-})
-
-
-const online = computed(() => {
-  return serverStore.serverInfo?.online ? 'Онлайн' : "Выключен"
-})
-function animateValue(obj, start, end, duration) {
-  let startTimestamp = null;
-  const step = (timestamp) => {
-    if (!startTimestamp) startTimestamp = timestamp;
-    const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-    obj.innerHTML = Math.floor(progress * (end - start) + start);
-    if (progress < 1) {
-      window.requestAnimationFrame(step);
-    }
-  };
-  window.requestAnimationFrame(step);
-}
-
-watch(() => serverStore.serverInfo, (newV, oldV) => {
-  animateValue(nodeList.value.stats.min, oldV.players?.online ||0, newV.players.online, 1000)
-  //if(!oldV.players?.online) return
-  animateValue(nodeList.value.stats.max, oldV.players?.max ||0, newV.players.max, !oldV.players?.online ? 1 : 1000)
-})
-
-const fileInfo = ref({
-  total: 0,
-  current: 0,
-})
-const fileName = ref('')
-const progress = ref({
-  percent: 0,
-  read: 0,
-  total: 0,
-  speed: 0,
-})
 const isLoading = ref(false)
 
-const getServers = async () => {
-  /*DownloadFabric("1.20.1")
-  return
-  DownloadMinecraftVersion("1.20.1")
-  return*/
-  /*const result = await invoke('download_minecraft_version', {
-    version: "1.20.1"
-  }); */
-  const result = await invoke('get_fabric', {
+const formData = ref({
+  username: '',
+  password: '',
+  rememberMe: false
+});
+const debug = ref('Test')
+const start = async () => {
+  isLoading.value = !isLoading.value
+  /*const result1 = await invoke('get_forge', {
     mcVersion: "1.20.1"
-  });
-  const result2 = await invoke('download_minecraft_version', {
+  }); */ //TODO проверка если уже скачено
+  /*await listen('successDownloadMinecraft', async () => {
+    await invoke('get_fabric', {
+      mcVersion: "1.20.1"
+    })
+  })*/
+  debug.value = 'Скачивание 4092 файлов Minecraft'
+  debug.value = await invoke('download_minecraft_version', {
     version: "1.20.1"
+  })
+  debug.value = await invoke('get_fabric', {
+    mcVersion: "1.20.1"
+  })
+  /*
+  await listen('totalFile', (event) => {
+    fileInfo.value.total = event.payload
   });
-  const result3 = await invoke('start_jvm', {
-    username: "Break",
-    uuid: "cabb620d78524907963fb7c0aaa97dc6",
-    accessToken: "5730aacc7d65c752b53ca07500e24735",
+  await listen('numberFile', (event) => {
+    const { file, number } = event.payload
+    console.log(`Загружается файл ${number}: ${file}`);
+  });
+  await listen('progress', (event) => {
+    const { percent, read, total } = event.payload
+    progress.value.percent = percent
+    progress.value.read = read
+    progress.value.total = total
+  });
+   */
+  debug.value = await invoke('download_all_files')
+
+  debug.value = await invoke('start_jvm', {
+    username: formData.value.username,
+    accessToken: "5730aacc7d65c752b53ca07500e247",
     typeMinecraft: "fabric"
   });
-  isLoading.value = !isLoading.value
-  fileName.value = result
 }
 
-const test = async () => {
-  // /home/tekina/test/updates/StargazerPrologue/imgui.ini
-}
-
-const updateConfig = () =>{
-  getServers()
-}
-
-onBeforeUnmount(() => {
-  clearInterval(updateTimer.value)
-})
 </script>
 
 <template>
-  <div style="width: 100%">
-    <div class="home db-page" v-if="!isLoading">
-      <div class="d-flex d-flex-colum home__servers">
-        <div class="d-flex d-flex-colum home__servers-block">
-<!--          <div><span class="home-header">Аккаунт:</span> <span>1234</span></div>-->
-          <div><span class="home-header">Онлайн:</span> <span data-stats="min">0</span><span>/</span><span data-stats="max">10</span></div>
-          <div><span class="home-header">Статус сервера:</span> <span>{{online}}</span></div>
-          <div><span class="home-header">Озу:</span> <span>1080</span> <span>МБ</span></div>
+  <div class="login-screen">
+    <div class="login-container">
+      <div class="login-form">
+        <h1 class="login-title">Вход</h1>
+
+        <div class="form-group">
+          <Input
+              v-model="formData.username"
+              :options="{
+              placeholder: 'Никнейм',
+            }"
+          />
         </div>
-     <div><Button class="btn-db-green" @click="updateConfig">Перекачать конфиги</Button></div>
-      </div>
-      <div class="d-flex home__players">
-        <Dropdown
-            v-if="servers.length > 1"
-            class="home__dropdown"
-            :options="servers"
-            v-model="currentServers"
-            :shown="shownDropdown"
-            :width="'200px'"
-        />
-        <div class="home__players-solo-server" v-else>{{currentServers}}</div>
-        <Button class="btn-db-green" @click="getServers">Играть</Button>
-        <IconButton tag="span" icon="settings" @click="getServers" />
+
+        <div class="form-group">
+          <Input
+              v-model="formData.password"
+              :options="{
+              placeholder: 'Пароль',
+              type: 'password'
+            }"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-wrapper">
+            <input
+                type="checkbox"
+                v-model="formData.rememberMe"
+                class="checkbox-input"
+            />
+            <span class="checkbox-label">Сохранить данные</span>
+          </label>
+        </div>
+
+        <div class="form-actions">
+          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @click="start">
+            Войти
+          </Button>
+
+          <Button class="btn-register">
+            Регистрация
+          </Button>
+        </div>
       </div>
     </div>
-  <div class="home db-page" v-else>
-    <Progress :current="fileInfo.current" :total="fileInfo.total" style="margin: auto"/>
-    <p>Идет загрузка файла:</p>
-    <p>{{fileName}}</p>
-    <p>Загружено {{progress.percent}}% ({{progress.read}} МБ из {{progress.total}} МБ)</p>
-    <p>Примерная скорость {{progress.speed}} Mb/сек</p>
-    <p>Скачано файлов:</p>
-    <p>{{fileInfo.current}} / {{fileInfo.total}}</p>
-  </div>
+    <div style="font-size: 28px; color: wheat;">
+      {{ debug }}
+    </div>
   </div>
 </template>
 
 <style lang="scss">
-.home {
-  margin: auto;
-  height: 100%;
-  flex-direction: column;
+$color-bg-primary: #1a1d2e;
+$color-bg-secondary: #16213e;
+$color-bg-form: rgba(26, 29, 46, 0.95);
+$color-border: rgba(139, 172, 255, 0.25);
+$color-border-hover: rgba(139, 172, 255, 0.5);
+
+$color-text-primary: #e8eaf6;
+$color-text-secondary: #b0b8d4;
+$color-text-muted: #7a82a0;
+
+$color-accent-primary: #6c7fd8;
+$color-accent-hover: #8b9fe8;
+$color-accent-glow: rgba(108, 127, 216, 0.4);
+
+$color-shadow: rgba(0, 0, 0, 0.3);
+$color-shadow-strong: rgba(0, 0, 0, 0.6);
+
+.login-screen {
+  min-height: 100vh;
+  width: 100%;
+  background: linear-gradient(135deg, $color-bg-primary 0%, $color-bg-secondary 100%);
+  display: flex;
   align-items: center;
+  justify-content: flex-start;
+  padding: 0;
+  position: relative;
 
-  &__players {
-    width: 60%;
-    padding: 10px;
-    align-items: center;
-    grid-gap: 10px;
-
-    &-solo-server {
-      padding: 10px;
-      border-radius: 12px;
-      border: 1px solid black;
-      cursor: default;
-      width: 200px;
-    }
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(
+            ellipse at top left,
+            rgba(108, 127, 216, 0.08) 0%,
+            transparent 50%
+    );
+    pointer-events: none;
   }
-  &__servers {
-    width: 60%;
-    grid-gap: 20px;
+}
 
-    &-block {
-      border: 1px solid;
-      border-radius: 10px;
-      padding: 30px;
-      grid-gap: 10px;
-      align-items: flex-start;
-      .home-header {
-        font-weight: 600;
-      }
-    }
+.login-container {
+  width: 50%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  position: relative;
+  z-index: 1;
+}
+
+.login-form {
+  width: 100%;
+  max-width: 480px;
+  background: $color-bg-form;
+  backdrop-filter: blur(12px);
+  border: 1px solid $color-border;
+  border-radius: 12px;
+  padding: 56px 48px;
+  box-shadow: 0 8px 32px $color-shadow,
+  inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    background: linear-gradient(
+            135deg,
+            $color-accent-primary 0%,
+            transparent 30%,
+            transparent 70%,
+            $color-accent-primary 100%
+    );
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: -1;
+  }
+
+  &:hover::before {
+    opacity: 0.2;
+  }
+}
+
+.login-title {
+  font-size: 38px;
+  font-weight: 700;
+  color: $color-text-primary;
+  text-transform: uppercase;
+  margin: 0 0 40px 0;
+  text-shadow: 0 2px 8px $color-shadow;
+  letter-spacing: 1.5px;
+}
+
+.form-group {
+  margin-bottom: 24px;
+
+  &:last-of-type {
+    margin-bottom: 32px;
+  }
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  margin-right: 12px;
+  cursor: pointer;
+  accent-color: $color-accent-primary;
+
+  &:focus {
+    outline: 2px solid $color-border-hover;
+    outline-offset: 2px;
+  }
+}
+
+.checkbox-label {
+  color: $color-text-secondary;
+  font-size: 15px;
+  transition: color 0.2s ease;
+
+  .checkbox-wrapper:hover & {
+    color: $color-text-primary;
+  }
+}
+
+.form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.btn-login {
+  width: 100%;
+  height: 52px;
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px $color-accent-glow;
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.btn-register {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+  background: transparent;
+  color: $color-text-secondary;
+  border: 1px solid rgba(176, 184, 212, 0.2);
+  transition: all 0.3s ease;
+
+  &:hover {
+    color: $color-text-primary;
+    border-color: $color-border-hover;
+    background: rgba(108, 127, 216, 0.08);
+  }
+}
+
+@media (max-width: 1024px) {
+  .login-container {
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .login-screen {
+    padding: 20px;
+  }
+
+  .login-container {
+    min-height: auto;
+    padding: 20px;
+  }
+
+  .login-form {
+    padding: 40px 32px;
+  }
+
+  .login-title {
+    font-size: 32px;
   }
 }
 </style>
