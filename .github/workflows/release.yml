@@ -19,17 +19,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 1. Устанавливаем Node.js (нужен для некоторых скриптов)
       - name: setup node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # 2. ВАЖНО: Устанавливаем Bun
+      - name: setup bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      # 3. Устанавливаем Rust
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: install dependencies (frontend)
-        run: npm install
+      # 4. Устанавливаем зависимости через Bun
+      - name: install dependencies
+        run: bun install
 
+      # 5. Собираем приложение
       - name: Build app
         uses: tauri-apps/tauri-action@v0
         env:
