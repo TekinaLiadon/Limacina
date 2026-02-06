@@ -32,6 +32,10 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Create .env file
+        run: |
+          echo "VITE_API_URL=${{ secrets.LAUNCHER_NAME }}" >> .env
+
       - name: Install frontend dependencies
         run: bun install
 
