@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 
 use md5::{Digest, Md5};
 use uuid::{Builder, Variant, Version};
+use std::fs::File;
 
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -509,11 +510,16 @@ fn extract_arguments(
 fn spawn_game_process(java_path: &Path, args: &[String], game_dir: &Path) -> Result<()> {
     println!("\n▶ Запуск Minecraft...\n");
 
+    let stdout_file = File::create(game_dir.join("launcher_log.txt"))
+        .context("Не удалось создать лог файл")?;
+    let stderr_file = File::create(game_dir.join("launcher_error.txt"))
+        .context("Не удалось создать файл ошибок")?;
+
     let mut child = Command::new(java_path)
         .args(args)
         .current_dir(game_dir)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         .spawn()
         .context("Не удалось запустить Java процесс")?;
 
