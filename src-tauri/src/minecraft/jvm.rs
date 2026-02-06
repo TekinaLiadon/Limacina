@@ -567,24 +567,36 @@ pub async fn fabric_start(
     ).await?;
 
     let base_dir = get_launcher_dir()?;
-    let jar_files = find_all_jar_files(&config.libraries_dir)?;
-    let classpath = jar_files.join(get_classpath_separator());
+
+    let mut jar_files = find_all_jar_files(&config.libraries_dir)?;
 
     let game_jar_path = base_dir
         .join("versions")
         .join(&mc_version)
         .join(format!("{}.jar", mc_version));
 
+    jar_files.push(game_jar_path.to_string_lossy().to_string());
+
+    let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+    let classpath = jar_files.join(separator);
+
     let mut args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
+
+        format!("-Djava.library.path={}", config.natives_dir.to_string_lossy()),
+
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
         "-Duser.language=ru".to_string(),
+
         "-cp".to_string(),
         classpath,
+
         format!("-Dfabric.gameJarPath={}", game_jar_path.display()),
+
         "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
+
         "--username".to_string(), username,
         "--uuid".to_string(), uuid,
         "--accessToken".to_string(), access_token,
@@ -595,12 +607,11 @@ pub async fn fabric_start(
         "--width".to_string(), "1280".to_string(),
         "--height".to_string(), "720".to_string(),
         "--versionType".to_string(), "release".to_string(),
-        "--server".to_string(), "95.165.129.178".to_string(), // TODO
-        "--port".to_string(), "25566".to_string(),
     ];
 
     let java_path = find_java()?;
     println!("☕ Java: {:?}", java_path);
+    println!("Natives: {:?}", config.natives_dir);
 
     spawn_game_process(&java_path, &args, &config.game_dir)
 }
