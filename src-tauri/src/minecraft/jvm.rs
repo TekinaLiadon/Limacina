@@ -13,7 +13,6 @@ use walkdir::WalkDir;
 
 use md5::{Digest, Md5};
 use uuid::{Builder, Variant, Version};
-use std::fs::File;
 
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -360,19 +359,28 @@ fn maven_to_path(name: &str) -> Option<String> {
 fn find_all_jar_files(root: &Path) -> Result<Vec<String>> {
     let mut jar_files = Vec::new();
 
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension() {
-                if ext.to_ascii_lowercase() == "jar" {
-                    if let Some(path_str) = entry.path().to_str() {
-                        jar_files.push(path_str.to_string());
-                    }
+        for entry in WalkDir::new(root)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+
+            if path.extension().and_then(|s| s.to_str()) == Some("jar") {
+                if !path.to_string_lossy().contains("natives") {
+                    let path_str = path.to_string_lossy().to_string();
+
+                    #[cfg(target_os = "windows")]
+                    let path_str = path_str.replace("/", "\\");
+
+                    jar_files.push(path_str);
                 }
             }
         }
-    }
 
-    Ok(jar_files)
+        jar_files.sort();
+
+        Ok(jar_files)
 }
 
 async fn load_version_json(path: &Path) -> Result<VersionJson> {
@@ -510,16 +518,11 @@ fn extract_arguments(
 fn spawn_game_process(java_path: &Path, args: &[String], game_dir: &Path) -> Result<()> {
     println!("\n▶ Запуск Minecraft...\n");
 
-    let stdout_file = File::create(game_dir.join("launcher_log.txt"))
-        .context("Не удалось создать лог файл")?;
-    let stderr_file = File::create(game_dir.join("launcher_error.txt"))
-        .context("Не удалось создать файл ошибок")?;
-
     let mut child = Command::new(java_path)
         .args(args)
         .current_dir(game_dir)
-        .stdout(Stdio::from(stdout_file))
-        .stderr(Stdio::from(stderr_file))
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .spawn()
         .context("Не удалось запустить Java процесс")?;
 
