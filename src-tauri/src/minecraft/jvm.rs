@@ -599,6 +599,15 @@ fn build_launch_args(
     full_args
 }
 
+fn fix_path(path: &Path) -> String {
+    let p = path.to_string_lossy().to_string();
+    if cfg!(target_os = "windows") {
+        p.replace("\\\\?\\", "")
+    } else {
+        p
+    }
+}
+
 // FABRIC
 
 pub async fn fabric_start(
@@ -620,14 +629,24 @@ pub async fn fabric_start(
 
     let base_dir = get_launcher_dir()?;
 
-    let mut jar_files = find_all_jar_files(&config.libraries_dir)?;
+    let raw_jar_files = find_all_jar_files(&config.libraries_dir)?;
+
+    let mut jar_files: Vec<String> = raw_jar_files
+        .iter()
+        .map(|p| fix_path(Path::new(p)))
+        .collect();
 
     let game_jar_path = base_dir
         .join("versions")
         .join(&mc_version)
         .join(format!("{}.jar", mc_version));
 
-    jar_files.push(game_jar_path.to_string_lossy().to_string());
+    jar_files.push(fix_path(&game_jar_path));
+
+    let has_loader = jar_files.iter().any(|j| j.contains("fabric-loader"));
+    if !has_loader {
+        eprintln!("⚠️ ВНИМАНИЕ: Fabric Loader не найден в списке библиотек! Проверьте загрузку библиотек.");
+    }
 
     let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
     let classpath = jar_files.join(separator);
@@ -635,8 +654,7 @@ pub async fn fabric_start(
     let mut args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
-
-        format!("-Djava.library.path={}", config.natives_dir.to_string_lossy()),
+        format!("-Djava.library.path={}", fix_path(&config.natives_dir)),
 
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
@@ -644,8 +662,7 @@ pub async fn fabric_start(
 
         "-cp".to_string(),
         classpath,
-
-        format!("-Dfabric.gameJarPath={}", game_jar_path.display()),
+        format!("-Dfabric.gameJarPath={}", fix_path(&game_jar_path)),
 
         "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
 
@@ -653,9 +670,9 @@ pub async fn fabric_start(
         "--uuid".to_string(), uuid,
         "--accessToken".to_string(), access_token,
         "--userProperties".to_string(), "{}".to_string(),
-        "--assetsDir".to_string(), config.assets_dir.to_string_lossy().to_string(),
+        "--assetsDir".to_string(), fix_path(&config.assets_dir),
         "--assetIndex".to_string(), mc_version,
-        "--gameDir".to_string(), config.game_dir.to_string_lossy().to_string(),
+        "--gameDir".to_string(), fix_path(&config.game_dir),
         "--width".to_string(), "1280".to_string(),
         "--height".to_string(), "720".to_string(),
         "--versionType".to_string(), "release".to_string(),
@@ -663,7 +680,6 @@ pub async fn fabric_start(
 
     let java_path = find_java()?;
     println!("☕ Java: {:?}", java_path);
-    println!("Natives: {:?}", config.natives_dir);
 
     spawn_game_process(app, &java_path, &args, &config.game_dir)
 }
