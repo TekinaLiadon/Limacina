@@ -1,11 +1,13 @@
 <script setup>
-import {ref} from "vue";
+import {nextTick, ref} from "vue";
 import Button from "@/06-shared/components/Button.vue";
 import {invoke} from '@tauri-apps/api/core';
 import Input from "@/06-shared/components/Input.vue";
 import {listen} from '@tauri-apps/api/event';
+import Console from "@/03-widgets/Console.vue";
 
 const isLoading = ref(false)
+const isConsole = ref(false)
 
 const formData = ref({
   username: '',
@@ -46,7 +48,8 @@ const start = async () => {
   });
    */
   debug.value = await invoke('download_all_files')
-
+  isConsole.value = !isConsole.value
+  await nextTick()
   debug.value = await invoke('start_jvm', {
     username: formData.value.username,
     accessToken: "5730aacc7d65c752b53ca07500e247",
@@ -103,9 +106,10 @@ const start = async () => {
         </div>
       </div>
     </div>
-    <div style="font-size: 28px; color: wheat;">
+    <div style="font-size: 28px; color: wheat;" v-if="!isConsole">
       {{ debug }}
     </div>
+    <Console v-else />
   </div>
 </template>
 

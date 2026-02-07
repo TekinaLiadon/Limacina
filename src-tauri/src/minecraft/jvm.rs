@@ -13,6 +13,8 @@ use walkdir::WalkDir;
 
 use md5::{Digest, Md5};
 use uuid::{Builder, Variant, Version};
+use tauri::{AppHandle, Emitter};
+use std::io::{BufRead, BufReader};
 
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -202,6 +204,12 @@ pub struct LaunchConfig {
     pub max_memory: String,
     pub window_width: u32,
     pub window_height: u32,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ConsolePayload {
+    line: String,
+    is_error: bool,
 }
 
 impl LaunchConfig {
@@ -515,16 +523,50 @@ fn extract_arguments(
     (jvm_args, game_args)
 }
 
-fn spawn_game_process(java_path: &Path, args: &[String], game_dir: &Path) -> Result<()> {
+fn spawn_game_process(
+    app: AppHandle,
+    java_path: &Path,
+    args: &[String],
+    game_dir: &Path
+) -> Result<()> {
     println!("\n▶ Запуск Minecraft...\n");
 
     let mut child = Command::new(java_path)
         .args(args)
         .current_dir(game_dir)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .context("Не удалось запустить Java процесс")?;
+
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+    let stderr = child.stderr.take().expect("Failed to open stderr");
+
+    let app_out = app.clone();
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let _ = app_out.emit("game-console", ConsolePayload {
+                    line,
+                    is_error: false,
+                });
+            }
+        }
+    });
+
+    let app_err = app.clone();
+    thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let _ = app_err.emit("game-console", ConsolePayload {
+                    line,
+                    is_error: true,
+                });
+            }
+        }
+    });
 
     thread::spawn(move || {
         match child.wait() {
@@ -560,6 +602,7 @@ fn build_launch_args(
 // FABRIC
 
 pub async fn fabric_start(
+    app: AppHandle,
     username: String,
     uuid: String,
     access_token: String,
@@ -622,7 +665,7 @@ pub async fn fabric_start(
     println!("☕ Java: {:?}", java_path);
     println!("Natives: {:?}", config.natives_dir);
 
-    spawn_game_process(&java_path, &args, &config.game_dir)
+    spawn_game_process(app, &java_path, &args, &config.game_dir)
 }
 
 // FORGE
@@ -719,6 +762,7 @@ async fn merge_version_jsons(
 }
 
 pub async fn forge_start(
+    app: AppHandle,
     username: String,
     uuid: String,
     access_token: String,
@@ -807,7 +851,7 @@ pub async fn forge_start(
         println!("  [{}]: {}", i, arg);
     }
 
-    spawn_game_process(&java_path, &full_args, &config.game_dir)
+    spawn_game_process(app, &java_path, &full_args, &config.game_dir)
 }
 
 fn build_forge_classpath(
@@ -1004,6 +1048,7 @@ fn find_library_manually(libraries_dir: &Path, name_pattern: &str) -> Option<Pat
 // VANILLA
 
 pub async fn vanilla_start(
+    app: AppHandle,
     username: String,
     uuid: String,
     access_token: String,
@@ -1058,7 +1103,7 @@ pub async fn vanilla_start(
     println!("Main class: {}", version_json.main_class);
     println!("Game dir: {:?}", config.game_dir);
 
-    spawn_game_process(&java_path, &full_args, &config.game_dir)
+    spawn_game_process(app, &java_path, &full_args, &config.game_dir)
 }
 
 fn generate_offline_uuid(nickname: &str) -> String {
@@ -1077,6 +1122,7 @@ fn generate_offline_uuid(nickname: &str) -> String {
 
 #[tauri::command]
 pub async fn start_jvm(
+    app: AppHandle,
     username: String,
     access_token: String,
     type_minecraft: String,
@@ -1087,19 +1133,19 @@ pub async fn start_jvm(
 
     match type_minecraft.as_str() {
         "forge" => {
-            forge_start(username, uuid, access_token, version)
+            forge_start(app, username, uuid, access_token, version)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok("Forge запущен успешно".to_string())
         }
         "fabric" => {
-            fabric_start(username, uuid, access_token, version)
+            fabric_start(app, username, uuid, access_token, version)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok("Fabric запущен успешно".to_string())
         }
         "vanilla" => {
-            vanilla_start(username, uuid, access_token, version)
+            vanilla_start(app, username, uuid, access_token, version)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok("Vanilla запущен успешно".to_string())
