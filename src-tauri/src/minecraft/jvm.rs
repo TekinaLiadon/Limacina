@@ -17,6 +17,9 @@ use tauri::{AppHandle, Emitter};
 use std::io::{BufRead, BufReader};
 use crate::{log_info, log_err};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -551,12 +554,19 @@ fn spawn_game_process(
     game_dir: &Path
 ) -> Result<()> {
     log_info!("\n▶ Запуск Minecraft...\n");
+    let mut command = Command::new(java_path);
 
-    let mut child = Command::new(java_path)
-        .args(args)
+    command.args(args)
         .current_dir(game_dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(0x08000000);
+    }
+
+    let mut child = command
         .spawn()
         .context("Не удалось запустить Java процесс")?;
 
