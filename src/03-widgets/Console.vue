@@ -32,36 +32,40 @@ watch(logs, async () => {
 }, { deep: true });
 </script>
 
-<template>
+<<template>
   <div class="console-container" ref="consoleRef">
     <div v-for="(log, index) in logs" :key="index" class="log-line">
-      <span :class="{ 'text-error': log.is_error, 'text-normal': !log.is_error }">
+      <span :class="log.is_error ? 'text-error' : 'text-normal'">
         {{ log.line }}
       </span>
     </div>
   </div>
 </template>
 
-<style>
+<style scoped>
 .console-container {
   background-color: #1e1e1e;
   color: #e0e0e0;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 14px;
+  font-size: 12px;
   height: 90vh;
   width: 50%;
   overflow-y: auto;
   padding: 10px;
   margin: 25px;
   box-sizing: border-box;
-  word-wrap: break-word;
-  display: flex;
-  flex-wrap: wrap;
+  display: block;
+  text-align: left;
 }
 
 .log-line {
   line-height: 1.4;
   margin-bottom: 2px;
+  width: 100%;
+  display: block;
+  text-align: left;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .text-normal {
@@ -70,5 +74,6 @@ watch(logs, async () => {
 
 .text-error {
   color: #ff5555;
+  font-weight: bold;
 }
 </style>

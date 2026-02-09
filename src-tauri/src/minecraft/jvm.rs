@@ -702,6 +702,7 @@ pub async fn fabric_start(
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
         "-Duser.language=ru".to_string(),
+        //"--enable-native-access=ALL-UNNAMED".to_string(), // Java 17+
         "-cp".to_string(),
         classpath,
         format!("-Dfabric.gameJarPath={}", game_jar_path.to_string_lossy()),
