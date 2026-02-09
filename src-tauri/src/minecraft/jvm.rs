@@ -661,30 +661,51 @@ pub async fn fabric_start(
                 }
         }
 
-    let mut jar_files: Vec<String> = raw_jar_files
-        .iter()
-        .map(|p| fix_path(Path::new(p)))
-        .collect();
+    let jar_files: Vec<String> = if cfg!(target_os = "windows") {
+            raw_jar_files.iter().map(|path| {
+                let cleaned = path.replace("\\\\?\\", "");
+                cleaned.replace("\\", "/")
+            }).collect()
+        } else {
+            raw_jar_files.clone()
+        };
 
     let game_jar_path = base_dir
         .join("versions")
         .join(&mc_version)
         .join(format!("{}.jar", mc_version));
 
-    jar_files.push(fix_path(&game_jar_path));
+        let game_jar_str = if cfg!(target_os = "windows") {
+                game_jar_path.to_string_lossy()
+                    .replace("\\\\?\\", "")
+                    .replace("\\", "/")
+            } else {
+                game_jar_path.to_string_lossy().to_string()
+            };
 
-    let has_loader = jar_files.iter().any(|j| j.contains("fabric-loader"));
+    let mut final_jars = jar_files;
+    final_jars.push(game_jar_str);
+
+    let has_loader = final_jars.iter().any(|j| j.contains("fabric-loader"));
     if !has_loader {
         eprintln!("⚠️ ВНИМАНИЕ: Fabric Loader не найден в списке библиотек! Проверьте загрузку библиотек.");
     }
 
     let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
-    let classpath = jar_files.join(separator);
+    let classpath = final_jars.join(separator);
+
+    let natives_path = if cfg!(target_os = "windows") {
+            config.natives_dir.to_string_lossy()
+                .replace("\\\\?\\", "")
+                .replace("\\", "/")
+        } else {
+            config.natives_dir.to_string_lossy().to_string()
+        };
 
     let mut args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
-        format!("-Djava.library.path={}", fix_path(&config.natives_dir)),
+        format!("-Djava.library.path={}", natives_path),
 
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
