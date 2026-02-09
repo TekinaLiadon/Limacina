@@ -642,88 +642,53 @@ pub async fn fabric_start(
 
     let base_dir = get_launcher_dir()?;
 
-    let raw_jar_files = find_all_jar_files(&config.libraries_dir)?;
-    log_info!("Найдено библиотек: {}", raw_jar_files.len());
+    let mut jar_files = find_all_jar_files(&config.libraries_dir)?;
+    log_info!("Найдено библиотек: {}", jar_files.len());
 
-    let fabric_loader = raw_jar_files.iter()
-            .find(|path| path.contains("fabric-loader"))
-            .cloned();
+    let fabric_loader = jar_files.iter()
+        .find(|path| path.contains("fabric-loader"))
+        .cloned();
 
-        match &fabric_loader {
-            Some(loader_path) => {
-                log_info!("Fabric Loader найден: {}", loader_path);
-                if !Path::new(loader_path).exists() {
-                    log_info!("ОШИБКА: Файл Fabric Loader не существует!");
-                }
+    match &fabric_loader {
+        Some(loader_path) => {
+            log_info!("Fabric Loader найден: {}", loader_path);
+            if !Path::new(loader_path).exists() {
+                log_info!("ОШИБКА: Файл Fabric Loader не существует!");
             }
-            None => {
-                log_info!("Fabric Loader НЕ найден в библиотеках");
-                }
         }
-
-    let jar_files: Vec<String> = if cfg!(target_os = "windows") {
-            raw_jar_files.iter().map(|path| {
-                let cleaned = path.replace("\\\\?\\", "");
-                cleaned.replace("\\", "/")
-            }).collect()
-        } else {
-            raw_jar_files.clone()
-        };
+        None => {
+            log_info!("Fabric Loader НЕ найден в библиотеках");
+        }
+    }
 
     let game_jar_path = base_dir
         .join("versions")
         .join(&mc_version)
         .join(format!("{}.jar", mc_version));
 
-        let game_jar_str = if cfg!(target_os = "windows") {
-                game_jar_path.to_string_lossy()
-                    .replace("\\\\?\\", "")
-                    .replace("\\", "/")
-            } else {
-                game_jar_path.to_string_lossy().to_string()
-            };
-
-    let mut final_jars = jar_files;
-    final_jars.push(game_jar_str);
-
-    let has_loader = final_jars.iter().any(|j| j.contains("fabric-loader"));
-    if !has_loader {
-        eprintln!("⚠️ ВНИМАНИЕ: Fabric Loader не найден в списке библиотек! Проверьте загрузку библиотек.");
-    }
+    jar_files.push(game_jar_path.to_string_lossy().to_string());
 
     let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
-    let classpath = final_jars.join(separator);
-
-    let natives_path = if cfg!(target_os = "windows") {
-            config.natives_dir.to_string_lossy()
-                .replace("\\\\?\\", "")
-                .replace("\\", "/")
-        } else {
-            config.natives_dir.to_string_lossy().to_string()
-        };
+    let classpath = jar_files.join(separator);
 
     let mut args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
-        format!("-Djava.library.path={}", natives_path),
-
+        format!("-Djava.library.path={}", config.natives_dir.to_string_lossy()),
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
         "-Duser.language=ru".to_string(),
-
         "-cp".to_string(),
         classpath,
-        format!("-Dfabric.gameJarPath={}", fix_path(&game_jar_path)),
-
+        format!("-Dfabric.gameJarPath={}", game_jar_path.to_string_lossy()),
         "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
-
         "--username".to_string(), username,
         "--uuid".to_string(), uuid,
         "--accessToken".to_string(), access_token,
         "--userProperties".to_string(), "{}".to_string(),
-        "--assetsDir".to_string(), fix_path(&config.assets_dir),
+        "--assetsDir".to_string(), config.assets_dir.to_string_lossy().to_string(),
         "--assetIndex".to_string(), mc_version,
-        "--gameDir".to_string(), fix_path(&config.game_dir),
+        "--gameDir".to_string(), config.game_dir.to_string_lossy().to_string(),
         "--width".to_string(), "1280".to_string(),
         "--height".to_string(), "720".to_string(),
         "--versionType".to_string(), "release".to_string(),
