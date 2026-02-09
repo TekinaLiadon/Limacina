@@ -292,7 +292,7 @@ fn get_launcher_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Home directory not found"))?;
 
     let launcher_name = env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "minecraft_launcher".to_string());
+        .unwrap_or_else(|_| "default_launcher".to_string());
 
     Ok(home.join(launcher_name))
 }
