@@ -56,8 +56,7 @@ watch(logs, async () => {
   box-sizing: border-box;
   word-wrap: break-word;
   display: flex;
-  align-items: center;
-  align-content: center;
+  flex-wrap: wrap;
 }
 
 .log-line {

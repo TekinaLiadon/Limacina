@@ -7,14 +7,12 @@ import {listen} from '@tauri-apps/api/event';
 import Console from "@/03-widgets/Console.vue";
 
 const isLoading = ref(false)
-const isConsole = ref(false)
 
 const formData = ref({
   username: '',
   password: '',
   rememberMe: false
 });
-const debug = ref('Test')
 const start = async () => {
   isLoading.value = !isLoading.value
   /*const result1 = await invoke('get_forge', {
@@ -25,11 +23,10 @@ const start = async () => {
       mcVersion: "1.20.1"
     })
   })*/
-  debug.value = 'Скачивание 4092 файлов Minecraft'
-  debug.value = await invoke('download_minecraft_version', {
+  await invoke('download_minecraft_version', {
     version: "1.20.1"
   })
-  debug.value = await invoke('get_fabric', {
+  await invoke('get_fabric', {
     mcVersion: "1.20.1"
   })
   /*
@@ -47,10 +44,8 @@ const start = async () => {
     progress.value.total = total
   });
    */
-  debug.value = await invoke('download_all_files')
-  isConsole.value = !isConsole.value
-  await nextTick()
-  debug.value = await invoke('start_jvm', {
+  await invoke('download_all_files')
+  await invoke('start_jvm', {
     username: formData.value.username,
     accessToken: "5730aacc7d65c752b53ca07500e247",
     typeMinecraft: "fabric"

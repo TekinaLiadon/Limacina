@@ -365,31 +365,43 @@ fn maven_to_path(name: &str) -> Option<String> {
     Some(format!("{}/{}/{}/{}", group, artifact, version, filename))
 }
 
-fn find_all_jar_files(root: &Path) -> Result<Vec<String>> {
+fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>> {
     let mut jar_files = Vec::new();
 
-        for entry in WalkDir::new(root)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            let path = entry.path();
+    log_info!("Поиск JAR файлов в: {:?}", libraries_dir);
 
-            if path.extension().and_then(|s| s.to_str()) == Some("jar") {
-                if !path.to_string_lossy().contains("natives") {
-                    let path_str = path.to_string_lossy().to_string();
+    if !libraries_dir.exists() {
+        log_info!("Директория библиотек не существует: {:?}", libraries_dir);
+        return Ok(jar_files);
+    }
 
-                    #[cfg(target_os = "windows")]
-                    let path_str = path_str.replace("/", "\\");
+    fn visit_dirs(dir: &Path, jar_files: &mut Vec<String>) -> Result<()> {
+        if dir.is_dir() {
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
 
-                    jar_files.push(path_str);
+                if path.is_dir() {
+                    visit_dirs(&path, jar_files)?;
+                } else if path.extension().and_then(|s| s.to_str()) == Some("jar") {
+                    let absolute_path = if path.is_absolute() {
+                        path
+                    } else {
+                        std::env::current_dir()?.join(&path)
+                    };
+
+                    jar_files.push(absolute_path.to_string_lossy().to_string());
                 }
             }
         }
+        Ok(())
+    }
 
-        jar_files.sort();
+    visit_dirs(libraries_dir, &mut jar_files)?;
 
-        Ok(jar_files)
+    log_info!("Найдено JAR файлов: {}", jar_files.len());
+
+    Ok(jar_files)
 }
 
 async fn load_version_json(path: &Path) -> Result<VersionJson> {
@@ -631,6 +643,23 @@ pub async fn fabric_start(
     let base_dir = get_launcher_dir()?;
 
     let raw_jar_files = find_all_jar_files(&config.libraries_dir)?;
+    log_info!("Найдено библиотек: {}", raw_jar_files.len());
+
+    let fabric_loader = raw_jar_files.iter()
+            .find(|path| path.contains("fabric-loader"))
+            .cloned();
+
+        match &fabric_loader {
+            Some(loader_path) => {
+                log_info!("Fabric Loader найден: {}", loader_path);
+                if !Path::new(loader_path).exists() {
+                    log_info!("ОШИБКА: Файл Fabric Loader не существует!");
+                }
+            }
+            None => {
+                log_info!("Fabric Loader НЕ найден в библиотеках");
+                }
+        }
 
     let mut jar_files: Vec<String> = raw_jar_files
         .iter()
