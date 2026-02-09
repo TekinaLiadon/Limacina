@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use tokio::sync::Semaphore;
 use std::sync::Arc;
 use std::env;
+use crate::{log_info, log_err};
+use tauri::{AppHandle, Emitter};
 
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
@@ -148,7 +150,7 @@ pub struct LoggingFile {
 
 async fn download_file(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> { // TODO
     if dest.exists() {
-              println!("Файл уже существует: {:?}", dest);
+              log_info!("Файл уже существует: {:?}", dest);
               return Ok(());
      }
     if let Some(parent) = dest.parent() {
@@ -176,14 +178,14 @@ async fn download_fabric_libraries(
     let json_data = tokio::fs::read_to_string(json_path).await?;
         let profile: FabricProfile = serde_json::from_str(&json_data)?;
 
-        println!("Скачивание библиотек Fabric...");
+        log_info!("Скачивание библиотек Fabric...");
 
         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
         let mut download_futures = Vec::new();
 
         for lib in profile.libraries {
             if lib.url.is_empty() {
-                println!("Пропуск библиотеки без URL: {}", lib.name);
+                log_info!("Пропуск библиотеки без URL: {}", lib.name);
                 continue;
             }
 
@@ -217,7 +219,7 @@ async fn download_fabric_libraries(
             download_futures.push(async move {
                 let _permit = sem.acquire_owned().await.expect("semaphore closed");
 
-                println!("Скачивание {}", lib_name);
+                log_info!("Скачивание {}", lib_name);
                 match download_file(&client, &download_url, &local_path).await {
                     Ok(_) => Ok(()),
                     Err(e) => {
@@ -232,7 +234,7 @@ async fn download_fabric_libraries(
         let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
 
         if errors.is_empty() {
-            println!("Все библиотеки Fabric успешно скачаны!");
+            log_info!("Все библиотеки Fabric успешно скачаны!");
             Ok(())
         } else {
             anyhow::bail!("Не удалось скачать {} библиотек.", errors.len())
@@ -244,7 +246,7 @@ pub async fn get_fabric(mc_version: String) -> Result<String, String> {
     let client = reqwest::Client::new();
     let url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", mc_version);
 
-    println!("Получение версий Fabric для Minecraft {}...", mc_version);
+    log_info!("Получение версий Fabric для Minecraft {}...", mc_version);
 
     let home_dir: PathBuf = env::home_dir().ok_or("Home directory not found")?;
         let launcher_name: String = env::var("LAUNCHER_NAME")
@@ -287,7 +289,7 @@ pub async fn get_fabric(mc_version: String) -> Result<String, String> {
 
     let loader_ver = &latest_loader.loader.version;
     let version_id = format!("fabric-loader-{}-{}", loader_ver, mc_version);
-    println!("Выбрана версия загрузчика: {}", loader_ver);
+    log_info!("Выбрана версия загрузчика: {}", loader_ver);
 
     let version_dir = base_path.join("fabric").join(&version_id);
 
@@ -305,21 +307,21 @@ pub async fn get_fabric(mc_version: String) -> Result<String, String> {
         .map_err(|e| format!("Ошибка создания директории {}: {}", version_dir.display(), e))?;
 
     let json_dest = version_dir.join(format!("{}.json", version_id));
-    println!("Скачиваем: {}", json_url);
+    log_info!("Скачиваем: {}", json_url);
     download_file(&client, &json_url, &json_dest)
         .await
         .map_err(|e| format!("Не удалось скачать JSON профиль: {}", e))?;
 
     let jar_dest = version_dir.join(format!("{}.jar", version_id));
-    println!("Скачиваем: {}", jar_url);
+    log_info!("Скачиваем: {}", jar_url);
     download_file(&client, &jar_url, &jar_dest)
         .await
         .map_err(|e| format!("Не удалось скачать JAR файл загрузчика: {}", e))?;
 
-    println!("Fabric Loader успешно скачан!");
+    log_info!("Fabric Loader успешно скачан!");
 
     let libraries_path = base_path.join("libraries");
-    println!("Fabric: {}", json_dest.display());
+    log_info!("Fabric: {}", json_dest.display());
     download_fabric_libraries(&client, &json_dest, &libraries_path)
         .await.map_err(|e| format!("Не удалось скачать библиотеки: {}", e))?;
 

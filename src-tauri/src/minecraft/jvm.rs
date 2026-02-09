@@ -15,6 +15,7 @@ use md5::{Digest, Md5};
 use uuid::{Builder, Variant, Version};
 use tauri::{AppHandle, Emitter};
 use std::io::{BufRead, BufReader};
+use crate::{log_info, log_err};
 
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -529,7 +530,7 @@ fn spawn_game_process(
     args: &[String],
     game_dir: &Path
 ) -> Result<()> {
-    println!("\n▶ Запуск Minecraft...\n");
+    log_info!("\n▶ Запуск Minecraft...\n");
 
     let mut child = Command::new(java_path)
         .args(args)
@@ -617,7 +618,7 @@ pub async fn fabric_start(
     access_token: String,
     mc_version: String,
 ) -> Result<()> {
-    println!("🎮 Запуск Minecraft {} с Fabric...", mc_version);
+    log_info!("🎮 Запуск Minecraft {} с Fabric...", mc_version);
 
     let config = LaunchConfig::new(
         username.clone(),
@@ -679,7 +680,7 @@ pub async fn fabric_start(
     ];
 
     let java_path = find_java()?;
-    println!("☕ Java: {:?}", java_path);
+    log_info!("☕ Java: {:?}", java_path);
 
     spawn_game_process(app, &java_path, &args, &config.game_dir)
 }
@@ -784,7 +785,7 @@ pub async fn forge_start(
     access_token: String,
     mc_version: String,
 ) -> Result<()> {
-    println!("🎮 Запуск Minecraft {} с Forge...", mc_version);
+    log_info!("🎮 Запуск Minecraft {} с Forge...", mc_version);
 
     let base_dir = get_launcher_dir()?;
     let versions_dir = base_dir.join("versions");
@@ -795,7 +796,7 @@ pub async fn forge_start(
         .to_string_lossy()
         .to_string();
 
-    println!("Используется: {}", forge_version);
+    log_info!("Используется: {}", forge_version);
 
     let forge_json_path = forge_version_dir.join(format!("{}.json", forge_version));
     let forge_version_json = load_version_json(&forge_json_path).await?;
@@ -820,7 +821,7 @@ pub async fn forge_start(
     };
 
     let java_path = find_java()?;
-    println!("☕ Java: {:?}", java_path);
+    log_info!("☕ Java: {:?}", java_path);
 
     let classpath = build_forge_classpath(
         &merged_version.libraries,
@@ -859,12 +860,12 @@ pub async fn forge_start(
         }
     }
 
-    println!("Main class: {}", merged_version.main_class);
-    println!("Game dir: {:?}", config.game_dir);
+    log_info!("Main class: {}", merged_version.main_class);
+    log_info!("Game dir: {:?}", config.game_dir);
 
-    println!("=== JVM Arguments ===");
+    log_info!("=== JVM Arguments ===");
     for (i, arg) in full_args.iter().enumerate() {
-        println!("  [{}]: {}", i, arg);
+        log_info!("  [{}]: {}", i, arg);
     }
 
     spawn_game_process(app, &java_path, &full_args, &config.game_dir)
@@ -1070,7 +1071,7 @@ pub async fn vanilla_start(
     access_token: String,
     mc_version: String,
 ) -> Result<()> {
-    println!("🎮 Запуск Vanilla Minecraft {}...", mc_version);
+    log_info!("🎮 Запуск Vanilla Minecraft {}...", mc_version);
 
     let base_dir = get_launcher_dir()?;
     let versions_dir = base_dir.join("versions");
@@ -1106,7 +1107,7 @@ pub async fn vanilla_start(
     );
 
     let java_path = find_java()?;
-    println!("☕ Java: {:?}", java_path);
+    log_info!("☕ Java: {:?}", java_path);
 
     let full_args = build_launch_args(
         &config,
@@ -1116,8 +1117,8 @@ pub async fn vanilla_start(
         &version_json.main_class,
     );
 
-    println!("Main class: {}", version_json.main_class);
-    println!("Game dir: {:?}", config.game_dir);
+    log_info!("Main class: {}", version_json.main_class);
+    log_info!("Game dir: {:?}", config.game_dir);
 
     spawn_game_process(app, &java_path, &full_args, &config.game_dir)
 }

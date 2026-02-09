@@ -9,6 +9,8 @@ use tokio::sync::Semaphore;
 use std::sync::Arc;
 use futures::future::join_all;
 use zip::ZipArchive;
+use crate::{log_info, log_err};
+use tauri::{AppHandle, Emitter};
 
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
@@ -226,7 +228,7 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
 }
 
 fn extract_natives_from_jar(jar_path: &Path, natives_dir: &Path, exclude_rules: &Option<Vec<String>>) -> Result<u32> {
-    println!("  Извлекаем natives из: {:?}", jar_path);
+    log_info!("  Извлекаем natives из: {:?}", jar_path);
 
     if !jar_path.exists() {
         return Err(anyhow!("JAR файл не существует: {:?}", jar_path));
@@ -284,7 +286,7 @@ fn extract_natives_from_jar(jar_path: &Path, natives_dir: &Path, exclude_rules: 
             .with_context(|| format!("Не удалось записать файл: {:?}", out_path))?;
 
         extracted_count += 1;
-        println!("    ✓ {}", file_name);
+        log_info!("    ✓ {}", file_name);
     }
 
     Ok(extracted_count)
@@ -321,16 +323,16 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn download_minecraft_version(version: &str) -> Result<String, String> {
+pub async fn download_minecraft_version(app: AppHandle, version: &str) -> Result<String, String> {
     let manifest = get_version_manifest().await.map_err(|e| format!("Ошибка получения манифеста: {}", e))?;
-    println!("Downloading version {}", version);
+    log_info!("Downloading version {}", version);
     let version_url = manifest.versions.iter()
         .find(|v| v.id == version)
         .map(|v| v.url.clone());
 
     match version_url {
         Some(url) => {
-            println!("Downloading version {}", url);
+            log_info!("Downloading version {}", url);
             let result = download_files(&url).await;
             Ok("Download complete".to_string())
         }
@@ -339,7 +341,7 @@ pub async fn download_minecraft_version(version: &str) -> Result<String, String>
 }
 
 async fn download_files(manifest_url: &str) -> Result<String, String> {
-    println!("Получение манифеста версии...");
+    log_info!("Получение манифеста версии...");
     let resp = reqwest::get(manifest_url).await.map_err(|e| format!("Ошибка HTTP запроса: {}", e))?;
     let manifest: VersionDetailsManifest = resp.json().await
         .map_err(|e| format!("Ошибка при разборе манифеста: {}", e))?;
@@ -350,18 +352,18 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
     let base_path: PathBuf = home_dir.join(&launcher_name);
 
     let client_jar_path = base_path.join("versions").join(&manifest.id).join(format!("{}.jar", manifest.id));
-    println!("Скачиваем основной JAR-файл: {}", manifest.downloads.client.url);
+    log_info!("Скачиваем основной JAR-файл: {}", manifest.downloads.client.url);
 
     if let Err(e) = download_file(&manifest.downloads.client.url, &client_jar_path).await {
-        println!("Ошибка при скачивании JAR-файла клиента: {:?}", e);
+        eprintln!("Ошибка при скачивании JAR-файла клиента: {:?}", e);
         return Err(e.to_string());
     }
 
     let natives_dir = base_path.join("natives").join(&manifest.id);
     fs::create_dir_all(&natives_dir).map_err(|e| format!("Ошибка создания папки natives: {}", e))?;
 
-    println!("\nСкачиваем библиотеки...");
-    println!("Текущая ОС: {}", get_current_os());
+    log_info!("\nСкачиваем библиотеки...");
+    log_info!("Текущая ОС: {}", get_current_os());
 
     let mut natives_to_extract: Vec<(PathBuf, Option<Vec<String>>)> = Vec::new();
 
@@ -371,7 +373,7 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
         }
 
         if !is_native_library_for_current_os(&lib.name) {
-            println!("Пропускаем библиотеку {} (не подходит для текущей ОС)", lib.name);
+            log_info!("Пропускаем библиотеку {} (не подходит для текущей ОС)", lib.name);
             continue;
         }
 
@@ -380,10 +382,10 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
             if let Some(artifact) = &lib.downloads.artifact {
                 if !artifact.url.is_empty() {
                     let lib_path = base_path.join("libraries").join(&artifact.path);
-                    println!("Скачиваем нативную библиотеку: {}", lib.name);
+                    log_info!("Скачиваем нативную библиотеку: {}", lib.name);
 
                     if let Err(e) = download_file(&artifact.url, &lib_path).await {
-                        println!("  Ошибка при скачивании: {:?}", e);
+                        eprintln!("  Ошибка при скачивании: {:?}", e);
                     } else {
                         let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
                         natives_to_extract.push((lib_path, exclude));
@@ -398,10 +400,10 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
         if let Some(artifact) = &lib.downloads.artifact {
             if !artifact.url.is_empty() {
                 let lib_path = base_path.join("libraries").join(&artifact.path);
-                println!("Скачиваем библиотеку: {}", lib.name);
+                log_info!("Скачиваем библиотеку: {}", lib.name);
 
                 if let Err(e) = download_file(&artifact.url, &lib_path).await {
-                    println!("  Ошибка при скачивании: {:?}", e);
+                    eprintln!("  Ошибка при скачивании: {:?}", e);
                 }
             }
         }
@@ -417,10 +419,10 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
                 if let Some(classifiers) = &lib.downloads.classifiers {
                     if let Some(native_artifact) = classifiers.get(&classifier) {
                         let native_jar_path = base_path.join("libraries").join(&native_artifact.path);
-                        println!("Скачиваем natives через classifier: {} ({})", lib.name, classifier);
+                        log_info!("Скачиваем natives через classifier: {} ({})", lib.name, classifier);
 
                         if let Err(e) = download_file(&native_artifact.url, &native_jar_path).await {
-                            println!("  Ошибка при скачивании: {:?}", e);
+                            log_info!("  Ошибка при скачивании: {:?}", e);
                         } else {
                             let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
                             natives_to_extract.push((native_jar_path, exclude));
@@ -431,8 +433,8 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
         }
     }
 
-    println!("\n=== Извлечение natives ===");
-    println!("Всего JAR файлов для извлечения: {}", natives_to_extract.len());
+    log_info!("\n=== Извлечение natives ===");
+    log_info!("Всего JAR файлов для извлечения: {}", natives_to_extract.len());
 
     let mut total_extracted = 0u32;
     for (jar_path, exclude_rules) in &natives_to_extract {
@@ -440,28 +442,28 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
             Ok(count) => {
                 total_extracted += count;
             }
-            Err(e) => println!("  Ошибка извлечения {:?}: {:?}", jar_path, e),
+            Err(e) => eprintln!("  Ошибка извлечения {:?}: {:?}", jar_path, e),
         }
     }
-    println!("Всего извлечено нативных файлов: {}", total_extracted);
+    log_info!("Всего извлечено нативных файлов: {}", total_extracted);
 
-    println!("\n=== Содержимое папки natives ===");
+    log_info!("\n=== Содержимое папки natives ===");
     match fs::read_dir(&natives_dir) {
         Ok(entries) => {
             let files: Vec<_> = entries.filter_map(|e| e.ok()).collect();
             if files.is_empty() {
-                println!("Папка natives пуста!");
+                log_info!("Папка natives пуста!");
             } else {
-                println!("Файлов: {}", files.len());
+                log_info!("Файлов: {}", files.len());
                 for entry in &files {
-                    println!("  {:?}", entry.file_name());
+                    log_info!("  {:?}", entry.file_name());
                 }
             }
         }
-        Err(e) => println!("Ошибка чтения папки natives: {:?}", e),
+        Err(e) => eprintln!("Ошибка чтения папки natives: {:?}", e),
     }
 
-    println!("\nСкачиваем индекс ресурсов...");
+    log_info!("\nСкачиваем индекс ресурсов...");
     let asset_index_path = base_path.join("assets").join("indexes").join(format!("{}.json", manifest.asset_index.id));
 
     download_file(&manifest.asset_index.url, &asset_index_path)
@@ -474,7 +476,7 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
     let asset_index: AssetIndexContent = serde_json::from_str(&asset_index_file)
         .map_err(|e| format!("Ошибка при разборе индекса ресурсов: {}", e))?;
 
-    println!("Скачиваем ресурсы...");
+    log_info!("Скачиваем ресурсы...");
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
     let base_path = Arc::new(base_path);
     let mut download_tasks = Vec::new();
@@ -503,7 +505,7 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
         download_tasks.push(task);
     }
 
-    println!("Всего ресурсов для загрузки: {}", download_tasks.len());
+    log_info!("Всего ресурсов для загрузки: {}", download_tasks.len());
 
     let results = join_all(download_tasks).await;
 
@@ -516,9 +518,9 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
             _ => failed += 1,
         }
     }
-    println!("Загрузка ресурсов завершена. Успешно: {}, Ошибок: {}", successful, failed);
+    log_info!("Загрузка ресурсов завершена. Успешно: {}, Ошибок: {}", successful, failed);
 
-    println!("\nВсе файлы Minecraft успешно скачаны!");
+    log_info!("\nВсе файлы Minecraft успешно скачаны!");
     Ok("Ok".to_string())
 }
 

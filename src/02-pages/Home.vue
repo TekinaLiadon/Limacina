@@ -106,10 +106,7 @@ const start = async () => {
         </div>
       </div>
     </div>
-    <div style="font-size: 28px; color: wheat;" v-if="!isConsole">
-      {{ debug }}
-    </div>
-    <Console v-else />
+    <Console />
   </div>
 </template>
 

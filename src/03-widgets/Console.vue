@@ -42,18 +42,22 @@ watch(logs, async () => {
   </div>
 </template>
 
-<style scoped>
+<style>
 .console-container {
   background-color: #1e1e1e;
   color: #e0e0e0;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 14px;
-  height: 100vh;
-  width: 100%;
+  height: 90vh;
+  width: 50%;
   overflow-y: auto;
   padding: 10px;
+  margin: 25px;
   box-sizing: border-box;
   word-wrap: break-word;
+  display: flex;
+  align-items: center;
+  align-content: center;
 }
 
 .log-line {
