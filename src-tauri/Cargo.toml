@@ -31,6 +31,7 @@ futures = "0.3"
 zip = "0.6"
 uuid = { version = "1", features = ["v4", "fast-rng", "macro-diagnostics"] }
 md-5 = "0.10"
+dunce = "1.0"
 futures-util = "0.3"
 thiserror = "1.0"
 

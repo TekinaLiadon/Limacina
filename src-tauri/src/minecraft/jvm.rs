@@ -221,10 +221,16 @@ impl LaunchConfig {
         mc_version: String,
         loader_version: String,
     ) -> Result<Self> {
-        let base_dir = get_launcher_dir()?;
-        let natives_dir = base_dir.join("natives").join(&mc_version);
+        let raw_base_dir = get_launcher_dir()?;
+                let base_dir = dunce::canonicalize(&raw_base_dir)
+                    .unwrap_or(raw_base_dir);
 
-        fs::create_dir_all(&natives_dir).await?;
+                let natives_dir = base_dir.join("natives").join(&mc_version);
+
+                if !base_dir.exists() {
+                    fs::create_dir_all(&base_dir).await?;
+                }
+                fs::create_dir_all(&natives_dir).await?;
 
         Ok(Self {
             username,
@@ -368,6 +374,12 @@ fn maven_to_path(name: &str) -> Option<String> {
 fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>> {
     let mut jar_files = Vec::new();
 
+    let libraries_dir = if libraries_dir.exists() {
+            dunce::canonicalize(libraries_dir).unwrap_or_else(|_| libraries_dir.to_path_buf())
+        } else {
+            libraries_dir.to_path_buf()
+        };
+
     log_info!("Поиск JAR файлов в: {:?}", libraries_dir);
 
     if !libraries_dir.exists() {
@@ -376,28 +388,24 @@ fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>> {
     }
 
     fn visit_dirs(dir: &Path, jar_files: &mut Vec<String>) -> Result<()> {
-        if dir.is_dir() {
-            for entry in std::fs::read_dir(dir)? {
-                let entry = entry?;
-                let path = entry.path();
+            if dir.is_dir() {
+                for entry in std::fs::read_dir(dir)? {
+                    let entry = entry?;
+                    let path = entry.path();
 
-                if path.is_dir() {
-                    visit_dirs(&path, jar_files)?;
-                } else if path.extension().and_then(|s| s.to_str()) == Some("jar") {
-                    let absolute_path = if path.is_absolute() {
-                        path
-                    } else {
-                        std::env::current_dir()?.join(&path)
-                    };
-
-                    jar_files.push(absolute_path.to_string_lossy().to_string());
+                    if path.is_dir() {
+                        visit_dirs(&path, jar_files)?;
+                    } else if path.extension().and_then(|s| s.to_str()) == Some("jar") {
+                        let clean_path = dunce::canonicalize(&path)
+                            .unwrap_or_else(|_| path.clone());
+                        jar_files.push(clean_path.to_string_lossy().to_string());
+                    }
                 }
             }
+            Ok(())
         }
-        Ok(())
-    }
 
-    visit_dirs(libraries_dir, &mut jar_files)?;
+    visit_dirs(&libraries_dir, &mut jar_files)?;
 
     log_info!("Найдено JAR файлов: {}", jar_files.len());
 
@@ -623,17 +631,6 @@ fn fix_path(path: &Path) -> String {
 
 // FABRIC
 
-
-fn clean_path(path: &Path) -> String {
-    let s = path.to_string_lossy().to_string();
-    let trimmed = s.trim();
-    if cfg!(target_os = "windows") && trimmed.starts_with(r"\\?\") {
-        trimmed[4..].to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
 pub async fn fabric_start(
     app: AppHandle,
     username: String,
@@ -653,86 +650,66 @@ pub async fn fabric_start(
 
     let base_dir = get_launcher_dir()?;
 
-    let mut libraries_dir = config.libraries_dir.clone();
+    let mut jar_files = find_all_jar_files(&config.libraries_dir)?;
+    log_info!("Найдено библиотек: {}", jar_files.len());
 
-    if !libraries_dir.exists() {
-        let fallback_dir = base_dir
-            .join("versions")
-            .join(format!("fabric-{}", mc_version))
-            .join("libraries");
+    let fabric_loader = jar_files.iter()
+        .find(|path| path.contains("fabric-loader"))
+        .cloned();
 
-        if fallback_dir.exists() {
-            log_info!("⚠️ Папка библиотек переопределена: {:?}", fallback_dir);
-            libraries_dir = fallback_dir;
-        } else {
-            let global_libs = base_dir.join("libraries");
-            if global_libs.exists() {
-                 libraries_dir = global_libs;
+    match &fabric_loader {
+        Some(loader_path) => {
+            log_info!("Fabric Loader найден: {}", loader_path);
+            if !Path::new(loader_path).exists() {
+                log_info!("ОШИБКА: Файл Fabric Loader не существует!");
             }
         }
+        None => {
+            log_info!("Fabric Loader НЕ найден в библиотеках");
+        }
     }
-
-    let raw_jar_files = find_all_jar_files(&libraries_dir)?;
-    log_info!("Найдено библиотек: {}", raw_jar_files.len());
-
-    if raw_jar_files.is_empty() {
-        let msg = format!("❌ Библиотеки не найдены в: {:?}. Проверьте скачивание.", libraries_dir);
-        log_info!("{}", msg);
-        return Err(anyhow::anyhow!(msg));
-    }
-
-    let mut jar_files: Vec<String> = raw_jar_files
-        .iter()
-        .map(|p| clean_path(Path::new(p)))
-        .collect();
 
     let game_jar_path = base_dir
         .join("versions")
         .join(&mc_version)
         .join(format!("{}.jar", mc_version));
 
-    if !game_jar_path.exists() {
-        log_info!("Файл игры не найден: {:?}", game_jar_path);
-    }
+    let game_jar_path = if game_jar_path.exists() {
+        dunce::canonicalize(&game_jar_path).unwrap_or(game_jar_path)
+    } else {
+        game_jar_path
+    };
 
-    jar_files.push(clean_path(&game_jar_path));
-
-    if !jar_files.iter().any(|j| j.contains("fabric-loader")) {
-        log_info!("КРИТИЧЕСКАЯ ОШИБКА: Fabric Loader отсутсвует в classpath!");
-    }
+    jar_files.push(game_jar_path.to_string_lossy().to_string());
 
     let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
     let classpath = jar_files.join(separator);
 
-    let args = vec![
+    let mut args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
-        format!("-Djava.library.path={}", clean_path(&config.natives_dir)),
-
+        format!("-Djava.library.path={}", config.natives_dir.to_string_lossy()),
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
         "-Duser.language=ru".to_string(),
-
         "-cp".to_string(),
         classpath,
-
-        format!("-Dfabric.gameJarPath={}", clean_path(&game_jar_path)),
+        format!("-Dfabric.gameJarPath={}", game_jar_path.to_string_lossy()),
         "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
-
         "--username".to_string(), username,
         "--uuid".to_string(), uuid,
         "--accessToken".to_string(), access_token,
         "--userProperties".to_string(), "{}".to_string(),
-        "--assetsDir".to_string(), clean_path(&config.assets_dir),
+        "--assetsDir".to_string(), config.assets_dir.to_string_lossy().to_string(),
         "--assetIndex".to_string(), mc_version,
-        "--gameDir".to_string(), clean_path(&config.game_dir),
+        "--gameDir".to_string(), config.game_dir.to_string_lossy().to_string(),
         "--width".to_string(), "1280".to_string(),
         "--height".to_string(), "720".to_string(),
         "--versionType".to_string(), "release".to_string(),
     ];
 
     let java_path = find_java()?;
-    log_info!("Java: {:?}", java_path);
+    log_info!("☕ Java: {:?}", java_path);
 
     spawn_game_process(app, &java_path, &args, &config.game_dir)
 }
