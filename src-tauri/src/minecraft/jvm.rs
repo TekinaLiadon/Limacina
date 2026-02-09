@@ -623,6 +623,17 @@ fn fix_path(path: &Path) -> String {
 
 // FABRIC
 
+
+fn clean_path(path: &Path) -> String {
+    let s = path.to_string_lossy().to_string();
+    let trimmed = s.trim();
+    if cfg!(target_os = "windows") && trimmed.starts_with(r"\\?\") {
+        trimmed[4..].to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub async fn fabric_start(
     app: AppHandle,
     username: String,
@@ -642,60 +653,86 @@ pub async fn fabric_start(
 
     let base_dir = get_launcher_dir()?;
 
-    let mut jar_files = find_all_jar_files(&config.libraries_dir)?;
-    log_info!("Найдено библиотек: {}", jar_files.len());
+    let mut libraries_dir = config.libraries_dir.clone();
 
-    let fabric_loader = jar_files.iter()
-        .find(|path| path.contains("fabric-loader"))
-        .cloned();
+    if !libraries_dir.exists() {
+        let fallback_dir = base_dir
+            .join("versions")
+            .join(format!("fabric-{}", mc_version))
+            .join("libraries");
 
-    match &fabric_loader {
-        Some(loader_path) => {
-            log_info!("Fabric Loader найден: {}", loader_path);
-            if !Path::new(loader_path).exists() {
-                log_info!("ОШИБКА: Файл Fabric Loader не существует!");
+        if fallback_dir.exists() {
+            log_info!("⚠️ Папка библиотек переопределена: {:?}", fallback_dir);
+            libraries_dir = fallback_dir;
+        } else {
+            let global_libs = base_dir.join("libraries");
+            if global_libs.exists() {
+                 libraries_dir = global_libs;
             }
         }
-        None => {
-            log_info!("Fabric Loader НЕ найден в библиотеках");
-        }
     }
+
+    let raw_jar_files = find_all_jar_files(&libraries_dir)?;
+    log_info!("Найдено библиотек: {}", raw_jar_files.len());
+
+    if raw_jar_files.is_empty() {
+        let msg = format!("❌ Библиотеки не найдены в: {:?}. Проверьте скачивание.", libraries_dir);
+        log_info!("{}", msg);
+        return Err(anyhow::anyhow!(msg));
+    }
+
+    let mut jar_files: Vec<String> = raw_jar_files
+        .iter()
+        .map(|p| clean_path(Path::new(p)))
+        .collect();
 
     let game_jar_path = base_dir
         .join("versions")
         .join(&mc_version)
         .join(format!("{}.jar", mc_version));
 
-    jar_files.push(game_jar_path.to_string_lossy().to_string());
+    if !game_jar_path.exists() {
+        log_info!("Файл игры не найден: {:?}", game_jar_path);
+    }
+
+    jar_files.push(clean_path(&game_jar_path));
+
+    if !jar_files.iter().any(|j| j.contains("fabric-loader")) {
+        log_info!("КРИТИЧЕСКАЯ ОШИБКА: Fabric Loader отсутсвует в classpath!");
+    }
 
     let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
     let classpath = jar_files.join(separator);
 
-    let mut args = vec![
+    let args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
-        format!("-Djava.library.path={}", config.natives_dir.to_string_lossy()),
+        format!("-Djava.library.path={}", clean_path(&config.natives_dir)),
+
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
         "-Duser.language=ru".to_string(),
+
         "-cp".to_string(),
         classpath,
-        format!("-Dfabric.gameJarPath={}", game_jar_path.to_string_lossy()),
+
+        format!("-Dfabric.gameJarPath={}", clean_path(&game_jar_path)),
         "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
+
         "--username".to_string(), username,
         "--uuid".to_string(), uuid,
         "--accessToken".to_string(), access_token,
         "--userProperties".to_string(), "{}".to_string(),
-        "--assetsDir".to_string(), config.assets_dir.to_string_lossy().to_string(),
+        "--assetsDir".to_string(), clean_path(&config.assets_dir),
         "--assetIndex".to_string(), mc_version,
-        "--gameDir".to_string(), config.game_dir.to_string_lossy().to_string(),
+        "--gameDir".to_string(), clean_path(&config.game_dir),
         "--width".to_string(), "1280".to_string(),
         "--height".to_string(), "720".to_string(),
         "--versionType".to_string(), "release".to_string(),
     ];
 
     let java_path = find_java()?;
-    log_info!("☕ Java: {:?}", java_path);
+    log_info!("Java: {:?}", java_path);
 
     spawn_game_process(app, &java_path, &args, &config.game_dir)
 }
