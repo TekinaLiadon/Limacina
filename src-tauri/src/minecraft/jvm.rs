@@ -1103,6 +1103,7 @@ fn find_library_manually(libraries_dir: &Path, name_pattern: &str) -> Option<Pat
 }
 
 // VANILLA
+// MARK: VANILLA
 
 pub async fn vanilla_start(
     app: AppHandle,
