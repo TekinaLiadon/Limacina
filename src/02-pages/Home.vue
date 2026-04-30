@@ -15,20 +15,20 @@ const formData = ref({
 });
 const start = async () => {
   isLoading.value = !isLoading.value
-  /*const result1 = await invoke('get_forge', {
-    mcVersion: "1.20.1"
-  }); */ //TODO проверка если уже скачено
+  await invoke('get_forge', {
+    mcVersion: "1.16.5"
+  });  //TODO проверка если уже скачено
   /*await listen('successDownloadMinecraft', async () => {
     await invoke('get_fabric', {
       mcVersion: "1.20.1"
     })
   })*/
   await invoke('download_minecraft_version', {
-    version: "1.20.1"
+    version: "1.16.5"
   })
-  await invoke('get_fabric', {
+  /*await invoke('get_fabric', {
     mcVersion: "1.20.1"
-  })
+  })*/
   /*
   await listen('totalFile', (event) => {
     fileInfo.value.total = event.payload
@@ -48,7 +48,8 @@ const start = async () => {
   await invoke('start_jvm', {
     username: formData.value.username,
     accessToken: "5730aacc7d65c752b53ca07500e247",
-    typeMinecraft: "fabric"
+    typeMinecraft: "forge",
+    mc_version: "1.16.5"
   });
 }
 

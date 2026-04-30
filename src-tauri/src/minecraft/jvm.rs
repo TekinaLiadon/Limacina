@@ -732,7 +732,7 @@ fn find_forge_version_dir(versions_dir: &Path, mc_version: &str) -> Result<PathB
         bail!("Директория versions не существует: {:?}", versions_dir);
     }
 
-    let forge_version = "47.4.10"; // TODO
+    let forge_version = "36.2.34"; // TODO "47.4.10"
 
     let pattern = format!("{}-forge-{}", mc_version, forge_version);
     let alt_pattern = format!("forge-{}-{}", mc_version, forge_version);
@@ -756,6 +756,44 @@ fn find_forge_version_dir(versions_dir: &Path, mc_version: &str) -> Result<PathB
     paths.sort();
 
     Ok(paths.last().unwrap().clone())
+}
+
+#[derive(Deserialize)]
+struct VersionManifest {
+    versions: Vec<VersionInfo>,
+}
+
+#[derive(Deserialize, Clone)]
+struct VersionInfo {
+    id: String,
+    url: String,
+}
+
+async fn ensure_vanilla_version_installed(mc_version: &str, versions_dir: &Path) -> Result<()> {
+    let version_dir = versions_dir.join(mc_version);
+    let json_path = version_dir.join(format!("{}.json", mc_version));
+
+    if json_path.exists() {
+        return Ok(());
+    }
+
+    log_info!("⚠ Ванильная версия {} не найдена. Скачиваю...", mc_version);
+
+    let manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    let manifest: VersionManifest = reqwest::get(manifest_url).await?.json().await?;
+
+    let version_info = manifest.versions.into_iter()
+        .find(|v| v.id == mc_version)
+        .ok_or_else(|| anyhow::anyhow!("Версия {} не найдена в манифесте Mojang", mc_version))?;
+
+    let version_json_content = reqwest::get(version_info.url).await?.text().await?;
+
+    std::fs::create_dir_all(&version_dir)?;
+    std::fs::write(&json_path, version_json_content)?;
+
+    log_info!("✓ Ванильная версия {} успешно скачана.", mc_version);
+
+    Ok(())
 }
 
 async fn merge_version_jsons(
@@ -829,6 +867,7 @@ pub async fn forge_start(
 
     let base_dir = get_launcher_dir()?;
     let versions_dir = base_dir.join("versions");
+    ensure_vanilla_version_installed(&mc_version, &versions_dir).await?;
     let forge_version_dir = find_forge_version_dir(&versions_dir, &mc_version)?;
     let forge_version = forge_version_dir
         .file_name()
@@ -918,10 +957,6 @@ fn build_forge_classpath(
 ) -> Result<String> {
     let separator = get_classpath_separator();
     let mut paths: Vec<String> = Vec::new();
-    let mut seen_artifacts: HashSet<String> = HashSet::new();
-
-    let client_jar_canonical = client_jar.canonicalize()
-        .unwrap_or_else(|_| client_jar.to_path_buf());
 
     for lib in libraries {
         if let Some(rules) = &lib.rules {
@@ -931,37 +966,22 @@ fn build_forge_classpath(
         }
 
         let lib_path = if let Some(downloads) = &lib.downloads {
-            if let Some(artifact) = &downloads.artifact {
-                libraries_dir.join(&artifact.path)
-            } else {
-                continue;
-            }
-        } else {
-            match maven_to_path(&lib.name) {
-                Some(path) => libraries_dir.join(path),
-                None => continue,
-            }
-        };
+                    if let Some(artifact) = &downloads.artifact {
+                        libraries_dir.join(&artifact.path)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    match maven_to_path(&lib.name) {
+                        Some(path) => libraries_dir.join(path),
+                        None => continue,
+                    }
+                };
 
         if !lib_path.exists() {
             eprintln!("⚠ Библиотека не найдена: {:?}", lib_path);
             continue;
         }
-
-        let canonical = lib_path.canonicalize()
-            .unwrap_or_else(|_| lib_path.clone());
-
-
-        if canonical == client_jar_canonical {
-            continue;
-        }
-
-        let artifact_name = extract_artifact_name(&lib.name);
-
-        if seen_artifacts.contains(&artifact_name) {
-            continue;
-        }
-        seen_artifacts.insert(artifact_name);
 
         let path_str = lib_path.to_string_lossy().to_string();
         if !paths.contains(&path_str) {
@@ -989,16 +1009,6 @@ fn extract_forge_arguments(
 ) -> (Vec<String>, Vec<String>) {
     let mut jvm_args = Vec::new();
     let mut game_args = Vec::new();
-
-        let essential_jvm_args = vec![
-            "--add-modules=ALL-MODULE-PATH".to_string(),
-            "--add-opens=java.base/java.util.jar=cpw.mods.securejarhandler".to_string(),
-            "--add-opens=java.base/java.lang.invoke=cpw.mods.securejarhandler".to_string(),
-            "--add-exports=java.base/sun.security.util=cpw.mods.securejarhandler".to_string(),
-            "--add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming".to_string(),
-        ];
-
-        jvm_args.extend(essential_jvm_args);
 
     if let Some(arguments) = &version.arguments {
         for arg in &arguments.jvm {
@@ -1185,7 +1195,7 @@ pub async fn start_jvm(
     type_minecraft: String,
     mc_version: Option<String>,
 ) -> Result<String, String> {
-    let version = mc_version.unwrap_or_else(|| "1.20.1".to_string());
+    let version = mc_version.unwrap_or_else(|| "1.16.5".to_string());
     let uuid = generate_offline_uuid(&username);
 
     match type_minecraft.as_str() {

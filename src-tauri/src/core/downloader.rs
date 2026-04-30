@@ -121,7 +121,7 @@ pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError>
     let client = Client::new();
 
     let response = client
-        .get("http://strapi.tekina.ru/api/list")
+        .get("http://strapi.tekina.ru/files/list")
         .send()
         .await?;
 
