@@ -108,8 +108,8 @@ fn get_base_dir() -> Result<String, DownloadError> {
     let home_dir: PathBuf = env::home_dir()
         .ok_or_else(|| DownloadError::SystemError("Home directory not found".to_string()))?;
 
-    let launcher_name: String = env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "default_launcher".to_string());
+    let launcher_name: String =
+        env::var("LAUNCHER_NAME").unwrap_or_else(|_| "default_launcher".to_string());
 
     let dir: PathBuf = home_dir.join(&launcher_name);
 
@@ -167,7 +167,10 @@ pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError>
         let total_files_count = total_files;
 
         let handle = tokio::spawn(async move {
-            let _permit = sem.acquire().await.map_err(|e| DownloadError::SystemError(e.to_string()))?;
+            let _permit = sem
+                .acquire()
+                .await
+                .map_err(|e| DownloadError::SystemError(e.to_string()))?;
 
             let file_name = Path::new(&file_key_clone)
                 .file_name()

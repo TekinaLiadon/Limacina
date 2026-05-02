@@ -1,6 +1,6 @@
+use serde::Serialize;
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
-use serde::Serialize;
 
 static GLOBAL_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
@@ -22,10 +22,13 @@ pub fn send_log(msg: String, is_error: bool) {
     }
 
     if let Some(app) = GLOBAL_APP_HANDLE.get() {
-        let _ = app.emit("game-console", ConsolePayload {
-            line: msg,
-            is_error,
-        });
+        let _ = app.emit(
+            "game-console",
+            ConsolePayload {
+                line: msg,
+                is_error,
+            },
+        );
     }
 }
 
