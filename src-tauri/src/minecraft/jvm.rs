@@ -636,15 +636,6 @@ fn build_launch_args(
     full_args
 }
 
-fn fix_path(path: &Path) -> String {
-    let p = path.to_string_lossy().to_string();
-    if cfg!(target_os = "windows") {
-        p.replace("\\\\?\\", "")
-    } else {
-        p
-    }
-}
-
 // FABRIC
 
 pub async fn fabric_start(
@@ -1018,15 +1009,6 @@ fn build_forge_classpath(
     Ok(paths.join(separator))
 }
 
-fn extract_artifact_name(maven_name: &str) -> String {
-    let parts: Vec<&str> = maven_name.split(':').collect();
-    if parts.len() >= 2 {
-        parts[1].to_string()
-    } else {
-        maven_name.to_string()
-    }
-}
-
 fn extract_forge_arguments(
     version: &VersionJson,
     config: &LaunchConfig,
@@ -1139,27 +1121,7 @@ fn substitute_forge_variables(
         .replace("${quickPlayRealms}", "")
 }
 
-fn find_library_manually(libraries_dir: &Path, name_pattern: &str) -> Option<PathBuf> {
-    use walkdir::WalkDir;
-
-    for entry in WalkDir::new(libraries_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.is_file() && path.extension().map(|e| e == "jar").unwrap_or(false) {
-            if let Some(file_name) = path.file_name() {
-                if file_name.to_string_lossy().contains(name_pattern) {
-                    return Some(path.to_path_buf());
-                }
-            }
-        }
-    }
-    None
-}
-
 // VANILLA
-
 pub async fn vanilla_start(
     app: AppHandle,
     username: String,
