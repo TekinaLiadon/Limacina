@@ -1,10 +1,10 @@
-use std::path::PathBuf;
-use std::collections::HashMap;
 use anyhow::{Context, Result};
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use tokio::fs;
-use reqwest::Client;
 use tokio::process::Command;
 
 #[derive(Debug, Deserialize)]
@@ -67,7 +67,8 @@ pub async fn get_forge(mc_version: String) -> Result<String, String> {
         .build()
         .map_err(|e| format!("Не удалось создать HTTP клиент: {}", e))?;
 
-    let promotions_url = "https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json";
+    let promotions_url =
+        "https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json";
     println!("🔍 Получение списка версий Forge...");
 
     let promos_str = client
@@ -84,20 +85,29 @@ pub async fn get_forge(mc_version: String) -> Result<String, String> {
     let promotions: ForgePromotions = serde_json::from_str(&promos_str)
         .map_err(|e| format!("Не удалось распарсить список версий: {}", e))?;
 
-    let forge_version = promotions.promos
+    let forge_version = promotions
+        .promos
         .get(&format!("{}-recommended", mc_version))
         .or_else(|| promotions.promos.get(&format!("{}-latest", mc_version)))
         .ok_or_else(|| {
-            let available: Vec<_> = promotions.promos.keys()
+            let available: Vec<_> = promotions
+                .promos
+                .keys()
                 .filter(|k| k.ends_with("-recommended") || k.ends_with("-latest"))
                 .filter_map(|k| k.split('-').next())
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
                 .collect();
-            format!("Нет версий Forge для MC {}. Доступные: {:?}", mc_version, available)
+            format!(
+                "Нет версий Forge для MC {}. Доступные: {:?}",
+                mc_version, available
+            )
         })?;
 
-    println!("✓ Найдена версия Forge: {} для MC {}", forge_version, mc_version);
+    println!(
+        "✓ Найдена версия Forge: {} для MC {}",
+        forge_version, mc_version
+    );
 
     let forge_full_version = format!("{}-{}", mc_version, forge_version);
     let forge_installer_url = format!(
@@ -105,11 +115,10 @@ pub async fn get_forge(mc_version: String) -> Result<String, String> {
         forge_full_version
     );
 
-    let home_dir = get_home_dir()
-        .ok_or("Не удалось определить домашнюю директорию")?;
+    let home_dir = get_home_dir().ok_or("Не удалось определить домашнюю директорию")?;
 
-    let launcher_name = std::env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| ".minecraft_launcher".to_string());
+    let launcher_name =
+        std::env::var("LAUNCHER_NAME").unwrap_or_else(|_| ".minecraft_launcher".to_string());
 
     let base = home_dir.join(&launcher_name);
     let installer_path = base.join("forge-installer.jar");

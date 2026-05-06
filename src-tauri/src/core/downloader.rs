@@ -7,7 +7,6 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Semaphore;
@@ -18,9 +17,6 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 pub enum DownloadError {
     #[error("Не удалось получить файл от сервера: {0}")]
     FetchError(#[from] reqwest::Error),
-
-    #[error("Не удалось получить размер файла из заголовков")]
-    ContentLengthError,
 
     #[error("Ошибка файловой системы: {0}")]
     IoError(#[from] std::io::Error),
@@ -42,14 +38,6 @@ impl Serialize for DownloadError {
     {
         serializer.serialize_str(&self.to_string())
     }
-}
-
-#[derive(Clone, Serialize)]
-struct TotalProgressPayload {
-    completed: usize,
-    total: usize,
-    percent: f64,
-    current_file: String,
 }
 
 #[derive(Serialize)]
@@ -108,8 +96,8 @@ fn get_base_dir() -> Result<String, DownloadError> {
     let home_dir: PathBuf = env::home_dir()
         .ok_or_else(|| DownloadError::SystemError("Home directory not found".to_string()))?;
 
-    let launcher_name: String = env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "default_launcher".to_string());
+    let launcher_name: String =
+        env::var("LAUNCHER_NAME").unwrap_or_else(|_| "default_launcher".to_string());
 
     let dir: PathBuf = home_dir.join(&launcher_name);
 
@@ -121,7 +109,7 @@ pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError>
     let client = Client::new();
 
     let response = client
-        .get("http://strapi.tekina.ru/api/list")
+        .get("http://strapi.tekina.ru/files/list")
         .send()
         .await?;
 
@@ -152,33 +140,24 @@ pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError>
     }
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
-    let completed_counter = Arc::new(AtomicUsize::new(0));
     let mut tasks = Vec::new();
 
     for file_key in files_to_download {
         let sem = semaphore.clone();
         let client = client.clone();
-        let app = app.clone();
-        let counter = completed_counter.clone();
 
         let core_path = core.clone();
         let file_key_clone = file_key.clone();
 
-        let total_files_count = total_files;
-
         let handle = tokio::spawn(async move {
-            let _permit = sem.acquire().await.map_err(|e| DownloadError::SystemError(e.to_string()))?;
-
-            let file_name = Path::new(&file_key_clone)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| file_key_clone.clone());
+            let _permit = sem
+                .acquire()
+                .await
+                .map_err(|e| DownloadError::SystemError(e.to_string()))?;
 
             let file_path = core_path.join(&file_key_clone);
 
             download_file(&client, &file_path, &file_key_clone).await?;
-
-            let completed = counter.fetch_add(1, Ordering::SeqCst) + 1;
 
             /*let _ = app.emit(
                 "numberFile",

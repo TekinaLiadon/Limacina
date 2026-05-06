@@ -1,25 +1,21 @@
-
 use std::collections::HashMap;
-use std::collections::HashSet;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::env;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use walkdir::WalkDir;
 
+use crate::{log_info};
 use md5::{Digest, Md5};
-use uuid::{Builder, Variant, Version};
-use tauri::{AppHandle, Emitter};
 use std::io::{BufRead, BufReader};
-use crate::{log_info, log_err};
+use tauri::{AppHandle, Emitter};
+use uuid::{Builder, Variant, Version};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -191,9 +187,8 @@ pub struct AssetIndex {
     pub url: Option<String>,
 }
 
-
-
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LaunchConfig {
     pub username: String,
     pub uuid: String,
@@ -225,15 +220,14 @@ impl LaunchConfig {
         loader_version: String,
     ) -> Result<Self> {
         let raw_base_dir = get_launcher_dir()?;
-                let base_dir = dunce::canonicalize(&raw_base_dir)
-                    .unwrap_or(raw_base_dir);
+        let base_dir = dunce::canonicalize(&raw_base_dir).unwrap_or(raw_base_dir);
 
-                let natives_dir = base_dir.join("natives").join(&mc_version);
+        let natives_dir = base_dir.join("natives").join(&mc_version);
 
-                if !base_dir.exists() {
-                    fs::create_dir_all(&base_dir).await?;
-                }
-                fs::create_dir_all(&natives_dir).await?;
+        if !base_dir.exists() {
+            fs::create_dir_all(&base_dir).await?;
+        }
+        fs::create_dir_all(&natives_dir).await?;
 
         Ok(Self {
             username,
@@ -266,7 +260,11 @@ impl LaunchConfig {
 // UTILS
 
 fn get_classpath_separator() -> &'static str {
-    if cfg!(windows) { ";" } else { ":" }
+    if cfg!(windows) {
+        ";"
+    } else {
+        ":"
+    }
 }
 
 fn get_current_os() -> &'static str {
@@ -280,7 +278,7 @@ fn get_current_os() -> &'static str {
 }
 
 fn os_check() -> Option<PathBuf> {
-#[cfg(target_os = "windows")]
+    #[cfg(target_os = "windows")]
     {
         std::env::var("USERPROFILE").ok().map(PathBuf::from)
     }
@@ -288,14 +286,13 @@ fn os_check() -> Option<PathBuf> {
     {
         std::env::var("HOME").ok().map(PathBuf::from)
     }
-   }
+}
 
 fn get_launcher_dir() -> Result<PathBuf> {
-    let home = os_check()
-        .ok_or_else(|| anyhow::anyhow!("Home directory not found"))?;
+    let home = os_check().ok_or_else(|| anyhow::anyhow!("Home directory not found"))?;
 
-    let launcher_name = env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "default_launcher".to_string());
+    let launcher_name =
+        env::var("LAUNCHER_NAME").unwrap_or_else(|_| "default_launcher".to_string());
 
     Ok(home.join(launcher_name))
 }
@@ -378,10 +375,10 @@ fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>> {
     let mut jar_files = Vec::new();
 
     let libraries_dir = if libraries_dir.exists() {
-            dunce::canonicalize(libraries_dir).unwrap_or_else(|_| libraries_dir.to_path_buf())
-        } else {
-            libraries_dir.to_path_buf()
-        };
+        dunce::canonicalize(libraries_dir).unwrap_or_else(|_| libraries_dir.to_path_buf())
+    } else {
+        libraries_dir.to_path_buf()
+    };
 
     log_info!("Поиск JAR файлов в: {:?}", libraries_dir);
 
@@ -391,22 +388,21 @@ fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>> {
     }
 
     fn visit_dirs(dir: &Path, jar_files: &mut Vec<String>) -> Result<()> {
-            if dir.is_dir() {
-                for entry in std::fs::read_dir(dir)? {
-                    let entry = entry?;
-                    let path = entry.path();
+        if dir.is_dir() {
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
 
-                    if path.is_dir() {
-                        visit_dirs(&path, jar_files)?;
-                    } else if path.extension().and_then(|s| s.to_str()) == Some("jar") {
-                        let clean_path = dunce::canonicalize(&path)
-                            .unwrap_or_else(|_| path.clone());
-                        jar_files.push(clean_path.to_string_lossy().to_string());
-                    }
+                if path.is_dir() {
+                    visit_dirs(&path, jar_files)?;
+                } else if path.extension().and_then(|s| s.to_str()) == Some("jar") {
+                    let clean_path = dunce::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                    jar_files.push(clean_path.to_string_lossy().to_string());
                 }
             }
-            Ok(())
         }
+        Ok(())
+    }
 
     visit_dirs(&libraries_dir, &mut jar_files)?;
 
@@ -420,8 +416,7 @@ async fn load_version_json(path: &Path) -> Result<VersionJson> {
         .await
         .with_context(|| format!("Не удалось прочитать {:?}", path))?;
 
-    serde_json::from_str(&content)
-        .with_context(|| format!("Не удалось распарсить {:?}", path))
+    serde_json::from_str(&content).with_context(|| format!("Не удалось распарсить {:?}", path))
 }
 
 fn build_classpath(
@@ -481,11 +476,17 @@ fn substitute_variables(
         .replace("${auth_access_token}", &config.access_token)
         .replace("${user_type}", "msa")
         .replace("${version_type}", "release")
-        .replace("${natives_directory}", &config.natives_dir.to_string_lossy())
+        .replace(
+            "${natives_directory}",
+            &config.natives_dir.to_string_lossy(),
+        )
         .replace("${launcher_name}", "CustomLauncher")
         .replace("${launcher_version}", "1.0")
         .replace("${classpath}", classpath)
-        .replace("${library_directory}", &config.libraries_dir.to_string_lossy())
+        .replace(
+            "${library_directory}",
+            &config.libraries_dir.to_string_lossy(),
+        )
         .replace("${classpath_separator}", get_classpath_separator())
 }
 
@@ -505,11 +506,10 @@ fn process_argument_value(
                     StringOrVec::Single(s) => {
                         vec![substitute_variables(s, config, classpath, assets_index)]
                     }
-                    StringOrVec::Multiple(vec) => {
-                        vec.iter()
-                            .map(|s| substitute_variables(s, config, classpath, assets_index))
-                            .collect()
-                    }
+                    StringOrVec::Multiple(vec) => vec
+                        .iter()
+                        .map(|s| substitute_variables(s, config, classpath, assets_index))
+                        .collect(),
                 }
             } else {
                 Vec::new()
@@ -551,12 +551,13 @@ fn spawn_game_process(
     app: AppHandle,
     java_path: &Path,
     args: &[String],
-    game_dir: &Path
+    game_dir: &Path,
 ) -> Result<()> {
     log_info!("\n▶ Запуск Minecraft...\n");
     let mut command = Command::new(java_path);
 
-    command.args(args)
+    command
+        .args(args)
         .current_dir(game_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -578,10 +579,13 @@ fn spawn_game_process(
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
             if let Ok(line) = line {
-                let _ = app_out.emit("game-console", ConsolePayload {
-                    line,
-                    is_error: false,
-                });
+                let _ = app_out.emit(
+                    "game-console",
+                    ConsolePayload {
+                        line,
+                        is_error: false,
+                    },
+                );
             }
         }
     });
@@ -591,19 +595,20 @@ fn spawn_game_process(
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
-                let _ = app_err.emit("game-console", ConsolePayload {
-                    line,
-                    is_error: true,
-                });
+                let _ = app_err.emit(
+                    "game-console",
+                    ConsolePayload {
+                        line,
+                        is_error: true,
+                    },
+                );
             }
         }
     });
 
-    thread::spawn(move || {
-        match child.wait() {
-            Ok(status) => println!("✓ Minecraft завершился: {:?}", status),
-            Err(e) => eprintln!("✗ Ошибка ожидания процесса: {}", e),
-        }
+    thread::spawn(move || match child.wait() {
+        Ok(status) => println!("✓ Minecraft завершился: {:?}", status),
+        Err(e) => eprintln!("✗ Ошибка ожидания процесса: {}", e),
     });
 
     Ok(())
@@ -630,15 +635,6 @@ fn build_launch_args(
     full_args
 }
 
-fn fix_path(path: &Path) -> String {
-    let p = path.to_string_lossy().to_string();
-    if cfg!(target_os = "windows") {
-        p.replace("\\\\?\\", "")
-    } else {
-        p
-    }
-}
-
 // FABRIC
 
 pub async fn fabric_start(
@@ -656,14 +652,16 @@ pub async fn fabric_start(
         access_token.clone(),
         mc_version.clone(),
         format!("fabric-{}", mc_version),
-    ).await?;
+    )
+    .await?;
 
     let base_dir = get_launcher_dir()?;
 
     let mut jar_files = find_all_jar_files(&config.libraries_dir)?;
     log_info!("Найдено библиотек: {}", jar_files.len());
 
-    let fabric_loader = jar_files.iter()
+    let fabric_loader = jar_files
+        .iter()
         .find(|path| path.contains("fabric-loader"))
         .cloned();
 
@@ -692,13 +690,20 @@ pub async fn fabric_start(
 
     jar_files.push(game_jar_path.to_string_lossy().to_string());
 
-    let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+    let separator = if cfg!(target_os = "windows") {
+        ";"
+    } else {
+        ":"
+    };
     let classpath = jar_files.join(separator);
 
-    let mut args = vec![
+    let args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
-        format!("-Djava.library.path={}", config.natives_dir.to_string_lossy()),
+        format!(
+            "-Djava.library.path={}",
+            config.natives_dir.to_string_lossy()
+        ),
         "-XX:+UnlockExperimentalVMOptions".to_string(),
         "-XX:+UseG1GC".to_string(),
         "-Duser.language=ru".to_string(),
@@ -707,16 +712,26 @@ pub async fn fabric_start(
         classpath,
         format!("-Dfabric.gameJarPath={}", game_jar_path.to_string_lossy()),
         "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
-        "--username".to_string(), username,
-        "--uuid".to_string(), uuid,
-        "--accessToken".to_string(), access_token,
-        "--userProperties".to_string(), "{}".to_string(),
-        "--assetsDir".to_string(), config.assets_dir.to_string_lossy().to_string(),
-        "--assetIndex".to_string(), mc_version,
-        "--gameDir".to_string(), config.game_dir.to_string_lossy().to_string(),
-        "--width".to_string(), "1280".to_string(),
-        "--height".to_string(), "720".to_string(),
-        "--versionType".to_string(), "release".to_string(),
+        "--username".to_string(),
+        username,
+        "--uuid".to_string(),
+        uuid,
+        "--accessToken".to_string(),
+        access_token,
+        "--userProperties".to_string(),
+        "{}".to_string(),
+        "--assetsDir".to_string(),
+        config.assets_dir.to_string_lossy().to_string(),
+        "--assetIndex".to_string(),
+        mc_version,
+        "--gameDir".to_string(),
+        config.game_dir.to_string_lossy().to_string(),
+        "--width".to_string(),
+        "1280".to_string(),
+        "--height".to_string(),
+        "720".to_string(),
+        "--versionType".to_string(),
+        "release".to_string(),
     ];
 
     let java_path = find_java()?;
@@ -732,7 +747,7 @@ fn find_forge_version_dir(versions_dir: &Path, mc_version: &str) -> Result<PathB
         bail!("Директория versions не существует: {:?}", versions_dir);
     }
 
-    let forge_version = "47.4.10"; // TODO
+    let forge_version = "36.2.34"; // TODO "47.4.10"
 
     let pattern = format!("{}-forge-{}", mc_version, forge_version);
     let alt_pattern = format!("forge-{}-{}", mc_version, forge_version);
@@ -758,12 +773,54 @@ fn find_forge_version_dir(versions_dir: &Path, mc_version: &str) -> Result<PathB
     Ok(paths.last().unwrap().clone())
 }
 
+#[derive(Deserialize)]
+struct VersionManifest {
+    versions: Vec<VersionInfo>,
+}
+
+#[derive(Deserialize, Clone)]
+struct VersionInfo {
+    id: String,
+    url: String,
+}
+
+async fn ensure_vanilla_version_installed(mc_version: &str, versions_dir: &Path) -> Result<()> {
+    let version_dir = versions_dir.join(mc_version);
+    let json_path = version_dir.join(format!("{}.json", mc_version));
+
+    if json_path.exists() {
+        return Ok(());
+    }
+
+    log_info!("⚠ Ванильная версия {} не найдена. Скачиваю...", mc_version);
+
+    let manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    let manifest: VersionManifest = reqwest::get(manifest_url).await?.json().await?;
+
+    let version_info = manifest
+        .versions
+        .into_iter()
+        .find(|v| v.id == mc_version)
+        .ok_or_else(|| anyhow::anyhow!("Версия {} не найдена в манифесте Mojang", mc_version))?;
+
+    let version_json_content = reqwest::get(version_info.url).await?.text().await?;
+
+    std::fs::create_dir_all(&version_dir)?;
+    std::fs::write(&json_path, version_json_content)?;
+
+    log_info!("✓ Ванильная версия {} успешно скачана.", mc_version);
+
+    Ok(())
+}
+
 async fn merge_version_jsons(
     forge_json: &VersionJson,
     versions_dir: &Path,
 ) -> Result<(VersionJson, String)> {
     let mut all_libraries = forge_json.libraries.clone();
-    let mut assets_index_id = forge_json.assets.clone()
+    let mut assets_index_id = forge_json
+        .assets
+        .clone()
         .unwrap_or_else(|| forge_json.id.clone());
     let mut combined_arguments = forge_json.arguments.clone();
     let mut minecraft_arguments = forge_json.minecraft_arguments.clone();
@@ -829,6 +886,7 @@ pub async fn forge_start(
 
     let base_dir = get_launcher_dir()?;
     let versions_dir = base_dir.join("versions");
+    ensure_vanilla_version_installed(&mc_version, &versions_dir).await?;
     let forge_version_dir = find_forge_version_dir(&versions_dir, &mc_version)?;
     let forge_version = forge_version_dir
         .file_name()
@@ -841,10 +899,8 @@ pub async fn forge_start(
     let forge_json_path = forge_version_dir.join(format!("{}.json", forge_version));
     let forge_version_json = load_version_json(&forge_json_path).await?;
 
-    let (merged_version, assets_index_id) = merge_version_jsons(
-        &forge_version_json,
-        &versions_dir,
-    ).await?;
+    let (merged_version, assets_index_id) =
+        merge_version_jsons(&forge_version_json, &versions_dir).await?;
 
     let config = LaunchConfig::new(
         username.clone(),
@@ -852,13 +908,16 @@ pub async fn forge_start(
         access_token.clone(),
         mc_version.clone(),
         forge_version.clone(),
-    ).await?;
+    )
+    .await?;
 
-    let client_jar = if let Some(inherits) = &forge_version_json.inherits_from {
-        versions_dir.join(inherits).join(format!("{}.jar", inherits))
-    } else {
-        forge_version_dir.join(format!("{}.jar", forge_version))
-    };
+    // let client_jar = if let Some(inherits) = &forge_version_json.inherits_from {
+    //     versions_dir
+    //         .join(inherits)
+    //         .join(format!("{}.jar", inherits))
+    // } else {
+    //     forge_version_dir.join(format!("{}.jar", forge_version))
+    // };
 
     let java_path = find_java()?;
     log_info!("☕ Java: {:?}", java_path);
@@ -866,25 +925,15 @@ pub async fn forge_start(
     let classpath = build_forge_classpath(
         &merged_version.libraries,
         &config.libraries_dir,
-        &client_jar,
     )?;
 
-    let (mut jvm_args, game_args) = extract_forge_arguments(
-        &merged_version,
-        &config,
-        &classpath,
-        &assets_index_id,
-    );
+    let (jvm_args, game_args) =
+        extract_forge_arguments(&merged_version, &config, &classpath, &assets_index_id);
 
     let mut full_args = Vec::new();
 
     full_args.push(format!("-Xms{}", config.min_memory));
     full_args.push(format!("-Xmx{}", config.max_memory));
-
-    let ignore_list = format!(
-        "asm-9.7.1.jar,asm-commons-9.7.1.jar,asm-util-9.7.1.jar,asm-tree-9.7.1.jar,asm-analysis-9.7.1.jar,client-{}.jar",
-        mc_version
-    );
 
     for arg in &jvm_args {
         if !arg.contains("${") {
@@ -914,14 +963,9 @@ pub async fn forge_start(
 fn build_forge_classpath(
     libraries: &[Library],
     libraries_dir: &Path,
-    client_jar: &Path,
 ) -> Result<String> {
     let separator = get_classpath_separator();
     let mut paths: Vec<String> = Vec::new();
-    let mut seen_artifacts: HashSet<String> = HashSet::new();
-
-    let client_jar_canonical = client_jar.canonicalize()
-        .unwrap_or_else(|_| client_jar.to_path_buf());
 
     for lib in libraries {
         if let Some(rules) = &lib.rules {
@@ -948,21 +992,6 @@ fn build_forge_classpath(
             continue;
         }
 
-        let canonical = lib_path.canonicalize()
-            .unwrap_or_else(|_| lib_path.clone());
-
-
-        if canonical == client_jar_canonical {
-            continue;
-        }
-
-        let artifact_name = extract_artifact_name(&lib.name);
-
-        if seen_artifacts.contains(&artifact_name) {
-            continue;
-        }
-        seen_artifacts.insert(artifact_name);
-
         let path_str = lib_path.to_string_lossy().to_string();
         if !paths.contains(&path_str) {
             paths.push(path_str);
@@ -970,15 +999,6 @@ fn build_forge_classpath(
     }
 
     Ok(paths.join(separator))
-}
-
-fn extract_artifact_name(maven_name: &str) -> String {
-    let parts: Vec<&str> = maven_name.split(':').collect();
-    if parts.len() >= 2 {
-        parts[1].to_string()
-    } else {
-        maven_name.to_string()
-    }
 }
 
 fn extract_forge_arguments(
@@ -989,16 +1009,6 @@ fn extract_forge_arguments(
 ) -> (Vec<String>, Vec<String>) {
     let mut jvm_args = Vec::new();
     let mut game_args = Vec::new();
-
-        let essential_jvm_args = vec![
-            "--add-modules=ALL-MODULE-PATH".to_string(),
-            "--add-opens=java.base/java.util.jar=cpw.mods.securejarhandler".to_string(),
-            "--add-opens=java.base/java.lang.invoke=cpw.mods.securejarhandler".to_string(),
-            "--add-exports=java.base/sun.security.util=cpw.mods.securejarhandler".to_string(),
-            "--add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming".to_string(),
-        ];
-
-        jvm_args.extend(essential_jvm_args);
 
     if let Some(arguments) = &version.arguments {
         for arg in &arguments.jvm {
@@ -1014,7 +1024,12 @@ fn extract_forge_arguments(
 
     if let Some(mc_args) = &version.minecraft_arguments {
         for arg in mc_args.split_whitespace() {
-            game_args.push(substitute_forge_variables(arg, config, classpath, assets_index));
+            game_args.push(substitute_forge_variables(
+                arg,
+                config,
+                classpath,
+                assets_index,
+            ));
         }
     }
 
@@ -1029,19 +1044,28 @@ fn process_forge_argument(
 ) -> Vec<String> {
     match arg {
         ArgumentValue::Simple(s) => {
-            vec![substitute_forge_variables(s, config, classpath, assets_index)]
+            vec![substitute_forge_variables(
+                s,
+                config,
+                classpath,
+                assets_index,
+            )]
         }
         ArgumentValue::Conditional { value, rules } => {
             if is_rule_allowed(rules) {
                 match value {
                     StringOrVec::Single(s) => {
-                        vec![substitute_forge_variables(s, config, classpath, assets_index)]
+                        vec![substitute_forge_variables(
+                            s,
+                            config,
+                            classpath,
+                            assets_index,
+                        )]
                     }
-                    StringOrVec::Multiple(vec) => {
-                        vec.iter()
-                            .map(|s| substitute_forge_variables(s, config, classpath, assets_index))
-                            .collect()
-                    }
+                    StringOrVec::Multiple(vec) => vec
+                        .iter()
+                        .map(|s| substitute_forge_variables(s, config, classpath, assets_index))
+                        .collect(),
                 }
             } else {
                 Vec::new()
@@ -1065,45 +1089,31 @@ fn substitute_forge_variables(
         .replace("${auth_access_token}", &config.access_token)
         .replace("${user_type}", "msa")
         .replace("${version_type}", "release")
-        .replace("${natives_directory}", &config.natives_dir.to_string_lossy())
+        .replace(
+            "${natives_directory}",
+            &config.natives_dir.to_string_lossy(),
+        )
         .replace("${launcher_name}", "CustomLauncher")
         .replace("${launcher_version}", "1.0")
         .replace("${classpath}", classpath)
-        .replace("${library_directory}", &config.libraries_dir.to_string_lossy())
+        .replace(
+            "${library_directory}",
+            &config.libraries_dir.to_string_lossy(),
+        )
         .replace("${classpath_separator}", get_classpath_separator())
         // Forge
         .replace("${primary_jar_name}", "client.jar")
         .replace("${resolution_width}", "1280")
         .replace("${resolution_height}", "720")
         .replace("${clientid}", "")
-        .replace("${auth_xuid}", "")  // оффлайн ?
+        .replace("${auth_xuid}", "") // оффлайн ?
         .replace("${quickPlayPath}", "")
         .replace("${quickPlaySingleplayer}", "")
         .replace("${quickPlayMultiplayer}", "")
         .replace("${quickPlayRealms}", "")
 }
 
-fn find_library_manually(libraries_dir: &Path, name_pattern: &str) -> Option<PathBuf> {
-    use walkdir::WalkDir;
-
-    for entry in WalkDir::new(libraries_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.is_file() && path.extension().map(|e| e == "jar").unwrap_or(false) {
-            if let Some(file_name) = path.file_name() {
-                if file_name.to_string_lossy().contains(name_pattern) {
-                    return Some(path.to_path_buf());
-                }
-            }
-        }
-    }
-    None
-}
-
 // VANILLA
-
 pub async fn vanilla_start(
     app: AppHandle,
     username: String,
@@ -1126,25 +1136,19 @@ pub async fn vanilla_start(
         access_token,
         mc_version.clone(),
         mc_version.clone(),
-    ).await?;
+    )
+    .await?;
 
     let client_jar = version_dir.join(format!("{}.jar", mc_version));
-    let assets_index_id = version_json.assets
+    let assets_index_id = version_json
+        .assets
         .clone()
         .unwrap_or_else(|| mc_version.clone());
 
-    let classpath = build_classpath(
-        &version_json.libraries,
-        &config.libraries_dir,
-        &client_jar,
-    )?;
+    let classpath = build_classpath(&version_json.libraries, &config.libraries_dir, &client_jar)?;
 
-    let (jvm_args, game_args) = extract_arguments(
-        &version_json,
-        &config,
-        &classpath,
-        &assets_index_id,
-    );
+    let (jvm_args, game_args) =
+        extract_arguments(&version_json, &config, &classpath, &assets_index_id);
 
     let java_path = find_java()?;
     log_info!("☕ Java: {:?}", java_path);
@@ -1185,7 +1189,7 @@ pub async fn start_jvm(
     type_minecraft: String,
     mc_version: Option<String>,
 ) -> Result<String, String> {
-    let version = mc_version.unwrap_or_else(|| "1.20.1".to_string());
+    let version = mc_version.unwrap_or_else(|| "1.16.5".to_string());
     let uuid = generate_offline_uuid(&username);
 
     match type_minecraft.as_str() {
