@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -8,9 +7,8 @@ use std::thread;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use walkdir::WalkDir;
 
-use crate::{log_err, log_info};
+use crate::{log_info};
 use md5::{Digest, Md5};
 use std::io::{BufRead, BufReader};
 use tauri::{AppHandle, Emitter};
@@ -190,6 +188,7 @@ pub struct AssetIndex {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LaunchConfig {
     pub username: String,
     pub uuid: String,
@@ -698,7 +697,7 @@ pub async fn fabric_start(
     };
     let classpath = jar_files.join(separator);
 
-    let mut args = vec![
+    let args = vec![
         format!("-Xms{}", config.min_memory),
         format!("-Xmx{}", config.max_memory),
         format!(
@@ -912,13 +911,13 @@ pub async fn forge_start(
     )
     .await?;
 
-    let client_jar = if let Some(inherits) = &forge_version_json.inherits_from {
-        versions_dir
-            .join(inherits)
-            .join(format!("{}.jar", inherits))
-    } else {
-        forge_version_dir.join(format!("{}.jar", forge_version))
-    };
+    // let client_jar = if let Some(inherits) = &forge_version_json.inherits_from {
+    //     versions_dir
+    //         .join(inherits)
+    //         .join(format!("{}.jar", inherits))
+    // } else {
+    //     forge_version_dir.join(format!("{}.jar", forge_version))
+    // };
 
     let java_path = find_java()?;
     log_info!("☕ Java: {:?}", java_path);
@@ -926,21 +925,15 @@ pub async fn forge_start(
     let classpath = build_forge_classpath(
         &merged_version.libraries,
         &config.libraries_dir,
-        &client_jar,
     )?;
 
-    let (mut jvm_args, game_args) =
+    let (jvm_args, game_args) =
         extract_forge_arguments(&merged_version, &config, &classpath, &assets_index_id);
 
     let mut full_args = Vec::new();
 
     full_args.push(format!("-Xms{}", config.min_memory));
     full_args.push(format!("-Xmx{}", config.max_memory));
-
-    let ignore_list = format!(
-        "asm-9.7.1.jar,asm-commons-9.7.1.jar,asm-util-9.7.1.jar,asm-tree-9.7.1.jar,asm-analysis-9.7.1.jar,client-{}.jar",
-        mc_version
-    );
 
     for arg in &jvm_args {
         if !arg.contains("${") {
@@ -970,7 +963,6 @@ pub async fn forge_start(
 fn build_forge_classpath(
     libraries: &[Library],
     libraries_dir: &Path,
-    client_jar: &Path,
 ) -> Result<String> {
     let separator = get_classpath_separator();
     let mut paths: Vec<String> = Vec::new();

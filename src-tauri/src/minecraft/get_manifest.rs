@@ -1,4 +1,4 @@
-use crate::{log_err, log_info};
+use crate::{log_info};
 use anyhow::{anyhow, Context, Result};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,6 @@ use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
 use tokio::sync::Semaphore;
 use zip::ZipArchive;
 
@@ -337,7 +336,7 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn download_minecraft_version(app: AppHandle, version: &str) -> Result<String, String> {
+pub async fn download_minecraft_version(version: &str) -> Result<String, String> {
     let manifest = get_version_manifest()
         .await
         .map_err(|e| format!("Ошибка получения манифеста: {}", e))?;
@@ -351,8 +350,8 @@ pub async fn download_minecraft_version(app: AppHandle, version: &str) -> Result
     match version_url {
         Some(url) => {
             log_info!("Downloading version {}", url);
-            let result = download_files(&url).await;
-            Ok("Download complete".to_string())
+            let result = download_files(&url).await?;
+            Ok(result)
         }
         None => Err("Err".to_string()),
     }
@@ -517,7 +516,7 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
 
     download_file(&manifest.asset_index.url, &asset_index_path)
         .await
-        .map_err(|e| format!("Ошибка при скачивании индекса ресурсов: {:?}", e))?;
+    .map_err(|e| format!("Ошибка при скачивании индекса ресурсов: {:?}", e))?;
 
     let asset_index_file = fs::read_to_string(&asset_index_path)
         .map_err(|e| format!("Ошибка при чтении индекса ресурсов: {}", e))?;
@@ -581,5 +580,5 @@ async fn download_files(manifest_url: &str) -> Result<String, String> {
     );
 
     log_info!("\nВсе файлы Minecraft успешно скачаны!");
-    Ok("Ok".to_string())
+    Ok("Загрузка ресурсов завершена".to_string())
 }
