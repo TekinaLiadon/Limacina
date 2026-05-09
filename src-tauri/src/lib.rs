@@ -5,8 +5,8 @@ mod utils;
 
 use core::downloader::download_all_files;
 use minecraft::fabric::fabric::get_fabric;
-use minecraft::forge::get_forge;
-use minecraft::get_manifest::download_minecraft_version;
+use minecraft::forge::forge::get_forge;
+use minecraft::manifest::manifest::download_minecraft_version;
 use minecraft::jvm::start_jvm;
 use utils::home_dir::get_home_dir;
 use utils::logger_utils;
