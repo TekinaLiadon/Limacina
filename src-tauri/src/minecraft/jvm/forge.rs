@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use tauri::AppHandle;
 
@@ -55,10 +55,7 @@ struct VersionInfo {
     url: String,
 }
 
-async fn ensure_vanilla_version_installed(
-    mc_version: &str,
-    versions_dir: &Path,
-) -> Result<(), String> {
+async fn ensure_vanilla_version_installed(mc_version: &str, versions_dir: &Path) -> Result<()> {
     let version_dir = versions_dir.join(mc_version);
     let json_path = version_dir.join(format!("{}.json", mc_version));
 
@@ -71,27 +68,27 @@ async fn ensure_vanilla_version_installed(
     let manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     let manifest: VersionManifest = reqwest::get(manifest_url)
         .await
-        .map_err(|e| e.to_string())?
+        .context("Ошибка в получении json")?
         .json()
         .await
-        .map_err(|e| e.to_string())?;
+        .context("Ошибка в чтении json")?;
 
     let version_info = manifest
         .versions
         .into_iter()
         .find(|v| v.id == mc_version)
         .ok_or_else(|| anyhow::anyhow!("Версия {} не найдена в манифесте Mojang", mc_version))
-        .map_err(|e| e.to_string())?;
+        .context("Ошибка манифеста Mojang")?;
 
     let version_json_content = reqwest::get(version_info.url)
         .await
-        .map_err(|e| e.to_string())?
+        .context("Ошибка в получении версии")?
         .text()
         .await
-        .map_err(|e| e.to_string())?;
+        .context("Ошибка в чтении версии")?;
 
-    std::fs::create_dir_all(&version_dir).map_err(|e| e.to_string())?;
-    std::fs::write(&json_path, version_json_content).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&version_dir).context("Ошибка в создании папки")?;
+    std::fs::write(&json_path, version_json_content).context("Ошибка в чтении json")?;
 
     log_info!("✓ Ванильная версия {} успешно скачана.", mc_version);
 
@@ -101,7 +98,7 @@ async fn ensure_vanilla_version_installed(
 async fn merge_version_jsons(
     forge_json: &VersionJson,
     versions_dir: &Path,
-) -> Result<(VersionJson, String), String> {
+) -> Result<(VersionJson, String)> {
     let mut all_libraries = forge_json.libraries.clone();
     let mut assets_index_id = forge_json
         .assets
@@ -166,14 +163,13 @@ pub async fn forge_start(
     uuid: String,
     access_token: String,
     mc_version: String,
-) -> Result<(), String> {
+) -> Result<()> {
     log_info!("🎮 Запуск Minecraft {} с Forge...", mc_version);
 
     let base_dir = launcher_patch()?;
     let versions_dir = base_dir.join("versions");
     ensure_vanilla_version_installed(&mc_version, &versions_dir).await?;
-    let forge_version_dir =
-        find_forge_version_dir(&versions_dir, &mc_version).map_err(|e| e.to_string())?;
+    let forge_version_dir = find_forge_version_dir(&versions_dir, &mc_version)?;
     let forge_version = forge_version_dir
         .file_name()
         .unwrap()
@@ -196,7 +192,7 @@ pub async fn forge_start(
         forge_version.clone(),
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .context("Ошибка в создании конфига")?;
 
     let java_path = find_java()?;
     log_info!("☕ Java: {:?}", java_path);
@@ -233,12 +229,12 @@ pub async fn forge_start(
         log_info!("  [{}]: {}", i, arg);
     }
 
-    spawn_game_process(app, &java_path, &full_args, &config.game_dir);
+    spawn_game_process(app, &java_path, &full_args, &config.game_dir)?;
 
     Ok(())
 }
 
-fn build_forge_classpath(libraries: &[Library], libraries_dir: &Path) -> Result<String, String> {
+fn build_forge_classpath(libraries: &[Library], libraries_dir: &Path) -> Result<String> {
     let separator = get_classpath_separator();
     let mut paths: Vec<String> = Vec::new();
 

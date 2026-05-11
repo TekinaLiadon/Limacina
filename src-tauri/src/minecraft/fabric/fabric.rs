@@ -1,8 +1,8 @@
 use crate::minecraft::fabric::download::get_fabric_version;
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::launcher_patch;
-use crate::{ log_info};
-use anyhow::{Result};
+use crate::{log_info, utils::tauri_err::CommandResult};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use super::download::download_fabric_libraries;
@@ -117,20 +117,16 @@ pub struct LoggingFile {
 }
 
 #[tauri::command]
-pub async fn get_fabric(mc_version: String) -> Result<String, String> {
+pub async fn get_fabric(mc_version: String) -> CommandResult<String> {
     let loader_ver = get_fabric_version(&mc_version).await?;
     let version_id = format!("fabric-loader-{}-{}", loader_ver, mc_version);
     log_info!("Выбрана версия загрузчика: {}", loader_ver);
 
     let base_path = launcher_patch()?;
     let version_dir = base_path.join("fabric").join(&version_id);
-    tokio::fs::create_dir_all(&version_dir).await.map_err(|e| {
-        format!(
-            "Ошибка создания директории {}: {}",
-            version_dir.display(),
-            e
-        )
-    })?;
+    tokio::fs::create_dir_all(&version_dir)
+        .await
+        .with_context(|| format!("Ошибка создания директории для fabric: {:?}", &mc_version))?;
 
     let json_url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
@@ -138,9 +134,7 @@ pub async fn get_fabric(mc_version: String) -> Result<String, String> {
     );
     log_info!("Скачиваем: {}", json_url);
     let json_dest = version_dir.join(format!("{}.json", version_id));
-    download_file(&json_url, &json_dest)
-        .await
-        .map_err(|e| format!("Не удалось скачать JSON профиль: {}", e))?;
+    download_file(&json_url, &json_dest).await?;
 
     let jar_url = format!(
         "https://maven.fabricmc.net/net/fabricmc/fabric-loader/{}/fabric-loader-{}.jar",
@@ -148,16 +142,12 @@ pub async fn get_fabric(mc_version: String) -> Result<String, String> {
     );
     log_info!("Скачиваем: {}", jar_url);
     let jar_dest = version_dir.join(format!("{}.jar", version_id));
-    download_file(&jar_url, &jar_dest)
-        .await
-        .map_err(|e| format!("Не удалось скачать JAR файл загрузчика: {}", e))?;
+    download_file(&jar_url, &jar_dest).await?;
     log_info!("Fabric Loader успешно скачан!");
 
     let libraries_path = base_path.join("libraries");
     log_info!("Fabric: {}", json_dest.display());
-    download_fabric_libraries(&json_dest, &libraries_path)
-        .await
-        .map_err(|e| format!("Не удалось скачать библиотеки: {}", e))?;
+    download_fabric_libraries(&json_dest, &libraries_path).await?;
 
     Ok(format!(
         "Fabric {} для Minecraft {} успешно установлен!",

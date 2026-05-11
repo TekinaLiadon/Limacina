@@ -1,5 +1,5 @@
 use futures::future;
-use std::fs as std_fs; 
+use std::fs as std_fs;
 use std::io as std_io;
 use std::{
     collections::HashMap,
@@ -21,44 +21,44 @@ use anyhow::{anyhow, Context, Result};
 use tokio::fs;
 use zip::ZipArchive;
 
-pub async fn get_index_manifest() -> Result<VersionsIndexManifest, String> {
+pub async fn get_index_manifest() -> Result<VersionsIndexManifest> {
     log_info!("Загрузка индекса манифеста");
     let url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
     let resp = reqwest::get(url)
         .await
-        .map_err(|e| format!("Ошибка получения манифеста: {}", e))?;
+        .context("Ошибка получения манифеста: ")?;
     let manifest = resp
         .json::<VersionsIndexManifest>()
         .await
-        .map_err(|e| format!("Ошибка в разборе манифеста: {}", e))?;
+        .context("Ошибка в разборе манифеста: ")?;
     Ok(manifest)
 }
 
 pub async fn get_version_manifest(
     version: &str,
     index: VersionsIndexManifest,
-) -> Result<VersionDetailsManifest, String> {
+) -> Result<VersionDetailsManifest> {
     log_info!("Загрузка версии {}", version);
     let version_url = index
         .versions
         .iter()
         .find(|v| v.id == version)
         .map(|v| v.url.clone())
-        .ok_or(format!("Версия не найдена: {}", version))?;
+        .with_context(|| format!("Версия не найдена: {}", version))?;
 
     log_info!("Получение манифеста версии...");
     let resp = reqwest::get(version_url)
         .await
-        .map_err(|e| format!("Ошибка HTTP запроса: {}", e))?;
+        .context("Ошибка HTTP запроса: ")?;
     let manifest: VersionDetailsManifest = resp
         .json()
         .await
-        .map_err(|e| format!("Ошибка при разборе манифеста: {}", e))?;
+        .context("Ошибка при разборе манифеста: ")?;
 
     Ok(manifest)
 }
 
-pub async fn get_core_jar(manifest: &VersionDetailsManifest) -> Result<(), String> {
+pub async fn get_core_jar(manifest: &VersionDetailsManifest) -> Result<()> {
     let base_path: PathBuf = launcher_patch()?;
     let client_jar_path = base_path
         .join("versions")
@@ -71,20 +71,20 @@ pub async fn get_core_jar(manifest: &VersionDetailsManifest) -> Result<(), Strin
     );
     download_file(&manifest.downloads.client.url, &client_jar_path)
         .await
-        .map_err(|e| format!("Не удалось скачать манифест: {}", e))?;
+        .context("Не удалось скачать манифест: ")?;
 
     Ok(())
 }
 
 // RASDEL
 
-pub async fn get_native_lib(manifest: &VersionDetailsManifest) -> Result<(), String> {
+pub async fn get_native_lib(manifest: &VersionDetailsManifest) -> Result<()> {
     let base_path: PathBuf = launcher_patch()?;
     let natives_dir = base_path.join("natives").join(&manifest.id);
     let current_os = get_current_os();
     fs::create_dir_all(&natives_dir)
         .await
-        .map_err(|e| format!("Ошибка создания папки natives: {}", e))?;
+        .context("Ошибка создания папки natives: ")?;
 
     log_info!("\nСкачиваем библиотеки...");
     log_info!("Текущая ОС: {}", current_os);
@@ -105,7 +105,7 @@ pub async fn get_native_lib(manifest: &VersionDetailsManifest) -> Result<(), Str
         // (1.19+)
         if let Some(artifact) = &lib.downloads.artifact {
             if !artifact.url.is_empty() {
-                download_native(lib, artifact, &base_path, &mut natives_to_extract).await;
+                download_native(lib, artifact, &base_path, &mut natives_to_extract).await?;
             }
         }
         if is_native_jar(&lib.name) {
@@ -305,7 +305,7 @@ async fn download_native_old(
 async fn extract_native(
     natives_to_extract: Vec<(PathBuf, Option<Vec<String>>)>,
     natives_dir: PathBuf,
-) -> Result<(), String> {
+) -> Result<()> {
     log_info!("\n=== Извлечение natives ===");
     log_info!(
         "Всего JAR файлов для извлечения: {}",
@@ -429,7 +429,7 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
     false
 }
 
-pub async fn get_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetIndexContent, String> {
+pub async fn get_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetIndexContent> {
     let base_path: PathBuf = launcher_patch()?;
     log_info!("\nСкачиваем индекс ресурсов...");
     let asset_index_path = base_path
@@ -437,21 +437,19 @@ pub async fn get_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetInd
         .join("indexes")
         .join(format!("{}.json", manifest.asset_index.id));
 
-    download_file(&manifest.asset_index.url, &asset_index_path)
-        .await
-        .map_err(|e| format!("Ошибка при скачивании индекса ресурсов: {:?}", e))?;
+    download_file(&manifest.asset_index.url, &asset_index_path).await?;
 
     let asset_index_file = fs::read_to_string(&asset_index_path)
         .await
-        .map_err(|e| format!("Ошибка при чтении индекса ресурсов: {}", e))?;
+        .context("Ошибка при чтении индекса ресурсов: ")?;
 
-    let asset_index: AssetIndexContent = serde_json::from_str(&asset_index_file)
-        .map_err(|e| format!("Ошибка при разборе индекса ресурсов: {}", e))?;
+    let asset_index: AssetIndexContent =
+        serde_json::from_str(&asset_index_file).context("Ошибка при разборе индекса ресурсов: ")?;
 
     Ok(asset_index)
 }
 
-pub async fn download_all(asset_index: AssetIndexContent) -> Result<(), String> {
+pub async fn download_all(asset_index: AssetIndexContent) -> Result<()> {
     log_info!("Скачиваем ресурсы...");
     let base_path: PathBuf = launcher_patch()?;
     let mut semaphore_info = Vec::new();

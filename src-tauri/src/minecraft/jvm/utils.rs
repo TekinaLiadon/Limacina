@@ -4,7 +4,7 @@ use std::{
     thread::{self},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use md5::{Digest, Md5};
 use std::io::{BufRead, BufReader};
 use tauri::{AppHandle, Emitter};
@@ -70,7 +70,7 @@ pub fn maven_to_path(name: &str) -> Option<String> {
     Some(format!("{}/{}/{}/{}", group, artifact, version, filename))
 }
 
-pub fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>, String> {
+pub fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>> {
     let mut jar_files = Vec::new();
 
     let libraries_dir = if libraries_dir.exists() {
@@ -84,13 +84,13 @@ pub fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>, String> {
     if !libraries_dir.exists() {
         log_info!("Директория библиотек не существует: {:?}", libraries_dir);
         let err = "Директория библиотек не существует";
-        return Err(err.to_string());
+        bail!(err.to_string());
     }
 
-    fn visit_dirs(dir: &Path, jar_files: &mut Vec<String>) -> Result<(), String> {
+    fn visit_dirs(dir: &Path, jar_files: &mut Vec<String>) -> Result<()> {
         if dir.is_dir() {
-            for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
+            for entry in std::fs::read_dir(dir).context("Ошибка чтения папки")? {
+                let entry = entry.context("Ошибка чтения файла")?;
                 let path = entry.path();
 
                 if path.is_dir() {
@@ -111,19 +111,19 @@ pub fn find_all_jar_files(libraries_dir: &Path) -> Result<Vec<String>, String> {
     Ok(jar_files)
 }
 
-pub async fn load_version_json(path: &Path) -> Result<VersionJson, String> {
+pub async fn load_version_json(path: &Path) -> Result<VersionJson> {
     let content = fs::read_to_string(path)
         .await
-        .map_err(|e| format!("Не удалось прочитать {:?}: {}", path, e))?;
+        .with_context(|| format!("Не удалось прочитать {:?}: ", path))?;
 
-    serde_json::from_str(&content).map_err(|e| format!("Не удалось распарсить {:?}: {}", path, e))
+    serde_json::from_str(&content).with_context(|| format!("Не удалось распарсить {:?}: ", path))
 }
 
 pub fn build_classpath(
     libraries: &[Library],
     libraries_dir: &Path,
     client_jar: &Path,
-) -> Result<String, String> {
+) -> Result<String> {
     let separator = get_classpath_separator();
     let mut paths: Vec<String> = Vec::new();
 

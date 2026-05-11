@@ -2,9 +2,12 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::minecraft::manifest::download::{
-    download_all, get_core_jar, get_index_lib, get_index_manifest, get_native_lib,
-    get_version_manifest,
+use crate::{
+    minecraft::manifest::download::{
+        download_all, get_core_jar, get_index_lib, get_index_manifest, get_native_lib,
+        get_version_manifest,
+    },
+    utils::tauri_err::CommandResult,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -124,7 +127,7 @@ pub struct AssetObject {
 }
 
 #[tauri::command]
-pub async fn download_minecraft_version(version: &str) -> Result<String, String> {
+pub async fn download_minecraft_version(version: &str) -> CommandResult<String> {
     let index = get_index_manifest().await?;
     let manifest = get_version_manifest(version, index).await?;
     get_core_jar(&manifest).await?;

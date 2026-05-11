@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
-use anyhow::{Result};
+use anyhow::{Result, Context};
 
-pub fn launcher_patch() -> Result<PathBuf, String> {
+pub fn launcher_patch() -> Result<PathBuf> {
     let home_dir: PathBuf = get_home_dir()?;
     let launcher_name: String =
         env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string());
@@ -10,8 +10,8 @@ pub fn launcher_patch() -> Result<PathBuf, String> {
     return Ok(base_path);
 }
 
-pub fn get_home_dir() -> Result<PathBuf, String> {
-    Ok(env::home_dir().ok_or("Home directory not found")?)
+pub fn get_home_dir() -> Result<PathBuf> {
+    Ok(env::home_dir().context("Не найдена домашняя директория")?)
 
     // #[cfg(target_os = "windows")]
     // {

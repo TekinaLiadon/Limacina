@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tauri::AppHandle;
 
 use crate::{
@@ -19,7 +19,7 @@ pub async fn vanilla_start(
     uuid: String,
     access_token: String,
     mc_version: String,
-) -> Result<(), String> {
+) -> Result<()> {
     log_info!("🎮 Запуск Vanilla Minecraft {}...", mc_version);
 
     let base_dir = launcher_patch()?;
@@ -37,7 +37,7 @@ pub async fn vanilla_start(
         mc_version.clone(),
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .context("Ошибка в создании конфига")?;
 
     let client_jar = version_dir.join(format!("{}.jar", mc_version));
     let assets_index_id = version_json
@@ -64,7 +64,7 @@ pub async fn vanilla_start(
     log_info!("Main class: {}", version_json.main_class);
     log_info!("Game dir: {:?}", config.game_dir);
 
-    spawn_game_process(app, &java_path, &full_args, &config.game_dir);
+    spawn_game_process(app, &java_path, &full_args, &config.game_dir)?;
 
     Ok(())
 }

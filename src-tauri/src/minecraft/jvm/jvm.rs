@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::{collections::HashMap, path::PathBuf};
@@ -13,7 +13,7 @@ use crate::{
         fabric::fabric_start, forge::forge_start, utils::generate_offline_uuid,
         vanilla::vanilla_start,
     },
-    utils::env_info::launcher_patch,
+    utils::{env_info::launcher_patch, tauri_err::CommandResult},
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -264,29 +264,23 @@ pub async fn start_jvm(
     access_token: String,
     type_minecraft: String,
     mc_version: Option<String>,
-) -> Result<String, String> {
+) -> CommandResult<String> {
     let version = mc_version.unwrap_or_else(|| "1.16.5".to_string());
     let uuid = generate_offline_uuid(&username);
 
     match type_minecraft.as_str() {
         "forge" => {
-            forge_start(app, username, uuid, access_token, version)
-                .await
-                .map_err(|e| e.to_string())?;
+            forge_start(app, username, uuid, access_token, version).await?;
             Ok("Forge запущен успешно".to_string())
         }
         "fabric" => {
-            fabric_start(app, username, uuid, access_token, version)
-                .await
-                .map_err(|e| e.to_string())?;
+            fabric_start(app, username, uuid, access_token, version).await?;
             Ok("Fabric запущен успешно".to_string())
         }
         "vanilla" => {
-            vanilla_start(app, username, uuid, access_token, version)
-                .await
-                .map_err(|e| e.to_string())?;
+            vanilla_start(app, username, uuid, access_token, version).await?;
             Ok("Vanilla запущен успешно".to_string())
         }
-        _ => Err(format!("Неизвестный тип: {}", type_minecraft)),
+        _ => Err(anyhow!("Неизвестный тип: {}", type_minecraft))?,
     }
 }

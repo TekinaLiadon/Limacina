@@ -1,15 +1,13 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::Client;
 
-use crate::{
-    minecraft::forge::forge::ForgePromotions
-};
+use crate::minecraft::forge::forge::ForgePromotions;
 
-pub async fn get_promotions() -> Result<ForgePromotions, String> {
+pub async fn get_promotions() -> Result<ForgePromotions> {
     let client = Client::builder()
         .user_agent("Mozilla/5.0 (compatible; MinecraftLauncher/1.0)")
         .build()
-        .map_err(|e| format!("Не удалось создать HTTP клиент: {}", e))?;
+        .context("Не удалось создать HTTP клиент")?;
     let promotions_url =
         "https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json";
 
@@ -18,39 +16,22 @@ pub async fn get_promotions() -> Result<ForgePromotions, String> {
         .get(promotions_url)
         .send()
         .await
-        .map_err(|e| format!("Не удалось получить список версий Forge: {}", e))?
+        .context("Не удалось получить список версий Forge: ")?
         .error_for_status()
-        .map_err(|e| format!("HTTP-ошибка: {}", e))?
+        .context("HTTP-ошибка: ")?
         .text()
         .await
-        .map_err(|e| format!("Не удалось прочитать ответ: {}", e))?;
+        .context("Не удалось прочитать ответ: ")?;
 
-    Ok(serde_json::from_str(&promos_str)
-        .map_err(|e| format!("Не удалось распарсить список версий: {}", e))?)
+    Ok(serde_json::from_str(&promos_str).context("Не удалось распарсить список версий: ")?)
 }
 
-pub async fn get_version(
-    mc_version: &String,
-    promotions: ForgePromotions,
-) -> Result<String, String> {
+pub async fn get_version(mc_version: &String, promotions: ForgePromotions) -> Result<String> {
     let forge_version = promotions
         .promos
         .get(&format!("{}-recommended", mc_version))
         .or_else(|| promotions.promos.get(&format!("{}-latest", mc_version)))
-        .ok_or_else(|| {
-            let available: Vec<_> = promotions
-                .promos
-                .keys()
-                .filter(|k| k.ends_with("-recommended") || k.ends_with("-latest"))
-                .filter_map(|k| k.split('-').next())
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect();
-            format!(
-                "Нет версий Forge для MC {}. Доступные: {:?}",
-                mc_version, available
-            )
-        })?;
+        .context("Нет версий Forge для MC")?;
 
     println!(
         "✓ Найдена версия Forge: {} для MC {}",

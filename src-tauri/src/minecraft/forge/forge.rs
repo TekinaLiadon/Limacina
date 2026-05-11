@@ -1,12 +1,12 @@
-use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
     minecraft::forge::{
         download::{get_promotions, get_version},
-        installer::{start_installer, create_installer, cleanup_temp_files}
+        installer::{cleanup_temp_files, create_installer, start_installer},
     },
+    utils::tauri_err::CommandResult,
 };
 
 #[derive(Debug, Deserialize)]
@@ -15,7 +15,7 @@ pub struct ForgePromotions {
 }
 
 #[tauri::command]
-pub async fn get_forge(mc_version: String) -> Result<String, String> {
+pub async fn get_forge(mc_version: String) -> CommandResult<String> {
     let promotions: ForgePromotions = get_promotions().await?;
     let forge_full_version = get_version(&mc_version, promotions).await?;
     create_installer(&forge_full_version).await?;

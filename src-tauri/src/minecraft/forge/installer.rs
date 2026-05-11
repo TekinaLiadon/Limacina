@@ -1,10 +1,11 @@
+use anyhow::{bail, Context, Result};
 use tokio::process::Command;
 
+use crate::utils::{download_file::download_file, env_info::launcher_patch};
 use serde_json::json;
 use tokio::fs;
-use crate::utils::{download_file::download_file, env_info::launcher_patch};
 
-pub async fn create_installer(forge_version: &String) -> Result<(), String> {
+pub async fn create_installer(forge_version: &String) -> Result<()> {
     let forge_installer_url = format!(
         "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-installer.jar",
         forge_version
@@ -14,10 +15,10 @@ pub async fn create_installer(forge_version: &String) -> Result<(), String> {
 
     fs::create_dir_all(&base)
         .await
-        .map_err(|e| format!("Не удалось создать директорию: {}", e))?; // TODO
+        .context("Не удалось создать директорию: ")?; // TODO
     download_file(&forge_installer_url, &installer_path)
         .await
-        .map_err(|e| format!("Не удалось скачать installer: {}", e))?;
+        .context("Не удалось скачать installer: ")?;
 
     let launcher_profiles_path = base.join("launcher_profiles.json");
     if !launcher_profiles_path.exists() {
@@ -36,16 +37,16 @@ pub async fn create_installer(forge_version: &String) -> Result<(), String> {
         });
 
         let profiles_str = serde_json::to_string_pretty(&profiles)
-            .map_err(|e| format!("Не удалось сериализовать profiles: {}", e))?;
+            .context("Не удалось сериализовать profiles: ")?;
         fs::write(&launcher_profiles_path, profiles_str)
             .await
-            .map_err(|e| format!("Не удалось создать launcher_profiles.json: {}", e))?;
+            .context("Не удалось создать launcher_profiles.json: ")?;
     }
-    
+
     Ok(())
 }
 
-pub async fn start_installer() -> Result<(), String> {
+pub async fn start_installer() -> Result<()> {
     let base = launcher_patch()?;
     let installer_path = base.join("forge-installer.jar");
 
@@ -57,7 +58,7 @@ pub async fn start_installer() -> Result<(), String> {
         .arg(base.to_string_lossy().to_string())
         .output()
         .await
-        .map_err(|e| format!("Не удалось запустить Forge installer: {}", e))?;
+        .context("Не удалось запустить Forge installer: ")?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -67,20 +68,20 @@ pub async fn start_installer() -> Result<(), String> {
     }
 
     if !output.status.success() {
-        return Err(format!(
+        bail!(format!(
             "Forge installer завершился с ошибкой (код {:?}):\n{}",
             output.status.code(),
             stderr
-        ));
+        ))
     }
 
     Ok(())
 }
 
-pub async fn cleanup_temp_files() -> Result<(), String> {
+pub async fn cleanup_temp_files() -> Result<()> {
     let base_dir = launcher_patch()?;
     let installer_path = base_dir.join("forge-installer.jar");
-    
+
     if installer_path.exists() {
         let _ = fs::remove_file(&installer_path).await;
         println!("Удалён installer: {:?}", &installer_path);

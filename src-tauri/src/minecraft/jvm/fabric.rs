@@ -8,7 +8,7 @@ use crate::{
     },
     utils::{env_info::launcher_patch, java::find_java, os::get_classpath_separator},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tauri::AppHandle;
 
 pub async fn fabric_start(
@@ -17,7 +17,7 @@ pub async fn fabric_start(
     uuid: String,
     access_token: String,
     mc_version: String,
-) -> Result<(), String> {
+) -> Result<()> {
     log_info!("🎮 Запуск Minecraft {} с Fabric...", mc_version);
 
     let config = LaunchConfig::new(
@@ -28,7 +28,7 @@ pub async fn fabric_start(
         format!("fabric-{}", mc_version),
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .context("Ошибка создания конфига")?;
 
     let base_dir = launcher_patch()?;
 
@@ -108,6 +108,6 @@ pub async fn fabric_start(
     let java_path = find_java()?;
     log_info!("☕ Java: {:?}", java_path);
 
-    spawn_game_process(app, &java_path, &args, &config.game_dir);
+    spawn_game_process(app, &java_path, &args, &config.game_dir)?;
     Ok(())
 }

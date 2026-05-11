@@ -3,7 +3,7 @@ use std::process::Command;
 use std::{env, path::PathBuf};
 use anyhow::{ Result};
 
-pub fn find_java() -> Result<PathBuf, String> {
+pub fn find_java() -> Result<PathBuf> {
     if let Ok(java_home) = env::var("JAVA_HOME") {
         let java_bin = if cfg!(windows) { "java.exe" } else { "java" };
         let java_path = PathBuf::from(java_home).join("bin").join(java_bin);

@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::{bail, Context, Result};
 use futures::future;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -23,12 +23,12 @@ pub struct ComponentVersion {
     pub stable: bool,
 }
 
-pub async fn download_fabric_libraries(
-    json_path: &Path,
-    libraries_dir: &Path,
-) -> Result<()> {
-    let json_data = tokio::fs::read_to_string(json_path).await?;
-    let profile: FabricProfile = serde_json::from_str(&json_data)?;
+pub async fn download_fabric_libraries(json_path: &Path, libraries_dir: &Path) -> Result<()> {
+    let json_data = tokio::fs::read_to_string(json_path)
+        .await
+        .with_context(|| format!("Не удалось прочитать json по {:?}", &json_path))?;
+    let profile: FabricProfile = serde_json::from_str(&json_data)
+        .with_context(|| format!("Не удалось прочитать json {:?}", &json_data))?;
 
     log_info!("Скачивание библиотек Fabric...");
 
@@ -87,7 +87,7 @@ pub async fn download_fabric_libraries(
     }
 }
 
-pub async fn get_fabric_version(mc_version: &String) -> Result<String, String> {
+pub async fn get_fabric_version(mc_version: &String) -> Result<String> {
     let client = reqwest::Client::new();
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}",
@@ -100,15 +100,15 @@ pub async fn get_fabric_version(mc_version: &String) -> Result<String, String> {
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("Сетевая ошибка при получении версий Fabric: {}", e))?
+        .with_context(|| format!("Сетевая ошибка при получении версий: {:?}", &url))?
         .error_for_status()
-        .map_err(|e| format!("Ошибка от API Fabric: {}", e))?
+        .context("API Fabric вернул ошибку статуса")?
         .text()
         .await
-        .map_err(|e| format!("Ошибка получения текста ответа: {}", e))?;
+        .context("Ошибка получения текста ответа API Fabric")?;
 
     let raw_data: Vec<serde_json::Value> =
-        serde_json::from_str(&response_text).map_err(|e| format!("Ошибка парсинга JSON: {}", e))?;
+        serde_json::from_str(&response_text).context("Ошибка парсинга JSON ответа API Fabric")?;
 
     let mut loaders = vec![];
     for val in raw_data {
@@ -119,14 +119,11 @@ pub async fn get_fabric_version(mc_version: &String) -> Result<String, String> {
     }
 
     if loaders.is_empty() {
-        return Err("Нет доступных версий загрузчика для этой версии Minecraft".into());
+        bail!("Нет доступных версий загрузчика для этой версии Minecraft");
     }
 
-    let latest_loader = loaders.get(0).ok_or_else(|| {
-        format!(
-            "Нет доступных версий загрузчика для Minecraft {}",
-            mc_version
-        )
-    })?;
+    let latest_loader = loaders
+        .get(0)
+        .context("Нет доступных версий загрузчика для Minecraft")?;
     Ok(latest_loader.loader.version.clone())
 }
