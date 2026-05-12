@@ -3,3 +3,6 @@ pub mod logger_utils;
 pub mod semaphore;
 pub mod download_file;
 pub mod env_info;
+pub mod java;
+pub mod os;
+pub mod tauri_err;
