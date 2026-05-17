@@ -10,20 +10,20 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "vue": "^3.5.13",
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-opener": "^2",
-    "vue-smooth-reflow": "^0.1.12",
     "ky": "^1.5.0",
     "pinia": "^2.1.7",
-    "vue-router": "^4.2.5"
+    "vue": "^3.5.13",
+    "vue-router": "^4.2.5",
+    "vue-smooth-reflow": "^0.1.12"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10",
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "^2.11.1",
     "sass": "^1.58.1",
     "prettier": "^2.7.1"
   }
