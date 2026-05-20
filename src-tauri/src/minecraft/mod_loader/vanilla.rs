@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
+use ::anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    minecraft::manifest::download::{
-        download_all, get_core_jar, get_index_lib, get_index_manifest, get_native_lib,
-        get_version_manifest,
+use crate::minecraft::{
+    dto::{GameConfig, LaunchConfig, ModLoader, Versions},
+    mod_loader::download::{
+        download_jar, download_native_all, get_manifest_index, get_manifest_version, vanilla_config,
     },
-    utils::tauri_err::CommandResult,
 };
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct VersionsIndexManifest {
+pub struct VanillaVersionsManifest {
     pub latest: Latest,
     pub versions: Vec<VersionInfo>,
 }
@@ -22,15 +23,10 @@ pub struct Latest {
     pub snapshot: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VersionInfo {
     pub id: String,
-    #[serde(rename = "type")]
-    pub type_: String,
     pub url: String,
-    pub time: String,
-    #[serde(rename = "releaseTime")]
-    pub release_time: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -45,7 +41,7 @@ pub struct VersionDetailsManifest {
     pub main_class: String,
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: Option<String>,
-    pub arguments: Option<serde_json::Value>,
+    pub arguments: Option<Arguments>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -65,33 +61,34 @@ pub struct DownloadInfo {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Library {
     pub name: String,
-    pub downloads: LibDownloads,
+    pub downloads: Option<LibDownloads>,
     pub natives: Option<HashMap<String, String>>,
     pub rules: Option<Vec<Rule>>,
     pub extract: Option<ExtractRules>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ExtractRules {
     pub exclude: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Rule {
     pub action: String,
     pub os: Option<OsRule>,
+    pub features: Option<HashMap<String, bool>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OsRule {
     pub name: Option<String>,
     pub arch: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LibDownloads {
     pub artifact: Option<Artifact>,
     pub classifiers: Option<HashMap<String, Artifact>>,
@@ -105,7 +102,7 @@ pub struct Artifact {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssetIndex {
     pub id: String,
     pub sha1: String,
@@ -126,14 +123,56 @@ pub struct AssetObject {
     pub size: u64,
 }
 
-#[tauri::command]
-pub async fn download_minecraft_version(version: &str) -> CommandResult<String> {
-    let index = get_index_manifest().await?;
-    let manifest = get_version_manifest(version, index).await?;
-    get_core_jar(&manifest).await?;
-    get_native_lib(&manifest).await?;
-    let index_lib = get_index_lib(&manifest).await?;
-    download_all(index_lib).await?;
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Arguments {
+    #[serde(default)]
+    pub game: Vec<ArgumentValue>,
+    #[serde(default)]
+    pub jvm: Vec<ArgumentValue>,
+}
 
-    Ok(format!("✓ Все файлы успешно загружены!",))
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ArgumentValue {
+    Simple(String),
+    Conditional {
+        rules: Vec<Rule>,
+        value: StringOrVec,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum StringOrVec {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+pub struct Vanilla;
+#[async_trait]
+impl ModLoader for Vanilla {
+    async fn versions(&self) -> Result<Vec<Versions>> {
+        let manifest_index = get_manifest_index().await?;
+        let mut manifest: Vec<Versions> = Vec::new();
+
+        for version in manifest_index.versions {
+            let data = Versions {
+                url: version.url,
+                id: version.id,
+            };
+            manifest.push(data);
+        }
+        Ok(manifest)
+    }
+    async fn setup(&self, version: &str, manifest_versions: Vec<Versions>) -> Result<()> {
+        let manifest: VersionDetailsManifest =
+            get_manifest_version(version, manifest_versions).await?;
+        download_jar(&manifest).await?;
+        download_native_all(&manifest).await?;
+        Ok(())
+    }
+    async fn config(&self, config: &LaunchConfig) -> Result<GameConfig> {
+        let game_config = vanilla_config(&config).await?;
+        Ok(game_config)
+    }
 }

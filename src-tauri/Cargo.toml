@@ -34,6 +34,7 @@ md-5 = "0.10"
 dunce = "1.0"
 futures-util = "0.3"
 thiserror = "1.0"
+async-trait = "0.1.89"
 
 
 

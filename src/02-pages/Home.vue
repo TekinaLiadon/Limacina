@@ -13,8 +13,21 @@ const formData = ref({
   password: '',
   rememberMe: false
 });
+
+const test = async () => {
+  isLoading.value = !isLoading.value
+  /*await invoke('download_minecraft', {
+    mcVersion: "1.16.5"
+  })*/
+  await invoke('start_minecraft', {
+    username: formData.value.username,
+    accessToken: "5730aacc7d65c752b53ca07500e247",
+    mcVersion: "1.16.5"
+  })
+}
 const start = async () => {
   isLoading.value = !isLoading.value
+
   await invoke('get_forge', {
     mcVersion: "1.16.5"
   });  //TODO проверка если уже скачено
@@ -92,7 +105,7 @@ const start = async () => {
         </div>
 
         <div class="form-actions">
-          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @click="start">
+          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @click="test">
             Войти
           </Button>
 
