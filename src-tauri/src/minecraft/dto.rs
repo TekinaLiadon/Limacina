@@ -40,23 +40,24 @@ pub struct GameConfig {
 }
 
 pub async fn new_launch_config(
-    username: String,
-    uuid: String,
-    access_token: String,
-    mc_version: String,
+    username: &String,
+    uuid: &String,
+    access_token: &String,
+    mc_version: &String,
+    loader_version: &String,
 ) -> Result<LaunchConfig> {
-    let base_dir = launcher_patch()?;
+    let base_dir = launcher_patch(Some("libra"))?;
 
     Ok(LaunchConfig {
-        username,
-        uuid,
-        access_token,
+        username: username.clone(),
+        uuid: uuid.clone(),
+        access_token: access_token.clone(),
         mc_version: mc_version.clone(),
-        loader_version: mc_version.clone(),
+        loader_version: loader_version.clone(),
         game_dir: base_dir.clone(),
-        assets_dir: base_dir.join("assets").join(&mc_version),
-        libraries_dir: base_dir.join("libraries").join(&mc_version),
-        natives_dir: base_dir.join("natives").join(&mc_version),
+        assets_dir: base_dir.join("assets"),
+        libraries_dir: base_dir.join("libraries"),
+        natives_dir: base_dir.join("natives"),
         min_memory: "512M".to_string(),
         max_memory: "4G".to_string(),
         window_width: 1280,
@@ -64,9 +65,35 @@ pub async fn new_launch_config(
     })
 }
 
+
 #[async_trait]
-pub trait ModLoader {
+pub trait MinecraftLoader {
     async fn versions(&self) -> Result<Vec<Versions>>;
     async fn setup(&self, version: &str, index: Vec<Versions>) -> Result<()>;
     async fn config(&self, config: &LaunchConfig) -> Result<GameConfig>;
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct VersionMod {
+    pub url: String,
+    pub id: String,
+    pub main_class: String,
+    pub library: Vec<LibraryMod>
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryMod {
+    pub name: String,
+    pub url: String,
+    pub hash: String,
+    pub size: i64,
+}
+
+#[async_trait]
+pub trait ModLoader: Send + Sync {
+    async fn versions(&self, version: &str) -> Result<Vec<VersionMod>>;
+    async fn setup(&self, manifest: &VersionMod) -> Result<()>;
+    async fn config(&self, config: &LaunchConfig, vanilla_config: GameConfig, version: &VersionMod) -> Result<GameConfig>;
+}
+

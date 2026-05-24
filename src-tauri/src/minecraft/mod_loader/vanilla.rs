@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::minecraft::{
-    dto::{GameConfig, LaunchConfig, ModLoader, Versions},
+    dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     mod_loader::download::{
         download_jar, download_native_all, get_manifest_index, get_manifest_version, vanilla_config,
     },
@@ -150,7 +150,7 @@ pub enum StringOrVec {
 
 pub struct Vanilla;
 #[async_trait]
-impl ModLoader for Vanilla {
+impl MinecraftLoader for Vanilla {
     async fn versions(&self) -> Result<Vec<Versions>> {
         let manifest_index = get_manifest_index().await?;
         let mut manifest: Vec<Versions> = Vec::new();
@@ -167,7 +167,7 @@ impl ModLoader for Vanilla {
     async fn setup(&self, version: &str, manifest_versions: Vec<Versions>) -> Result<()> {
         let manifest: VersionDetailsManifest =
             get_manifest_version(version, manifest_versions).await?;
-        download_jar(&manifest).await?;
+        download_jar(&manifest.id, &manifest.downloads.client.url).await?;
         download_native_all(&manifest).await?;
         Ok(())
     }

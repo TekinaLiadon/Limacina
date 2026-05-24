@@ -220,11 +220,14 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     log_info!("\n▶ Запуск Minecraft...\n");
     let mut command = Command::new(config.java_path);
 
+    log_info!("{}", config.classpath);
     command
         .args(config.jvm_args)
+        .arg("-cp".to_string())
+        .arg(config.classpath)
+        .current_dir(config.game_dir)
         .arg(config.main_class)
         .args(config.game_args)
-        .current_dir(config.game_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 

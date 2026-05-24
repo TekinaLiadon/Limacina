@@ -5,12 +5,10 @@ mod utils;
 mod api;
 
 use core::downloader::download_all_files;
-use minecraft::fabric::fabric::get_fabric;
 use minecraft::forge::forge::get_forge;
 use minecraft::jvm::jvm::start_jvm;
 use api::download::download_minecraft;
 use api::start::start_minecraft;
-use utils::home_dir::get_home_dir;
 use utils::logger_utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -24,9 +22,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            get_home_dir,
             start_jvm,
-            get_fabric,
             get_forge,
             download_all_files,
             download_minecraft,
