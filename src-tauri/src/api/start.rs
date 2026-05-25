@@ -1,6 +1,6 @@
 use tauri::AppHandle;
 
-use crate::api::dto::ModLoaderFactory;
+use crate::api::dto::create_mod_loader;
 use crate::minecraft::dto::{new_launch_config, MinecraftLoader};
 use crate::minecraft::mod_loader::utils::{generate_offline_uuid, spawn_game_process};
 use crate::{minecraft::mod_loader::vanilla::Vanilla, utils::tauri_err::CommandResult};
@@ -29,7 +29,7 @@ pub async fn start_minecraft(
         "vanilla" => spawn_game_process(app, vanilla_config)?,
         _ => {
             let mod_config = config.clone();
-            let loader = ModLoaderFactory::create(&loader_name)?;
+            let loader = create_mod_loader(&loader_name)?;
             let manifest = loader.versions(&mod_config.mc_version).await?;
             let game_config = loader
                 .config(&mod_config, vanilla_config, &manifest[0])

@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 
 use crate::{log_info, utils::download_file::download_file};
 const MAX_CONCURRENT_DOWNLOADS: usize = 10;
-const MAX_RETRIES: usize = 3;
+const MAX_RETRIES: usize = 4;
 
 pub struct SemaphoreInfo {
     pub url: String,

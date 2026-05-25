@@ -65,11 +65,10 @@ pub async fn new_launch_config(
     })
 }
 
-
 #[async_trait]
 pub trait MinecraftLoader {
     async fn versions(&self) -> Result<Vec<Versions>>;
-    async fn setup(&self, version: &str, index: Vec<Versions>) -> Result<()>;
+    async fn setup(&self, version: &str) -> Result<()>;
     async fn config(&self, config: &LaunchConfig) -> Result<GameConfig>;
 }
 
@@ -78,7 +77,7 @@ pub struct VersionMod {
     pub url: String,
     pub id: String,
     pub main_class: String,
-    pub library: Vec<LibraryMod>
+    pub library: Vec<LibraryMod>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -94,6 +93,10 @@ pub struct LibraryMod {
 pub trait ModLoader: Send + Sync {
     async fn versions(&self, version: &str) -> Result<Vec<VersionMod>>;
     async fn setup(&self, manifest: &VersionMod) -> Result<()>;
-    async fn config(&self, config: &LaunchConfig, vanilla_config: GameConfig, version: &VersionMod) -> Result<GameConfig>;
+    async fn config(
+        &self,
+        config: &LaunchConfig,
+        vanilla_config: GameConfig,
+        version: &VersionMod,
+    ) -> Result<GameConfig>;
 }
-

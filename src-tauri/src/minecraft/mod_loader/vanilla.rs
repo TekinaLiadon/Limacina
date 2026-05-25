@@ -1,178 +1,75 @@
-use std::collections::HashMap;
-
 use ::anyhow::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
-use crate::minecraft::{
-    dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
-    mod_loader::download::{
-        download_jar, download_native_all, get_manifest_index, get_manifest_version, vanilla_config,
+use crate::{
+    log_info,
+    minecraft::{
+        dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
+        mod_loader::{
+            config::{get_classpath, get_game_args, get_jvm_args},
+            download::{donwload_index_lib, download_assets, download_jar, download_native},
+            dto::vanilla::{VanillaVersionsManifest, VersionDetailsManifest},
+            manifest::{create_manifest_versions, get_manifest_index, get_manifest_version},
+        },
     },
+    utils::{env_info::launcher_patch, java::find_java},
 };
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct VanillaVersionsManifest {
-    pub latest: Latest,
-    pub versions: Vec<VersionInfo>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Latest {
-    pub release: String,
-    pub snapshot: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct VersionInfo {
-    pub id: String,
-    pub url: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct VersionDetailsManifest {
-    pub id: String,
-    pub downloads: Downloads,
-    pub libraries: Vec<Library>,
-    #[serde(rename = "assetIndex")]
-    pub asset_index: AssetIndex,
-    pub assets: String,
-    #[serde(rename = "mainClass")]
-    pub main_class: String,
-    #[serde(rename = "minecraftArguments")]
-    pub minecraft_arguments: Option<String>,
-    pub arguments: Option<Arguments>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Downloads {
-    pub client: DownloadInfo,
-    pub server: Option<DownloadInfo>,
-    #[serde(rename = "client_mappings")]
-    pub client_mappings: Option<DownloadInfo>,
-    #[serde(rename = "server_mappings")]
-    pub server_mappings: Option<DownloadInfo>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct DownloadInfo {
-    pub sha1: String,
-    pub size: u64,
-    pub url: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Library {
-    pub name: String,
-    pub downloads: Option<LibDownloads>,
-    pub natives: Option<HashMap<String, String>>,
-    pub rules: Option<Vec<Rule>>,
-    pub extract: Option<ExtractRules>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ExtractRules {
-    pub exclude: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Rule {
-    pub action: String,
-    pub os: Option<OsRule>,
-    pub features: Option<HashMap<String, bool>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OsRule {
-    pub name: Option<String>,
-    pub arch: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct LibDownloads {
-    pub artifact: Option<Artifact>,
-    pub classifiers: Option<HashMap<String, Artifact>>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Artifact {
-    pub path: String,
-    pub sha1: String,
-    pub size: u64,
-    pub url: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AssetIndex {
-    pub id: String,
-    pub sha1: String,
-    pub size: u64,
-    pub url: String,
-    #[serde(rename = "totalSize")]
-    pub total_size: u64,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AssetIndexContent {
-    pub objects: HashMap<String, AssetObject>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AssetObject {
-    pub hash: String,
-    pub size: u64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Arguments {
-    #[serde(default)]
-    pub game: Vec<ArgumentValue>,
-    #[serde(default)]
-    pub jvm: Vec<ArgumentValue>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum ArgumentValue {
-    Simple(String),
-    Conditional {
-        rules: Vec<Rule>,
-        value: StringOrVec,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum StringOrVec {
-    Single(String),
-    Multiple(Vec<String>),
-}
+const LOADER_NAME: &str = "vanilla"; // enum
 
 pub struct Vanilla;
 #[async_trait]
 impl MinecraftLoader for Vanilla {
     async fn versions(&self) -> Result<Vec<Versions>> {
-        let manifest_index = get_manifest_index().await?;
-        let mut manifest: Vec<Versions> = Vec::new();
-
-        for version in manifest_index.versions {
-            let data = Versions {
-                url: version.url,
-                id: version.id,
-            };
-            manifest.push(data);
-        }
+        log_info!("Загрузка индекс манифеста");
+        let url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+        let manifest_index =
+            get_manifest_index::<VanillaVersionsManifest>(LOADER_NAME, &url, "index").await?;
+        let manifest = create_manifest_versions(manifest_index.versions)?;
         Ok(manifest)
     }
-    async fn setup(&self, version: &str, manifest_versions: Vec<Versions>) -> Result<()> {
-        let manifest: VersionDetailsManifest =
-            get_manifest_version(version, manifest_versions).await?;
+    async fn setup(&self, version: &str) -> Result<()> {
+        log_info!("Загрузка версии {}", version);
+        let versions: Vec<Versions> = self.versions().await?;
+        let manifest: VersionDetailsManifest = get_manifest_version(version, versions).await?;
+
+        log_info!("Скачивание основного jar");
         download_jar(&manifest.id, &manifest.downloads.client.url).await?;
-        download_native_all(&manifest).await?;
+
+        log_info!("Скачивание нативных библиотек");
+        download_native(&manifest).await?;
+
+        log_info!("Скачивание assets");
+        let index_lib = donwload_index_lib(&manifest).await?;
+        download_assets(index_lib).await?;
         Ok(())
     }
     async fn config(&self, config: &LaunchConfig) -> Result<GameConfig> {
-        let game_config = vanilla_config(&config).await?;
+        log_info!("Получение Vanilla конфига {}...", config.mc_version);
+        let versions: Vec<Versions> = self.versions().await?;
+        let manifest_version: VersionDetailsManifest =
+            get_manifest_version(&config.mc_version, versions).await?;
+
+        log_info!("Формирование classpath");
+        let classpath = get_classpath(&manifest_version.libraries, &config)?;
+
+        log_info!("Формирование аргументов");
+        let assets_index_id = manifest_version.assets.clone();
+        let jvm_args = get_jvm_args(&manifest_version, &config, &classpath, &assets_index_id);
+        let game_args = get_game_args(&manifest_version, &config, &classpath, &assets_index_id);
+
+        log_info!("Поиск java");
+        let java_path = find_java()?;
+
+        let game_dir = launcher_patch(Some("libra"))?;
+        let game_config = GameConfig {
+            java_path,
+            jvm_args,
+            game_args,
+            classpath,
+            main_class: manifest_version.main_class,
+            game_dir,
+        };
         Ok(game_config)
     }
 }
