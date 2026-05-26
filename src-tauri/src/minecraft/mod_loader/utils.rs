@@ -68,16 +68,18 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     let mut command = Command::new(config.java_path);
 
     //log_info!("{}", config.classpath);
-    //log_info!("{}", config.main_class);
+    //log_info!("{}", config.jvm_args.join(" "));
     command
         .args(config.jvm_args)
-        .arg("-cp".to_string())
-        .arg(config.classpath)
-        .current_dir(config.game_dir)
-        .arg(config.main_class)
+        .arg("-cp")
+        .arg(&config.classpath)
+        .arg(&config.main_class)
         .args(config.game_args)
+        .current_dir(&config.game_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    //eprintln!("Аргументы: {:?}", command.get_args().collect::<Vec<_>>());
 
     #[cfg(target_os = "windows")]
     {

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ::anyhow::Result;
 use async_trait::async_trait;
 
@@ -6,7 +8,7 @@ use crate::{
     minecraft::{
         dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
         mod_loader::{
-            config::{get_classpath, get_game_args, get_jvm_args},
+            config::{get_classpath, get_game_args, get_jvm_args, ArgumentsMap, ArgumentsMethod},
             download::{donwload_index_lib, download_assets, download_jar, download_native},
             dto::vanilla::{VanillaVersionsManifest, VersionDetailsManifest},
             manifest::{create_manifest_versions, get_manifest_index, get_manifest_version},
@@ -55,8 +57,12 @@ impl MinecraftLoader for Vanilla {
 
         log_info!("Формирование аргументов");
         let assets_index_id = manifest_version.assets.clone();
-        let jvm_args = get_jvm_args(&manifest_version, &config, &classpath, &assets_index_id);
-        let game_args = get_game_args(&manifest_version, &config, &classpath, &assets_index_id);
+        let mut args_map = ArgumentsMap {
+            map: HashMap::new(),
+        };
+        args_map.create_map(&config, &classpath, &assets_index_id);
+        let jvm_args = get_jvm_args(&manifest_version, &config, &args_map);
+        let game_args = get_game_args(&manifest_version, &args_map);
 
         log_info!("Поиск java");
         let java_path = find_java()?;

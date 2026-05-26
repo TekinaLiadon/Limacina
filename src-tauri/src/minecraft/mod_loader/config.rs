@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use crate::{
     minecraft::{
@@ -14,6 +14,84 @@ use crate::{
     },
 };
 use ::anyhow::Result;
+
+pub struct ArgumentsMap {
+    pub map: HashMap<&'static str, String>,
+}
+
+pub trait ArgumentsMethod {
+    fn create_map(&mut self, config: &LaunchConfig, classpath: &str, assets_index: &str);
+    fn get_value_by_key(&self, key: &str) -> String;
+    fn get_value(&self, arg: &ArgumentValue) -> Vec<String>;
+}
+
+impl ArgumentsMethod for ArgumentsMap {
+    fn create_map(&mut self, config: &LaunchConfig, classpath: &str, assets_index: &str) {
+        self.map = [
+            ("${auth_player_name}", config.username.clone()),
+            ("${version_name}", config.loader_version.clone()),
+            (
+                "${game_directory}",
+                config.game_dir.to_string_lossy().to_string(),
+            ),
+            (
+                "${assets_root}",
+                config.assets_dir.to_string_lossy().to_string(),
+            ),
+            ("${assets_index_name}", assets_index.to_string()),
+            ("${auth_uuid}", config.uuid.clone()),
+            ("${auth_access_token}", config.access_token.clone()),
+            ("${user_type}", "mojang".to_string()),
+            ("${version_type}", "release".to_string()),
+            (
+                "${natives_directory}",
+                config.natives_dir.to_string_lossy().to_string(),
+            ),
+            ("${launcher_name}", "Lumacina".to_string()),
+            ("${launcher_version}", "1.0".to_string()),
+            ("${width}", config.window_width.to_string()),
+            ("${height}", config.window_height.to_string()),
+            ("${clientid}", "1".to_string()), // TODO 
+            ("${auth_xuid}", "1".to_string()), // TODO 
+            ("${classpath}", classpath.to_string()),
+            (
+                "${library_directory}",
+                config.libraries_dir.to_string_lossy().to_string(),
+            ),
+            (
+                "${classpath_separator}",
+                get_classpath_separator().to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+    }
+    fn get_value_by_key(&self, arg: &str) -> String {
+        let mut result = arg.to_string();
+        for (placeholder, value) in &self.map {
+                    result = result.replace(placeholder, value);
+                }
+                result
+    }
+    fn get_value(&self, arg: &ArgumentValue) -> Vec<String> {
+        match arg {
+            ArgumentValue::Simple(s) => vec![self.get_value_by_key(&s)],
+            ArgumentValue::Conditional { value, rules } => {
+                if is_rule_allowed(&rules) {
+                    match value {
+                        StringOrVec::Single(s) => vec![self.get_value_by_key(&s)],
+                        StringOrVec::Multiple(vec) => vec
+                            .iter()
+                            .map(|s| self.get_value_by_key(&s))
+                            .collect()
+                    }
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+    }
+}
 
 pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<String> {
     let base_dir = launcher_patch(Some("libra"))?;
@@ -79,98 +157,34 @@ fn is_rule_allowed(rules: &[Rule]) -> bool {
 pub fn get_jvm_args(
     manifest: &VersionDetailsManifest,
     config: &LaunchConfig,
-    classpath: &str,
-    assets_index: &str,
+    args_map: &ArgumentsMap,
 ) -> Vec<String> {
     let mut jvm_args = Vec::new();
     if let Some(arguments) = &manifest.arguments {
         jvm_args.push(format!("-Xms{}", &config.min_memory));
         jvm_args.push(format!("-Xmx{}", &config.max_memory));
         for arg in &arguments.jvm {
-            jvm_args.extend(process_argument_value(arg, config, classpath, assets_index));
+            jvm_args.extend(args_map.get_value(arg));
         }
     }
     jvm_args
 }
 
-pub fn get_game_args(
-    manifest: &VersionDetailsManifest,
-    config: &LaunchConfig,
-    classpath: &str,
-    assets_index: &str,
-) -> Vec<String> {
+pub fn get_game_args(manifest: &VersionDetailsManifest, args_map: &ArgumentsMap) -> Vec<String> {
     let mut game_args = Vec::new();
+
     if let Some(arguments) = &manifest.arguments {
         for arg in &arguments.game {
-            game_args.extend(process_argument_value(arg, config, classpath, assets_index));
+            game_args.extend(args_map.get_value(arg));
         }
     }
     // OLd (minecraftArguments)
     if let Some(mc_args) = &manifest.minecraft_arguments {
         for arg in mc_args.split_whitespace() {
-            game_args.push(substitute_variables(arg, config, classpath, assets_index));
+            game_args.push(args_map.get_value_by_key(arg));
         }
     }
     game_args
-}
-
-pub fn process_argument_value(
-    arg: &ArgumentValue,
-    config: &LaunchConfig,
-    classpath: &str,
-    assets_index: &str,
-) -> Vec<String> {
-    match arg {
-        ArgumentValue::Simple(s) => {
-            vec![substitute_variables(s, config, classpath, assets_index)]
-        }
-        ArgumentValue::Conditional { value, rules } => {
-            if is_rule_allowed(rules) {
-                match value {
-                    StringOrVec::Single(s) => {
-                        vec![substitute_variables(s, config, classpath, assets_index)]
-                    }
-                    StringOrVec::Multiple(vec) => vec
-                        .iter()
-                        .map(|s| substitute_variables(s, config, classpath, assets_index))
-                        .collect(),
-                }
-            } else {
-                Vec::new()
-            }
-        }
-    }
-}
-
-pub fn substitute_variables(
-    arg: &str,
-    config: &LaunchConfig,
-    classpath: &str,
-    assets_index: &str,
-) -> String {
-    arg.replace("${auth_player_name}", &config.username)
-        .replace("${version_name}", &config.loader_version)
-        .replace("${game_directory}", &config.game_dir.to_string_lossy())
-        .replace("${assets_root}", &config.assets_dir.to_string_lossy())
-        .replace("${assets_index_name}", assets_index)
-        .replace("${auth_uuid}", &config.uuid)
-        .replace("${auth_access_token}", &config.access_token)
-        .replace("${user_type}", "mojang")
-        .replace("${version_type}", "release")
-        .replace(
-            "${natives_directory}",
-            &config.natives_dir.to_string_lossy(),
-        )
-        .replace("${launcher_name}", "Lumacina")
-        .replace("${launcher_version}", "1.0")
-        .replace("${width}", &config.window_width.to_string())
-        .replace("${height}", &config.window_height.to_string())
-        .replace("${classpath}", classpath)
-        .replace(
-            "${library_directory}",
-            &config.libraries_dir.to_string_lossy(),
-        )
-        .replace("${classpath_separator}", get_classpath_separator())
 }
 
 // Mod
