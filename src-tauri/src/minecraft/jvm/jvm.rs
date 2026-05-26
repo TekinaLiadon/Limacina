@@ -9,10 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::downloader::DownloadError,
-    minecraft::jvm::{
-        fabric::fabric_start, forge::forge_start, utils::generate_offline_uuid,
-        vanilla::vanilla_start,
-    },
+    minecraft::jvm::{forge::forge_start, utils::generate_offline_uuid},
     utils::{env_info::launcher_patch, tauri_err::CommandResult},
 };
 
@@ -219,7 +216,7 @@ impl LaunchConfig {
         loader_version: String,
     ) -> Result<Self> {
         let raw_base_dir =
-            launcher_patch().map_err(|e| DownloadError::SystemError(e.to_string()))?;
+            launcher_patch(Some("libra")).map_err(|e| DownloadError::SystemError(e.to_string()))?;
         let base_dir = dunce::canonicalize(&raw_base_dir).unwrap_or(raw_base_dir);
 
         let natives_dir = base_dir.join("natives").join(&mc_version);
@@ -245,16 +242,6 @@ impl LaunchConfig {
             window_height: 720,
         })
     }
-
-    pub fn base_jvm_args(&self) -> Vec<String> {
-        vec![
-            format!("-Xms{}", self.min_memory),
-            format!("-Xmx{}", self.max_memory),
-            format!("-Djava.library.path={}", self.natives_dir.display()),
-            "-Dminecraft.launcher.brand=CustomLauncher".to_string(),
-            "-Dminecraft.launcher.version=1.0".to_string(),
-        ]
-    }
 }
 
 #[tauri::command]
@@ -272,14 +259,6 @@ pub async fn start_jvm(
         "forge" => {
             forge_start(app, username, uuid, access_token, version).await?;
             Ok("Forge запущен успешно".to_string())
-        }
-        "fabric" => {
-            fabric_start(app, username, uuid, access_token, version).await?;
-            Ok("Fabric запущен успешно".to_string())
-        }
-        "vanilla" => {
-            vanilla_start(app, username, uuid, access_token, version).await?;
-            Ok("Vanilla запущен успешно".to_string())
         }
         _ => Err(anyhow!("Неизвестный тип: {}", type_minecraft))?,
     }

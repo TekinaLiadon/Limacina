@@ -10,7 +10,7 @@ pub async fn create_installer(forge_version: &String) -> Result<()> {
         "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-installer.jar",
         forge_version
     );
-    let base = launcher_patch()?;
+    let base = launcher_patch(Some("libra"))?;
     let installer_path = base.join("forge-installer.jar");
 
     fs::create_dir_all(&base)
@@ -47,7 +47,7 @@ pub async fn create_installer(forge_version: &String) -> Result<()> {
 }
 
 pub async fn start_installer() -> Result<()> {
-    let base = launcher_patch()?;
+    let base = launcher_patch(Some("libra"))?;
     let installer_path = base.join("forge-installer.jar");
 
     println!("🔧 Запуск Forge installer...");
@@ -79,7 +79,7 @@ pub async fn start_installer() -> Result<()> {
 }
 
 pub async fn cleanup_temp_files() -> Result<()> {
-    let base_dir = launcher_patch()?;
+    let base_dir = launcher_patch(Some("libra"))?;
     let installer_path = base_dir.join("forge-installer.jar");
 
     if installer_path.exists() {

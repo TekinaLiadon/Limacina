@@ -17,13 +17,25 @@ const formData = ref({
 const test = async () => {
   isLoading.value = !isLoading.value
   /*await invoke('download_minecraft', {
-    mcVersion: "1.16.5"
+    mcVersion: "1.21.1",
+    loader: "vanilla"
+  })
+  await invoke('download_minecraft', {
+    mcVersion: "1.21.1",
+    loader: "fabric"
   })*/
   await invoke('start_minecraft', {
     username: formData.value.username,
     accessToken: "5730aacc7d65c752b53ca07500e247",
-    mcVersion: "1.16.5"
+    mcVersion: "1.21.1",
+    loaderVersion: "0.19.2",
+    loaderName: "fabric"
   })
+  /*await invoke('start_minecraft', {
+    username: formData.value.username,
+    accessToken: "5730aacc7d65c752b53ca07500e247",
+    mcVersion: "1.16.5"
+  })*/
 }
 const start = async () => {
   isLoading.value = !isLoading.value

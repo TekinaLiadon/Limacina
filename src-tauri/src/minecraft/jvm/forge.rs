@@ -166,7 +166,7 @@ pub async fn forge_start(
 ) -> Result<()> {
     log_info!("🎮 Запуск Minecraft {} с Forge...", mc_version);
 
-    let base_dir = launcher_patch()?;
+    let base_dir = launcher_patch(Some("libra"))?;
     let versions_dir = base_dir.join("versions");
     ensure_vanilla_version_installed(&mc_version, &versions_dir).await?;
     let forge_version_dir = find_forge_version_dir(&versions_dir, &mc_version)?;

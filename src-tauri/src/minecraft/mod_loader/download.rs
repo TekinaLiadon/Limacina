@@ -1,5 +1,8 @@
 use futures::future;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+// Из jvm
 
 use ::anyhow::{anyhow, Context, Result};
 use std::fs as std_fs;
@@ -8,71 +11,33 @@ use tokio::fs;
 use zip::ZipArchive;
 
 use crate::log_info;
-use crate::minecraft::dto::{GameConfig, LaunchConfig, Versions};
-use crate::minecraft::mod_loader::utils::{build_classpath, extract_arguments};
-use crate::minecraft::mod_loader::vanilla::AssetIndexContent;
-use crate::minecraft::mod_loader::vanilla::{
-    Rule, VanillaVersionsManifest, VersionDetailsManifest,
-};
-use crate::utils::download_file::{download_file, download_json};
+use crate::minecraft::dto::LibraryMod;
+use crate::minecraft::mod_loader::dto::vanilla::AssetIndexContent;
+use crate::minecraft::mod_loader::dto::vanilla::Rule;
+use crate::minecraft::mod_loader::dto::vanilla::VersionDetailsManifest;
+use crate::minecraft::mod_loader::utils::maven_to_path;
+use crate::utils::download_file::download_file;
 use crate::utils::env_info::{get_current_os, launcher_patch};
-use crate::utils::java::find_java;
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 
-pub async fn get_manifest_index() -> Result<VanillaVersionsManifest> {
-    let json_path = launcher_patch()?
-        .join("manifest")
-        .join(format!("{}.json", "vanilla"));
-    let url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+pub async fn download_jar(version: &str, url: &str) -> Result<()> {
+    let client_jar_path = launcher_patch(Some("libra"))?.join(format!("{}.jar", version));
 
-    let manifest: VanillaVersionsManifest = download_json(Some(url), json_path.as_path()).await?;
-    Ok(manifest)
-}
-
-pub async fn get_manifest_version(
-    version: &str,
-    manifest: Vec<Versions>,
-) -> Result<VersionDetailsManifest> {
-    log_info!("Загрузка версии {}", version);
-    let json_path = launcher_patch()?
-        .join("manifest")
-        .join(format!("{}.json", version));
-    let version_url = manifest
-        .iter()
-        .find(|v| v.id == version)
-        .map(|v| v.url.clone())
-        .with_context(|| format!("Версия не найдена: {}", version))?;
-
-    let manifest: VersionDetailsManifest =
-        download_json(Some(&version_url), json_path.as_path()).await?;
-    Ok(manifest)
-}
-
-pub async fn download_jar(manifest: &VersionDetailsManifest) -> Result<()> {
-    let client_jar_path = launcher_patch()?
-        .join("versions")
-        .join(&manifest.id)
-        .join(format!("{}.jar", manifest.id));
-
-    log_info!(
-        "Скачиваем основной JAR-файл: {}",
-        manifest.downloads.client.url
-    );
-    download_file(&manifest.downloads.client.url, &client_jar_path)
+    log_info!("Скачиваем основной JAR-файл: {}", url);
+    download_file(url, &client_jar_path)
         .await
         .context("Не удалось скачать клиент: ")?;
     Ok(())
 }
 
-pub async fn download_native_all(manifest: &VersionDetailsManifest) -> Result<()> {
-    let base_path: PathBuf = launcher_patch()?;
-    let natives_dir = base_path.join("natives").join(&manifest.id);
+pub async fn download_native(manifest: &VersionDetailsManifest) -> Result<()> {
+    let base_path: PathBuf = launcher_patch(Some("libra"))?;
+    let natives_dir = base_path.join("natives");
     fs::create_dir_all(&natives_dir)
         .await
         .context("Ошибка создания папки natives: ")?;
     let current_os = get_current_os();
 
-    log_info!("Скачиваем библиотеки...");
     let mut natives_to_extract: Vec<(PathBuf, Option<Vec<String>>)> = Vec::new();
     let mut semaphore_info = Vec::new();
 
@@ -95,17 +60,11 @@ pub async fn download_native_all(manifest: &VersionDetailsManifest) -> Result<()
                 if !artifact.url.is_empty() {
                     let result = SemaphoreInfo {
                         url: artifact.url.clone(),
-                        dest: base_path
-                            .join("libraries")
-                            .join(&manifest.id)
-                            .join(&artifact.path),
+                        dest: base_path.join("libraries").join(&artifact.path),
                     };
                     semaphore_info.push(result);
 
-                    let lib_path = base_path
-                        .join("libraries")
-                        .join(&manifest.id)
-                        .join(&artifact.path);
+                    let lib_path = base_path.join("libraries").join(&artifact.path);
                     let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
                     natives_to_extract.push((lib_path, exclude));
                 }
@@ -130,17 +89,12 @@ pub async fn download_native_all(manifest: &VersionDetailsManifest) -> Result<()
                         if let Some(native_artifact) = classifiers.get(&classifier) {
                             let result = SemaphoreInfo {
                                 url: native_artifact.url.clone(),
-                                dest: base_path
-                                    .join("libraries")
-                                    .join(&manifest.id)
-                                    .join(&native_artifact.path),
+                                dest: base_path.join("libraries").join(&native_artifact.path),
                             };
                             semaphore_info.push(result);
 
-                            let native_jar_path = base_path
-                                .join("libraries")
-                                .join(&manifest.id)
-                                .join(&native_artifact.path);
+                            let native_jar_path =
+                                base_path.join("libraries").join(&native_artifact.path);
                             let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
                             natives_to_extract.push((native_jar_path, exclude));
                         }
@@ -157,52 +111,6 @@ pub async fn download_native_all(manifest: &VersionDetailsManifest) -> Result<()
 
     log_info!("Файлов не удалось скачать: {}", errors.len());
 
-    // for lib in &manifest.libraries {
-    //     if !check_rules(&lib.rules) {
-    //         continue;
-    //     }
-
-    //     if !is_native_library_for_current_os(&lib.name) {
-    //         log_info!(
-    //             "Пропускаем библиотеку {} (не подходит для текущей ОС)",
-    //             lib.name
-    //         );
-    //         continue;
-    //     }
-
-    //     // (1.19+)
-    //     if let Some(downloads) = &lib.downloads {
-    //         if let Some(artifact) = &downloads.artifact {
-    //             if !artifact.url.is_empty() {
-    //                 download_native(
-    //                     lib,
-    //                     artifact,
-    //                     &base_path,
-    //                     &mut natives_to_extract,
-    //                     &manifest.id,
-    //                 )
-    //                 .await?;
-    //             }
-    //         }
-    //     }
-    //     if is_native_jar(&lib.name) {
-    //         continue;
-    //     }
-
-    //     // (1.19-)
-    //     if let Some(natives_map) = &lib.natives {
-    //         download_native_old(
-    //             lib,
-    //             &natives_map,
-    //             &base_path,
-    //             &current_os,
-    //             &mut natives_to_extract,
-    //             &manifest.id,
-    //         )
-    //         .await;
-    //     }
-    // }
-
     let mut total_extracted = 0u32;
     for (jar_path, exclude_rules) in &natives_to_extract {
         match extract_natives_from_jar(jar_path, &natives_dir, exclude_rules).await {
@@ -212,30 +120,9 @@ pub async fn download_native_all(manifest: &VersionDetailsManifest) -> Result<()
             Err(e) => eprintln!("  Ошибка извлечения {:?}: {:?}", jar_path, e),
         }
     }
-    log_info!("Всего извлечено нативных файлов: {}", total_extracted);
-
-    log_info!("\n=== Содержимое папки natives ===");
-    match fs::read_dir(&natives_dir).await {
-        Ok(mut entries) => {
-            let mut files = Vec::new();
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                files.push(entry);
-            }
-            if files.is_empty() {
-                log_info!("Папка natives пуста!");
-            } else {
-                log_info!("Файлов: {}", files.len());
-                for entry in &files {
-                    log_info!("  {:?}", entry.file_name());
-                }
-            }
-        }
-        Err(e) => eprintln!("Ошибка чтения папки natives: {:?}", e),
-    }
+    log_info!("Файлов скачано: {}", total_extracted);
 
     extract_native(natives_to_extract, natives_dir).await?;
-    let index_lib = get_index_lib(&manifest).await?;
-    download_all(index_lib, &manifest.id).await?;
     Ok(())
 }
 
@@ -343,26 +230,6 @@ async fn extract_native(
     }
     log_info!("Всего извлечено нативных файлов: {}", total_extracted);
 
-    log_info!("\n=== Содержимое папки natives ===");
-    match fs::read_dir(&natives_dir).await {
-        Ok(mut entries) => {
-            let mut files = Vec::new();
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                files.push(entry);
-            }
-
-            if files.is_empty() {
-                log_info!("Папка natives пуста!");
-            } else {
-                log_info!("Файлов: {}", files.len());
-                for entry in &files {
-                    log_info!("  {:?}", entry.file_name());
-                }
-            }
-        }
-        Err(e) => eprintln!("Ошибка чтения папки natives: {:?}", e),
-    }
-
     Ok(())
 }
 
@@ -449,8 +316,8 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
     false
 }
 
-async fn get_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetIndexContent> {
-    let base_path: PathBuf = launcher_patch()?;
+pub async fn donwload_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetIndexContent> {
+    let base_path: PathBuf = launcher_patch(Some("libra"))?;
     log_info!("\nСкачиваем индекс ресурсов...");
     let asset_index_path = base_path
         .join("assets")
@@ -469,12 +336,11 @@ async fn get_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetIndexCo
     Ok(asset_index)
 }
 
-async fn download_all(asset_index: AssetIndexContent, id: &String) -> Result<()> {
-    log_info!("Скачиваем ресурсы...");
-    let base_path: PathBuf = launcher_patch()?;
+pub async fn download_assets(asset_index: AssetIndexContent) -> Result<()> {
+    let base_path: PathBuf = launcher_patch(Some("libra"))?;
     let mut semaphore_info = Vec::new();
 
-    for (asset_path_key, asset) in asset_index.objects {
+    for (_, asset) in asset_index.objects {
         let hash_prefix = asset.hash[..2].to_string();
         let asset_hash = asset.hash.clone();
         let asset_url = format!(
@@ -484,7 +350,6 @@ async fn download_all(asset_index: AssetIndexContent, id: &String) -> Result<()>
         let asset_file_path = base_path
             .join("assets")
             .join("objects")
-            .join(&id)
             .join(&hash_prefix)
             .join(&asset_hash);
 
@@ -494,8 +359,6 @@ async fn download_all(asset_index: AssetIndexContent, id: &String) -> Result<()>
         };
         semaphore_info.push(result);
     }
-
-    log_info!("Всего ресурсов для загрузки: {}", semaphore_info.len());
     let download_futures = semaphore_core(base_path, semaphore_info);
     let results = future::join_all(download_futures).await;
 
@@ -516,34 +379,32 @@ async fn download_all(asset_index: AssetIndexContent, id: &String) -> Result<()>
     Ok(())
 }
 
-pub async fn vanilla_config(config: &LaunchConfig) -> Result<GameConfig> {
-    log_info!("🎮 Запуск Vanilla Minecraft {}...", config.mc_version);
+// Mod
 
-    let base_dir = launcher_patch()?;
-    let version_json_path = base_dir
-        .join("manifest")
-        .join(format!("{}.json", config.mc_version));
+pub async fn download_libraries(libraries: Vec<LibraryMod>) -> Result<()> {
+    let mut semaphore_info = Vec::new();
+    let libraries_path = launcher_patch(Some("libra"))?.join("libraries");
+    let base_path = PathBuf::from(libraries_path);
 
-    let version_json: VersionDetailsManifest =
-        download_json(None, version_json_path.as_path()).await?;
+    for lib in libraries {
+        let local_path = maven_to_path(&lib.name)?;
+        let result = SemaphoreInfo {
+            url: lib.url,
+            dest: local_path,
+        };
 
-    let versions_dir = base_dir.join("versions").join(&config.mc_version);
-    let client_jar = versions_dir.join(format!("{}.jar", config.mc_version));
-    let assets_index_id = version_json.assets.clone();
-    let classpath = build_classpath(&version_json.libraries, &config.libraries_dir, &client_jar)?;
-    let (jvm_args, game_args) =
-        extract_arguments(&version_json, &config, &classpath, &assets_index_id);
-    let java_path = find_java()?;
-    log_info!("☕ Java: {:?}", java_path);
+        semaphore_info.push(result);
+    }
 
-    let config = GameConfig {
-        java_path,
-        jvm_args,
-        game_args,
-        classpath,
-        main_class: version_json.main_class,
-        game_dir: versions_dir,
-    };
+    let download_futures = semaphore_core(base_path, semaphore_info);
 
-    Ok(config)
+    let results = future::join_all(download_futures).await;
+    let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
+
+    if errors.is_empty() {
+        log_info!("Все библиотеки Fabric успешно скачаны!");
+        Ok(())
+    } else {
+        anyhow::bail!("Не удалось скачать {} библиотек.", errors.len())
+    }
 }
