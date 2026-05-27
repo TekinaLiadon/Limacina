@@ -20,8 +20,8 @@ pub struct ArgumentsMap {
 }
 
 impl ArgumentsMap {
-    pub fn create_map(&mut self, config: &LaunchConfig, classpath: &str, assets_index: &str) {
-        self.map = [
+    pub fn new(config: &LaunchConfig, classpath: &str, assets_index: &str) -> Self {
+        let map = [
             ("${auth_player_name}", config.username.clone()),
             ("${version_name}", config.loader_version.clone()),
             (
@@ -59,6 +59,7 @@ impl ArgumentsMap {
         ]
         .into_iter()
         .collect();
+        ArgumentsMap { map }
     }
     fn get_value_by_key(&self, arg: &str) -> String {
         let mut result = arg.to_string();

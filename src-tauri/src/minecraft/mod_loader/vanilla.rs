@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use ::anyhow::Result;
 use async_trait::async_trait;
 
@@ -57,10 +55,7 @@ impl MinecraftLoader for Vanilla {
 
         log_info!("Формирование аргументов");
         let assets_index_id = manifest_version.assets.clone();
-        let mut args_map = ArgumentsMap {
-            map: HashMap::new(),
-        };
-        args_map.create_map(&config, &classpath, &assets_index_id);
+        let args_map = ArgumentsMap::new(&config, &classpath, &assets_index_id);
         let jvm_args = get_jvm_args(&manifest_version, &config, &args_map);
         let game_args = get_game_args(&manifest_version, &args_map);
 

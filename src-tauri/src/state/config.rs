@@ -9,10 +9,16 @@ impl ProjectConfig {
         write(format!("{}.toml", self.project_name), toml_string).await?;
         Ok(())
     }
-    pub async fn update_config(&mut self, new: ProjectConfig) -> Result<()> {
-        self.mc_version = new.mc_version;
-        self.mod_loader = new.mod_loader;
-        self.loader_version = new.loader_version;
+    pub fn update_config(&mut self, new: ProjectConfig) {
+        if let Some(v) = new.mc_version {
+            self.mc_version = Some(v);
+        }
+        if let Some(v) = new.mod_loader {
+            self.mod_loader = Some(v);
+        }
+        if let Some(v) = new.loader_version {
+            self.loader_version = Some(v);
+        }
         if let Some(v) = new.username {
             self.username = Some(v);
         }
@@ -31,8 +37,6 @@ impl ProjectConfig {
         if let Some(v) = new.natives_dir {
             self.natives_dir = Some(v);
         }
-        self.save_config().await?;
-        Ok(())
     }
 }
 
@@ -52,6 +56,7 @@ pub async fn save_config(new_config: ProjectConfig) -> Result<ProjectConfig> {
     }
 
     let mut config: ProjectConfig = load_config(&new_config.project_name).await?;
-    config.update_config(new_config).await?;
+    config.update_config(new_config);
+    config.save_config().await?;
     Ok(config)
 }

@@ -16,7 +16,7 @@ pub async fn save_settings_project(
 ) -> CommandResult<String> {
     let new_config = save_config(config).await?;
     let mut state = state.lock().map_err(|e| anyhow!("Ошибка: {}", e))?;
-    state.project_config = new_config;
+    state.project_info = new_config;
     Ok("Настройки изменены".to_string())
 }
 
@@ -27,6 +27,6 @@ pub async fn load_settings_project(
 ) -> CommandResult<ProjectConfig> {
     let config = load_config(&project_name).await?;
     let mut state = state.lock().map_err(|e| anyhow!("Ошибка: {}", e))?;
-    state.project_config = config.clone();
+    state.project_info = config.clone();
     Ok(config)
 }

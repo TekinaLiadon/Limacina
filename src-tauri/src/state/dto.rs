@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
 pub struct State {
-    pub project_config: ProjectConfig,
+    pub project_info: ProjectConfig,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
@@ -17,9 +17,9 @@ pub enum ModLoader {
 #[derive(Default, Debug, Deserialize, Serialize, Clone)]
 pub struct ProjectConfig {
     pub project_name: String,
-    pub mc_version: String,
-    pub mod_loader: ModLoader,
-    pub loader_version: String,
+    pub mc_version: Option<String>,
+    pub mod_loader: Option<ModLoader>,
+    pub loader_version: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
     pub jvm_args: Option<Vec<String>>,
