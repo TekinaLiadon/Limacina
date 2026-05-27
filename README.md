@@ -1,7 +1,20 @@
-# Tauri + Vue + TypeScript
+# Limacina Launcher
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+**Limacina** — это функциональный лаунчер для Minecraft, который позволяет комфортно играть как с модами, так и без них. Лаунчер поддерживает два режима работы: независимую игру и подключение к приватным серверам с собственной авторизацией на базе лаунчер-сервера Limacina.
 
-## Recommended IDE Setup
+## Основные возможности
 
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+### Клиентская часть (Лаунчер)
+* **Мультиаккаунтность:** поддержка сразу нескольких профилей пользователя.
+* **Игровые проекты:** возможность создавать несколько проектов, каждый со своей версией Minecraft и независимыми файлами.
+* **Тонкая настройка:** множество параметров и настроек для запуска игры.
+* **Универсальность:** играйте в одиночку, на обычных серверах или на проектах с Limacina.
+* * **Интеграция с модами:** опция скачивания модов с Modrinth.
+
+### Серверная часть (Лаунчер-сервер)
+* **Авторизация:** собственная система для приватного сервера.
+* **Синхронизация:** автоматическое обновление и синхронизация файлов клиента.
+* **Кастомизация:** встроенная система установки скинов.
+
+---
+
