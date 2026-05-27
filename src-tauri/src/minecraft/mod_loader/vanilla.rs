@@ -8,7 +8,7 @@ use crate::{
     minecraft::{
         dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
         mod_loader::{
-            config::{get_classpath, get_game_args, get_jvm_args, ArgumentsMap, ArgumentsMethod},
+            config::{get_classpath, get_game_args, get_jvm_args, ArgumentsMap},
             download::{donwload_index_lib, download_assets, download_jar, download_native},
             dto::vanilla::{VanillaVersionsManifest, VersionDetailsManifest},
             manifest::{create_manifest_versions, get_manifest_index, get_manifest_version},

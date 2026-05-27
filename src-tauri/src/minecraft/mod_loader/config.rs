@@ -19,14 +19,8 @@ pub struct ArgumentsMap {
     pub map: HashMap<&'static str, String>,
 }
 
-pub trait ArgumentsMethod {
-    fn create_map(&mut self, config: &LaunchConfig, classpath: &str, assets_index: &str);
-    fn get_value_by_key(&self, key: &str) -> String;
-    fn get_value(&self, arg: &ArgumentValue) -> Vec<String>;
-}
-
-impl ArgumentsMethod for ArgumentsMap {
-    fn create_map(&mut self, config: &LaunchConfig, classpath: &str, assets_index: &str) {
+impl ArgumentsMap {
+    pub fn create_map(&mut self, config: &LaunchConfig, classpath: &str, assets_index: &str) {
         self.map = [
             ("${auth_player_name}", config.username.clone()),
             ("${version_name}", config.loader_version.clone()),
@@ -51,8 +45,8 @@ impl ArgumentsMethod for ArgumentsMap {
             ("${launcher_version}", "1.0".to_string()),
             ("${width}", config.window_width.to_string()),
             ("${height}", config.window_height.to_string()),
-            ("${clientid}", "1".to_string()), // TODO 
-            ("${auth_xuid}", "1".to_string()), // TODO 
+            ("${clientid}", "1".to_string()),  // TODO
+            ("${auth_xuid}", "1".to_string()), // TODO
             ("${classpath}", classpath.to_string()),
             (
                 "${library_directory}",
@@ -69,9 +63,9 @@ impl ArgumentsMethod for ArgumentsMap {
     fn get_value_by_key(&self, arg: &str) -> String {
         let mut result = arg.to_string();
         for (placeholder, value) in &self.map {
-                    result = result.replace(placeholder, value);
-                }
-                result
+            result = result.replace(placeholder, value);
+        }
+        result
     }
     fn get_value(&self, arg: &ArgumentValue) -> Vec<String> {
         match arg {
@@ -80,10 +74,9 @@ impl ArgumentsMethod for ArgumentsMap {
                 if is_rule_allowed(&rules) {
                     match value {
                         StringOrVec::Single(s) => vec![self.get_value_by_key(&s)],
-                        StringOrVec::Multiple(vec) => vec
-                            .iter()
-                            .map(|s| self.get_value_by_key(&s))
-                            .collect()
+                        StringOrVec::Multiple(vec) => {
+                            vec.iter().map(|s| self.get_value_by_key(&s)).collect()
+                        }
                     }
                 } else {
                     Vec::new()
