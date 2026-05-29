@@ -20,8 +20,8 @@ use crate::utils::download_file::download_file;
 use crate::utils::env_info::{get_current_os, launcher_patch};
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 
-pub async fn download_jar(version: &str, url: &str) -> Result<()> {
-    let client_jar_path = launcher_patch(Some("libra"))?.join(format!("{}.jar", version));
+pub async fn download_jar(project_name: &str, version: &str, url: &str) -> Result<()> {
+    let client_jar_path = launcher_patch(Some(project_name))?.join(format!("{}.jar", version));
 
     log_info!("Скачиваем основной JAR-файл: {}", url);
     download_file(url, &client_jar_path)
@@ -30,8 +30,8 @@ pub async fn download_jar(version: &str, url: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn download_native(manifest: &VersionDetailsManifest) -> Result<()> {
-    let base_path: PathBuf = launcher_patch(Some("libra"))?;
+pub async fn download_native(project_name: &str, manifest: &VersionDetailsManifest) -> Result<()> {
+    let base_path: PathBuf = launcher_patch(Some(project_name))?;
     let natives_dir = base_path.join("natives");
     fs::create_dir_all(&natives_dir)
         .await
@@ -316,8 +316,11 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
     false
 }
 
-pub async fn donwload_index_lib(manifest: &VersionDetailsManifest) -> Result<AssetIndexContent> {
-    let base_path: PathBuf = launcher_patch(Some("libra"))?;
+pub async fn donwload_index_lib(
+    project_name: &str,
+    manifest: &VersionDetailsManifest,
+) -> Result<AssetIndexContent> {
+    let base_path: PathBuf = launcher_patch(Some(project_name))?;
     log_info!("\nСкачиваем индекс ресурсов...");
     let asset_index_path = base_path
         .join("assets")
@@ -336,8 +339,8 @@ pub async fn donwload_index_lib(manifest: &VersionDetailsManifest) -> Result<Ass
     Ok(asset_index)
 }
 
-pub async fn download_assets(asset_index: AssetIndexContent) -> Result<()> {
-    let base_path: PathBuf = launcher_patch(Some("libra"))?;
+pub async fn download_assets(project_name: &str, asset_index: AssetIndexContent) -> Result<()> {
+    let base_path: PathBuf = launcher_patch(Some(project_name))?;
     let mut semaphore_info = Vec::new();
 
     for (_, asset) in asset_index.objects {
@@ -381,9 +384,9 @@ pub async fn download_assets(asset_index: AssetIndexContent) -> Result<()> {
 
 // Mod
 
-pub async fn download_libraries(libraries: Vec<LibraryMod>) -> Result<()> {
+pub async fn download_libraries(project_name: &str, libraries: Vec<LibraryMod>) -> Result<()> {
     let mut semaphore_info = Vec::new();
-    let libraries_path = launcher_patch(Some("libra"))?.join("libraries");
+    let libraries_path = launcher_patch(Some(project_name))?.join("libraries");
     let base_path = PathBuf::from(libraries_path);
 
     for lib in libraries {

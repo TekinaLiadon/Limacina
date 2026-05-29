@@ -1,6 +1,7 @@
 use ::anyhow::Result;
 use async_trait::async_trait;
 
+use crate::state::dto::ProjectConfig;
 use crate::{
     log_info,
     minecraft::{
@@ -28,30 +29,36 @@ impl MinecraftLoader for Vanilla {
         let manifest = create_manifest_versions(manifest_index.versions)?;
         Ok(manifest)
     }
-    async fn setup(&self, version: &str) -> Result<()> {
-        log_info!("Загрузка версии {}", version);
+    async fn setup(&self, state: &ProjectConfig) -> Result<()> {
+        let version = &state.mc_version;
+        log_info!("Загрузка версии {:?}", &version);
         let versions: Vec<Versions> = self.versions().await?;
         let manifest: VersionDetailsManifest = get_manifest_version(version, versions).await?;
 
         log_info!("Скачивание основного jar");
-        download_jar(&manifest.id, &manifest.downloads.client.url).await?;
+        download_jar(
+            &state.project_name,
+            &version,
+            &manifest.downloads.client.url,
+        )
+        .await?;
 
         log_info!("Скачивание нативных библиотек");
-        download_native(&manifest).await?;
+        download_native(&state.project_name, &manifest).await?;
 
         log_info!("Скачивание assets");
-        let index_lib = donwload_index_lib(&manifest).await?;
-        download_assets(index_lib).await?;
+        let index_lib = donwload_index_lib(&state.project_name, &manifest).await?;
+        download_assets(&state.project_name, index_lib).await?;
         Ok(())
     }
-    async fn config(&self, config: &LaunchConfig) -> Result<GameConfig> {
+    async fn config(&self, state: &ProjectConfig, config: &LaunchConfig) -> Result<GameConfig> {
         log_info!("Получение Vanilla конфига {}...", config.mc_version);
         let versions: Vec<Versions> = self.versions().await?;
         let manifest_version: VersionDetailsManifest =
             get_manifest_version(&config.mc_version, versions).await?;
 
         log_info!("Формирование classpath");
-        let classpath = get_classpath(&manifest_version.libraries, &config)?;
+        let classpath = get_classpath(&state.project_name, &manifest_version.libraries, &config)?;
 
         log_info!("Формирование аргументов");
         let assets_index_id = manifest_version.assets.clone();
@@ -62,7 +69,7 @@ impl MinecraftLoader for Vanilla {
         log_info!("Поиск java");
         let java_path = find_java()?;
 
-        let game_dir = launcher_patch(Some("libra"))?;
+        let game_dir = launcher_patch(Some(&state.project_name))?;
         let game_config = GameConfig {
             java_path,
             jvm_args,

@@ -12,8 +12,7 @@ use api::start::start_minecraft;
 use core::downloader::download_all_files;
 use minecraft::forge::forge::get_forge;
 use minecraft::jvm::jvm::start_jvm;
-use std::sync::Mutex;
-use tauri::Manager;
+use tokio::sync::Mutex;
 use utils::logger_utils;
 
 use crate::state::dto::State;
@@ -24,9 +23,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
-            app.manage(Mutex::new(State::default()));
             Ok(())
         })
+        .manage(Mutex::new(State::default()))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             start_jvm,

@@ -23,7 +23,10 @@ impl ArgumentsMap {
     pub fn new(config: &LaunchConfig, classpath: &str, assets_index: &str) -> Self {
         let map = [
             ("${auth_player_name}", config.username.clone()),
-            ("${version_name}", config.loader_version.clone()),
+            (
+                "${version_name}",
+                config.loader_version.clone().unwrap_or("1".to_string()),
+            ),
             (
                 "${game_directory}",
                 config.game_dir.to_string_lossy().to_string(),
@@ -87,8 +90,12 @@ impl ArgumentsMap {
     }
 }
 
-pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<String> {
-    let base_dir = launcher_patch(Some("libra"))?;
+pub fn get_classpath(
+    project_name: &str,
+    libraries: &[Library],
+    config: &LaunchConfig,
+) -> Result<String> {
+    let base_dir = launcher_patch(Some(project_name))?;
     let client_jar = base_dir.join(format!("{}.jar", config.mc_version));
     let separator = get_classpath_separator();
     let mut paths: Vec<String> = Vec::new();
@@ -155,8 +162,7 @@ pub fn get_jvm_args(
 ) -> Vec<String> {
     let mut jvm_args = Vec::new();
     if let Some(arguments) = &manifest.arguments {
-        jvm_args.push(format!("-Xms{}", &config.min_memory));
-        jvm_args.push(format!("-Xmx{}", &config.max_memory));
+        jvm_args.extend(config.jvm_sub_arg.clone());
         for arg in &arguments.jvm {
             jvm_args.extend(args_map.get_value(arg));
         }
@@ -184,11 +190,12 @@ pub fn get_game_args(manifest: &VersionDetailsManifest, args_map: &ArgumentsMap)
 // Mod
 
 pub fn merge_classpath(
+    project_name: &str,
     version: &str,
     libraries: &Vec<LibraryMod>,
     vanilla_classpath: &str,
 ) -> Result<String> {
-    let base_path = launcher_patch(Some("libra"))?;
+    let base_path = launcher_patch(Some(project_name))?;
     let libraries_path = base_path.join("libraries");
     let core_jar_path = base_path.join(format!("{}.jar", version));
 
