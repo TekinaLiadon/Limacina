@@ -1,22 +1,21 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod api;
-mod core;
+mod commands;
+mod launcher_server;
 mod minecraft;
 mod state;
 mod utils;
 
-use api::download::download_minecraft;
-use api::settings_project::load_settings_project;
-use api::settings_project::save_settings_project;
-use api::start::start_minecraft;
-use core::downloader::download_all_files;
+use commands::download::download_minecraft;
+use commands::download::download_server_file;
+use commands::settings_project::load_settings_project;
+use commands::settings_project::save_settings_project;
+use commands::start::start_minecraft;
 use minecraft::forge::forge::get_forge;
 use minecraft::jvm::jvm::start_jvm;
-use std::sync::Mutex;
-use tauri::Manager;
+use tokio::sync::Mutex;
 use utils::logger_utils;
 
-use crate::state::dto::State;
+use crate::state::dto::ProjectConfig;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,14 +23,14 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
-            app.manage(Mutex::new(State::default()));
             Ok(())
         })
+        .manage(Mutex::new(ProjectConfig::default()))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             start_jvm,
             get_forge,
-            download_all_files,
+            download_server_file,
             download_minecraft,
             start_minecraft,
             save_settings_project,

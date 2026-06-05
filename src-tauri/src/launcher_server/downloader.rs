@@ -104,7 +104,6 @@ fn get_base_dir() -> Result<String, DownloadError> {
     Ok(dir.to_string_lossy().to_string())
 }
 
-#[tauri::command]
 pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError> {
     let client = Client::new();
 

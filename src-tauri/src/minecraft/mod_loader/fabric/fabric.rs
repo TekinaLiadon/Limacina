@@ -4,14 +4,16 @@ use async_trait::async_trait;
 use crate::{
     log_info,
     minecraft::{
-        dto::{GameConfig, LaunchConfig, ModLoader, VersionMod},
+        download::download_jar,
+        dto::{GameConfig, ModLoader, VersionMod},
+        manifest::get_manifest_index,
         mod_loader::{
             config::merge_classpath,
-            download::{download_jar, download_libraries},
-            dto::fabric::FabricManifest,
-            manifest::{get_manifest_index, transform_fabric_manifest},
+            download::download_libraries,
+            fabric::{dto::FabricManifest, manifest::transform_fabric_manifest},
         },
     },
+    state::dto::ProjectConfig,
     utils::env_info::launcher_patch,
 };
 
@@ -28,12 +30,17 @@ impl ModLoader for Fabric {
         let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric);
         Ok(manifest)
     }
-    async fn setup(&self, manifest: &VersionMod) -> Result<()> {
+    async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()> {
+        let target_version = state.loader_version.as_deref().unwrap_or("");
+        let version_info = manifest
+            .iter()
+            .find(|v| v.id == target_version)
+            .expect("Версия не найдена");
         log_info!("Скачивание основного jar");
-        download_jar(&manifest.id, &manifest.url).await?;
+        download_jar(&state.project_name, &version_info.id, &version_info.url).await?;
 
         log_info!("Скачивание библиотек");
-        download_libraries(manifest.library.clone()).await?;
+        download_libraries(&state.project_name, version_info.library.clone()).await?;
 
         // скачать моды
 
@@ -41,19 +48,21 @@ impl ModLoader for Fabric {
     }
     async fn config(
         &self,
-        config: &LaunchConfig,
+        state: &ProjectConfig,
         vanilla_config: GameConfig,
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath");
+        let target_version = state.loader_version.as_deref().unwrap_or("");
         let classpath = merge_classpath(
-            &config.loader_version,
+            &state.project_name,
+            &target_version,
             &version.library,
             &vanilla_config.classpath,
         )?;
 
         let main_class = version.main_class.clone();
-        let game_dir = launcher_patch(Some("libra"))?;
+        let game_dir = launcher_patch(Some(&state.project_name))?;
         let game_config = GameConfig {
             java_path: vanilla_config.java_path,
             jvm_args: vanilla_config.jvm_args,

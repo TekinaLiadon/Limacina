@@ -1,10 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
-pub struct State {
-    pub project_info: ProjectConfig,
-}
-
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum ModLoader {
@@ -15,19 +10,13 @@ pub enum ModLoader {
 }
 
 #[derive(Default, Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     pub project_name: String,
-    pub mc_version: Option<String>,
-    pub mod_loader: Option<ModLoader>,
+    pub mc_version: String,
+    pub mod_loader: ModLoader,
     pub loader_version: Option<String>,
-    pub username: Option<String>,
-    pub password: Option<String>,
-    pub jvm_args: Option<Vec<String>>,
-    pub game_args: Option<Vec<String>>,
-    pub classpath: Option<Vec<String>>,
-    pub game_dir: Option<String>,
-    pub assets_dir: Option<String>,
-    pub libraries_dir: Option<String>,
-    pub natives_dir: Option<String>,
-    pub main_class: Option<String>,
+    pub jvm_args: Vec<String>,
+    pub min_memory: String,
+    pub max_memory: String,
 }

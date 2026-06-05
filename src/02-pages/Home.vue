@@ -14,28 +14,29 @@ const formData = ref({
   rememberMe: false
 });
 
-const test = async () => {
-  isLoading.value = !isLoading.value
-  /*await invoke('download_minecraft', {
-    mcVersion: "1.21.1",
-    loader: "vanilla"
-  })
-  await invoke('download_minecraft', {
-    mcVersion: "1.21.1",
-    loader: "fabric"
-  })*/
+const downloadMinecraft = async () => {
+  await invoke('download_minecraft')
+}
+
+const startMinecraft = async () => {
   await invoke('start_minecraft', {
     username: formData.value.username,
     accessToken: "5730aacc7d65c752b53ca07500e247",
-    mcVersion: "1.21.1",
-    loaderVersion: "0.19.2",
-    loaderName: "fabric"
   })
-  /*await invoke('start_minecraft', {
-    username: formData.value.username,
-    accessToken: "5730aacc7d65c752b53ca07500e247",
-    mcVersion: "1.16.5"
-  })*/
+}
+
+const test = async () => {
+  isLoading.value = !isLoading.value
+  try {
+
+    await invoke('load_settings_project', {
+      projectName: "libra"
+    })
+    //await downloadMinecraft()
+    await startMinecraft()
+  } catch (e) {
+    console.error(e)
+  }
 }
 const start = async () => {
   isLoading.value = !isLoading.value
