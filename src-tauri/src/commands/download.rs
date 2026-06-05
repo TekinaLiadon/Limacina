@@ -1,16 +1,21 @@
+use tauri::AppHandle;
 use tokio::sync::Mutex;
 
-use crate::api::dto::create_mod_loader;
+use crate::commands::dto::create_mod_loader;
+use crate::launcher_server::downloader::download_all_files;
+use crate::launcher_server::downloader::DownloadError;
 use crate::minecraft::dto::MinecraftLoader;
 use crate::state::dto::ModLoader;
-use crate::state::dto::State;
-use crate::{minecraft::mod_loader::vanilla::Vanilla, utils::tauri_err::CommandResult};
+use crate::state::dto::ProjectConfig;
+use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResult};
 
 #[tauri::command]
-pub async fn download_minecraft(state: tauri::State<'_, Mutex<State>>) -> CommandResult<String> {
+pub async fn download_minecraft(
+    state: tauri::State<'_, Mutex<ProjectConfig>>,
+) -> CommandResult<String> {
     println!("[LOG]");
     let state = state.lock().await;
-    let project_state = &state.project_info;
+    let project_state = &state;
     println!("[LOG2]");
     Vanilla.setup(&project_state).await?;
     match project_state.mod_loader {
@@ -23,4 +28,10 @@ pub async fn download_minecraft(state: tauri::State<'_, Mutex<State>>) -> Comman
         }
         ModLoader::Forge => Ok("Forge майнкрафт установлен успешно".to_string()),
     }
+}
+
+#[tauri::command]
+pub async fn download_server_file(app: AppHandle) -> Result<String, DownloadError> {
+    download_all_files(app).await?;
+    Ok("Ok".to_string())
 }

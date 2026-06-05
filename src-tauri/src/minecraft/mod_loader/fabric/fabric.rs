@@ -4,12 +4,13 @@ use async_trait::async_trait;
 use crate::{
     log_info,
     minecraft::{
+        download::download_jar,
         dto::{GameConfig, ModLoader, VersionMod},
+        manifest::get_manifest_index,
         mod_loader::{
             config::merge_classpath,
-            download::{download_jar, download_libraries},
-            dto::fabric::FabricManifest,
-            manifest::{get_manifest_index, transform_fabric_manifest},
+            download::download_libraries,
+            fabric::{dto::FabricManifest, manifest::transform_fabric_manifest},
         },
     },
     state::dto::ProjectConfig,

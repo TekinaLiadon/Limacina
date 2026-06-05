@@ -8,7 +8,7 @@ use tokio::fs;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::downloader::DownloadError,
+    launcher_server::downloader::DownloadError,
     minecraft::jvm::{forge::forge_start, utils::generate_offline_uuid},
     utils::{env_info::launcher_patch, tauri_err::CommandResult},
 };

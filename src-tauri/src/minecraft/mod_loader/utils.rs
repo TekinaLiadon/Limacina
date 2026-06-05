@@ -9,6 +9,7 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use uuid::{Builder, Variant, Version};
 
+use crate::utils::os::get_classpath_separator;
 use crate::{log_info, minecraft::dto::GameConfig};
 
 #[derive(Clone, serde::Serialize)]
@@ -66,13 +67,15 @@ pub fn maven_to_url(coord: &str) -> String {
 pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     log_info!("\n▶ Запуск Minecraft...\n");
     let mut command = Command::new(config.java_path);
+    let separator = get_classpath_separator();
+    let classpath = &config.classpath.join(separator);
 
     //log_info!("{}", config.classpath);
     //log_info!("{}", config.jvm_args.join(" "));
     command
         .args(config.jvm_args)
         .arg("-cp")
-        .arg(&config.classpath)
+        .arg(&classpath)
         .arg(&config.main_class)
         .args(config.game_args)
         .current_dir(&config.game_dir)

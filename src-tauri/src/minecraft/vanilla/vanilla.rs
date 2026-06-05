@@ -1,18 +1,18 @@
 use ::anyhow::Result;
 use async_trait::async_trait;
 
+use crate::minecraft::download::download_jar;
+use crate::minecraft::manifest::get_manifest_index;
+use crate::minecraft::mod_loader::manifest::get_manifest_version;
+use crate::minecraft::vanilla::config::get_classpath;
+use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
+use crate::minecraft::vanilla::download::{donwload_index_lib, download_assets, download_native};
+use crate::minecraft::vanilla::dto::{VanillaVersionsManifest, VersionDetailsManifest};
+use crate::minecraft::vanilla::manifest::create_manifest_versions;
 use crate::state::dto::ProjectConfig;
 use crate::{
     log_info,
-    minecraft::{
-        dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
-        mod_loader::{
-            config::{get_classpath, get_game_args, get_jvm_args, ArgumentsMap},
-            download::{donwload_index_lib, download_assets, download_jar, download_native},
-            dto::vanilla::{VanillaVersionsManifest, VersionDetailsManifest},
-            manifest::{create_manifest_versions, get_manifest_index, get_manifest_version},
-        },
-    },
+    minecraft::dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     utils::{env_info::launcher_patch, java::find_java},
 };
 
@@ -58,18 +58,20 @@ impl MinecraftLoader for Vanilla {
             get_manifest_version(&config.mc_version, versions).await?;
 
         log_info!("Формирование classpath");
-        let classpath = get_classpath(&state.project_name, &manifest_version.libraries, &config)?;
+        let game_dir = launcher_patch(Some(&state.project_name))?;
+        let mut classpath = get_classpath(&manifest_version.libraries, &config)?;
+        let client_jar = game_dir.join(format!("{}.jar", config.mc_version));
+        classpath.push(client_jar.to_string_lossy().to_string());
 
         log_info!("Формирование аргументов");
         let assets_index_id = manifest_version.assets.clone();
-        let args_map = ArgumentsMap::new(&config, &classpath, &assets_index_id);
+        let args_map = ArgumentsMap::new(&config, &assets_index_id);
         let jvm_args = get_jvm_args(&manifest_version, &config, &args_map);
         let game_args = get_game_args(&manifest_version, &args_map);
 
         log_info!("Поиск java");
         let java_path = find_java()?;
 
-        let game_dir = launcher_patch(Some(&state.project_name))?;
         let game_config = GameConfig {
             java_path,
             jvm_args,

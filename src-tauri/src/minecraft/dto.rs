@@ -33,7 +33,7 @@ pub struct GameConfig {
     pub java_path: PathBuf,
     pub jvm_args: Vec<String>,
     pub game_args: Vec<String>,
-    pub classpath: String,
+    pub classpath: Vec<String>,
     pub main_class: String,
     pub game_dir: PathBuf,
 }

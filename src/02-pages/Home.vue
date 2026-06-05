@@ -32,7 +32,7 @@ const test = async () => {
     await invoke('load_settings_project', {
       projectName: "libra"
     })
-    await downloadMinecraft()
+    //await downloadMinecraft()
     await startMinecraft()
   } catch (e) {
     console.error(e)

@@ -1,10 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
-pub struct State {
-    pub project_info: ProjectConfig,
-}
-
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum ModLoader {
