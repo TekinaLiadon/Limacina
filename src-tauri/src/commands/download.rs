@@ -13,10 +13,8 @@ use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResul
 pub async fn download_minecraft(
     state: tauri::State<'_, Mutex<ProjectConfig>>,
 ) -> CommandResult<String> {
-    println!("[LOG]");
     let state = state.lock().await;
     let project_state = &state;
-    println!("[LOG2]");
     Vanilla.setup(&project_state).await?;
     match project_state.mod_loader {
         ModLoader::Vanilla => Ok("Vanilla майнкрафт установлен успешно".to_string()),
@@ -26,7 +24,13 @@ pub async fn download_minecraft(
             loader.setup(&project_state, &manifest).await?;
             Ok("Fabric майнкрафт установлен успешно".to_string())
         }
-        ModLoader::Forge => Ok("Forge майнкрафт установлен успешно".to_string()),
+        ModLoader::Forge => {
+            let loader = create_mod_loader(&ModLoader::Forge)?;
+            let loader_version = &project_state.loader_version.as_deref().unwrap_or("");
+            let manifest = loader.versions(loader_version).await?;
+            loader.setup(&project_state, &manifest).await?;
+            Ok("Forge майнкрафт установлен успешно".to_string())
+        }
     }
 }
 

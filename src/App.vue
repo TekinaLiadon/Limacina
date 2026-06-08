@@ -18,9 +18,9 @@ onBeforeMount(async () => {
     await invoke('save_settings_project', {
       config: {
         projectName: "libra",
-        mcVersion: "1.21.1",
-        modLoader: "fabric",
-        loaderVersion: "0.19.2",
+        mcVersion: "1.16.5", //"1.21.1",
+        modLoader: "forge", //"fabric",
+        loaderVersion: "36.2.42", //"0.19.2",
         jvmArgs: [],
         minMemory: "-Xms512M",
         maxMemory: "-Xmx4G",

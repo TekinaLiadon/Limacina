@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use serde::de::DeserializeOwned;
+use quick_xml::de::from_str;
+use serde::{de::DeserializeOwned};
 use std::path::Path;
 use tokio::fs;
 
@@ -53,4 +54,11 @@ pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) 
     let file = fs::read_to_string(&dest).await?;
     let json: T = serde_json::from_str(&file)?;
     Ok(json)
+}
+
+pub async fn download_xml<T: DeserializeOwned>(url: &str) -> Result<T> {
+    let client = reqwest::Client::new();
+    let xml = client.get(url).send().await?.error_for_status()?.text().await?;
+    let xml_struct: T = from_str(&xml)?;
+    Ok(xml_struct)
 }
