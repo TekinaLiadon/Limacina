@@ -15,7 +15,7 @@ use minecraft::jvm::jvm::start_jvm;
 use tokio::sync::Mutex;
 use utils::logger_utils;
 
-use crate::state::dto::ProjectConfig;
+use crate::state::dto::GlobalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,7 +25,7 @@ pub fn run() {
             logger_utils::init_logger(handle);
             Ok(())
         })
-        .manage(Mutex::new(ProjectConfig::default()))
+        .manage(Mutex::new(GlobalState::default()))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             start_jvm,

@@ -5,25 +5,25 @@ use crate::commands::dto::create_mod_loader;
 use crate::launcher_server::downloader::download_all_files;
 use crate::launcher_server::downloader::DownloadError;
 use crate::minecraft::dto::MinecraftLoader;
+use crate::state::dto::GlobalState;
 use crate::state::dto::ModLoader as ConfigModLoader;
-use crate::state::dto::ProjectConfig;
 use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResult};
 
 #[tauri::command]
 pub async fn download_minecraft(
-    state: tauri::State<'_, Mutex<ProjectConfig>>,
+    state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
-    let state = state.lock().await;
-    let project_state = &state;
-    Vanilla.setup(&project_state).await?;
+    let mut state = state.lock().await;
+    Vanilla.setup(&state.project_config).await?;
 
-    if matches!(project_state.mod_loader, ConfigModLoader::Vanilla) {
+    if matches!(state.project_config.mod_loader, ConfigModLoader::Vanilla) {
         return Ok("Vanilla майнкрафт установлен успешно".to_string());
     }
 
-    let loader = create_mod_loader(&project_state.mod_loader)?;
-    let manifest = loader.versions(&project_state).await?;
-    loader.setup(&project_state, &manifest).await?;
+    let loader = create_mod_loader(&state.project_config.mod_loader)?;
+    let manifest = loader.versions(&state.project_config).await?;
+    loader.setup(&state.project_config, &manifest).await?;
+    state.loader = Some(loader);
     Ok("Модифицированный майнкрафт установлен успешно".to_string())
 }
 

@@ -1,3 +1,4 @@
+use crate::minecraft::dto::ModLoader as ProjectModLoader;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
@@ -19,4 +20,10 @@ pub struct ProjectConfig {
     pub jvm_args: Vec<String>,
     pub min_memory: String,
     pub max_memory: String,
+}
+
+#[derive(Default)]
+pub struct GlobalState {
+    pub project_config: ProjectConfig,
+    pub loader: Option<Box<dyn ProjectModLoader>>,
 }
