@@ -1,4 +1,5 @@
 use ::anyhow::Result;
+use anyhow::bail;
 use async_trait::async_trait;
 
 use crate::{
@@ -22,13 +23,23 @@ const MOD_LOADER_NAME: &str = "fabric"; // enum
 pub struct Fabric;
 #[async_trait]
 impl ModLoader for Fabric {
-    async fn versions(&self, version: &str) -> Result<Vec<VersionMod>> {
+    async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
+        let version = &state.mc_version;
         let url_manifest = format!("https://meta.fabricmc.net/v2/versions/loader/{}", version);
         let manifest_fabric =
             get_manifest_index::<Vec<FabricManifest>>(MOD_LOADER_NAME, &url_manifest, version)
                 .await?;
         let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric);
         Ok(manifest)
+    }
+    async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
+        let versions_list = self.versions(&state).await?;
+        let version = state.loader_version.as_deref().unwrap_or("");
+
+        if let Some(fabric_item) = versions_list.into_iter().find(|m| m.id == version) {
+            return Ok(fabric_item);
+        }
+        bail!("Версия не найдена")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()> {
         let target_version = state.loader_version.as_deref().unwrap_or("");

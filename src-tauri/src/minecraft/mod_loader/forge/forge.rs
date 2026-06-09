@@ -22,15 +22,17 @@ use crate::{
     },
 };
 use ::anyhow::Result;
+use anyhow::bail;
 use async_trait::async_trait;
 
 pub struct Forge;
 #[async_trait]
 impl ModLoader for Forge {
-    async fn versions(&self, version: &str) -> Result<Vec<VersionMod>> {
+    async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
         let manifest_forge = get_manifest_index().await?;
         let mut manifest: Vec<VersionMod> = transform_forge_manifest(manifest_forge);
 
+        let version = &state.loader_version.as_deref().unwrap_or("");
         let forge_manifest = launcher_patch(None)?
             .join("manifest")
             .join(format!("forge_{}.json", &version));
@@ -39,6 +41,16 @@ impl ModLoader for Forge {
         }
 
         Ok(manifest)
+    }
+    async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
+        let versions_list = self.versions(&state).await?;
+        let version = &state.loader_version.as_deref().unwrap_or("");
+        let target_id = format!("{}-{}", state.mc_version, version);
+
+        if let Some(forge_item) = versions_list.into_iter().find(|m| m.id == target_id) {
+            return Ok(forge_item);
+        }
+        bail!("Версия не найдена")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()> {
         let base_url = launcher_patch(Some(&state.project_name))?;
