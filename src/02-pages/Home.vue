@@ -15,7 +15,8 @@ const formData = ref({
 });
 
 const downloadMinecraft = async () => {
-  await invoke('download_minecraft')
+  //await invoke('download_minecraft')
+  await invoke("download_java")
 }
 
 const startMinecraft = async () => {

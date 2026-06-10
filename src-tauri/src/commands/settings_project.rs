@@ -24,10 +24,8 @@ pub async fn load_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    println!("[LOG] 1");
     let mut state = state.lock().await;
     let config = load_config(&project_name).await?;
     state.project_config = config.clone();
-    println!("[LOG] 2");
     Ok(config)
 }

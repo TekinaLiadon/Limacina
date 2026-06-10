@@ -1,9 +1,14 @@
+use anyhow::Result;
 #[cfg(unix)]
 use std::process::Command;
 use std::{env, path::PathBuf};
-use anyhow::{ Result};
 
-pub fn find_java() -> Result<PathBuf> {
+pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
+    if let Some(java_path_str) = java_path {
+        let path = PathBuf::from(&java_path_str);
+        return Ok(path);
+    }
+
     if let Ok(java_home) = env::var("JAVA_HOME") {
         let java_bin = if cfg!(windows) { "java.exe" } else { "java" };
         let java_path = PathBuf::from(java_home).join("bin").join(java_bin);

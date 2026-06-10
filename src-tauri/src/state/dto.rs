@@ -17,6 +17,7 @@ pub struct ProjectConfig {
     pub mc_version: String,
     pub mod_loader: ModLoader,
     pub loader_version: Option<String>,
+    pub java_path: Option<String>,
     pub jvm_args: Vec<String>,
     pub min_memory: String,
     pub max_memory: String,

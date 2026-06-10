@@ -2,6 +2,7 @@ use tauri::AppHandle;
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
+use crate::java::install_java;
 use crate::launcher_server::downloader::download_all_files;
 use crate::launcher_server::downloader::DownloadError;
 use crate::minecraft::dto::MinecraftLoader;
@@ -30,5 +31,14 @@ pub async fn download_minecraft(
 #[tauri::command]
 pub async fn download_server_file(app: AppHandle) -> Result<String, DownloadError> {
     download_all_files(app).await?;
+    Ok("Ok".to_string())
+}
+
+#[tauri::command]
+pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<String> {
+    let mut state = state.lock().await;
+    let java_path = install_java(&state.project_config).await?;
+    state.project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+    state.project_config.save_config().await?;
     Ok("Ok".to_string())
 }

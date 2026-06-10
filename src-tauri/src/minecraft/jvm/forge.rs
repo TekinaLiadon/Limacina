@@ -194,7 +194,7 @@ pub async fn forge_start(
     .await
     .context("Ошибка в создании конфига")?;
 
-    let java_path = find_java()?;
+    let java_path = find_java(None)?;
     log_info!("☕ Java: {:?}", java_path);
 
     let classpath = build_forge_classpath(&merged_version.libraries, &config.libraries_dir)?;
