@@ -21,7 +21,7 @@ use crate::{
         env_info::launcher_patch,
     },
 };
-use ::anyhow::Result;
+use ::anyhow::{anyhow, Result};
 use anyhow::bail;
 use async_trait::async_trait;
 
@@ -32,7 +32,10 @@ impl ModLoader for Forge {
         let manifest_forge = get_manifest_index().await?;
         let mut manifest: Vec<VersionMod> = transform_forge_manifest(manifest_forge);
 
-        let version = &state.loader_version.as_deref().unwrap_or("");
+        let version = &state
+            .loader_version
+            .as_deref()
+            .ok_or(anyhow!("Лоадер не выбран"))?;
         let forge_manifest = launcher_patch(None)?
             .join("manifest")
             .join(format!("forge_{}.json", &version));
@@ -44,7 +47,10 @@ impl ModLoader for Forge {
     }
     async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
         let versions_list = self.versions(&state).await?;
-        let version = &state.loader_version.as_deref().unwrap_or("");
+        let version = &state
+            .loader_version
+            .as_deref()
+            .ok_or(anyhow!("Лоадер не выбран"))?;
         let target_id = format!("{}-{}", state.mc_version, version);
 
         if let Some(forge_item) = versions_list.into_iter().find(|m| m.id == target_id) {
@@ -57,7 +63,10 @@ impl ModLoader for Forge {
         let target_version = format!(
             "{}-{}",
             &state.mc_version,
-            state.loader_version.as_deref().unwrap_or("")
+            state
+                .loader_version
+                .as_deref()
+                .ok_or(anyhow!("Лоадер не выбран"))?
         );
         let version_info = manifest
             .iter()
@@ -86,7 +95,10 @@ impl ModLoader for Forge {
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath");
-        let target_version = state.loader_version.as_deref().unwrap_or("");
+        let target_version = state
+            .loader_version
+            .as_deref()
+            .ok_or(anyhow!("Лоадер не выбран"))?;
         let classpath = merge_classpath(
             &state.project_name,
             &target_version,
@@ -97,7 +109,10 @@ impl ModLoader for Forge {
 
         let forge_manifest = launcher_patch(None)?.join("manifest").join(format!(
             "forge_{}.json",
-            &state.loader_version.as_deref().unwrap_or("")
+            &state
+                .loader_version
+                .as_deref()
+                .ok_or(anyhow!("Лоадер не выбран"))?
         ));
         let manifest = download_json::<Manifest>(None, &forge_manifest).await?;
         let jvm_args = [&vanilla_config.jvm_args[..], &manifest.arguments.jvm[..]].concat();

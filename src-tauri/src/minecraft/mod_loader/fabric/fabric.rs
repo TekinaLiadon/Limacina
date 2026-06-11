@@ -1,5 +1,5 @@
 use ::anyhow::Result;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 
 use crate::{
@@ -34,7 +34,10 @@ impl ModLoader for Fabric {
     }
     async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
         let versions_list = self.versions(&state).await?;
-        let version = state.loader_version.as_deref().unwrap_or("");
+        let version = state
+            .loader_version
+            .as_deref()
+            .ok_or(anyhow!("Лоадер не выбран"))?;
 
         if let Some(fabric_item) = versions_list.into_iter().find(|m| m.id == version) {
             return Ok(fabric_item);
@@ -42,7 +45,10 @@ impl ModLoader for Fabric {
         bail!("Версия не найдена")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()> {
-        let target_version = state.loader_version.as_deref().unwrap_or("");
+        let target_version = state
+            .loader_version
+            .as_deref()
+            .ok_or(anyhow!("Лоадер не выбран"))?;
         let version_info = manifest
             .iter()
             .find(|v| v.id == target_version)
@@ -64,7 +70,10 @@ impl ModLoader for Fabric {
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath");
-        let target_version = state.loader_version.as_deref().unwrap_or("");
+        let target_version = state
+            .loader_version
+            .as_deref()
+            .ok_or(anyhow!("Лоадер не выбран"))?;
         let classpath = merge_classpath(
             &state.project_name,
             &target_version,
