@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use tauri::AppHandle;
 use tokio::sync::Mutex;
 
@@ -29,7 +30,10 @@ pub async fn start_minecraft(
         state.loader = Some(new_loader);
     }
 
-    let loader = state.loader.as_ref().unwrap();
+    let loader = state
+        .loader
+        .as_deref()
+        .ok_or(anyhow!("Лоадер не инициализирован"))?;
     let version = loader.version_current(&state.project_config).await?;
     let game_config = loader
         .config(&state.project_config, vanilla_config, &version)

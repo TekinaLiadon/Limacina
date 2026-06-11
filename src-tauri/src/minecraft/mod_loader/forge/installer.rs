@@ -1,10 +1,10 @@
-use ::anyhow::{bail, Context, Result};
+use ::anyhow::{anyhow, bail, Context, Result};
 use serde_json::json;
 use std::path::PathBuf;
 use tokio::{fs, process::Command};
 
 use crate::{
-    minecraft::mod_loader::forge::{dto::Manifest},
+    minecraft::mod_loader::forge::dto::Manifest,
     state::dto::ProjectConfig,
     utils::{download_file::download_json, env_info::launcher_patch},
 };
@@ -61,7 +61,10 @@ pub async fn start_installer(
         ))
     }
 
-    let version = state_project.loader_version.as_deref().unwrap_or("");
+    let version = state_project
+        .loader_version
+        .as_deref()
+        .ok_or(anyhow!("Лоадер не выбран"))?;
     let forge_manifest = launcher_patch(None)?
         .join("manifest")
         .join(format!("forge_{}.json", &version));
