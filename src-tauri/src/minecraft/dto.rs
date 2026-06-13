@@ -76,7 +76,7 @@ pub trait MinecraftLoader {
     async fn config(&self, state: &ProjectConfig, config: &LaunchConfig) -> Result<GameConfig>;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct VersionMod {
     pub url: String,
     pub id: String,
@@ -95,7 +95,8 @@ pub struct LibraryMod {
 
 #[async_trait]
 pub trait ModLoader: Send + Sync {
-    async fn versions(&self, version: &str) -> Result<Vec<VersionMod>>;
+    async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>>;
+    async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod>;
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()>;
     async fn config(
         &self,

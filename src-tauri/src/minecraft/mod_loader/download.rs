@@ -33,7 +33,7 @@ pub async fn download_libraries(project_name: &str, libraries: Vec<LibraryMod>) 
     let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
 
     if errors.is_empty() {
-        log_info!("Все библиотеки Fabric успешно скачаны!");
+        log_info!("Все библиотеки  успешно скачаны!");
         Ok(())
     } else {
         anyhow::bail!("Не удалось скачать {} библиотек.", errors.len())

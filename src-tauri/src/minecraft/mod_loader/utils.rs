@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use md5::{Digest, Md5};
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::path::PathBuf;
 use std::{
     process::{Command, Stdio},
@@ -52,16 +55,88 @@ pub fn maven_to_path(name: &str) -> Result<PathBuf> {
     Ok(local_path)
 }
 
-pub fn maven_to_url(coord: &str) -> String {
+pub fn maven_to_url(coord: &str, url: &str) -> String {
     let parts: Vec<&str> = coord.split(':').collect();
     let group = parts[0].replace('.', "/");
     let artifact = parts[1];
     let version = parts[2];
 
     format!(
-        "https://maven.fabricmc.net/{}/{}/{}/{}-{}.jar",
-        group, artifact, version, artifact, version
+        "{}/{}/{}/{}/{}-{}.jar",
+        url, group, artifact, version, artifact, version
     )
+}
+
+pub fn filter_classpath(classpath: Vec<String>) -> Vec<String> {
+    let mut latest_versions: HashMap<String, String> = HashMap::new();
+    for path_str in &classpath {
+        if let Some((artifact_id, version)) = extract_maven_info(path_str) {
+            if let Some(existing_version) = latest_versions.get(&artifact_id) {
+                if compare_versions(&version, existing_version) == Ordering::Greater {
+                    latest_versions.insert(artifact_id, version);
+                }
+            } else {
+                latest_versions.insert(artifact_id, version);
+            }
+        }
+    }
+
+    let mut final_classpath = Vec::new();
+    let mut seen = HashSet::new();
+    for path_str in classpath {
+        if !seen.contains(&path_str) {
+            if let Some((artifact_id, version)) = extract_maven_info(&path_str) {
+                if let Some(latest) = latest_versions.get(&artifact_id) {
+                    if &version == latest {
+                        final_classpath.push(path_str.clone());
+                        seen.insert(path_str);
+                    }
+                }
+            } else {
+                final_classpath.push(path_str.clone());
+                seen.insert(path_str);
+            }
+        }
+    }
+
+    final_classpath
+}
+
+fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
+    let path = Path::new(path_str);
+    let file_name = path.file_name()?.to_str()?;
+    let version = path.parent()?.file_name()?.to_str()?;
+    let artifact_id = path.parent()?.parent()?.file_name()?.to_str()?;
+
+    if file_name.starts_with(artifact_id) && file_name.contains(version) {
+        return Some((artifact_id.to_string(), version.to_string()));
+    }
+    None
+}
+
+pub fn compare_versions(v1: &str, v2: &str) -> Ordering {
+    let parts1: Vec<&str> = v1.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    let parts2: Vec<&str> = v2.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    let max_len = std::cmp::max(parts1.len(), parts2.len());
+
+    for i in 0..max_len {
+        let p1 = parts1.get(i).unwrap_or(&"0");
+        let p2 = parts2.get(i).unwrap_or(&"0");
+
+        match (p1.parse::<u32>(), p2.parse::<u32>()) {
+            (Ok(n1), Ok(n2)) => {
+                if n1 != n2 {
+                    return n1.cmp(&n2);
+                }
+            }
+            _ => {
+                if p1 != p2 {
+                    return p1.cmp(p2);
+                }
+            }
+        }
+    }
+    Ordering::Equal
 }
 
 pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
@@ -69,11 +144,17 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     let mut command = Command::new(config.java_path);
     let separator = get_classpath_separator();
     let classpath = &config.classpath.join(separator);
+    let jvm_args: Vec<String> = config
+        .jvm_args
+        .iter()
+        .cloned()
+        .filter(|arg| arg != "-cp" && !arg.is_empty())
+        .collect();
 
     //log_info!("{}", config.classpath);
     //log_info!("{}", config.jvm_args.join(" "));
     command
-        .args(config.jvm_args)
+        .args(jvm_args)
         .arg("-cp")
         .arg(&classpath)
         .arg(&config.main_class)
@@ -117,6 +198,7 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
+                println!("{}", line);
                 let _ = app_err.emit(
                     "game-console",
                     ConsolePayload {
