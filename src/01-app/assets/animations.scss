@@ -7,20 +7,3 @@
 .fade-leave-to {
   opacity: 0.2;
 }
-
-.list-robot-item {
-  transition: all 0.8s ease;
-  display: inline-block;
-  margin-right: 10px;
-}
-
-
-.list-robot-enter-from,
-.list-robot-leave-to {
-  opacity: 0;
-  transform: translateY(30px);
-}
-
-.list-robot-leave-active {
-  position: absolute;
-}

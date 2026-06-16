@@ -60,8 +60,6 @@ const items = [
   }
 
   @include breakpoints.media-under-sm {
-    /*margin: 0 -10px;*/
-
     &__exit-btn {
       display: none;
     }

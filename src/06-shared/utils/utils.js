@@ -15,24 +15,6 @@ function makeid(length) {
 export function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
-export function formatMoney(amount) {
-    if (amount === undefined) return undefined;
-    if (!+amount) return 0;
-
-    return new Intl.NumberFormat("ru-RU", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-        useGrouping: true,
-    }).format(Math.floor(amount)).replace(/\s/g, '.');
-}
-
-
-export function formatNumberCompact(number, fraction = 3) {
-    return new Intl.NumberFormat("en-US", {
-        notation: "compact",
-        maximumFractionDigits: fraction,
-    }).format(number);
-}
 
 export const randomId = () => {
     window.crypto.getRandomValues(arrayExample);
@@ -40,4 +22,3 @@ export const randomId = () => {
         arrayExample[Math.floor(Math.random() * arrayExample.length)]
     }${makeid(2)}`;
 };
-

@@ -1,9 +1,8 @@
 <script setup>
-import {nextTick, ref} from "vue";
+import {ref} from "vue";
 import Button from "@/06-shared/components/Button.vue";
 import {invoke} from '@tauri-apps/api/core';
 import Input from "@/06-shared/components/Input.vue";
-import {listen} from '@tauri-apps/api/event';
 import Console from "@/03-widgets/Console.vue";
 
 const isLoading = ref(false)
@@ -14,10 +13,6 @@ const formData = ref({
   rememberMe: false
 });
 
-const downloadMinecraft = async () => {
-  await invoke('download_minecraft')
-}
-
 const startMinecraft = async () => {
   await invoke('start_minecraft', {
     username: formData.value.username,
@@ -25,14 +20,12 @@ const startMinecraft = async () => {
   })
 }
 
-const test = async () => {
+const handleLogin = async () => {
   isLoading.value = !isLoading.value
   try {
-
     await invoke('load_settings_project', {
       projectName: "libra"
     })
-    //await downloadMinecraft()
     await startMinecraft()
   } catch (e) {
     console.error(e)
@@ -43,33 +36,10 @@ const start = async () => {
 
   await invoke('get_forge', {
     mcVersion: "1.16.5"
-  });  //TODO проверка если уже скачено
-  /*await listen('successDownloadMinecraft', async () => {
-    await invoke('get_fabric', {
-      mcVersion: "1.20.1"
-    })
-  })*/
+  });
   await invoke('download_minecraft_version', {
     version: "1.16.5"
   })
-  /*await invoke('get_fabric', {
-    mcVersion: "1.20.1"
-  })*/
-  /*
-  await listen('totalFile', (event) => {
-    fileInfo.value.total = event.payload
-  });
-  await listen('numberFile', (event) => {
-    const { file, number } = event.payload
-    console.log(`Загружается файл ${number}: ${file}`);
-  });
-  await listen('progress', (event) => {
-    const { percent, read, total } = event.payload
-    progress.value.percent = percent
-    progress.value.read = read
-    progress.value.total = total
-  });
-   */
   await invoke('download_all_files')
   await invoke('start_jvm', {
     username: formData.value.username,
@@ -118,7 +88,7 @@ const start = async () => {
         </div>
 
         <div class="form-actions">
-          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @click="test">
+          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @click="handleLogin">
             Войти
           </Button>
 

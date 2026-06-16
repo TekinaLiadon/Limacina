@@ -1,5 +1,4 @@
 <script setup>
-import DashboardWrapper from "@/03-widgets/dashboard/DashboardWrapper.vue";
 import Preloader from "@/01-app/preloader/Preloader.vue";
 import {useCoreStore} from "@/05-entities/core/coreStore.js";
 import {onBeforeMount} from "vue";
@@ -18,9 +17,9 @@ onBeforeMount(async () => {
     await invoke('save_settings_project', {
       config: {
         projectName: "libra",
-        mcVersion: "1.16.5", //"1.21.1",
-        modLoader: "forge", //"fabric",
-        loaderVersion: "36.2.42", //"0.19.2",
+        mcVersion: "1.16.5",
+        modLoader: "forge",
+        loaderVersion: "36.2.42",
         jvmArgs: [],
         minMemory: "-Xms512M",
         maxMemory: "-Xmx4G",
@@ -39,7 +38,6 @@ onBeforeMount(async () => {
         <slot/>
       </div>
     </transition>
-    <!--<DashboardWrapper v-else>-->
   </main>
 </template>
 

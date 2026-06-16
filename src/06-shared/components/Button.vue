@@ -34,28 +34,6 @@ const handleClick = () => {
     pointer-events: none;
   }
 
-  &.btn-land-white {
-    padding: 10px 30px;
-    font-family: "Poppins", sans-serif;
-    font-weight: 500;
-    font-size: 18px;
-    line-height: 24px;
-    color: var(--white);
-    border-radius: 60px;
-    border: 1px solid var(--white);
-    background: var(--half-blue);
-
-    &:hover {
-      box-shadow: 0 0 0 1px var(--white);
-      font-weight: 600;
-    }
-
-    &.rounded {
-      padding: 12px;
-      border-radius: 50%;
-    }
-  }
-
   &.btn-yellow {
     padding: 10px 20px;
     font-family: "Poppins", sans-serif;

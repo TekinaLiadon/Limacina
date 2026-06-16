@@ -62,7 +62,6 @@ onMounted(() => {
     border-radius: 8px;
     border: 1px solid var(--grey-stroke);
     background-color: var(--grey);
-    /*width: 100%;*/
     font-family: inherit;
     transition: all .2s;
 

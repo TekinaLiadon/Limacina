@@ -32,7 +32,7 @@ watch(logs, async () => {
 }, { deep: true });
 </script>
 
-<<template>
+<template>
   <div class="console-container" ref="consoleRef">
     <div v-for="(log, index) in logs" :key="index" class="log-line">
       <span :class="log.is_error ? 'text-error' : 'text-normal'">

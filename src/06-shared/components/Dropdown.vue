@@ -46,7 +46,6 @@ function updateValue(value) {
   cursor: pointer;
 
   &__value {
-    /*background-color: #cdcdcd;*/
     border: 1px solid #cdcdcd;
     border-radius: 10px;
     transition: border-radius 0.25s ease-out;

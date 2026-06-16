@@ -25,7 +25,6 @@ function close() {
             </div>
             </div>
           <div class="popup__close" @click="close">
-<!--            <Icon type="close-circle" />-->
           </div>
           <div class="popup__content" :style="{height}" :class="{'popup__content--flex': height,}">
             <SmoothHeight>
