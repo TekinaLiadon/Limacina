@@ -1,7 +1,5 @@
 <script setup>
 import Header from "@/03-widgets/dashboard/Header.vue";
-import Sidebar from "@/03-widgets/dashboard/Sidebar.vue";
-
 </script>
 
 <template>
@@ -9,7 +7,6 @@ import Sidebar from "@/03-widgets/dashboard/Sidebar.vue";
     <div class="dashboard-wrapper__container">
       <Header />
       <div class="dashboard-wrapper__content">
-<!--        <Sidebar class="dashboard-wrapper__sidebar" />-->
         <slot></slot>
       </div>
     </div>
