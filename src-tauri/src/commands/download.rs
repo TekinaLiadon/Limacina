@@ -5,7 +5,7 @@ use crate::commands::dto::create_mod_loader;
 use crate::java::install_java;
 use crate::launcher_server::downloader::download_all_files;
 use crate::launcher_server::downloader::DownloadError;
-use crate::minecraft::dto::MinecraftLoader;
+use crate::minecraft::structs::MinecraftLoader;
 use crate::state::dto::GlobalState;
 use crate::state::dto::ModLoader as ConfigModLoader;
 use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResult};

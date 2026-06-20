@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use ::anyhow::Result;
 
 use crate::log_info;
-use crate::minecraft::dto::LibraryMod;
+use crate::minecraft::structs::LibraryMod;
 use crate::minecraft::mod_loader::utils::maven_to_path;
 use crate::utils::env_info::launcher_patch;
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};

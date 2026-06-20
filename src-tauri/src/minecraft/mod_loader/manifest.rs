@@ -1,5 +1,5 @@
 use crate::{
-    minecraft::{dto::Versions, vanilla::dto::VersionDetailsManifest},
+    minecraft::{structs::Versions, vanilla::structs::VersionDetailsManifest},
     utils::{download_file::download_json, env_info::launcher_patch},
 };
 use ::anyhow::{Context, Result};

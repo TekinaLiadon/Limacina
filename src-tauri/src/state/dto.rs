@@ -1,4 +1,4 @@
-use crate::minecraft::dto::ModLoader as ProjectModLoader;
+use crate::minecraft::structs::ModLoader as ProjectModLoader;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]

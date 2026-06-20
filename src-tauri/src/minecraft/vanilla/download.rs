@@ -12,7 +12,7 @@ use tokio::fs;
 
 use crate::{
     log_info,
-    minecraft::vanilla::dto::{AssetIndexContent, Rule, VersionDetailsManifest},
+    minecraft::vanilla::structs::{AssetIndexContent, Rule, VersionDetailsManifest},
     utils::{
         download_file::download_file,
         env_info::{get_current_os, launcher_patch},

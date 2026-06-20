@@ -7,12 +7,12 @@ use crate::minecraft::mod_loader::manifest::get_manifest_version;
 use crate::minecraft::vanilla::config::get_classpath;
 use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
 use crate::minecraft::vanilla::download::{donwload_index_lib, download_assets, download_native};
-use crate::minecraft::vanilla::dto::{VanillaVersionsManifest, VersionDetailsManifest};
+use crate::minecraft::vanilla::structs::{VanillaVersionsManifest, VersionDetailsManifest};
 use crate::minecraft::vanilla::manifest::create_manifest_versions;
 use crate::state::dto::ProjectConfig;
 use crate::{
     log_info,
-    minecraft::dto::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
+    minecraft::structs::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     utils::{env_info::launcher_patch, java::find_java},
 };
 

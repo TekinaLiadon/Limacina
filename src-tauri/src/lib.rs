@@ -12,8 +12,6 @@ use commands::download::download_server_file;
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
-use minecraft::forge::forge::get_forge;
-use minecraft::jvm::jvm::start_jvm;
 use tokio::sync::Mutex;
 use utils::logger_utils;
 
@@ -30,8 +28,6 @@ pub fn run() {
         .manage(Mutex::new(GlobalState::default()))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            start_jvm,
-            get_forge,
             download_server_file,
             download_minecraft,
             download_java,

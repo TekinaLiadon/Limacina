@@ -3,7 +3,7 @@ use tauri::AppHandle;
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
-use crate::minecraft::dto::{new_launch_config, MinecraftLoader};
+use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
 use crate::minecraft::mod_loader::utils::{generate_offline_uuid, spawn_game_process};
 use crate::state::dto::{GlobalState, ModLoader};
 use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResult};

@@ -5,9 +5,9 @@ use tokio::fs;
 
 use crate::{
     minecraft::{
-        dto::{LibraryMod, VersionMod},
+        structs::{LibraryMod, VersionMod},
         mod_loader::{
-            forge::dto::{Manifest, Metadata},
+            forge::structs::{Manifest, Metadata},
             utils::maven_to_url,
         },
     },

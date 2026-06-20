@@ -1,12 +1,12 @@
 use crate::{
     log_info,
     minecraft::{
-        dto::{GameConfig, ModLoader, VersionMod},
+        structs::{GameConfig, ModLoader, VersionMod},
         mod_loader::{
             config::merge_classpath,
             download::download_libraries,
             forge::{
-                dto::Manifest,
+                structs::Manifest,
                 installer::{create_installer_manifest, start_installer},
                 manifest::{
                     get_library, get_manifest_index, modify_manifest, transform_forge_manifest,

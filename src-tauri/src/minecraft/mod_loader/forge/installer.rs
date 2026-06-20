@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tokio::{fs, process::Command};
 
 use crate::{
-    minecraft::mod_loader::forge::dto::Manifest,
+    minecraft::mod_loader::forge::structs::Manifest,
     state::dto::ProjectConfig,
     utils::{download_file::download_json, env_info::launcher_patch},
 };

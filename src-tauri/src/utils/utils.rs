@@ -24,3 +24,11 @@ pub fn compare_versions(v1: &str, v2: &str) -> Ordering {
     }
     Ordering::Equal
 }
+
+pub fn get_classpath_separator() -> &'static str {
+    if cfg!(windows) {
+        ";"
+    } else {
+        ":"
+    }
+}
