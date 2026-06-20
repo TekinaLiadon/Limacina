@@ -1,10 +1,12 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
+mod java;
 mod launcher_server;
 mod minecraft;
 mod state;
 mod utils;
 
+use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::settings_project::load_settings_project;
@@ -32,6 +34,7 @@ pub fn run() {
             get_forge,
             download_server_file,
             download_minecraft,
+            download_java,
             start_minecraft,
             save_settings_project,
             load_settings_project,

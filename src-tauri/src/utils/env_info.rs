@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::env::consts;
 use std::{env, path::PathBuf};
 
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
@@ -36,4 +37,13 @@ pub fn get_current_os() -> &'static str {
     } else {
         "unknown"
     }
+}
+
+pub fn get_arch() -> &'static str {
+    let arch = match consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "aarch64",
+        _ => "x64",
+    };
+    return arch;
 }

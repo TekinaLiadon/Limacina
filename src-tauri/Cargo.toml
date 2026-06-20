@@ -37,6 +37,8 @@ thiserror = "1.0"
 async-trait = "0.1.89"
 toml = "1.1.2"
 quick-xml = { version = "0.40.1", features = ["serialize"] }
+tar = "0.4.46"
+flate2 = "1.1.9"
 
 
 

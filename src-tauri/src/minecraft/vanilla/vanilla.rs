@@ -70,7 +70,7 @@ impl MinecraftLoader for Vanilla {
         let game_args = get_game_args(&manifest_version, &args_map);
 
         log_info!("Поиск java");
-        let java_path = find_java()?;
+        let java_path = find_java(state.java_path.clone())?;
 
         let game_config = GameConfig {
             java_path,

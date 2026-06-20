@@ -13,6 +13,11 @@ const formData = ref({
   rememberMe: false
 });
 
+const downloadMinecraft = async () => {
+  //await invoke('download_minecraft')
+  await invoke("download_java")
+}
+
 const startMinecraft = async () => {
   await invoke('start_minecraft', {
     username: formData.value.username,
