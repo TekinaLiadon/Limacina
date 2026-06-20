@@ -1,7 +1,7 @@
 use crate::minecraft::{
-    dto::{LibraryMod, VersionMod},
+    structs::{LibraryMod, VersionMod},
     mod_loader::{
-        fabric::dto::{FabricManifest, MainClass},
+        fabric::structs::{FabricManifest, MainClass},
         utils::maven_to_url,
     },
 };

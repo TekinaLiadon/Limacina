@@ -4,11 +4,11 @@ use ::anyhow::Result;
 
 use crate::{
     minecraft::{
-        dto::LaunchConfig,
+        structs::LaunchConfig,
         mod_loader::utils::maven_to_path,
-        vanilla::dto::{ArgumentValue, Library, Rule, StringOrVec, VersionDetailsManifest},
+        vanilla::structs::{ArgumentValue, Library, Rule, StringOrVec, VersionDetailsManifest},
     },
-    utils::{env_info::get_current_os, os::get_classpath_separator},
+    utils::{env_info::get_current_os, get_classpath_separator},
 };
 
 pub struct ArgumentsMap {

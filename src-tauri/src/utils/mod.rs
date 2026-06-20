@@ -3,7 +3,6 @@ pub mod semaphore;
 pub mod download_file;
 pub mod env_info;
 pub mod java;
-pub mod os;
 pub mod tauri_err;
 pub mod utils;
 pub use self::utils::*;

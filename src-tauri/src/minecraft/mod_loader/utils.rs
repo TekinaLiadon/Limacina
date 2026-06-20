@@ -12,9 +12,8 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use uuid::{Builder, Variant, Version};
 
-use crate::utils::compare_versions;
-use crate::utils::os::get_classpath_separator;
-use crate::{log_info, minecraft::dto::GameConfig};
+use crate::utils::{compare_versions, get_classpath_separator};
+use crate::{log_info, minecraft::structs::GameConfig};
 
 #[derive(Clone, serde::Serialize)]
 pub struct ConsolePayload {

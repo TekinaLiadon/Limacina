@@ -1,6 +1,6 @@
 use ::anyhow::Result;
 
-use crate::minecraft::{dto::Versions, vanilla::dto::VersionInfo};
+use crate::minecraft::{structs::Versions, vanilla::structs::VersionInfo};
 
 pub fn create_manifest_versions(manifest_index: Vec<VersionInfo>) -> Result<Vec<Versions>> {
     let mut manifest: Vec<Versions> = Vec::new();
