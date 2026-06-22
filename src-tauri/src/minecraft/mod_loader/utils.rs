@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::{
     process::{Command, Stdio},
     thread,

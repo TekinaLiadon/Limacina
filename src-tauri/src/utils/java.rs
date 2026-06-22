@@ -1,5 +1,4 @@
 use anyhow::Result;
-#[cfg(unix)]
 use std::process::Command;
 use std::{env, path::PathBuf};
 
