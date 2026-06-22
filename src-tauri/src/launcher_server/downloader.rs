@@ -48,6 +48,11 @@ struct BodyFile {
 
 fn get_server_url() -> Result<String, DownloadError> {
     env::var("LAUNCHER_SERVER_URL")
+        .or_else(|_| {
+            option_env!("LAUNCHER_SERVER_URL")
+                .map(|v| v.to_string())
+                .ok_or(())
+        })
         .map_err(|_| DownloadError::SystemError("LAUNCHER_SERVER_URL not set".to_string()))
 }
 
@@ -112,8 +117,9 @@ fn get_base_dir() -> Result<String, DownloadError> {
     let home_dir: PathBuf = env::home_dir()
         .ok_or_else(|| DownloadError::SystemError("Home directory not found".to_string()))?;
 
-    let launcher_name: String =
-        env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string());
+    let launcher_name: String = env::var("LAUNCHER_NAME")
+        .or_else(|_| option_env!("LAUNCHER_NAME").map(|v| v.to_string()).ok_or(()))
+        .unwrap_or_else(|_| "Limacina".to_string());
 
     let dir: PathBuf = home_dir.join(&launcher_name);
 
