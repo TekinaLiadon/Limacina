@@ -94,9 +94,9 @@ pub async fn start_installer(
         .loader_version
         .as_deref()
         .ok_or(anyhow!("Лоадер не выбран"))?;
-    let neoforge_manifest = launcher_patch(None)?
-        .join("manifest")
-        .join(format!("neoforge_{}.json", &version));
+    let manifest_dir = launcher_patch(None)?.join("manifest");
+    fs::create_dir_all(&manifest_dir).await?;
+    let neoforge_manifest = manifest_dir.join(format!("neoforge_{}.json", &version));
     let base_url = launcher_patch(Some(&state_project.project_name))?;
     let versions_dir = base_url.join("versions");
 

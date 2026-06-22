@@ -66,9 +66,9 @@ pub async fn start_installer(
         .loader_version
         .as_deref()
         .ok_or(anyhow!("Лоадер не выбран"))?;
-    let forge_manifest = launcher_patch(None)?
-        .join("manifest")
-        .join(format!("forge_{}.json", &version));
+    let manifest_dir = launcher_patch(None)?.join("manifest");
+    fs::create_dir_all(&manifest_dir).await?;
+    let forge_manifest = manifest_dir.join(format!("forge_{}.json", &version));
     let base_url = launcher_patch(Some(&state_project.project_name))?;
     let forge_name_manifest = format!("{}_forge_{}", &state_project.mc_version, &version);
     let forge_manifest_old_path = base_url
