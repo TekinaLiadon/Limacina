@@ -19,7 +19,16 @@ impl ProjectConfig {
 
 pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
     let path = launcher_patch(Some("config"))?;
-    let content = read_to_string(path.join(format!("{}.toml", project_name))).await?;
+    let file_path = path.join(format!("{}.toml", project_name));
+
+    if !file_path.exists() {
+        let mut config = ProjectConfig::default();
+        config.project_name = project_name.to_string();
+        config.save_config().await?;
+        return Ok(config);
+    }
+
+    let content = read_to_string(&file_path).await?;
     let config: ProjectConfig = from_str(&content)?;
     Ok(config)
 }
