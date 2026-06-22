@@ -38,7 +38,8 @@ pub async fn start_installer(
     vanilla_url: &PathBuf,
     state_project: &ProjectConfig,
 ) -> Result<Manifest> {
-    let output = Command::new("java")
+    let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
+    let output = Command::new(java_cmd)
         .arg("-jar")
         .arg(&url)
         .arg("--installClient")
