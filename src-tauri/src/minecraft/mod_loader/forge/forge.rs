@@ -17,6 +17,7 @@ use crate::{
     },
     state::dto::ProjectConfig,
     utils::{
+        compare_versions,
         download_file::{download_file, download_json},
         env_info::launcher_patch,
     },
@@ -57,6 +58,17 @@ impl ModLoader for Forge {
             return Ok(forge_item);
         }
         bail!("Версия не найдена")
+    }
+    async fn latest_version(&self, state: &ProjectConfig) -> Result<String> {
+        let manifest_forge = get_manifest_index().await?;
+        let versions = manifest_forge
+            .get(&state.mc_version)
+            .ok_or(anyhow!("Нет версий Forge для MC {}", state.mc_version))?;
+        let latest = versions
+            .iter()
+            .max_by(|a, b| compare_versions(a, b))
+            .ok_or(anyhow!("Нет доступных версий Forge"))?;
+        Ok(latest.to_string())
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()> {
         let base_url = launcher_patch(Some(&state.project_name))?;

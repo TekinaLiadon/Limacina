@@ -346,12 +346,23 @@ pub async fn download_assets(project_name: &str, asset_index: AssetIndexContent)
             .join(&hash_prefix)
             .join(&asset_hash);
 
+        if asset_file_path.exists() {
+            continue;
+        }
+
         let result = SemaphoreInfo {
             url: asset_url,
             dest: asset_file_path,
         };
         semaphore_info.push(result);
     }
+
+    log_info!("Ассетов к скачиванию: {}", semaphore_info.len());
+    if semaphore_info.is_empty() {
+        log_info!("Все ассеты уже скачаны");
+        return Ok(());
+    }
+
     let download_futures = semaphore_core(base_path, semaphore_info);
     let results = future::join_all(download_futures).await;
 

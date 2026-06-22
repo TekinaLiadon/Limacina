@@ -6,6 +6,7 @@ import Input from "@/06-shared/components/Input.vue";
 import Console from "@/03-widgets/Console.vue";
 
 const isLoading = ref(false)
+const errorMessage = ref('')
 
 const formData = ref({
   username: '',
@@ -14,8 +15,8 @@ const formData = ref({
 });
 
 const downloadMinecraft = async () => {
-  //await invoke('download_minecraft')
   await invoke("download_java")
+  await invoke('download_minecraft')
 }
 
 const startMinecraft = async () => {
@@ -26,14 +27,18 @@ const startMinecraft = async () => {
 }
 
 const handleLogin = async () => {
-  isLoading.value = !isLoading.value
+  isLoading.value = true
   try {
     await invoke('load_settings_project', {
-      projectName: "libra"
+      projectName: "libra2"
     })
+    await downloadMinecraft()
     await startMinecraft()
   } catch (e) {
     console.error(e)
+    errorMessage.value = String(e)
+  } finally {
+    isLoading.value = false
   }
 }
 const start = async () => {
@@ -92,8 +97,10 @@ const start = async () => {
           </label>
         </div>
 
+        <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
+
         <div class="form-actions">
-          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @click="handleLogin">
+          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @protected-click="handleLogin">
             Войти
           </Button>
 
@@ -252,6 +259,17 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.error-message {
+  color: #ff5555;
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(255, 85, 85, 0.1);
+  border: 1px solid rgba(255, 85, 85, 0.3);
+  border-radius: 8px;
+  word-break: break-word;
 }
 
 .btn-login {

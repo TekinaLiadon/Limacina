@@ -44,6 +44,14 @@ impl ModLoader for Fabric {
         }
         bail!("Версия не найдена")
     }
+    async fn latest_version(&self, state: &ProjectConfig) -> Result<String> {
+        let versions_list = self.versions(state).await?;
+        versions_list
+            .into_iter()
+            .next()
+            .map(|v| v.id)
+            .ok_or_else(|| anyhow!("Нет доступных версий Fabric"))
+    }
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()> {
         let target_version = state
             .loader_version

@@ -115,19 +115,33 @@ fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
 }
 
 pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
-    log_info!("\n▶ Запуск Minecraft...\n");
+    log_info!("\n▶ Запуск Minecraft...");
+    log_info!("Main class: {}", &config.main_class);
+    log_info!("Classpath entries: {}", config.classpath.len());
+    log_info!("");
     let mut command = Command::new(config.java_path);
     let separator = get_classpath_separator();
     let classpath = &config.classpath.join(separator);
+    let mut skip_next = false;
     let jvm_args: Vec<String> = config
         .jvm_args
         .iter()
         .cloned()
-        .filter(|arg| arg != "-cp" && !arg.is_empty())
+        .filter(|arg| {
+            if skip_next {
+                skip_next = false;
+                return false;
+            }
+            if arg == "-cp" || arg.contains("${classpath}") {
+                skip_next = true;
+                return false;
+            }
+            !arg.is_empty()
+        })
         .collect();
 
-    //log_info!("{}", config.classpath);
-    //log_info!("{}", config.jvm_args.join(" "));
+    log_info!("{}", classpath);
+    log_info!("{}", jvm_args.join(" "));
     command
         .args(jvm_args)
         .arg("-cp")

@@ -7,7 +7,7 @@ use crate::{
     minecraft::{
         structs::{LibraryMod, VersionMod},
         mod_loader::{
-            forge::structs::{Manifest, Metadata},
+            neoforge::structs::{Manifest, Metadata},
             utils::maven_to_url,
         },
     },
@@ -18,24 +18,35 @@ use crate::{
 };
 
 pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
-    let json_path = launcher_patch(None)?.join("manifest").join("forge.json");
+    let json_path = launcher_patch(None)?.join("manifest").join("neoforge.json");
     if json_path.exists() {
         let file = fs::read_to_string(&json_path).await?;
         let json: HashMap<String, Vec<String>> = serde_json::from_str(&file)?;
         return Ok(json);
     }
 
-    let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+    let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
     let metadata = download_xml::<Metadata>(&url).await?;
     let mut grouped_versions: HashMap<String, Vec<String>> = HashMap::new();
 
     for v in metadata.versioning.versions.version_list {
-        if let Some((mc_ver, forge_ver)) = v.split_once('-') {
-            grouped_versions
-                .entry(mc_ver.to_string())
-                .or_default()
-                .push(forge_ver.to_string());
+        let parts: Vec<&str> = v.split('.').collect();
+        if parts.len() < 2 {
+            continue;
         }
+        let major: u32 = match parts[0].parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let minor: u32 = match parts[1].parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let mc_version = format!("1.{}.{}", major, minor);
+        grouped_versions
+            .entry(mc_version)
+            .or_default()
+            .push(v.to_string());
     }
 
     let json = serde_json::to_string_pretty(&grouped_versions)?;
@@ -44,15 +55,15 @@ pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
     Ok(grouped_versions)
 }
 
-pub fn transform_forge_manifest(forge_manifect: HashMap<String, Vec<String>>) -> Vec<VersionMod> {
+pub fn transform_neoforge_manifest(neoforge_manifest: HashMap<String, Vec<String>>) -> Vec<VersionMod> {
     let mut manifest: Vec<VersionMod> = Vec::new();
 
-    for (mc_version, forge_versions) in &forge_manifect {
-        for forge_version in forge_versions {
-            let version = format!("{}-{}", mc_version, forge_version);
+    for (mc_version, neoforge_versions) in &neoforge_manifest {
+        for neoforge_version in neoforge_versions {
+            let version_id = format!("{}-{}", mc_version, neoforge_version);
             let version_mod = VersionMod {
-                url: format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-installer.jar", version),
-                id: version.clone(),
+                url: format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{0}/neoforge-{0}-installer.jar", neoforge_version),
+                id: version_id.clone(),
                 main_class: "".to_string(),
                 library: Vec::new(),
             };
@@ -64,10 +75,10 @@ pub fn transform_forge_manifest(forge_manifect: HashMap<String, Vec<String>>) ->
 }
 
 pub async fn modify_manifest(version: &str, manifest: &mut Vec<VersionMod>) -> Result<()> {
-    let forge_url = launcher_patch(None)?
+    let neoforge_url = launcher_patch(None)?
         .join("manifest")
-        .join(format!("forge_{}.json", &version));
-    let version_manifest = download_json::<Manifest>(None, &forge_url).await?;
+        .join(format!("neoforge_{}.json", &version));
+    let version_manifest = download_json::<Manifest>(None, &neoforge_url).await?;
     let main_class = version_manifest.main_class.clone();
     let target_id = format!("{}-{}", version_manifest.inherits_from.clone(), version);
     let library = get_library(version_manifest)?;
@@ -86,7 +97,7 @@ pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
         let url = if !lib.downloads.artifact.url.is_empty() {
             lib.downloads.artifact.url.clone()
         } else {
-            maven_to_url(&lib.name, "https://maven.minecraftforge.net")
+            maven_to_url(&lib.name, "https://maven.neoforged.net")
         };
         let new_lib = LibraryMod {
             name: lib.name.clone(),

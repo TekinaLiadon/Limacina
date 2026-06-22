@@ -97,6 +97,7 @@ pub struct LibraryMod {
 pub trait ModLoader: Send + Sync {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>>;
     async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod>;
+    async fn latest_version(&self, state: &ProjectConfig) -> Result<String>;
     async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()>;
     async fn config(
         &self,
