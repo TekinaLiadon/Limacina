@@ -123,8 +123,11 @@ impl ModLoader for NeoForge {
         let natives_dir = base_path.join("natives").to_string_lossy().to_string();
         let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
 
-        let mut neoforge_libraries = get_library(manifest.clone())?;
-        neoforge_libraries.extend(version.library.clone());
+        let neoforge_libraries = if version.library.is_empty() {
+            get_library(manifest.clone())?
+        } else {
+            version.library.clone()
+        };
         let mut classpath = merge_classpath(
             &state.project_name,
             &target_version,
