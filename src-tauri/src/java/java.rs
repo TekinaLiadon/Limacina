@@ -92,6 +92,11 @@ fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
 }
 
 async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result<()> {
+    let new_path = java_path.join(vendor);
+    if new_path.exists() {
+        return Ok(());
+    }
+
     let mut entries = fs::read_dir(java_path).await?;
 
     while let Some(entry) = entries.next_entry().await? {
@@ -101,7 +106,6 @@ async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result<()> {
             let folder_name_str = folder_name.to_string_lossy();
 
             if folder_name_str.starts_with("jdk") {
-                let new_path = java_path.join(vendor);
                 fs::rename(&path, &new_path).await?;
                 break;
             }

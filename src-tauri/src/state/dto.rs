@@ -8,6 +8,7 @@ pub enum ModLoader {
     Vanilla,
     Fabric,
     Forge,
+    NeoForge,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize, Clone)]

@@ -36,7 +36,6 @@ pub fn semaphore_core(
                 MAX_RETRIES
             ));
 
-            //log_info!("Скачивание {}", url);
             for attempt in 1..=MAX_RETRIES {
                 match download_file(&url, &path).await {
                     Ok(_) => {

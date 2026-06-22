@@ -13,13 +13,11 @@ pub fn merge_classpath(
     vanilla_classpath: &Vec<String>,
 ) -> Result<Vec<String>> {
     let base_path = launcher_patch(Some(project_name))?;
-    let minecraft_paths = base_path.join(format!("{}.jar", version));
+    let version_jar = base_path.join(format!("{}.jar", version));
     let libraries_path = base_path.join("libraries");
-    let core_jar_path = base_path.join(format!("{}.jar", version));
 
     let mut classpath = build_mod_classpath(&libraries, &libraries_path)?;
-    classpath.push(minecraft_paths.to_string_lossy().to_string());
-    classpath.push(core_jar_path.to_string_lossy().to_string());
+    classpath.push(version_jar.to_string_lossy().to_string());
 
     let mut result_classpath = vanilla_classpath.clone();
     result_classpath.extend(classpath);

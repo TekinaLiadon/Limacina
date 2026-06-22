@@ -11,15 +11,15 @@ onBeforeMount(async () => {
   init()
   try {
     await invoke('load_settings_project', {
-      projectName: "libra"
+      projectName: "libra2"
     })
   } catch (e){
     await invoke('save_settings_project', {
       config: {
-        projectName: "libra",
-        mcVersion: "1.16.5",
-        modLoader: "forge",
-        loaderVersion: "36.2.42",
+        projectName: "libra2",
+        mcVersion: "1.21.1", // "1.16.5"
+        modLoader: "neoforge", // "forge",
+        //loaderVersion: "36.2.42",
         jvmArgs: [],
         minMemory: "-Xms512M",
         maxMemory: "-Xmx4G",
