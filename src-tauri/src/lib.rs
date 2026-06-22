@@ -20,10 +20,18 @@ use crate::state::dto::GlobalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    dotenv::dotenv().ok();
+
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
+
+            if let Ok(base_path) = crate::utils::env_info::launcher_patch(None) {
+                let _ = std::fs::create_dir_all(&base_path);
+                let _ = std::fs::create_dir_all(base_path.join("project"));
+            }
+
             Ok(())
         })
         .manage(Mutex::new(GlobalState::default()))
