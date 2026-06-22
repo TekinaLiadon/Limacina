@@ -11,12 +11,12 @@ onBeforeMount(async () => {
   init()
   try {
     await invoke('load_settings_project', {
-      projectName: "libra2"
+      projectName: "Cordelia"
     })
   } catch (e){
     await invoke('save_settings_project', {
       config: {
-        projectName: "libra2",
+        projectName: "Cordelia",
         mcVersion: "1.21.1", // "1.16.5"
         modLoader: "neoforge", // "forge",
         //loaderVersion: "36.2.42",
