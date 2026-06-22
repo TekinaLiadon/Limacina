@@ -17,6 +17,7 @@ const formData = ref({
 const downloadMinecraft = async () => {
   await invoke("download_java")
   await invoke('download_minecraft')
+  await invoke('download_server_mods')
 }
 
 const startMinecraft = async () => {
@@ -30,7 +31,7 @@ const handleLogin = async () => {
   isLoading.value = true
   try {
     await invoke('load_settings_project', {
-      projectName: "libra2"
+      projectName: "Cordelia"
     })
     await downloadMinecraft()
     await startMinecraft()

@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 use crate::commands::dto::{create_mod_loader, resolve_latest_loader_version};
 use crate::java::install_java;
 use crate::launcher_server::downloader::download_all_files;
+use crate::launcher_server::downloader::download_mods;
 use crate::launcher_server::downloader::DownloadError;
 use crate::minecraft::structs::MinecraftLoader;
 use crate::state::dto::GlobalState;
@@ -51,4 +52,14 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
     state.project_config.java_path = Some(java_path.to_string_lossy().into_owned());
     state.project_config.save_config().await?;
     Ok("Ok".to_string())
+}
+
+#[tauri::command]
+pub async fn download_server_mods(
+    app: AppHandle,
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> Result<String, DownloadError> {
+    let state = state.lock().await;
+    let project_name = state.project_config.project_name.clone();
+    download_mods(app, project_name).await
 }

@@ -9,6 +9,7 @@ mod utils;
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
+use commands::download::download_server_mods;
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
@@ -29,6 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             download_server_file,
+            download_server_mods,
             download_minecraft,
             download_java,
             start_minecraft,
