@@ -83,19 +83,20 @@ pub fn filter_classpath(classpath: Vec<String>) -> Vec<String> {
     }
 
     let mut final_classpath = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for path_str in classpath {
-        if !seen.contains(&path_str) {
+        let normalized = path_str.replace('\\', "/");
+        if !seen.contains(&normalized) {
             if let Some((artifact_id, version)) = extract_maven_info(&path_str) {
                 if let Some(latest) = latest_versions.get(&artifact_id) {
                     if &version == latest {
                         final_classpath.push(path_str.clone());
-                        seen.insert(path_str);
+                        seen.insert(normalized);
                     }
                 }
             } else {
                 final_classpath.push(path_str.clone());
-                seen.insert(path_str);
+                seen.insert(normalized);
             }
         }
     }

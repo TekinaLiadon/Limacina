@@ -20,6 +20,8 @@ use crate::state::dto::GlobalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    dotenv::from_path(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env")).ok();
+
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
