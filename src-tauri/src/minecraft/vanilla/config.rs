@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use ::anyhow::Result;
 
 use crate::{
+    log_err,
     minecraft::{
         structs::LaunchConfig,
         mod_loader::utils::maven_to_path,
@@ -110,7 +111,7 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
         if lib_path.exists() {
             paths.push(lib_path.to_string_lossy().to_string());
         } else {
-            eprintln!("⚠ Библиотека не найдена: {:?}", lib_path);
+            log_err!("Библиотека не найдена: {:?}", lib_path);
         }
     }
 

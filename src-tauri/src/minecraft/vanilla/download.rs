@@ -9,6 +9,7 @@ use std::io as std_io;
 use tokio::fs;
 
 use crate::{
+    log_err,
     log_info,
     minecraft::vanilla::structs::{AssetIndexContent, Rule, VersionDetailsManifest},
     utils::{
@@ -105,7 +106,7 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
             Ok(count) => {
                 total_extracted += count;
             }
-            Err(e) => eprintln!("  Ошибка извлечения {:?}: {:?}", jar_path, e),
+            Err(e) => log_err!("Ошибка извлечения {:?}: {:?}", jar_path, e),
         }
     }
     log_info!("Файлов скачано: {}", total_extracted);
@@ -213,7 +214,7 @@ async fn extract_native(
             Ok(count) => {
                 total_extracted += count;
             }
-            Err(e) => eprintln!("  Ошибка извлечения {:?}: {:?}", jar_path, e),
+            Err(e) => log_err!("Ошибка извлечения {:?}: {:?}", jar_path, e),
         }
     }
     log_info!("Всего извлечено нативных файлов: {}", total_extracted);

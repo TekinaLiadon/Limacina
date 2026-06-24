@@ -83,7 +83,7 @@ impl ModLoader for Forge {
         let version_info = manifest
             .iter()
             .find(|v| v.id == target_version)
-            .expect("Версия не найдена");
+            .ok_or_else(|| anyhow!("Версия не найдена"))?;
 
         log_info!("Скачивание инсталлера");
         let installer_path = base_url.join(format!("{}.jar", &target_version));
