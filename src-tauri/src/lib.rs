@@ -20,10 +20,7 @@ use crate::state::dto::GlobalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    dotenv::from_path(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"),
-    )
-    .ok();
+    dotenv::from_path(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env")).ok();
 
     tauri::Builder::default()
         .setup(|app| {
@@ -33,6 +30,7 @@ pub fn run() {
             if let Ok(base_path) = crate::utils::env_info::launcher_patch(None) {
                 let _ = std::fs::create_dir_all(&base_path);
                 let _ = std::fs::create_dir_all(base_path.join("project"));
+                let _ = std::fs::create_dir_all(base_path.join("manifest"));
             }
 
             Ok(())

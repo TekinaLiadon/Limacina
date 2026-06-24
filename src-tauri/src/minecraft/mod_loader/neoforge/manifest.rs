@@ -50,6 +50,9 @@ pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
     }
 
     let json = serde_json::to_string_pretty(&grouped_versions)?;
+    if let Some(parent) = json_path.parent() {
+        fs::create_dir_all(parent).await?;
+    }
     fs::write(json_path, &json).await?;
 
     Ok(grouped_versions)
