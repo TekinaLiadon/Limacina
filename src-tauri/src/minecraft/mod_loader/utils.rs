@@ -11,6 +11,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 use uuid::{Builder, Variant, Version};
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
 use crate::utils::{compare_versions, get_classpath_separator};

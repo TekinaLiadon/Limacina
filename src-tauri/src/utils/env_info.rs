@@ -4,9 +4,7 @@ use std::{env, path::PathBuf};
 
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
     let home_dir: PathBuf = get_home_dir()?;
-    let launcher_name: String = env::var("LAUNCHER_NAME")
-        .or_else(|_| option_env!("LAUNCHER_NAME").map(|v| v.to_string()).ok_or(()))
-        .unwrap_or_else(|_| "Limacina".to_string());
+    let launcher_name: String = env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string());
     let base_path = home_dir.join(launcher_name);
 
     match project {

@@ -5,7 +5,6 @@ use crate::commands::dto::{create_mod_loader, resolve_latest_loader_version};
 use crate::java::install_java;
 use crate::launcher_server::downloader::download_all_files;
 use crate::launcher_server::downloader::download_mods;
-use crate::launcher_server::downloader::DownloadError;
 use crate::minecraft::structs::MinecraftLoader;
 use crate::state::dto::GlobalState;
 use crate::state::dto::ModLoader as ConfigModLoader;
@@ -40,7 +39,7 @@ pub async fn download_minecraft(
 }
 
 #[tauri::command]
-pub async fn download_server_file(app: AppHandle) -> Result<String, DownloadError> {
+pub async fn download_server_file(app: AppHandle) -> CommandResult<String> {
     download_all_files(app).await?;
     Ok("Ok".to_string())
 }
@@ -58,8 +57,8 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
 pub async fn download_server_mods(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
-) -> Result<String, DownloadError> {
+) -> CommandResult<String> {
     let state = state.lock().await;
     let project_name = state.project_config.project_name.clone();
-    download_mods(app, project_name).await
+    download_mods(app, project_name).await.map_err(Into::into)
 }

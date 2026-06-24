@@ -1,10 +1,10 @@
 use crate::log_info;
+use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use reqwest::Client;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -14,49 +14,16 @@ use tokio::sync::Semaphore;
 
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
-#[derive(Debug, thiserror::Error)]
-pub enum DownloadError {
-    #[error("Не удалось получить файл от сервера: {0}")]
-    FetchError(#[from] reqwest::Error),
-
-    #[error("Ошибка файловой системы: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Ошибка JSON: {0}")]
-    JsonError(#[from] serde_json::Error),
-
-    #[error("Системная ошибка: {0}")]
-    SystemError(String),
-
-    #[error("Ошибка выполнения задачи: {0}")]
-    JoinError(#[from] tokio::task::JoinError),
-}
-
-impl Serialize for DownloadError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
 #[derive(Serialize)]
 struct BodyFile {
     url: String,
 }
 
-fn get_server_url() -> Result<String, DownloadError> {
-    env::var("LAUNCHER_SERVER_URL")
-        .or_else(|_| {
-            option_env!("LAUNCHER_SERVER_URL")
-                .map(|v| v.to_string())
-                .ok_or(())
-        })
-        .map_err(|_| DownloadError::SystemError("LAUNCHER_SERVER_URL not set".to_string()))
+fn get_server_url() -> Result<String> {
+    Ok(env!("LAUNCHER_SERVER_URL").to_string())
 }
 
-fn get_file_hash(file_path: &PathBuf) -> Result<String, DownloadError> {
+fn get_file_hash(file_path: &PathBuf) -> Result<String> {
     let mut file = File::open(file_path)?;
     let mut hasher = Md5::new();
     let mut buffer = [0u8; 8192];
@@ -76,7 +43,7 @@ async fn download_file(
     client: &Client,
     file_path: &PathBuf,
     url: &str,
-) -> Result<(), DownloadError> {
+) -> Result<()> {
     let server_url = get_server_url()?;
     let body = BodyFile {
         url: url.to_string(),
@@ -86,15 +53,13 @@ async fn download_file(
         .post(format!("{}/files/files", server_url))
         .json(&body)
         .send()
-        .await?;
+        .await
+        .context("Не удалось получить файл от сервера")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(DownloadError::SystemError(format!(
-            "Сервер вернул {} при скачивании {}: {}",
-            status, url, body
-        )));
+        anyhow::bail!("Сервер вернул {} при скачивании {}: {}", status, url, body);
     }
 
     if let Some(parent) = Path::new(file_path).parent() {
@@ -112,42 +77,25 @@ async fn download_file(
     Ok(())
 }
 
-fn get_base_dir() -> Result<String, DownloadError> {
-    #[allow(deprecated)]
-    let home_dir: PathBuf = env::home_dir()
-        .ok_or_else(|| DownloadError::SystemError("Home directory not found".to_string()))?;
-
-    let launcher_name: String = env::var("LAUNCHER_NAME")
-        .or_else(|_| option_env!("LAUNCHER_NAME").map(|v| v.to_string()).ok_or(()))
-        .unwrap_or_else(|_| "Limacina".to_string());
-
-    let dir: PathBuf = home_dir.join(&launcher_name);
-
-    Ok(dir.to_string_lossy().to_string())
-}
-
-pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError> {
+pub async fn download_all_files(app: AppHandle) -> Result<String> {
     let client = Client::new();
     let server_url = get_server_url()?;
 
     let response = client
         .get(format!("{}/files/list", server_url))
         .send()
-        .await?;
+        .await
+        .context("Не удалось получить список файлов от сервера")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(DownloadError::SystemError(format!(
-            "Сервер файлов вернул {}: {}",
-            status, body
-        )));
+        anyhow::bail!("Сервер файлов вернул {}: {}", status, body);
     }
 
     let file_list: HashMap<String, String> = response.json().await?;
 
-    let base_dir_str = get_base_dir()?;
-    let core = PathBuf::from(&base_dir_str);
+    let core = crate::utils::env_info::launcher_patch(None)?;
 
     let mut files_to_download: Vec<String> = Vec::new();
 
@@ -184,13 +132,13 @@ pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError>
             let _permit = sem
                 .acquire()
                 .await
-                .map_err(|e| DownloadError::SystemError(e.to_string()))?;
+                .context("Ошибка получения семафора")?;
 
             let file_path = core_path.join(&file_key_clone);
 
             download_file(&client, &file_path, &file_key_clone).await?;
 
-            Ok::<(), DownloadError>(())
+            Ok::<(), anyhow::Error>(())
         });
 
         tasks.push(handle);
@@ -199,32 +147,27 @@ pub async fn download_all_files(app: AppHandle) -> Result<String, DownloadError>
     let results = futures::future::join_all(tasks).await;
 
     for res in results {
-        match res {
-            Ok(inner_result) => inner_result?,
-            Err(e) => return Err(DownloadError::JoinError(e)),
-        }
+        res.context("Ошибка выполнения задачи скачивания")??;
     }
 
     Ok("Все скачено успешно".to_string())
 }
 
-pub async fn download_mods(app: AppHandle, project_name: String) -> Result<String, DownloadError> {
+pub async fn download_mods(app: AppHandle, project_name: String) -> Result<String> {
     let client = Client::new();
     let server_url = get_server_url()?;
 
     let response = client
         .get(format!("{}/files/mods", server_url))
         .send()
-        .await?;
+        .await
+        .context("Не удалось получить список модов от сервера")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_info!("Сервер вернул ошибку {}: {}", status, body);
-        return Err(DownloadError::SystemError(format!(
-            "Сервер вернул {}: {}",
-            status, body
-        )));
+        anyhow::bail!("Сервер вернул {}: {}", status, body);
     }
 
     let response_text = response.text().await?;
@@ -237,8 +180,7 @@ pub async fn download_mods(app: AppHandle, project_name: String) -> Result<Strin
         log_info!("  мод: {} (hash: {})", name, hash);
     }
 
-    let mods_dir = crate::utils::env_info::launcher_patch(Some(&project_name))
-        .map_err(|e| DownloadError::SystemError(e.to_string()))?
+    let mods_dir = crate::utils::env_info::launcher_patch(Some(&project_name))?
         .join("mods");
 
     fs::create_dir_all(&mods_dir)?;
@@ -312,7 +254,7 @@ pub async fn download_mods(app: AppHandle, project_name: String) -> Result<Strin
             let _permit = sem
                 .acquire()
                 .await
-                .map_err(|e| DownloadError::SystemError(e.to_string()))?;
+                .context("Ошибка получения семафора")?;
 
             let file_path = mods_dir.join(&file_name);
 
@@ -323,7 +265,7 @@ pub async fn download_mods(app: AppHandle, project_name: String) -> Result<Strin
 
             let _ = app.emit("modDownloaded", &file_name);
 
-            Ok::<(), DownloadError>(())
+            Ok::<(), anyhow::Error>(())
         });
 
         tasks.push(handle);
@@ -333,11 +275,8 @@ pub async fn download_mods(app: AppHandle, project_name: String) -> Result<Strin
 
     let mut downloaded = 0;
     for res in results {
-        match res {
-            Ok(Ok(())) => downloaded += 1,
-            Ok(Err(e)) => return Err(e),
-            Err(e) => return Err(DownloadError::JoinError(e)),
-        }
+        res.context("Ошибка выполнения задачи скачивания мода")??;
+        downloaded += 1;
     }
 
     Ok(format!("Скачано модов: {}/{}", downloaded, total_to_download))
