@@ -60,7 +60,7 @@ impl ModLoader for Fabric {
         let version_info = manifest
             .iter()
             .find(|v| v.id == target_version)
-            .expect("Версия не найдена");
+            .ok_or_else(|| anyhow!("Версия не найдена"))?;
         log_info!("Скачивание основного jar");
         download_jar(&state.project_name, &version_info.id, &version_info.url).await?;
 

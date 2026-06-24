@@ -1,6 +1,6 @@
 use crate::log_info;
 use anyhow::{Context, Result};
-use futures_util::StreamExt;
+use futures::StreamExt;
 use md5::{Digest, Md5};
 use reqwest::Client;
 use serde::Serialize;

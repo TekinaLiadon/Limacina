@@ -6,7 +6,7 @@ use tokio::{
     time::{sleep, Instant},
 };
 
-use crate::{log_info, utils::download_file::download_file};
+use crate::{log_err, log_info, utils::download_file::download_file};
 const MAX_CONCURRENT_DOWNLOADS: usize = 15;
 const MAX_RETRIES: usize = 4;
 
@@ -44,14 +44,14 @@ pub fn semaphore_core(
                     }
                     Err(e) if attempt < MAX_RETRIES => {
                         log_info!("Ошибка скачивания {}. Повторный запрос", url);
-                        eprintln!("Ошибка скачивания {}: {:?}. Повтор...", url, e);
+                        log_err!("Ошибка скачивания {}: {:?}. Повтор...", url, e);
 
                         let delay = 2_u64.pow(attempt as u32);
                         sleep(Duration::from_secs(delay)).await;
                     }
 
                     Err(e) => {
-                        eprintln!("Финальная ошибка скачивания {}: {:?}", url, e);
+                        log_err!("Финальная ошибка скачивания {}: {:?}", url, e);
                         final_result = Err(e);
                         break;
                     }

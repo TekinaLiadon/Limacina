@@ -5,9 +5,9 @@ use tauri::{AppHandle, Emitter};
 static GLOBAL_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
-struct ConsolePayload {
-    line: String,
-    is_error: bool,
+pub struct ConsolePayload {
+    pub line: String,
+    pub is_error: bool,
 }
 
 pub fn init_logger(app: AppHandle) {
@@ -35,13 +35,13 @@ pub fn send_log(msg: String, is_error: bool) {
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {
-        $crate::logger_utils::send_log(format!($($arg)*), false);
+        $crate::logger_utils::send_log(format!($($arg)*), false)
     };
 }
 
 #[macro_export]
 macro_rules! log_err {
     ($($arg:tt)*) => {
-        $crate::logger_utils::send_log(format!($($arg)*), true);
+        $crate::logger_utils::send_log(format!($($arg)*), true)
     };
 }

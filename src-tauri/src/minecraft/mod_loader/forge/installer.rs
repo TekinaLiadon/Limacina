@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use tokio::{fs, process::Command};
 
 use crate::{
+    log_err,
     minecraft::mod_loader::forge::structs::Manifest,
     state::dto::ProjectConfig,
     utils::{download_file::download_json, env_info::launcher_patch},
@@ -51,7 +52,7 @@ pub async fn start_installer(
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !stderr.is_empty() {
-        eprintln!("Stderr: {}", stderr);
+        log_err!("Stderr: {}", stderr);
     }
 
     if !output.status.success() {

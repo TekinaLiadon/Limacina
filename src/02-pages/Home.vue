@@ -116,27 +116,10 @@ const start = async () => {
 </template>
 
 <style lang="scss">
-$color-bg-primary: #1a1d2e;
-$color-bg-secondary: #16213e;
-$color-bg-form: rgba(26, 29, 46, 0.95);
-$color-border: rgba(139, 172, 255, 0.25);
-$color-border-hover: rgba(139, 172, 255, 0.5);
-
-$color-text-primary: #e8eaf6;
-$color-text-secondary: #b0b8d4;
-$color-text-muted: #7a82a0;
-
-$color-accent-primary: #6c7fd8;
-$color-accent-hover: #8b9fe8;
-$color-accent-glow: rgba(108, 127, 216, 0.4);
-
-$color-shadow: rgba(0, 0, 0, 0.3);
-$color-shadow-strong: rgba(0, 0, 0, 0.6);
-
 .login-screen {
   min-height: 100vh;
   width: 100%;
-  background: linear-gradient(135deg, $color-bg-primary 0%, $color-bg-secondary 100%);
+  background: linear-gradient(135deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -173,12 +156,12 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
 .login-form {
   width: 100%;
   max-width: 480px;
-  background: $color-bg-form;
+  background: var(--login-bg-form);
   backdrop-filter: blur(12px);
-  border: 1px solid $color-border;
+  border: 1px solid var(--login-border);
   border-radius: 12px;
   padding: 56px 48px;
-  box-shadow: 0 8px 32px $color-shadow,
+  box-shadow: 0 8px 32px var(--login-shadow),
   inset 0 1px 0 rgba(255, 255, 255, 0.05);
   position: relative;
 
@@ -191,10 +174,10 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
     bottom: -1px;
     background: linear-gradient(
             135deg,
-            $color-accent-primary 0%,
+            var(--login-accent) 0%,
             transparent 30%,
             transparent 70%,
-            $color-accent-primary 100%
+            var(--login-accent) 100%
     );
     border-radius: 12px;
     opacity: 0;
@@ -210,10 +193,10 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
 .login-title {
   font-size: 38px;
   font-weight: 700;
-  color: $color-text-primary;
+  color: var(--login-text-primary);
   text-transform: uppercase;
   margin: 0 0 40px 0;
-  text-shadow: 0 2px 8px $color-shadow;
+  text-shadow: 0 2px 8px var(--login-shadow);
   letter-spacing: 1.5px;
 }
 
@@ -238,21 +221,21 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
   margin: 0;
   margin-right: 12px;
   cursor: pointer;
-  accent-color: $color-accent-primary;
+  accent-color: var(--login-accent);
 
   &:focus {
-    outline: 2px solid $color-border-hover;
+    outline: 2px solid var(--login-border-hover);
     outline-offset: 2px;
   }
 }
 
 .checkbox-label {
-  color: $color-text-secondary;
+  color: var(--login-text-secondary);
   font-size: 15px;
   transition: color 0.2s ease;
 
   .checkbox-wrapper:hover & {
-    color: $color-text-primary;
+    color: var(--login-text-primary);
   }
 }
 
@@ -263,12 +246,12 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
 }
 
 .error-message {
-  color: #ff5555;
+  color: var(--error);
   font-size: 13px;
   margin-bottom: 16px;
   padding: 8px 12px;
-  background: rgba(255, 85, 85, 0.1);
-  border: 1px solid rgba(255, 85, 85, 0.3);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 8px;
   word-break: break-word;
 }
@@ -284,7 +267,7 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 24px $color-accent-glow;
+    box-shadow: 0 6px 24px var(--login-accent-glow);
   }
 
   &:active {
@@ -297,13 +280,13 @@ $color-shadow-strong: rgba(0, 0, 0, 0.6);
   height: 48px;
   font-size: 15px;
   background: transparent;
-  color: $color-text-secondary;
+  color: var(--login-text-secondary);
   border: 1px solid rgba(176, 184, 212, 0.2);
   transition: all 0.3s ease;
 
   &:hover {
-    color: $color-text-primary;
-    border-color: $color-border-hover;
+    color: var(--login-text-primary);
+    border-color: var(--login-border-hover);
     background: rgba(108, 127, 216, 0.08);
   }
 }

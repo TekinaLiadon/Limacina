@@ -14,14 +14,9 @@ use uuid::{Builder, Variant, Version};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+use crate::utils::logger_utils::ConsolePayload;
 use crate::utils::{compare_versions, get_classpath_separator};
-use crate::{log_info, minecraft::structs::GameConfig};
-
-#[derive(Clone, serde::Serialize)]
-pub struct ConsolePayload {
-    pub line: String,
-    pub is_error: bool,
-}
+use crate::{log_err, log_info, minecraft::structs::GameConfig};
 
 pub fn generate_offline_uuid(nickname: &str) -> String {
     log_info!("Генерация офлайн uuid");
@@ -190,7 +185,7 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
-                println!("{}", line);
+                log_err!("{}", line);
                 let _ = app_err.emit(
                     "game-console",
                     ConsolePayload {
@@ -203,8 +198,8 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     });
 
     thread::spawn(move || match child.wait() {
-        Ok(status) => println!("✓ Minecraft завершился: {:?}", status),
-        Err(e) => eprintln!("✗ Ошибка ожидания процесса: {}", e),
+        Ok(status) => log_info!("Minecraft завершился: {:?}", status),
+        Err(e) => log_err!("Ошибка ожидания процесса: {}", e),
     });
 
     Ok(())
