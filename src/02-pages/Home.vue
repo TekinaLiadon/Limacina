@@ -15,7 +15,7 @@ const formData = ref({
   rememberMe: false
 });
 
-const projectName = "Cordelia"
+const projectName = "Cordelia" // TODO
 
 onMounted(async () => {
   try {
@@ -53,7 +53,7 @@ const handleLogin = async () => {
     })
 
     await invoke('load_settings_project', {
-      projectName: "Cordelia"
+      projectName,
     })
     await downloadMinecraft()
     await startMinecraft()

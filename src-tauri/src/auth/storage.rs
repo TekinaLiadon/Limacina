@@ -127,7 +127,6 @@ fn delete_fallback(_project: &str, username: &str) -> Result<()> {
 pub fn save_password(project: &str, username: &str, password: &str) -> Result<()> {
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
-    log_info!("Keyring save: service=\"{}\" key=\"{}\"", service, key);
 
     let keyring_result = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)
@@ -152,7 +151,6 @@ pub fn save_password(project: &str, username: &str, password: &str) -> Result<()
 pub fn get_password(project: &str, username: &str) -> Result<String> {
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
-    log_info!("Keyring load: service=\"{}\" key=\"{}\"", service, key);
 
     let keyring_result = (|| -> Result<String> {
         let entry = keyring::Entry::new(&service, &key)
@@ -177,7 +175,6 @@ pub fn get_password(project: &str, username: &str) -> Result<String> {
 pub fn delete_password(project: &str, username: &str) -> Result<()> {
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
-    log_info!("Keyring delete: service=\"{}\" key=\"{}\"", service, key);
 
     let keyring_result = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)?;

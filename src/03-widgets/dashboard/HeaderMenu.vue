@@ -2,7 +2,6 @@
 import Dropdown from "@/06-shared/components/Dropdown.vue";
 import {ref} from "vue";
 import IconButton from "@/06-shared/components/IconButton.vue";
-import Login from "@/03-widgets/Login.vue";
 import Popup from "@/06-shared/components/Popup.vue";
 
 const users = ref([
@@ -26,7 +25,6 @@ const isLogin = ref(false)
     <IconButton tag="span" icon="user-photo" @click="isLogin = !isLogin" />
     <Popup v-model:visible="isLogin"
            maxWidth="340px">
-      <Login projectName="Cordelia" />
     </Popup>
   </div>
 </template>
