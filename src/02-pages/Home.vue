@@ -1,5 +1,5 @@
 <script setup>
-import {ref} from "vue";
+import {onMounted, ref} from "vue";
 import Button from "@/06-shared/components/Button.vue";
 import {invoke} from '@tauri-apps/api/core';
 import Input from "@/06-shared/components/Input.vue";
@@ -7,12 +7,29 @@ import Console from "@/03-widgets/Console.vue";
 
 const isLoading = ref(false)
 const errorMessage = ref('')
+const logins = ref([])
 
 const formData = ref({
   username: '',
   password: '',
   rememberMe: false
 });
+
+const projectName = "Cordelia"
+
+onMounted(async () => {
+  try {
+    logins.value = await invoke('auth_logins', { projectName })
+    const saved = await invoke('auth_saved', { projectName })
+    if (saved) {
+      formData.value.username = saved.username
+      formData.value.password = saved.password
+      formData.value.rememberMe = true
+    }
+  } catch (e) {
+    console.error(e)
+  }
+})
 
 const downloadMinecraft = async () => {
   await invoke("download_java")
@@ -21,15 +38,20 @@ const downloadMinecraft = async () => {
 }
 
 const startMinecraft = async () => {
-  await invoke('start_minecraft', {
-    username: formData.value.username,
-    accessToken: "5730aacc7d65c752b53ca07500e247",
-  })
+  await invoke('start_minecraft')
 }
 
 const handleLogin = async () => {
   isLoading.value = true
+  errorMessage.value = ''
   try {
+    await invoke('auth_login', {
+      projectName,
+      username: formData.value.username,
+      password: formData.value.password,
+      rememberMe: formData.value.rememberMe,
+    })
+
     await invoke('load_settings_project', {
       projectName: "Cordelia"
     })
@@ -42,24 +64,6 @@ const handleLogin = async () => {
     isLoading.value = false
   }
 }
-const start = async () => {
-  isLoading.value = !isLoading.value
-
-  await invoke('get_forge', {
-    mcVersion: "1.16.5"
-  });
-  await invoke('download_minecraft_version', {
-    version: "1.16.5"
-  })
-  await invoke('download_all_files')
-  await invoke('start_jvm', {
-    username: formData.value.username,
-    accessToken: "5730aacc7d65c752b53ca07500e247",
-    typeMinecraft: "forge",
-    mc_version: "1.16.5"
-  });
-}
-
 </script>
 
 <template>
@@ -73,6 +77,7 @@ const start = async () => {
               v-model="formData.username"
               :options="{
               placeholder: 'Никнейм',
+              list: logins,
             }"
           />
         </div>

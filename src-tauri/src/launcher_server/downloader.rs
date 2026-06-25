@@ -2,6 +2,7 @@ use crate::log_info;
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use md5::{Digest, Md5};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -12,7 +13,23 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Semaphore;
 
+use crate::state::dto::GlobalState;
+use tokio::sync::Mutex;
+
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
+
+fn build_auth_client(token: &str) -> Result<Client> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token))
+            .context("Некорректный токен авторизации")?,
+    );
+    Client::builder()
+        .default_headers(headers)
+        .build()
+        .context("Не удалось создать HTTP клиент")
+}
 
 #[derive(Serialize)]
 struct BodyFile {
@@ -77,8 +94,17 @@ async fn download_file(
     Ok(())
 }
 
-pub async fn download_all_files(app: AppHandle) -> Result<String> {
-    let client = Client::new();
+pub async fn download_all_files(app: AppHandle, state: &Mutex<GlobalState>) -> Result<String> {
+    let state = state.lock().await;
+    let token = state
+        .session
+        .as_ref()
+        .context("Необходима авторизация для скачивания файлов")?
+        .access_token
+        .clone();
+    drop(state);
+
+    let client = build_auth_client(&token)?;
     let server_url = get_server_url()?;
 
     let response = client
@@ -153,8 +179,17 @@ pub async fn download_all_files(app: AppHandle) -> Result<String> {
     Ok("Все скачено успешно".to_string())
 }
 
-pub async fn download_mods(app: AppHandle, project_name: String) -> Result<String> {
-    let client = Client::new();
+pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<GlobalState>) -> Result<String> {
+    let state = state.lock().await;
+    let token = state
+        .session
+        .as_ref()
+        .context("Необходима авторизация для скачивания модов")?
+        .access_token
+        .clone();
+    drop(state);
+
+    let client = build_auth_client(&token)?;
     let server_url = get_server_url()?;
 
     let response = client

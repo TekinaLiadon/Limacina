@@ -18,6 +18,7 @@ use crate::utils::logger_utils::ConsolePayload;
 use crate::utils::{compare_versions, get_classpath_separator};
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
 
+#[warn(dead_code)]
 pub fn generate_offline_uuid(nickname: &str) -> String {
     log_info!("Генерация офлайн uuid");
     let data = format!("OfflinePlayer:{}", nickname);

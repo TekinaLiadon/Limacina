@@ -2,10 +2,15 @@ use anyhow::{Context, Result};
 use std::env::consts;
 use std::{env, path::PathBuf};
 
+pub fn get_launcher_name() -> String {
+    env::var("LAUNCHER_NAME")
+        .unwrap_or_else(|_| "Limacina".to_string())
+        .to_lowercase()
+}
+
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
     let home_dir: PathBuf = get_home_dir()?;
-    let launcher_name: String = env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string());
-    let base_path = home_dir.join(launcher_name);
+    let base_path = home_dir.join(get_launcher_name());
 
     match project {
         Some(dir) => Ok(base_path.join("project").join(dir)),

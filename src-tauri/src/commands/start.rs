@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
 use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
-use crate::minecraft::mod_loader::utils::{generate_offline_uuid, spawn_game_process};
+use crate::minecraft::mod_loader::utils::spawn_game_process;
 use crate::state::dto::{GlobalState, ModLoader};
 use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResult};
 
@@ -12,11 +12,17 @@ use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResul
 pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
-    username: String,
-    access_token: String,
 ) -> CommandResult<String> {
     let mut state = state.lock().await;
-    let uuid = generate_offline_uuid(&username);
+    let session = state
+        .session
+        .as_ref()
+        .ok_or(anyhow!("Необходима авторизация для запуска"))?;
+
+    let uuid = session.uuid.clone();
+    let username = session.username.clone();
+    let access_token = session.access_token.clone();
+
     let config = new_launch_config(&username, &uuid, &access_token, &state.project_config).await?;
     let vanilla_config = Vanilla.config(&state.project_config, &config).await?;
 

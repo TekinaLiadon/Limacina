@@ -24,8 +24,17 @@ pub struct ProjectConfig {
     pub max_memory: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct SessionTokens {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub uuid: String,
+    pub username: String,
+}
+
 #[derive(Default)]
 pub struct GlobalState {
     pub project_config: ProjectConfig,
     pub loader: Option<Box<dyn ProjectModLoader>>,
+    pub session: Option<SessionTokens>,
 }

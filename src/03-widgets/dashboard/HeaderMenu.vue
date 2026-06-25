@@ -26,7 +26,7 @@ const isLogin = ref(false)
     <IconButton tag="span" icon="user-photo" @click="isLogin = !isLogin" />
     <Popup v-model:visible="isLogin"
            maxWidth="340px">
-      <Login />
+      <Login projectName="Cordelia" />
     </Popup>
   </div>
 </template>

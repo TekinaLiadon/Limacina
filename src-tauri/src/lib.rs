@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod auth;
 mod commands;
 mod java;
 mod launcher_server;
@@ -6,6 +7,7 @@ mod minecraft;
 mod state;
 mod utils;
 
+use commands::auth::{auth_login, auth_logins, auth_saved};
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
@@ -38,6 +40,9 @@ pub fn run() {
         .manage(Mutex::new(GlobalState::default()))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            auth_login,
+            auth_saved,
+            auth_logins,
             download_server_file,
             download_server_mods,
             download_minecraft,

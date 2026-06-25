@@ -39,8 +39,11 @@ pub async fn download_minecraft(
 }
 
 #[tauri::command]
-pub async fn download_server_file(app: AppHandle) -> CommandResult<String> {
-    download_all_files(app).await?;
+pub async fn download_server_file(
+    app: AppHandle,
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> CommandResult<String> {
+    download_all_files(app, &state).await?;
     Ok("Ok".to_string())
 }
 
@@ -58,7 +61,11 @@ pub async fn download_server_mods(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
-    let state = state.lock().await;
-    let project_name = state.project_config.project_name.clone();
-    download_mods(app, project_name).await.map_err(Into::into)
+    let project_name = state
+        .lock()
+        .await
+        .project_config
+        .project_name
+        .clone();
+    download_mods(app, project_name, &state).await.map_err(Into::into)
 }
