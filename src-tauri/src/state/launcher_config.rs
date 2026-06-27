@@ -22,17 +22,16 @@ pub struct LauncherConfig {
 
 impl LauncherConfig {
     fn config_file_path() -> Result<std::path::PathBuf> {
+        let config_dir = dirs::config_dir()
+            .context("Не удалось определить директорию конфигурации")?;
         let launcher_name = crate::utils::env_info::get_launcher_name();
-        let home = crate::utils::env_info::get_home_dir()?;
-        let primary = home.join(format!(".{}", launcher_name.to_lowercase())).join("config.json");
+        let primary = config_dir.join(&launcher_name).join("config.json");
         if primary.exists() {
             return Ok(primary);
         }
-        if let Some(config_dir) = dirs::config_dir() {
-            let legacy = config_dir.join(&launcher_name).join("config.json");
-            if legacy.exists() {
-                return Ok(legacy);
-            }
+        let fallback = config_dir.join(launcher_name.to_lowercase()).join("config.json");
+        if fallback.exists() {
+            return Ok(fallback);
         }
         Ok(primary)
     }

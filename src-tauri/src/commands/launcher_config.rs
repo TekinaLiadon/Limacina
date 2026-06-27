@@ -56,10 +56,14 @@ pub async fn save_launcher_config(
     config.save()?;
 
     let base = PathBuf::from(&launcher_path);
-    let _ = std::fs::create_dir_all(&base);
-    let _ = std::fs::create_dir_all(base.join("project"));
-    let _ = std::fs::create_dir_all(base.join("manifest"));
-    let _ = std::fs::create_dir_all(base.join("java"));
+    std::fs::create_dir_all(&base)
+        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"{}\": {}", base.display(), e))?;
+    std::fs::create_dir_all(base.join("project"))
+        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"project\": {}", e))?;
+    std::fs::create_dir_all(base.join("manifest"))
+        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"manifest\": {}", e))?;
+    std::fs::create_dir_all(base.join("java"))
+        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"java\": {}", e))?;
 
     {
         let mut state = state.lock().await;
