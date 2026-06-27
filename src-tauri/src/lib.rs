@@ -12,9 +12,11 @@ use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
+use commands::launcher_config::{get_app_init_data, save_launcher_config};
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
+use tauri::Manager;
 use tokio::sync::Mutex;
 use utils::logger_utils;
 
@@ -29,20 +31,36 @@ pub fn run() {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
 
-            if let Ok(base_path) = crate::utils::env_info::launcher_patch(None) {
-                let _ = std::fs::create_dir_all(&base_path);
-                let _ = std::fs::create_dir_all(base_path.join("project"));
-                let _ = std::fs::create_dir_all(base_path.join("manifest"));
-            }
+            let launcher_config = crate::state::launcher_config::LauncherConfig::load().ok().flatten();
+
+            let base_path = if let Some(ref lc) = launcher_config {
+                std::path::PathBuf::from(&lc.launcher_path)
+            } else {
+                crate::utils::env_info::launcher_patch(None)
+                    .unwrap_or_else(|_| std::env::home_dir().unwrap_or_default().join("Limacina"))
+            };
+
+            let _ = std::fs::create_dir_all(&base_path);
+            let _ = std::fs::create_dir_all(base_path.join("project"));
+            let _ = std::fs::create_dir_all(base_path.join("manifest"));
+            let _ = std::fs::create_dir_all(base_path.join("java"));
+
+            let gs = GlobalState {
+                launcher_config,
+                ..GlobalState::default()
+            };
+            app.manage(Mutex::new(gs));
 
             Ok(())
         })
-        .manage(Mutex::new(GlobalState::default()))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             auth_login,
             auth_saved,
             auth_logins,
+            get_app_init_data,
+            save_launcher_config,
             download_server_file,
             download_server_mods,
             download_minecraft,

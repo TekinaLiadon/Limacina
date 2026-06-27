@@ -1,4 +1,5 @@
 use crate::minecraft::structs::ModLoader as ProjectModLoader;
+use crate::state::launcher_config::LauncherConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
@@ -37,4 +38,5 @@ pub struct GlobalState {
     pub project_config: ProjectConfig,
     pub loader: Option<Box<dyn ProjectModLoader>>,
     pub session: Option<SessionTokens>,
+    pub launcher_config: Option<LauncherConfig>,
 }

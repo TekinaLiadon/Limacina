@@ -3,9 +3,16 @@ use std::env::consts;
 use std::{env, path::PathBuf};
 
 pub fn get_launcher_name() -> String {
-    env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "Limacina".to_string())
-        .to_lowercase()
+    let name = env::var("LAUNCHER_NAME")
+        .unwrap_or_else(|_| "Limacina".to_string());
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => {
+            let rest: String = chars.collect();
+            first.to_uppercase().to_string() + &rest.to_lowercase()
+        }
+        None => String::new(),
+    }
 }
 
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {

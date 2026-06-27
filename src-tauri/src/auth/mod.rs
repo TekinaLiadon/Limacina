@@ -1,4 +1,3 @@
-pub mod config;
 pub mod storage;
 
 use anyhow::{Context, Result};

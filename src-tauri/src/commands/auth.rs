@@ -1,7 +1,7 @@
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth::{self, config, storage};
+use crate::auth::{self, storage};
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::tauri_err::CommandResult;
 
@@ -29,13 +29,20 @@ pub async fn auth_login(
             uuid: auth_data.profile.uuid,
             username: auth_data.profile.username,
         });
+
+        if let Some(ref mut config) = state.launcher_config {
+            if remember_me {
+                config.add_login(&project_name, &username);
+            } else {
+                config.remove_login(&project_name, &username);
+            }
+            config.save()?;
+        }
     }
 
     if remember_me {
-        config::add_login(&project_name, &username)?;
         storage::save_password(&project_name, &username, &password)?;
     } else {
-        config::remove_login(&project_name, &username)?;
         let _ = storage::delete_password(&project_name, &username);
     }
 
@@ -44,9 +51,15 @@ pub async fn auth_login(
 
 #[tauri::command]
 pub async fn auth_saved(
+    state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<Option<SavedCredentials>> {
-    let username = config::get_first_login(&project_name)?;
+    let state = state.lock().await;
+    let username = state
+        .launcher_config
+        .as_ref()
+        .and_then(|lc| lc.get_first_login(&project_name));
+
     let Some(username) = username else {
         return Ok(None);
     };
@@ -57,14 +70,14 @@ pub async fn auth_saved(
 
 #[tauri::command]
 pub async fn auth_logins(
+    state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<Vec<String>> {
-    let cfg = config::load_config()?;
-    let logins = cfg
-        .projects
-        .get(&project_name)
-        .map(|p| p.logins.iter().map(|l| l.username.clone()).collect())
+    let state = state.lock().await;
+    let logins = state
+        .launcher_config
+        .as_ref()
+        .map(|lc| lc.get_logins(&project_name))
         .unwrap_or_default();
-
     Ok(logins)
 }
