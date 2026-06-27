@@ -48,10 +48,11 @@ pub async fn save_launcher_config(
         .to_string_lossy()
         .to_string();
 
-    let config = LauncherConfig {
-        launcher_path: launcher_path.clone(),
-        ..Default::default()
-    };
+    let mut config = LauncherConfig::load()
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    config.launcher_path = launcher_path.clone();
     config.save()?;
 
     let base = PathBuf::from(&launcher_path);
