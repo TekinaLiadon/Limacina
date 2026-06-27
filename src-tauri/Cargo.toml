@@ -36,7 +36,7 @@ toml = "1.1.2"
 quick-xml = { version = "0.40.1", features = ["serialize"] }
 tar = "0.4.46"
 flate2 = "1.1.9"
-keyring = { version = "3", features = ["sync-secret-service"] }
+keyring = { version = "3", features = ["sync-secret-service", "windows-native"] }
 dirs = "5"
 tauri-plugin-dialog = "2"
 

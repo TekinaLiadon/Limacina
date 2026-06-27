@@ -128,6 +128,8 @@ pub fn save_password(project: &str, username: &str, password: &str) -> Result<()
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
 
+    log_info!("Keyring save: service=\"{}\" key=\"{}\"", service, key);
+
     let keyring_result = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
@@ -138,9 +140,9 @@ pub fn save_password(project: &str, username: &str, password: &str) -> Result<()
     })();
 
     match &keyring_result {
-        Ok(()) => log_info!("Keyring save: OK (service={})", service),
+        Ok(()) => log_info!("Keyring save: OK"),
         Err(e) => {
-            log_err!("Keyring save: ОШИБКА — {} — используется fallback", e);
+            log_err!("Keyring save: ОШИБКА — {:?}", e);
             save_fallback(project, username, password)?;
         },
     }
@@ -152,6 +154,8 @@ pub fn get_password(project: &str, username: &str) -> Result<String> {
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
 
+    log_info!("Keyring load: service=\"{}\" key=\"{}\"", service, key);
+
     let keyring_result = (|| -> Result<String> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
@@ -162,11 +166,12 @@ pub fn get_password(project: &str, username: &str) -> Result<String> {
 
     match keyring_result {
         Ok(pw) => {
-            log_info!("Keyring load: OK (service={})", service);
+            log_info!("Keyring load: OK");
             Ok(pw)
         }
         Err(e) => {
-            log_err!("Keyring load: ОШИБКА — {} — пробуем fallback", e);
+            log_err!("Keyring load: ОШИБКА — {:?}", e);
+            log_info!("Keyring load: пробуем fallback");
             load_fallback(project, username)
         }
     }
