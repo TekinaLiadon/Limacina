@@ -21,7 +21,8 @@ watch(defaultParentPath, (val) => {
 
 const fullDisplayPath = computed(() => {
   if (!selectedPath.value || !launcherName.value) return "";
-  return `${selectedPath.value}/${launcherName.value}`;
+  const sep = selectedPath.value.includes("\\") ? "\\" : "/";
+  return `${selectedPath.value}${sep}${launcherName.value}`;
 });
 
 const selectFolder = async () => {

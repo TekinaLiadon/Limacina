@@ -1,28 +1,47 @@
+use crate::{log_info, log_err};
 use anyhow::{Context, Result};
 use std::env::consts;
 use std::{env, path::PathBuf};
 
 pub fn get_launcher_name() -> String {
-    let name = env::var("LAUNCHER_NAME")
+    let raw = env::var("LAUNCHER_NAME")
         .unwrap_or_else(|_| "Limacina".to_string());
-    let mut chars = name.chars();
-    match chars.next() {
+    let mut chars = raw.chars();
+    let name = match chars.next() {
         Some(first) => {
             let rest: String = chars.collect();
             first.to_uppercase().to_string() + &rest.to_lowercase()
         }
         None => String::new(),
-    }
+    };
+    name
 }
 
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
-    let home_dir: PathBuf = get_home_dir()?;
-    let base_path = home_dir.join(get_launcher_name());
+    let base_path = match crate::state::launcher_config::LauncherConfig::load() {
+        Ok(Some(lc)) => {
+            PathBuf::from(lc.launcher_path)
+        }
+        Ok(None) => {
+            log_info!("launcher_patch: конфиг не найден, fallback на home_dir");
+            get_home_dir()
+                .map(|h| h.join(get_launcher_name()))
+                .unwrap_or_default()
+        }
+        Err(e) => {
+            log_err!("launcher_patch: ошибка чтения конфига: {}, fallback", e);
+            get_home_dir()
+                .map(|h| h.join(get_launcher_name()))
+                .unwrap_or_default()
+        }
+    };
 
-    match project {
-        Some(dir) => Ok(base_path.join("project").join(dir)),
-        _ => Ok(base_path),
-    }
+    let result = match project {
+        Some(dir) => base_path.join("project").join(dir),
+        _ => base_path,
+    };
+
+    Ok(result)
 }
 
 pub fn get_home_dir() -> Result<PathBuf> {

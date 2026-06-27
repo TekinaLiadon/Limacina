@@ -138,7 +138,7 @@ pub fn save_password(project: &str, username: &str, password: &str) -> Result<()
     })();
 
     match &keyring_result {
-        Ok(()) => log_info!("Keyring save: OK"),
+        Ok(()) => log_info!("Keyring save: OK (service={})", service),
         Err(e) => {
             log_err!("Keyring save: ОШИБКА — {} — используется fallback", e);
             save_fallback(project, username, password)?;
@@ -162,7 +162,7 @@ pub fn get_password(project: &str, username: &str) -> Result<String> {
 
     match keyring_result {
         Ok(pw) => {
-            log_info!("Keyring load: OK");
+            log_info!("Keyring load: OK (service={})", service);
             Ok(pw)
         }
         Err(e) => {
