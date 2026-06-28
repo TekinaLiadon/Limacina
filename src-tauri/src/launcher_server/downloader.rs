@@ -224,19 +224,6 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
 
     fs::create_dir_all(&mods_dir)?;
 
-    let server_mods: std::collections::HashSet<&String> = mods.keys().collect();
-
-    if let Ok(entries) = fs::read_dir(&mods_dir) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name();
-            let name = file_name.to_string_lossy().to_string();
-            if !server_mods.contains(&name) {
-                log_info!("Удаление лишнего мода: {}", name);
-                let _ = fs::remove_file(entry.path());
-            }
-        }
-    }
-
     let total_mods = mods.len();
     let _ = app.emit("totalMods", total_mods);
 
@@ -249,12 +236,13 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
 
     log_info!("Путь к папке модов: {:?}", mods_dir);
 
-    for (file_name, expected_hash) in &mods {
+    for (server_key, expected_hash) in &mods {
+        let file_name = server_key.strip_prefix("mods/").unwrap_or(server_key);
         let file_path = mods_dir.join(file_name);
         let exists = file_path.exists();
         if !exists {
             log_info!("Мод отсутствует: {}", file_name);
-            files_to_download.push(file_name.clone());
+            files_to_download.push(server_key.clone());
         } else {
             match get_file_hash(&file_path) {
                 Ok(hash) if hash == *expected_hash => {
@@ -263,11 +251,11 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
                 }
                 Ok(hash) => {
                     log_info!("Мод изменился: {} (ожидается {}, есть {})", file_name, expected_hash, hash);
-                    files_to_download.push(file_name.clone());
+                    files_to_download.push(server_key.clone());
                 }
                 Err(e) => {
                     log_info!("Ошибка чтения мода {}: {}", file_name, e);
-                    files_to_download.push(file_name.clone());
+                    files_to_download.push(server_key.clone());
                 }
             }
         }
@@ -283,7 +271,7 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
     let mut tasks = Vec::new();
 
-    for file_name in files_to_download {
+    for server_key in files_to_download {
         let sem = semaphore.clone();
         let client = client.clone();
         let mods_dir = mods_dir.clone();
@@ -295,14 +283,12 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
                 .await
                 .context("Ошибка получения семафора")?;
 
-            let file_path = mods_dir.join(&file_name);
+            let file_name = server_key.strip_prefix("mods/").unwrap_or(&server_key);
+            let file_path = mods_dir.join(file_name);
 
-            let url = format!("/mods/{}", file_name);
-            log_info!("Скачивание мода: {} -> {:?}", url, file_path);
-            download_file(&client, &file_path, &url).await?;
-            log_info!("Мод скачан: {}", file_name);
+            download_file(&client, &file_path, &server_key).await?;
 
-            let _ = app.emit("modDownloaded", &file_name);
+            let _ = app.emit("modDownloaded", file_name);
 
             Ok::<(), anyhow::Error>(())
         });
