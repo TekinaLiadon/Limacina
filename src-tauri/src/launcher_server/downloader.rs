@@ -94,15 +94,16 @@ async fn download_file(
     Ok(())
 }
 
-pub async fn download_all_files(app: AppHandle, state: &Mutex<GlobalState>) -> Result<String> {
-    let state = state.lock().await;
-    let token = state
-        .session
-        .as_ref()
-        .context("Необходима авторизация для скачивания файлов")?
-        .access_token
-        .clone();
-    drop(state);
+pub async fn download_all_files(app: AppHandle, project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<String> {
+    let token = {
+        let guard = state.lock().await;
+        guard
+            .session
+            .as_ref()
+            .context("Необходима авторизация для скачивания файлов")?
+            .access_token
+            .clone()
+    };
 
     let client = build_auth_client(&token)?;
     let server_url = get_server_url()?;
@@ -120,8 +121,9 @@ pub async fn download_all_files(app: AppHandle, state: &Mutex<GlobalState>) -> R
     }
 
     let file_list: HashMap<String, String> = response.json().await?;
+    let core = crate::utils::env_info::launcher_patch(Some(&project_name))?;
 
-    let core = crate::utils::env_info::launcher_patch(None)?;
+    log_info!("Проверка файлов...");
 
     let mut files_to_download: Vec<String> = Vec::new();
 
@@ -129,13 +131,15 @@ pub async fn download_all_files(app: AppHandle, state: &Mutex<GlobalState>) -> R
         let file_path = core.join(key);
         if !file_path.exists() {
             files_to_download.push(key.clone());
-        } else {
+        } else if check_hashes {
             match get_file_hash(&file_path) {
                 Ok(hash) if hash == *expected_hash => continue,
                 _ => files_to_download.push(key.clone()),
             }
         }
     }
+
+    log_info!("Проверка файлов завершена. К скачиванию: {}", files_to_download.len());
 
     let total_files = files_to_download.len();
     let _ = app.emit("totalFile", total_files);
@@ -176,7 +180,7 @@ pub async fn download_all_files(app: AppHandle, state: &Mutex<GlobalState>) -> R
         res.context("Ошибка выполнения задачи скачивания")??;
     }
 
-    Ok("Все скачено успешно".to_string())
+    Ok(format!("Скачано файлов: {}", total_files))
 }
 
 pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<GlobalState>) -> Result<String> {

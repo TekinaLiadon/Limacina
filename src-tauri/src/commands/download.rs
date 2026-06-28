@@ -43,7 +43,13 @@ pub async fn download_server_file(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
-    download_all_files(app, &state).await?;
+    let project_name = state
+        .lock()
+        .await
+        .project_config
+        .project_name
+        .clone();
+    download_all_files(app, project_name, false, &state).await?;
     Ok("Ok".to_string())
 }
 

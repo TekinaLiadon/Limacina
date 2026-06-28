@@ -113,6 +113,16 @@ fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
     None
 }
 
+pub fn find_authlib_jar(game_dir: &Path) -> Option<PathBuf> {
+    let jar = game_dir.join("authlib-injector.jar");
+    if jar.exists() {
+        log_info!("Найден authlib-injector: authlib-injector.jar");
+        Some(jar)
+    } else {
+        None
+    }
+}
+
 pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     log_info!("\n▶ Запуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
@@ -122,7 +132,7 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     let separator = get_classpath_separator();
     let classpath = &config.classpath.join(separator);
     let mut skip_next = false;
-    let jvm_args: Vec<String> = config
+    let mut jvm_args: Vec<String> = config
         .jvm_args
         .iter()
         .cloned()
@@ -138,6 +148,13 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
             !arg.is_empty()
         })
         .collect();
+
+    if let Some(authlib_path) = find_authlib_jar(&config.game_dir) {
+        let server_url = env!("LAUNCHER_SERVER_URL");
+        let agent_arg = format!("-javaagent:{}={}", authlib_path.to_string_lossy(), server_url);
+        log_info!("Authlib-injector: {}", agent_arg);
+        jvm_args.insert(0, agent_arg);
+    }
 
     log_info!("{}", classpath);
     log_info!("{}", jvm_args.join(" "));

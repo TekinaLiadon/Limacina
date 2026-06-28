@@ -33,6 +33,7 @@ onMounted(async () => {
 
 const downloadMinecraft = async () => {
   await invoke("download_java")
+  await invoke('download_server_file')
   await invoke('download_minecraft')
   await invoke('download_server_mods')
 }
