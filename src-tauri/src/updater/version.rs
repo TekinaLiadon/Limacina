@@ -17,6 +17,13 @@ pub struct UpdateInfo {
     pub platforms: Option<Vec<Platform>>,
 }
 
+fn arch_matches(server_arch: &str, local_arch: &str) -> bool {
+    match (server_arch, local_arch) {
+        ("x64" | "x86_64", "x64" | "x86_64") => true,
+        (a, b) => a == b,
+    }
+}
+
 pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo>> {
     let server_url = env!("LAUNCHER_SERVER_URL");
     let url = format!("{}/launcher/version", server_url);
@@ -44,7 +51,9 @@ pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo
     if let Some(ref platforms) = info.platforms {
         let os = get_current_os();
         let arch = get_arch();
-        let supported = platforms.iter().any(|p| p.os == os && p.arch == arch);
+        let supported = platforms
+            .iter()
+            .any(|p| p.os == os && arch_matches(&p.arch, arch));
         if !supported {
             crate::log_info!(
                 "Обновление v{} доступно, но не поддерживает platform {}:{}",
