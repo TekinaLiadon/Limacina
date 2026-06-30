@@ -10,7 +10,7 @@ const productName = tauriConf.productName;
 
 const platform = process.platform;
 const archMapping = {
-  x64: "x64",
+  x64: "x86_64",
   arm64: "aarch64",
   ia32: "x86",
   arm: "armv7l",

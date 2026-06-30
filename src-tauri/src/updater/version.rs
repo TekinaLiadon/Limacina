@@ -44,11 +44,7 @@ pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo
     if let Some(ref platforms) = info.platforms {
         let os = get_current_os();
         let arch = get_arch();
-        let arch_match = match arch {
-            "x64" => "x86_64",
-            other => other,
-        };
-        let supported = platforms.iter().any(|p| p.os == os && p.arch == arch_match);
+        let supported = platforms.iter().any(|p| p.os == os && p.arch == arch);
         if !supported {
             crate::log_info!(
                 "Обновление v{} доступно, но не поддерживает platform {}:{}",

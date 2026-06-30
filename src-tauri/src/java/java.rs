@@ -27,7 +27,10 @@ pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
 async fn download_archive(mc_version: &str) -> Result<(PathBuf, PathBuf)> {
     let java_version = get_java_version(mc_version);
     let os = get_current_os();
-    let arch = get_arch();
+    let arch = match get_arch() {
+        "x86_64" => "x64",
+        other => other,
+    };
     let url = format!(
         "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jre/hotspot/normal/eclipse",
         java_version, os, arch

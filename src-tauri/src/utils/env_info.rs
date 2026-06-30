@@ -70,10 +70,9 @@ pub fn get_current_os() -> &'static str {
 }
 
 pub fn get_arch() -> &'static str {
-    let arch = match consts::ARCH {
-        "x86_64" => "x64",
+    match consts::ARCH {
+        "x86_64" => "x86_64",
         "aarch64" => "aarch64",
-        _ => "x64",
-    };
-    return arch;
+        _ => "x86_64",
+    }
 }

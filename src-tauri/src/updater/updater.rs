@@ -9,10 +9,7 @@ use crate::{log_err, log_info};
 pub async fn download_update(info: &UpdateInfo) -> Result<PathBuf> {
     let server_url = env!("LAUNCHER_SERVER_URL");
     let os = get_current_os();
-    let arch = match get_arch() {
-        "x64" => "x86_64",
-        other => other,
-    };
+    let arch = get_arch();
     let url = format!("{}/launcher/{}/{}/download", server_url, os, arch);
 
     let temp_dir = std::env::temp_dir();
