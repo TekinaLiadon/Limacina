@@ -39,4 +39,5 @@ pub struct GlobalState {
     pub loader: Option<Box<dyn ProjectModLoader>>,
     pub session: Option<SessionTokens>,
     pub launcher_config: Option<LauncherConfig>,
+    pub app_version: String,
 }

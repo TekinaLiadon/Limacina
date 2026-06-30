@@ -6,7 +6,7 @@ use tokio::{
     time::{sleep, Instant},
 };
 
-use crate::{log_err, log_info, utils::download_file::download_file};
+use crate::{log_err, log_info};
 const MAX_CONCURRENT_DOWNLOADS: usize = 15;
 const MAX_RETRIES: usize = 4;
 
@@ -15,18 +15,28 @@ pub struct SemaphoreInfo {
     pub dest: PathBuf,
 }
 
-pub fn semaphore_core(
+pub fn semaphore_core<F, Fut, C>(
     base_path: PathBuf,
     list: Vec<SemaphoreInfo>,
-) -> Vec<impl Future<Output = Result<(), Error>>> {
+    download_fn: F,
+    on_done: Option<C>,
+) -> Vec<impl Future<Output = Result<(), Error>>>
+where
+    F: Fn(String, PathBuf) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<(), Error>> + Send + 'static,
+    C: Fn(&str) + Send + Sync + 'static,
+{
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
     let base_path = Arc::new(base_path);
+    let download_fn = Arc::new(download_fn);
+    let on_done = on_done.map(|f| Arc::new(f));
     let mut download_futures = Vec::new();
 
     for el in list {
         let sem = semaphore.clone();
-        let url = el.url.clone();
-        let path = base_path.join(el.dest.clone());
+        let path = base_path.join(&el.dest);
+        let download_fn = download_fn.clone();
+        let on_done = on_done.clone();
 
         download_futures.push(async move {
             let _permit = sem.acquire_owned().await.expect("Семафор закрыт");
@@ -37,21 +47,24 @@ pub fn semaphore_core(
             ));
 
             for attempt in 1..=MAX_RETRIES {
-                match download_file(&url, &path).await {
+                match download_fn(el.url.clone(), path.clone()).await {
                     Ok(_) => {
+                        if let Some(ref cb) = on_done {
+                            cb(&el.url);
+                        }
                         final_result = Ok(());
                         break;
                     }
                     Err(e) if attempt < MAX_RETRIES => {
-                        log_info!("Ошибка скачивания {}. Повторный запрос", url);
-                        log_err!("Ошибка скачивания {}: {:?}. Повтор...", url, e);
+                        log_info!("Ошибка скачивания {}. Повторный запрос", el.url);
+                        log_err!("Ошибка скачивания {}: {:?}. Повтор...", el.url, e);
 
                         let delay = 2_u64.pow(attempt as u32);
                         sleep(Duration::from_secs(delay)).await;
                     }
 
                     Err(e) => {
-                        log_err!("Финальная ошибка скачивания {}: {:?}", url, e);
+                        log_err!("Финальная ошибка скачивания {}: {:?}", el.url, e);
                         final_result = Err(e);
                         break;
                     }
@@ -66,5 +79,5 @@ pub fn semaphore_core(
             final_result
         });
     }
-    return download_futures;
+    download_futures
 }

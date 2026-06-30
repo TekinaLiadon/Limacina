@@ -14,6 +14,7 @@ pub struct AppInitData {
     pub launcher_name: String,
     pub default_parent_path: String,
     pub launcher_config: Option<LauncherConfig>,
+    pub version: String,
 }
 
 #[tauri::command]
@@ -21,9 +22,11 @@ pub async fn get_app_init_data(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<AppInitData> {
     let config = LauncherConfig::load().ok().flatten();
+    let version;
     {
         let mut state = state.lock().await;
         state.launcher_config = config.clone();
+        version = state.app_version.clone();
     }
 
     let default_parent_path = get_home_dir()
@@ -34,6 +37,7 @@ pub async fn get_app_init_data(
         launcher_name: get_launcher_name(),
         default_parent_path,
         launcher_config: config,
+        version,
     })
 }
 

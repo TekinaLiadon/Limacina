@@ -93,7 +93,9 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
         }
     }
 
-    let download_futures = semaphore_core(base_path, semaphore_info);
+    let download_futures = semaphore_core(base_path, semaphore_info, |url, dest| async move {
+        download_file(&url, &dest).await
+    }, None::<fn(&str)>);
 
     let results = future::join_all(download_futures).await;
     let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
@@ -362,7 +364,9 @@ pub async fn download_assets(project_name: &str, asset_index: AssetIndexContent)
         return Ok(());
     }
 
-    let download_futures = semaphore_core(base_path, semaphore_info);
+    let download_futures = semaphore_core(base_path, semaphore_info, |url, dest| async move {
+        download_file(&url, &dest).await
+    }, None::<fn(&str)>);
     let results = future::join_all(download_futures).await;
 
     let mut successful = 0;

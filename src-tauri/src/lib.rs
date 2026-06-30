@@ -5,6 +5,7 @@ mod java;
 mod launcher_server;
 mod minecraft;
 mod state;
+mod updater;
 mod utils;
 
 use commands::auth::{auth_login, auth_logins, auth_saved};
@@ -16,9 +17,11 @@ use commands::launcher_config::{get_app_init_data, save_launcher_config};
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
+use commands::update::{apply_update_cmd, check_update};
 use tauri::Manager;
 use tokio::sync::Mutex;
 use utils::logger_utils;
+use utils::logger_utils::get_startup_logs;
 
 use crate::state::dto::GlobalState;
 
@@ -59,9 +62,12 @@ pub fn run() {
 
             let gs = GlobalState {
                 launcher_config,
+                app_version: app.package_info().version.to_string(),
                 ..GlobalState::default()
             };
             app.manage(Mutex::new(gs));
+
+            updater::cleanup_old_binaries();
 
             Ok(())
         })
@@ -80,6 +86,9 @@ pub fn run() {
             start_minecraft,
             save_settings_project,
             load_settings_project,
+            check_update,
+            apply_update_cmd,
+            get_startup_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -154,7 +154,7 @@ pub fn get_password(project: &str, username: &str) -> Result<String> {
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
 
-    log_info!("Keyring load: service=\"{}\" key=\"{}\"", service, key);
+    log_info!("Keyring load");
 
     let keyring_result = (|| -> Result<String> {
         let entry = keyring::Entry::new(&service, &key)

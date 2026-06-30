@@ -7,5 +7,6 @@ export const useCoreStore = defineStore("core", {
     launcherName: "",
     defaultParentPath: "",
     launcherConfig: null,
+    version: "",
   }),
 });

@@ -1,13 +1,14 @@
 {
   "name": "limacina-front",
   "private": true,
-  "version": "0.1.2",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:update": "bunx tauri build && node scripts/build-update.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
@@ -19,12 +20,13 @@
     "vue-smooth-reflow": "^0.1.12"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.1",
+    "@types/node": "^26.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
+    "prettier": "^2.7.1",
+    "sass": "^1.58.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
-    "vue-tsc": "^2.1.10",
-    "@tauri-apps/cli": "^2.11.1",
-    "sass": "^1.58.1",
-    "prettier": "^2.7.1"
+    "vue-tsc": "^2.1.10"
   }
 }

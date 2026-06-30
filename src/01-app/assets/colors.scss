@@ -41,4 +41,6 @@
   --error: #ff5555;
   --error-bg: rgba(255, 85, 85, 0.1);
   --error-border: rgba(255, 85, 85, 0.3);
+
+  --app-bg: linear-gradient(135deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
 }

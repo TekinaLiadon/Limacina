@@ -2,13 +2,12 @@ use futures::future;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-// Из jvm
-
 use ::anyhow::Result;
 
 use crate::log_info;
 use crate::minecraft::structs::LibraryMod;
 use crate::minecraft::mod_loader::utils::maven_to_path;
+use crate::utils::download_file::download_file;
 use crate::utils::env_info::launcher_patch;
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 
@@ -27,7 +26,9 @@ pub async fn download_libraries(project_name: &str, libraries: Vec<LibraryMod>) 
         semaphore_info.push(result);
     }
 
-    let download_futures = semaphore_core(base_path, semaphore_info);
+    let download_futures = semaphore_core(base_path, semaphore_info, |url, dest| async move {
+        download_file(&url, &dest).await
+    }, None::<fn(&str)>);
 
     let results = future::join_all(download_futures).await;
     let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();

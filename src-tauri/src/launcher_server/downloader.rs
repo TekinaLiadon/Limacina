@@ -9,14 +9,11 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Semaphore;
 
 use crate::state::dto::GlobalState;
+use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use tokio::sync::Mutex;
-
-const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 fn build_auth_client(token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
@@ -148,36 +145,25 @@ pub async fn download_all_files(app: AppHandle, project_name: String, check_hash
         return Ok(serde_json::to_string(&file_list)?);
     }
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
-    let mut tasks = Vec::new();
+    let semaphore_list: Vec<SemaphoreInfo> = files_to_download
+        .iter()
+        .map(|key| SemaphoreInfo {
+            url: key.clone(),
+            dest: PathBuf::from(key),
+        })
+        .collect();
 
-    for file_key in files_to_download {
-        let sem = semaphore.clone();
+    let download_futures = semaphore_core(core.clone(), semaphore_list, move |url, dest| {
         let client = client.clone();
+        async move {
+            download_file(&client, &dest, &url).await
+        }
+    }, None::<fn(&str)>);
 
-        let core_path = core.clone();
-        let file_key_clone = file_key.clone();
-
-        let handle = tokio::spawn(async move {
-            let _permit = sem
-                .acquire()
-                .await
-                .context("Ошибка получения семафора")?;
-
-            let file_path = core_path.join(&file_key_clone);
-
-            download_file(&client, &file_path, &file_key_clone).await?;
-
-            Ok::<(), anyhow::Error>(())
-        });
-
-        tasks.push(handle);
-    }
-
-    let results = futures::future::join_all(tasks).await;
+    let results = futures::future::join_all(download_futures).await;
 
     for res in results {
-        res.context("Ошибка выполнения задачи скачивания")??;
+        res?;
     }
 
     Ok(format!("Скачано файлов: {}", total_files))
@@ -220,9 +206,27 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
     }
 
     let mods_dir = crate::utils::env_info::launcher_patch(Some(&project_name))?
-        .join("mods");
+        .join("files").join("mods");
 
     fs::create_dir_all(&mods_dir)?;
+
+    let server_mods: std::collections::HashSet<&str> = mods.keys()
+        .map(|k| k.strip_prefix("mods/").unwrap_or(k))
+        .collect();
+
+    if let Ok(entries) = fs::read_dir(&mods_dir) {
+        for entry in entries.flatten() {
+            if entry.file_type().map_or(false, |ft| !ft.is_file()) {
+                continue;
+            }
+            let name_os = entry.file_name();
+            let name = name_os.to_string_lossy();
+            if !server_mods.contains(name.as_ref()) {
+                log_info!("Удаление лишнего мода: {}", name);
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
 
     let total_mods = mods.len();
     let _ = app.emit("totalMods", total_mods);
@@ -268,39 +272,30 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
         return Ok(format!("Все моды актуальны: {}", total_mods));
     }
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
-    let mut tasks = Vec::new();
+    let semaphore_list: Vec<SemaphoreInfo> = files_to_download
+        .iter()
+        .map(|key| SemaphoreInfo {
+            url: key.clone(),
+            dest: PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
+        })
+        .collect();
 
-    for server_key in files_to_download {
-        let sem = semaphore.clone();
+    let app_clone = app.clone();
+    let download_futures = semaphore_core(mods_dir, semaphore_list, move |url, dest| {
         let client = client.clone();
-        let mods_dir = mods_dir.clone();
-        let app = app.clone();
+        async move {
+            download_file(&client, &dest, &url).await
+        }
+    }, Some(move |url: &str| {
+        let file_name = url.strip_prefix("mods/").unwrap_or(url);
+        let _ = app_clone.emit("modDownloaded", file_name);
+    }));
 
-        let handle = tokio::spawn(async move {
-            let _permit = sem
-                .acquire()
-                .await
-                .context("Ошибка получения семафора")?;
-
-            let file_name = server_key.strip_prefix("mods/").unwrap_or(&server_key);
-            let file_path = mods_dir.join(file_name);
-
-            download_file(&client, &file_path, &server_key).await?;
-
-            let _ = app.emit("modDownloaded", file_name);
-
-            Ok::<(), anyhow::Error>(())
-        });
-
-        tasks.push(handle);
-    }
-
-    let results = futures::future::join_all(tasks).await;
+    let results = futures::future::join_all(download_futures).await;
 
     let mut downloaded = 0;
     for res in results {
-        res.context("Ошибка выполнения задачи скачивания мода")??;
+        res?;
         downloaded += 1;
     }
 

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 
 const logs = ref([]);
 
@@ -9,6 +10,11 @@ const consoleRef = ref(null);
 let unlisten = null;
 
 onMounted(async () => {
+  const startupLogs = await invoke('get_startup_logs');
+  for (const log of startupLogs) {
+    logs.value.push(log);
+  }
+
   unlisten = await listen('game-console', (event) => {
     logs.value.push(event.payload);
 

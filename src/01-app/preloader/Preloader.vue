@@ -1,8 +1,18 @@
 <template>
   <div class="preloader">
     <img src="./preloader.svg" alt="" />
+    <div v-if="text" class="preloader__text">{{ text }}</div>
   </div>
 </template>
+
+<script setup>
+defineProps({
+  text: {
+    type: String,
+    default: "",
+  },
+});
+</script>
 
 <style lang="scss" scoped>
 .preloader {
@@ -14,8 +24,9 @@
   width: 100%;
   height: 100%;
   z-index: 1111;
-  background: #fff;
+  background: var(--app-bg);
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
 
@@ -23,7 +34,13 @@
     max-width: 150px;
     width: 100%;
     height: auto;
-    margin: auto;
+  }
+
+  &__text {
+    margin-top: 20px;
+    font-size: 16px;
+    color: var(--login-text-primary);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 }
 </style>

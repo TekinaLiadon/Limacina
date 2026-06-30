@@ -125,7 +125,7 @@ const handleLogin = async () => {
 .login-screen {
   min-height: 100vh;
   width: 100%;
-  background: linear-gradient(135deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
+  background: var(--app-bg);
   display: flex;
   align-items: center;
   justify-content: flex-start;
