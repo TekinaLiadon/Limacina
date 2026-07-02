@@ -1,18 +1,21 @@
-<script setup>
-const props = defineProps(["options", "shown"]);
+<script setup lang="ts">
+import type { DropdownOption } from '@/06-shared/types'
 
-const emit = defineEmits(["update:modelValue", "update:shown", "newValue"]);
+const props = defineProps<{
+  options: DropdownOption[]
+  shown: boolean
+}>()
 
-function show() {
-  emit("update:shown", true);
-}
-function hide() {
-  emit("update:shown", false);
-}
-function updateValue(value) {
-  emit("update:modelValue", value);
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+  'update:shown': [value: boolean]
+  'newValue': [value: string]
+}>()
+
+function updateValue(value: string): void {
+  emit('update:modelValue', value)
   emit('newValue', value)
-  hide();
+  emit('update:shown', false)
 }
 </script>
 
@@ -21,6 +24,7 @@ function updateValue(value) {
     <div v-if="props.shown" class="dropdown-options">
       <div
         v-for="option in props.options"
+        :key="option.value"
         class="dropdown-options__item"
         @click="updateValue(option.value)"
       >
@@ -42,18 +46,28 @@ function updateValue(value) {
   top: 100%;
   left: 0;
   right: 0;
-  background-color: var(--white);
-  border-radius: 0 0 30px 30px;
-  padding: 5px 20px 10px 20px;
+  background-color: var(--login-bg-form);
+  border: 1px solid var(--login-border);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  padding: 6px 0;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 2px;
+  z-index: 100;
+  box-shadow: 0 8px 24px var(--login-shadow-strong);
 
   &__item {
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 10px;
+    padding: 10px 14px;
+    transition: background 0.15s;
+
+    &:hover {
+      background: rgba(108, 127, 216, 0.15);
+    }
   }
 
   &__img {
@@ -62,8 +76,9 @@ function updateValue(value) {
   }
 
   &__item-title {
-    font-size: 16px;
+    font-size: 14px;
     line-height: 130%;
+    color: var(--login-text-primary);
   }
 }
 

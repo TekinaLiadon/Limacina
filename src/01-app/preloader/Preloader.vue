@@ -1,17 +1,16 @@
 <template>
   <div class="preloader">
     <img src="./preloader.svg" alt="" />
-    <div v-if="text" class="preloader__text">{{ text }}</div>
+    <div class="preloader__text">{{ props.text }}</div>
   </div>
 </template>
 
-<script setup>
-defineProps({
-  text: {
-    type: String,
-    default: "",
-  },
-});
+<script setup lang="ts">
+const props = withDefaults(defineProps<{
+  text?: string
+}>(), {
+  text: 'Получение данных',
+})
 </script>
 
 <style lang="scss" scoped>

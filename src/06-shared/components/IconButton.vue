@@ -1,15 +1,16 @@
-<script setup>
-import Icon from "@/06-shared/components/Icon.vue";
+<script setup lang="ts">
+import Icon from '@/06-shared/components/Icon.vue'
 
-const props = defineProps({
-  icon: String,
-  tag: {
-    type: String,
-    default: "button",
-  },
-  up: Boolean,
-  down: Boolean,
-});
+const props = withDefaults(defineProps<{
+  icon: string
+  tag?: string
+  up?: boolean
+  down?: boolean
+}>(), {
+  tag: 'button',
+  up: false,
+  down: false,
+})
 </script>
 
 <template>

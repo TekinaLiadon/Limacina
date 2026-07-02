@@ -1,27 +1,25 @@
-<script setup>
-import {computed, ref, watch} from "vue";
-import DropdownOptions from "@/06-shared/components/DropdownOptions.vue";
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import DropdownOptions from '@/06-shared/components/DropdownOptions.vue'
+import type { DropdownOption } from '@/06-shared/types'
 
-const props = defineProps(["options", "modelValue", "shown", 'width']);
+const props = defineProps<{
+  options: DropdownOption[]
+  modelValue: string
+  shown?: boolean
+  width?: string
+}>()
 
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+}>()
 
-const shown = ref(false);
-const value = ref(props.options[0]?.value);
+const shown = ref(false)
 const data = computed({
-  get() {
-    return props.modelValue;
-  },
+  get: () => props.modelValue,
+  set: (value) => emit('update:modelValue', value),
+})
 
-  set(value) {
-    return emit("update:modelValue", value);
-  },
-});
-watch(value, () => updateValue(value));
-
-function updateValue(value) {
-  emit("update:modelValue", value);
-}
 </script>
 
 <template>
@@ -35,7 +33,8 @@ function updateValue(value) {
     <DropdownOptions
         :options="props.options"
         v-model:shown="shown"
-        v-model="data"
+        :model-value="data"
+        @update:model-value="(v: string) => emit('update:modelValue', v)"
         :style="`width: ${width}`" />
   </div>
 </template>
@@ -46,11 +45,15 @@ function updateValue(value) {
   cursor: pointer;
 
   &__value {
-    border: 1px solid #cdcdcd;
+    border: 1px solid var(--login-border);
     border-radius: 10px;
     transition: border-radius 0.25s ease-out;
-    height: 35px;
+    height: 40px;
     align-content: center;
+    padding: 0 14px;
+    color: var(--login-text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+    font-size: 14px;
   }
 }
 .shown {

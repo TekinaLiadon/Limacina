@@ -11,9 +11,11 @@
     "build:update": "bunx tauri build && node scripts/build-update.cjs"
   },
   "dependencies": {
+    "@tanstack/vue-virtual": "^3.13.31",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
+    "animejs": "3",
     "pinia": "^2.1.7",
     "vue": "^3.5.13",
     "vue-router": "^4.2.5",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.1",
+    "@types/animejs": "^3.1.13",
     "@types/node": "^26.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
     "prettier": "^2.7.1",

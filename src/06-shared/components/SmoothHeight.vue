@@ -4,23 +4,25 @@
   </component>
 </template>
 
-<script>
-import smoothReflow from "vue-smooth-reflow";
+<script lang="ts">
+import { defineComponent } from 'vue'
+import smoothReflow from 'vue-smooth-reflow'
+import type { SmoothHeightOptions } from '@/06-shared/types'
 
-export default {
+export default defineComponent({
   mixins: [smoothReflow],
   props: {
-    tag: { default: "div", type: String },
+    tag: { default: 'div', type: String as () => string },
     options: {
-      type: Object,
+      type: Object as () => SmoothHeightOptions,
       default: () => ({
-        property: ["height"],
-        transition: "height .35s ease-in-out",
+        property: ['height'],
+        transition: 'height .35s ease-in-out',
       }),
     },
   },
   mounted() {
-    this.$smoothReflow(this.options);
+    ;(this as any).$smoothReflow(this.options)
   },
-};
+})
 </script>

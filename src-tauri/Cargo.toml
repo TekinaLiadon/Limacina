@@ -39,6 +39,7 @@ flate2 = "1.1.9"
 keyring = { version = "3", features = ["sync-secret-service", "windows-native"] }
 dirs = "5"
 tauri-plugin-dialog = "2"
+sysinfo = "0.33"
 
 
 

@@ -7,23 +7,19 @@
 body {
   padding: 0;
   margin: 0;
-  &::-webkit-scrollbar,
-  *::-webkit-scrollbar {
-    width: 10px;
-  }
+  scrollbar-width: none;
 
-  &::-webkit-scrollbar-track,
-  *::-webkit-scrollbar-track {
-    background-color: var(--white);
-    border: 1px solid rgba(230, 229, 232, 1);
-    border-radius: 60px;
+  &::-webkit-scrollbar {
+    display: none;
   }
+}
 
-  &::-webkit-scrollbar-thumb,
-  *::-webkit-scrollbar-thumb {
-    background-color: rgba(218, 228, 236, 1);
-    border-radius: 60px;
-  }
+*::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  scrollbar-width: none;
 }
 
 h1,
