@@ -206,7 +206,7 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
     }
 
     let mods_dir = crate::utils::env_info::launcher_patch(Some(&project_name))?
-        .join("files").join("mods");
+        .join("mods");
 
     fs::create_dir_all(&mods_dir)?;
 

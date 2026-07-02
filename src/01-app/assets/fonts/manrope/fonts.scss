@@ -1,0 +1,11 @@
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local(""),
+    url("manrope-400-cyrillic-ext.woff2") format("woff2"),
+    url("manrope-400-cyrillic.woff2") format("woff2"),
+    url("manrope-400-latin-ext.woff2") format("woff2"),
+    url("manrope-400-latin.woff2") format("woff2");
+}

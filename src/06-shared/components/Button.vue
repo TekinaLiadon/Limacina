@@ -1,11 +1,10 @@
-<script setup>
+<script setup lang="ts">
+const props = defineProps<{
+  label?: string
+  isDisabled?: boolean
+  isLoading?: boolean
+}>()
 
-const props = defineProps(["label", 'isDisabled', 'isLoading']);
-const emit = defineEmits(["protected-click"])
-
-const handleClick = () => {
-  if (!props.isDisabled && !props.isLoading) emit("protected-click");
-}
 </script>
 
 <template>
@@ -13,7 +12,6 @@ const handleClick = () => {
       disabled: isDisabled,
       loading: isLoading,
     }"
-          @click="handleClick"
   >
     <slot></slot>
   </button>

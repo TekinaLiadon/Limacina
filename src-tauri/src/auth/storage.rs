@@ -128,7 +128,7 @@ pub fn save_password(project: &str, username: &str, password: &str) -> Result<()
     let key = format!("{}_{}", project, username);
     let service = get_launcher_name();
 
-    log_info!("Keyring save: service=\"{}\" key=\"{}\"", service, key);
+    log_info!("Keyring save");
 
     let keyring_result = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)

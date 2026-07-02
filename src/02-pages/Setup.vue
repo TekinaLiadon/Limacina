@@ -1,48 +1,47 @@
-<script setup>
-import { ref, computed, watch } from "vue";
-import { storeToRefs } from "pinia";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { useRouter } from "vue-router";
-import { useCoreStore } from "@/05-entities/core/coreStore.js";
-import Button from "@/06-shared/components/Button.vue";
-import Input from "@/06-shared/components/Input.vue";
-import Console from "@/03-widgets/Console.vue";
+<script setup lang="ts">
+import { ref, computed, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
+import { useCoreStore } from '@/05-entities'
+import { saveLauncherConfig } from '@/06-shared/api'
+import { Button, Input } from '@/06-shared'
+import { open } from '@tauri-apps/plugin-dialog'
 
-const router = useRouter();
-const coreStore = useCoreStore();
-const { defaultParentPath, launcherName } = storeToRefs(coreStore);
-const selectedPath = ref("");
-const isLoading = ref(false);
+const router = useRouter()
+const coreStore = useCoreStore()
+const { defaultParentPath, launcherName } = storeToRefs(coreStore)
+const selectedPath = ref<string>('')
+const isLoading = ref<boolean>(false)
 
-watch(defaultParentPath, (val) => {
-  if (val) selectedPath.value = val;
-}, { immediate: true });
+watch(defaultParentPath, (val: string | null) => {
+  if (val) selectedPath.value = val
+}, { immediate: true })
 
-const fullDisplayPath = computed(() => {
-  if (!selectedPath.value || !launcherName.value) return "";
-  const sep = selectedPath.value.includes("\\") ? "\\" : "/";
-  return `${selectedPath.value}${sep}${launcherName.value}`;
-});
+const fullDisplayPath = computed((): string => {
+  if (!selectedPath.value || !launcherName.value) return ''
 
-const selectFolder = async () => {
-  const selected = await open({ directory: true });
-  if (selected) selectedPath.value = selected;
-};
+  const sep: string = selectedPath.value.includes('\\') ? '\\' : '/'
+  return `${selectedPath.value}${sep}${launcherName.value}`
+})
 
-const save = async () => {
-  isLoading.value = true;
+const selectFolder = async (): Promise<void> => {
+  const selected = await open({ directory: true })
+  if (selected) selectedPath.value = selected
+}
+
+const save = async (): Promise<void> => {
+  isLoading.value = true
   try {
-    const config = await invoke("save_launcher_config", { parentPath: selectedPath.value });
-    coreStore.launcherConfig = config;
-    coreStore.hasLauncherConfig = true;
-    router.push("/");
-  } catch (e) {
-    console.error(e);
+    const config = await saveLauncherConfig(selectedPath.value)
+    coreStore.launcherConfig = config
+    coreStore.hasLauncherConfig = true
+    router.push('/')
+  } catch (e: unknown) {
+    console.error(e)
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
-};
+}
 </script>
 
 <template>
@@ -65,7 +64,7 @@ const save = async () => {
         </div>
 
         <div class="form-actions">
-          <Button class="btn-yellow btn-setup" @protected-click="selectFolder">
+          <Button class="btn-yellow btn-setup" @click="selectFolder">
             Обзор
           </Button>
 
@@ -73,14 +72,13 @@ const save = async () => {
             class="btn-yellow btn-save"
             :is-loading="isLoading"
             :is-disabled="isLoading || !selectedPath"
-            @protected-click="save"
+            @click="save"
           >
             Сохранить
           </Button>
         </div>
       </div>
     </div>
-    <Console />
   </div>
 </template>
 

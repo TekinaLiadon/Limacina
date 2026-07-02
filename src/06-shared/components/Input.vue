@@ -1,67 +1,68 @@
-<script setup>
-import {computed, nextTick, onMounted, onUnmounted, ref} from "vue";
-import { randomId } from "@/06-shared/utils/utils";
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { randomId } from '@/06-shared/utils/utils'
+import type { InputOptions } from '@/06-shared/types'
+import OpenEye from "@/06-shared/components/svg/OpenEye.vue";
+import ClosedEye from "@/06-shared/components/svg/ClosedEye.vue";
 
-const props = defineProps(["modelValue", 'options']);
+const props = defineProps<{
+  modelValue: string
+  options?: InputOptions
+}>()
 
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+}>()
 
-const id = ref("");
-const showPassword = ref(false);
-const showDropdown = ref(false);
-const inputRef = ref(null);
+const id = ref('')
+const showPassword = ref(false)
+const showDropdown = ref(false)
+const inputRef = ref<HTMLDivElement | null>(null)
 
 const inputType = computed(() => {
-  if (props.options?.type === 'password') {
-    return showPassword.value ? 'text' : 'password';
-  }
-  return props.options?.type || 'text';
-});
+  if (props.options?.type === 'password') return showPassword.value ? 'text' : 'password'
+
+  return props.options?.type || 'text'
+})
 
 const filteredList = computed(() => {
   if (!props.options?.list?.length) return []
+
   const val = (data.value || '').toLowerCase()
   return props.options.list.filter(item =>
     item.toLowerCase().includes(val)
   )
-});
+})
 
 const data = computed({
-  get() {
-    return props.modelValue;
-  },
-
-  set(value) {
-    emit("update:modelValue", value);
+  get: () => props.modelValue,
+  set: (value) =>  {
+    emit('update:modelValue', value)
     if (props.options?.list?.length) {
       showDropdown.value = true
     }
   },
-});
+})
 
-const selectItem = (item) => {
-  emit("update:modelValue", item)
+const selectItem = (item: string): void => {
+  emit('update:modelValue', item)
   showDropdown.value = false
 }
 
-const togglePassword = () => {
-  showPassword.value = !showPassword.value;
-};
-
-const handleClickOutside = (e) => {
-  if (inputRef.value && !inputRef.value.contains(e.target)) {
+const handleClickOutside = (e: MouseEvent): void => {
+  if (inputRef.value && !inputRef.value.contains(e.target as Node)) {
     showDropdown.value = false
   }
-};
+}
 
-onMounted(() => {
-  id.value = randomId();
+onMounted((): void => {
+  id.value = randomId()
   document.addEventListener('click', handleClickOutside)
-});
+})
 
-onUnmounted(() => {
+onUnmounted((): void => {
   document.removeEventListener('click', handleClickOutside)
-});
+})
 </script>
 
 <template>
@@ -71,12 +72,17 @@ onUnmounted(() => {
   </label>
   <div class="input__wrapper" ref="inputRef">
   <input class="input__text"
-         :class="{'input__text--password': options?.type === 'password'}"
+         :class="{
+           'input__text--password': options?.type === 'password',
+           'input__text--disabled': options?.disabled,
+         }"
          v-bind="$attrs"
          :placeholder="options?.placeholder"
          :type="inputType"
          v-model="data"
          :id="id"
+         :readonly="options?.readonly"
+         :disabled="options?.disabled"
          @focus="options?.list?.length && (showDropdown = true)"
          @input="options?.list?.length && (showDropdown = true)"
   />
@@ -94,17 +100,11 @@ onUnmounted(() => {
     v-if="options?.type === 'password'"
     type="button"
     class="input__eye"
-    @click="togglePassword"
+    @click="showPassword = !showPassword"
     tabindex="-1"
   >
-    <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-      <circle cx="12" cy="12" r="3"/>
-    </svg>
-    <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-      <line x1="1" y1="1" x2="23" y2="23"/>
-    </svg>
+    <OpenEye v-if="!showPassword" />
+    <ClosedEye v-else />
   </button>
   </div>
   </div>
@@ -131,10 +131,10 @@ onUnmounted(() => {
     padding: 15px;
     font-size: 12px;
     line-height: 130%;
-    color: var(--grey-text-db);
+    color: var(--login-text-primary);
     border-radius: 8px;
-    border: 1px solid var(--grey-stroke);
-    background-color: var(--grey);
+    border: 1px solid var(--login-border);
+    background-color: rgba(255, 255, 255, 0.06);
     font-family: inherit;
     transition: all .2s;
     width: 100%;
@@ -144,8 +144,18 @@ onUnmounted(() => {
       padding-right: 44px;
     }
 
+    &--disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     &::placeholder {
-      color: var(--landing-text);
+      color: var(--login-text-muted);
+    }
+
+    &:focus {
+      border-color: var(--login-border-hover);
+      outline: none;
     }
   }
 

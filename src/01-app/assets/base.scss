@@ -1,0 +1,20 @@
+@use "fonts/manrope/fonts";
+
+html {
+  background-color: rgba(27, 38, 54, 1);
+  text-align: center;
+  color: black;
+}
+
+body {
+  margin: 0;
+  color: black;
+  font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
+}
+
+#app {
+  height: 100vh;
+  text-align: center;
+}

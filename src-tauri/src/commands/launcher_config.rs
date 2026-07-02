@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use serde::Serialize;
+use sysinfo::System;
 use tauri::State;
 use tokio::sync::Mutex;
 
@@ -15,6 +16,7 @@ pub struct AppInitData {
     pub default_parent_path: String,
     pub launcher_config: Option<LauncherConfig>,
     pub version: String,
+    pub total_memory_mb: u64,
 }
 
 #[tauri::command]
@@ -33,11 +35,16 @@ pub async fn get_app_init_data(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    let total_memory_mb = sys.total_memory() / 1024 / 1024;
+
     Ok(AppInitData {
         launcher_name: get_launcher_name(),
         default_parent_path,
         launcher_config: config,
         version,
+        total_memory_mb,
     })
 }
 

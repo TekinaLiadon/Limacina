@@ -13,8 +13,9 @@
     "windows": [
       {
         "title": "Limacina",
-        "width": 1200,
-        "height": 800
+        "width": 960,
+        "height": 640,
+        "center": true
       }
     ],
     "security": {

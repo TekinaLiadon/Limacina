@@ -1,324 +1,151 @@
-<script setup>
-import {onMounted, ref} from "vue";
-import Button from "@/06-shared/components/Button.vue";
-import {invoke} from '@tauri-apps/api/core';
-import Input from "@/06-shared/components/Input.vue";
-import Console from "@/03-widgets/Console.vue";
+<script setup lang="ts">
+import {computed, ref, watch, nextTick} from 'vue'
+import {useCoreStore} from '@/05-entities'
+import {Sidebar, LoginTab, RegisterTab, AddServerTab, SettingsTab, DebugTab} from '@/03-widgets'
+import {Dropdown} from '@/06-shared'
+import type {DropdownOption} from '@/06-shared/types'
+import type {TabKey} from '@/05-entities/core/types'
+import anime from 'animejs'
 
-const isLoading = ref(false)
-const errorMessage = ref('')
-const logins = ref([])
+const coreStore = useCoreStore()
+const tabRef = ref<HTMLDivElement | null>(null)
+const currentTab = ref<TabKey>('login')
 
-const formData = ref({
-  username: '',
-  password: '',
-  rememberMe: false
-});
-
-const projectName = "Cordelia" // TODO
-
-onMounted(async () => {
-  try {
-    logins.value = await invoke('auth_logins', { projectName })
-    const saved = await invoke('auth_saved', { projectName })
-    if (saved) {
-      formData.value.username = saved.username
-      formData.value.password = saved.password
-      formData.value.rememberMe = true
-    }
-  } catch (e) {
-    console.error(e)
-  }
+const projectOptions = computed((): DropdownOption[] => {
+  return coreStore.projects.map((p) => ({title: p, value: p}))
 })
 
-const downloadMinecraft = async () => {
-  await invoke("download_java")
-  await invoke('download_server_file')
-  await invoke('download_minecraft')
-  await invoke('download_server_mods')
-}
-
-const startMinecraft = async () => {
-  await invoke('start_minecraft')
-}
-
-const handleLogin = async () => {
-  isLoading.value = true
-  errorMessage.value = ''
-  try {
-    await invoke('auth_login', {
-      projectName,
-      username: formData.value.username,
-      password: formData.value.password,
-      rememberMe: formData.value.rememberMe,
-    })
-
-    await invoke('load_settings_project', {
-      projectName,
-    })
-    await downloadMinecraft()
-    await startMinecraft()
-  } catch (e) {
-    console.error(e)
-    errorMessage.value = String(e)
-  } finally {
-    isLoading.value = false
+const tabComponent = computed(() => {
+  const map: Record<TabKey, typeof LoginTab> = {
+    'login': LoginTab,
+    'add-server': AddServerTab,
+    'register': RegisterTab,
+    'settings': SettingsTab,
+    'debug': DebugTab,
   }
+  return map[currentTab.value]
+})
+
+watch(() => coreStore.activeTab, (newTab: TabKey) => {
+  if (newTab === currentTab.value) return
+  if (!tabRef.value) {
+    currentTab.value = newTab
+    return;
+  }
+
+  transitionAnimation(newTab)
+})
+
+const transitionAnimation = (newTab: TabKey) => {
+  anime({
+    targets: tabRef.value,
+    opacity: [1, 0],
+    translateX: [0, -12],
+    duration: 150,
+    easing: 'easeInQuad',
+    complete: () => {
+      currentTab.value = newTab
+      nextTick(() => {
+        if (!tabRef.value) return
+
+        anime({
+          targets: tabRef.value,
+          opacity: [0, 1],
+          translateX: [12, 0],
+          duration: 200,
+          easing: 'easeOutQuad',
+        })
+      })
+    },
+  })
 }
 </script>
 
 <template>
-  <div class="login-screen">
-    <div class="login-container">
-      <div class="login-form">
-        <h1 class="login-title">Вход</h1>
+  <div class="home">
+    <div class="home__header">
+      <div class="home__project">
+        <Dropdown
+            :options="projectOptions"
+            v-model="coreStore.currentProject"
+            :width="'220px'"
+        />
+      </div>
+    </div>
 
-        <div class="form-group">
-          <Input
-              v-model="formData.username"
-              :options="{
-              placeholder: 'Никнейм',
-              list: logins,
-            }"
-          />
-        </div>
+    <div class="home__body">
+      <Sidebar/>
 
-        <div class="form-group">
-          <Input
-              v-model="formData.password"
-              :options="{
-              placeholder: 'Пароль',
-              type: 'password'
-            }"
-          />
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-wrapper">
-            <input
-                type="checkbox"
-                v-model="formData.rememberMe"
-                class="checkbox-input"
-            />
-            <span class="checkbox-label">Сохранить данные</span>
-          </label>
-        </div>
-
-        <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-
-        <div class="form-actions">
-          <Button class="btn-yellow btn-login" :is-loading="isLoading" :is-disabled="isLoading" @protected-click="handleLogin">
-            Войти
-          </Button>
-
-          <Button class="btn-register">
-            Регистрация
-          </Button>
+      <div class="home__tab-content">
+        <div ref="tabRef" class="home__tab-inner">
+          <component :is="tabComponent"/>
         </div>
       </div>
     </div>
-    <Console />
   </div>
 </template>
 
 <style lang="scss">
-.login-screen {
-  min-height: 100vh;
+@use '@/01-app/assets/breakpoints';
+
+.home {
+  height: 100vh;
   width: 100%;
   background: var(--app-bg);
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 0;
-  position: relative;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(
-            ellipse at top left,
-            rgba(108, 127, 216, 0.08) 0%,
-            transparent 50%
-    );
-    pointer-events: none;
-  }
-}
-
-.login-container {
-  width: 50%;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-  position: relative;
-  z-index: 1;
-}
-
-.login-form {
-  width: 100%;
-  max-width: 480px;
-  background: var(--login-bg-form);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--login-border);
-  border-radius: 12px;
-  padding: 56px 48px;
-  box-shadow: 0 8px 32px var(--login-shadow),
-  inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  position: relative;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: -1px;
-    left: -1px;
-    right: -1px;
-    bottom: -1px;
-    background: linear-gradient(
-            135deg,
-            var(--login-accent) 0%,
-            transparent 30%,
-            transparent 70%,
-            var(--login-accent) 100%
-    );
-    border-radius: 12px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: -1;
-  }
-
-  &:hover::before {
-    opacity: 0.2;
-  }
-}
-
-.login-title {
-  font-size: 38px;
-  font-weight: 700;
-  color: var(--login-text-primary);
-  text-transform: uppercase;
-  margin: 0 0 40px 0;
-  text-shadow: 0 2px 8px var(--login-shadow);
-  letter-spacing: 1.5px;
-}
-
-.form-group {
-  margin-bottom: 24px;
-
-  &:last-of-type {
-    margin-bottom: 32px;
-  }
-}
-
-.checkbox-wrapper {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-}
-
-.checkbox-input {
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  margin-right: 12px;
-  cursor: pointer;
-  accent-color: var(--login-accent);
-
-  &:focus {
-    outline: 2px solid var(--login-border-hover);
-    outline-offset: 2px;
-  }
-}
-
-.checkbox-label {
-  color: var(--login-text-secondary);
-  font-size: 15px;
-  transition: color 0.2s ease;
-
-  .checkbox-wrapper:hover & {
-    color: var(--login-text-primary);
-  }
-}
-
-.form-actions {
-  display: flex;
   flex-direction: column;
   gap: 16px;
-}
+  padding: 24px;
+  overflow: hidden;
 
-.error-message {
-  color: var(--error);
-  font-size: 13px;
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  background: var(--error-bg);
-  border: 1px solid var(--error-border);
-  border-radius: 8px;
-  word-break: break-word;
-}
-
-.btn-login {
-  width: 100%;
-  height: 52px;
-  font-size: 16px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  transition: all 0.3s ease;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 24px var(--login-accent-glow);
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
   }
 
-  &:active {
-    transform: translateY(0);
-  }
-}
-
-.btn-register {
-  width: 100%;
-  height: 48px;
-  font-size: 15px;
-  background: transparent;
-  color: var(--login-text-secondary);
-  border: 1px solid rgba(176, 184, 212, 0.2);
-  transition: all 0.3s ease;
-
-  &:hover {
-    color: var(--login-text-primary);
-    border-color: var(--login-border-hover);
-    background: rgba(108, 127, 216, 0.08);
-  }
-}
-
-@media (max-width: 1024px) {
-  .login-container {
-    width: 100%;
-  }
-}
-
-@media (max-width: 768px) {
-  .login-screen {
-    padding: 20px;
+  &__project {
+    min-width: 220px;
   }
 
-  .login-container {
-    min-height: auto;
-    padding: 20px;
+  &__body {
+    flex: 1;
+    display: flex;
+    gap: 24px;
+    min-height: 0;
   }
 
-  .login-form {
-    padding: 40px 32px;
+  &__tab-content {
+    flex: 1;
+    min-height: 0;
+    background: var(--login-bg-form);
+    border: 1px solid var(--login-border);
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
-  .login-title {
-    font-size: 32px;
+  &__tab-inner {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  @include breakpoints.media-under-lg {
+    padding: 16px;
+    padding-bottom: 100px;
+
+    &__header {
+      justify-content: center;
+    }
+
+    &__body {
+      flex-direction: column;
+    }
   }
 }
 </style>
