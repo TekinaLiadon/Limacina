@@ -26,6 +26,33 @@ export async function saveLauncherConfig(parentPath: string): Promise<LauncherCo
   return invoke<LauncherConfig>('save_launcher_config', { parentPath })
 }
 
+export interface LauncherSettingsPayload {
+  discordActivity: boolean
+  keepOldConfigs: boolean
+  downloadSpeedLimit: number | null
+  autoUpdate: boolean
+  systemNotifications: boolean
+  debugMode: boolean
+  startWithSystem: boolean
+  closeAfterLaunch: boolean
+}
+
+export async function saveLauncherSettings(settings: LauncherSettingsPayload): Promise<LauncherConfig> {
+  return invoke<LauncherConfig>('save_launcher_settings', { settings })
+}
+
+export async function initializeLauncher(parentPath: string): Promise<LauncherConfig> {
+  return invoke<LauncherConfig>('initialize_launcher', { parentPath })
+}
+
+export async function initializeProject(projectName: string): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>('initialize_project', { projectName })
+}
+
+export async function setInitialized(): Promise<void> {
+  return invoke('set_initialized')
+}
+
 export async function authLogins(projectName: string): Promise<string[]> {
   return invoke<string[]>('auth_logins', { projectName })
 }

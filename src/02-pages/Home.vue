@@ -78,7 +78,9 @@ const transitionAnimation = (newTab: TabKey) => {
 
       <div class="home__tab-content">
         <div ref="tabRef" class="home__tab-inner">
-          <component :is="tabComponent"/>
+          <keep-alive>
+            <component :is="tabComponent"/>
+          </keep-alive>
         </div>
       </div>
     </div>

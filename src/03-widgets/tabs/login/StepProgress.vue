@@ -55,7 +55,6 @@ const getIcon = (status: StepProgressItem['status']): string => {
       </div>
       <div class="step-progress__content">
         <span class="step-progress__label">{{ step.label }}</span>
-        <span v-if="step.error" class="step-progress__error">{{ step.error }}</span>
       </div>
     </div>
   </div>

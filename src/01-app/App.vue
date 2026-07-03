@@ -19,6 +19,7 @@ const defaultProjectConfig: ProjectConfig = {
   jvmArgs: [],
   minMemory: '-Xms512M',
   maxMemory: '-Xmx4G',
+  initialized: false,
 }
 
 onBeforeMount(async () => {
@@ -91,11 +92,13 @@ onBeforeMount(async () => {
 
   &__version {
     position: fixed;
-    bottom: 24px;
-    left: 16px;
+    bottom: 4px;
+    left: 8px;
     font-size: 12px;
-    color: var(--login-text-primary);
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6), 0 0 8px rgba(0, 0, 0, 0.3);
+    color: #ffffff;
+    -webkit-text-stroke: 1px #000;
+    paint-order: stroke fill;
+    z-index: 1000;
   }
 }
 </style>

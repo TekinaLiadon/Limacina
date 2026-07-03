@@ -12,12 +12,14 @@ interface SettingsForm {
   javaPath: string
   jvmArgs: string
   memoryRange: [number, number]
+  initialized: boolean
 }
 
 export function useProjectSettings() {
   const coreStore = useCoreStore()
   const isSaving = ref<boolean>(false)
   const showNotification = ref<boolean>(false)
+  const isLoaded = ref<boolean>(false)
 
   const config = ref<SettingsForm>({
     projectName: '',
@@ -27,6 +29,7 @@ export function useProjectSettings() {
     javaPath: '',
     jvmArgs: '',
     memoryRange: [512, 4096],
+    initialized: false,
   })
 
   const maxMemoryLimit = computed((): number => {
@@ -46,6 +49,7 @@ export function useProjectSettings() {
 
   const loadConfig = async (project: string): Promise<void> => {
     if (!project) return
+    isLoaded.value = false
     try {
       const loaded = await loadSettingsProject(project)
       config.value = {
@@ -56,7 +60,9 @@ export function useProjectSettings() {
         javaPath: loaded.javaPath ?? '',
         jvmArgs: (loaded.jvmArgs ?? []).join(', '),
         memoryRange: [parseMemory(loaded.minMemory), parseMemory(loaded.maxMemory)],
+        initialized: loaded.initialized,
       }
+      isLoaded.value = true
     } catch (e: unknown) {
       console.error(e)
     }
@@ -79,6 +85,7 @@ export function useProjectSettings() {
         jvmArgs: config.value.jvmArgs ? config.value.jvmArgs.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
         minMemory: `-Xms${config.value.memoryRange[0]}M`,
         maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
+        initialized: config.value.initialized,
       }
       await saveSettingsProject(projectConfig)
       showNotification.value = true
@@ -91,6 +98,7 @@ export function useProjectSettings() {
 
   return {
     config,
+    isLoaded,
     maxMemoryLimit,
     isSaving,
     showNotification,

@@ -13,7 +13,6 @@ export const useCoreStore = defineStore('core', {
     currentProject: 'Cordelia',
     projects: ['Cordelia'],
     totalMemoryMb: 0,
-    debugLogs: [],
     isLoggedIn: false,
     loginSteps: [],
     loginProgress: 0,
