@@ -49,6 +49,7 @@ where
             for attempt in 1..=MAX_RETRIES {
                 match download_fn(el.url.clone(), path.clone()).await {
                     Ok(_) => {
+                        log_info!("[semaphore] Успешно скачан: {}", el.url);
                         if let Some(ref cb) = on_done {
                             cb(&el.url);
                         }
@@ -56,15 +57,15 @@ where
                         break;
                     }
                     Err(e) if attempt < MAX_RETRIES => {
-                        log_info!("Ошибка скачивания {}. Повторный запрос", el.url);
-                        log_err!("Ошибка скачивания {}: {:?}. Повтор...", el.url, e);
+                        log_err!("[semaphore] Ошибка скачивания {} (попытка {}/{}): {:?}", el.url, attempt, MAX_RETRIES, e);
 
                         let delay = 2_u64.pow(attempt as u32);
+                        log_info!("[semaphore] Повтор через {} сек: {}", delay, el.url);
                         sleep(Duration::from_secs(delay)).await;
                     }
 
                     Err(e) => {
-                        log_err!("Финальная ошибка скачивания {}: {:?}", el.url, e);
+                        log_err!("[semaphore] Финальная ошибка скачивания {} (попытка {}/{}): {:?}", el.url, attempt, MAX_RETRIES, e);
                         final_result = Err(e);
                         break;
                     }
