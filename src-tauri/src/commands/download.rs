@@ -14,27 +14,34 @@ use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResul
 pub async fn download_minecraft(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
-    let mut state = state.lock().await;
+    let (project_config, mod_loader) = {
+        let mut state = state.lock().await;
+        resolve_latest_loader_version(&mut state.project_config).await?;
+        state.project_config.save_config().await?;
+        (state.project_config.clone(), state.project_config.mod_loader.clone())
+    };
 
-    resolve_latest_loader_version(&mut state.project_config).await?;
-    state.project_config.save_config().await?;
-
-    let jar_path = crate::utils::env_info::launcher_patch(Some(&state.project_config.project_name))?
-        .join(format!("{}.jar", &state.project_config.mc_version));
+    let jar_path = crate::utils::env_info::launcher_patch(Some(&project_config.project_name))?
+        .join(format!("{}.jar", &project_config.mc_version));
     if jar_path.exists() {
         return Ok("Minecraft уже установлен".to_string());
     }
 
-    Vanilla.setup(&state.project_config).await?;
+    Vanilla.setup(&project_config).await?;
 
-    if matches!(state.project_config.mod_loader, ConfigModLoader::Vanilla) {
+    if matches!(mod_loader, ConfigModLoader::Vanilla) {
         return Ok("Vanilla майнкрафт установлен успешно".to_string());
     }
 
-    let loader = create_mod_loader(&state.project_config.mod_loader)?;
-    let manifest = loader.versions(&state.project_config).await?;
-    loader.setup(&state.project_config, &manifest).await?;
-    state.loader = Some(loader);
+    let loader = create_mod_loader(&mod_loader)?;
+    let manifest = loader.versions(&project_config).await?;
+    loader.setup(&project_config, &manifest).await?;
+
+    {
+        let mut state = state.lock().await;
+        state.loader = Some(loader);
+    }
+
     Ok("Модифицированный майнкрафт установлен успешно".to_string())
 }
 

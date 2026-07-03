@@ -20,7 +20,7 @@ pub fn get_launcher_name() -> String {
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
     let base_path = match crate::state::launcher_config::LauncherConfig::load() {
         Ok(Some(lc)) => {
-            PathBuf::from(lc.launcher_path)
+            PathBuf::from(lc.launcher_path.replace('/', std::path::MAIN_SEPARATOR_STR))
         }
         Ok(None) => {
             log_info!("launcher_patch: конфиг не найден, fallback на home_dir");
