@@ -174,6 +174,7 @@ pub async fn download_all_files(app: AppHandle, project_name: String, check_hash
         }
     }, None::<fn(&str)>);
 
+    log_info!("[files] Файлы созданы, запуск загрузки...");
     let results = futures::future::join_all(download_futures).await;
 
     let mut downloaded = 0;
