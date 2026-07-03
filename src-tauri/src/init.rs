@@ -17,7 +17,7 @@ pub struct InitPaths {
 impl InitPaths {
     pub fn new(parent_path: &str) -> Result<Self> {
         let name = get_launcher_name();
-        let base = PathBuf::from(parent_path).join(&name);
+        let base = PathBuf::from(parent_path.replace('/', std::path::MAIN_SEPARATOR_STR)).join(&name);
         Ok(Self {
             project: base.join("project"),
             config: base.join("project").join("config"),
@@ -54,7 +54,8 @@ pub fn init_launcher(parent_path: &str) -> Result<LauncherConfig> {
 }
 
 pub async fn init_project_config(launcher_path: &str, project_name: &str) -> Result<ProjectConfig> {
-    let config_dir = PathBuf::from(launcher_path).join("project").join("config");
+    let normalized = launcher_path.replace('/', std::path::MAIN_SEPARATOR_STR);
+    let config_dir = PathBuf::from(&normalized).join("project").join("config");
     fs::create_dir_all(&config_dir).await?;
 
     let toml_path = config_dir.join(format!("{}.toml", project_name));
