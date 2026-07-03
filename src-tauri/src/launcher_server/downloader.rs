@@ -41,12 +41,14 @@ fn get_server_url() -> Result<String> {
 }
 
 fn get_file_hash(file_path: &PathBuf) -> Result<String> {
-    let mut file = File::open(file_path)?;
+    let mut file = File::open(file_path)
+        .with_context(|| format!("Не удалось открыть файл для проверки хеша: {:?}", file_path))?;
     let mut hasher = Md5::new();
     let mut buffer = [0u8; 8192];
 
     loop {
-        let bytes_read = file.read(&mut buffer)?;
+        let bytes_read = file.read(&mut buffer)
+            .with_context(|| format!("Ошибка чтения файла {:?}", file_path))?;
         if bytes_read == 0 {
             break;
         }
@@ -72,27 +74,31 @@ async fn download_file(
         .json(&body)
         .send()
         .await
-        .context("Не удалось получить файл от сервера")?;
+        .with_context(|| format!("Не удалось отправить запрос на сервер для файла: {}", url))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_err!("[download] Ошибка сервера {} при скачивании {}: {}", status, url, body);
-        anyhow::bail!("Сервер вернул {} при скачивании {}: {}", status, url, body);
+        anyhow::bail!("Сервер вернул {} при скачивании {}: {} (путь: {:?})", status, url, body, file_path);
     }
 
     if let Some(parent) = Path::new(file_path).parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent).await
+            .with_context(|| format!("Не удалось создать директорию {:?}", parent))?;
     }
 
-    let mut file = tokio::fs::File::create(file_path).await?;
+    let mut file = tokio::fs::File::create(file_path).await
+        .with_context(|| format!("Не удалось создать файл {:?}", file_path))?;
     let mut stream = response.bytes_stream();
     let mut total_bytes: u64 = 0;
 
     while let Some(item) = stream.next().await {
-        let chunk = item?;
+        let chunk = item
+            .with_context(|| format!("Ошибка чтения потока при скачивании {}", url))?;
         total_bytes += chunk.len() as u64;
-        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
+            .with_context(|| format!("Ошибка записи в файл {:?}", file_path))?;
     }
 
     log_info!("[download] Готово: {} ({} байт)", url, total_bytes);
@@ -118,19 +124,21 @@ pub async fn download_all_files(app: AppHandle, project_name: String, check_hash
         .get(format!("{}/files/list", server_url))
         .send()
         .await
-        .context("Не удалось получить список файлов от сервера")?;
+        .with_context(|| format!("Не удалось отправить запрос на {}/files/list", server_url))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_err!("[files] Сервер вернул {}: {}", status, body);
-        anyhow::bail!("Сервер файлов вернул {}: {}", status, body);
+        anyhow::bail!("Сервер файлов вернул {} (проект: {}): {}", status, project_name, body);
     }
 
-    let file_list: HashMap<String, String> = response.json().await?;
+    let file_list: HashMap<String, String> = response.json().await
+        .with_context(|| format!("Не удалось распарсить JSON списка файлов (проект: {})", project_name))?;
     let core = crate::utils::env_info::launcher_patch(Some(&project_name))?;
 
     log_info!("[files] Получено файлов от сервера: {}", file_list.len());
+    log_info!("[files] Папка проекта: {:?}", core);
     log_info!("[files] Проверка файлов...");
 
     let mut files_to_download: Vec<String> = Vec::new();
@@ -219,19 +227,21 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
         .get(format!("{}/files/mods", server_url))
         .send()
         .await
-        .context("Не удалось получить список модов от сервера")?;
+        .with_context(|| format!("Не удалось отправить запрос на {}/files/mods", server_url))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_err!("[mods] Сервер вернул ошибку {}: {}", status, body);
-        anyhow::bail!("Сервер вернул {}: {}", status, body);
+        anyhow::bail!("Сервер модов вернул {} (проект: {}): {}", status, project_name, body);
     }
 
-    let response_text = response.text().await?;
+    let response_text = response.text().await
+        .with_context(|| format!("Не удалось прочитать ответ от {}/files/mods", server_url))?;
     log_info!("[mods] Ответ сервера: {}", response_text);
 
-    let mods: HashMap<String, String> = serde_json::from_str(&response_text)?;
+    let mods: HashMap<String, String> = serde_json::from_str(&response_text)
+        .with_context(|| format!("Не удалось распарсить JSON списка модов (проект: {})", project_name))?;
 
     log_info!("[mods] Получено модов: {}", mods.len());
     for (name, hash) in &mods {

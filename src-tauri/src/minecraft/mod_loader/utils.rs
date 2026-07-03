@@ -126,9 +126,15 @@ pub fn find_authlib_jar(game_dir: &Path) -> Option<PathBuf> {
 pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     log_info!("\n▶ Запуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
+    log_info!("Java: {:?}", &config.java_path);
     log_info!("Classpath entries: {}", config.classpath.len());
-    log_info!("");
-    let mut command = Command::new(config.java_path);
+
+    if !config.java_path.exists() {
+        log_err!("Java не найдена: {:?}", config.java_path);
+        anyhow::bail!("Файл Java не найден: {:?}", config.java_path);
+    }
+
+    let mut command = Command::new(&config.java_path);
     let separator = get_classpath_separator();
     let classpath = &config.classpath.join(separator);
     let mut skip_next = false;
