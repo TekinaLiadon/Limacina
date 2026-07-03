@@ -1,50 +1,81 @@
-import { computed, onMounted, onUnmounted } from 'vue'
-import { useCoreStore, useSettingsStore } from '@/05-entities'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useSettingsStore } from '@/05-entities'
 import { getStartupLogs, listenGameConsole, copyToClipboard } from '@/06-shared/api'
 import type { ConsoleLog } from '@/05-entities/core/types'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 
-export function useDebugConsole() {
-  const coreStore = useCoreStore()
-  const settingsStore = useSettingsStore()
-  const logLimit = 5000
-  let unlistenFn: UnlistenFn | null = null
-  let initialized = false
+const logs = ref<ConsoleLog[]>([])
+const LOG_LIMIT = 2000
+export const FLUSH_INTERVAL = 500
+export const FLUSH_BATCH = 100
 
-  const stripAnsi = (str: string): string => {
-    return str
-      .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-      .replace(/\x1B\].*?\x07/g, '')
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+const stripAnsi = (str: string): string => {
+  return str
+    .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1B\].*?\x07/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+}
+
+const cleanLog = (log: ConsoleLog): ConsoleLog => ({
+  line: stripAnsi(log.line),
+  is_error: log.is_error,
+})
+
+let unlistenFn: UnlistenFn | null = null
+let streamingStarted = false
+let buffer: ConsoleLog[] = []
+let flushTimer: ReturnType<typeof setInterval> | null = null
+
+const flushBuffer = (): number => {
+  if (buffer.length === 0) return 0
+  const count = Math.min(buffer.length, FLUSH_BATCH)
+  const batch = buffer.splice(0, count)
+  logs.value.push(...batch)
+  if (logs.value.length > LOG_LIMIT) {
+    logs.value.splice(0, logs.value.length - LOG_LIMIT)
   }
+  return count
+}
 
-  const cleanLog = (log: ConsoleLog): ConsoleLog => ({
-    line: stripAnsi(log.line),
-    is_error: log.is_error,
-  })
+export function useDebugConsole() {
+  const settingsStore = useSettingsStore()
 
   const initLogs = async (): Promise<void> => {
-    if (!initialized && coreStore.debugLogs.length === 0) {
+    if (logs.value.length === 0) {
       const startupLogs: ConsoleLog[] = await getStartupLogs()
       for (const log of startupLogs) {
-        coreStore.debugLogs.push(cleanLog(log))
+        buffer.push(cleanLog(log))
       }
+      flushBuffer()
     }
-    initialized = true
   }
 
   const startStreaming = async (): Promise<void> => {
-    const unlisten: UnlistenFn = await listenGameConsole((log: ConsoleLog) => {
-      coreStore.debugLogs.push(cleanLog(log))
-      if (coreStore.debugLogs.length > logLimit) {
-        coreStore.debugLogs.splice(0, coreStore.debugLogs.length - logLimit)
-      }
+    if (streamingStarted) return
+    streamingStarted = true
+
+    unlistenFn = await listenGameConsole((log: ConsoleLog) => {
+      buffer.push(cleanLog(log))
     })
-    unlistenFn = unlisten
+
+    flushTimer = setInterval(flushBuffer, FLUSH_INTERVAL)
+  }
+
+  const stopStreaming = (): void => {
+    if (flushTimer) {
+      clearInterval(flushTimer)
+      flushTimer = null
+    }
+    if (unlistenFn) {
+      unlistenFn()
+      unlistenFn = null
+    }
+    flushBuffer()
+    streamingStarted = false
   }
 
   const handleCopy = async (): Promise<void> => {
-    const text = coreStore.debugLogs.map((l) => l.line).join('\n')
+    const text = logs.value.map((l) => l.line).join('\n')
     await copyToClipboard(text)
   }
 
@@ -54,11 +85,11 @@ export function useDebugConsole() {
   })
 
   onUnmounted((): void => {
-    if (unlistenFn) unlistenFn()
+    stopStreaming()
   })
 
   return {
-    logs: computed(() => coreStore.debugLogs),
+    logs: computed(() => logs.value),
     settingsStore,
     handleCopy,
   }

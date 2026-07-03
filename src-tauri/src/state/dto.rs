@@ -23,6 +23,8 @@ pub struct ProjectConfig {
     pub jvm_args: Vec<String>,
     pub min_memory: String,
     pub max_memory: String,
+    #[serde(default)]
+    pub initialized: bool,
 }
 
 #[derive(Debug, Clone)]

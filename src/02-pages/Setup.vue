@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useCoreStore } from '@/05-entities'
-import { saveLauncherConfig } from '@/06-shared/api'
+import { initializeLauncher } from '@/06-shared/api'
 import { Button, Input } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 
@@ -32,7 +32,7 @@ const selectFolder = async (): Promise<void> => {
 const save = async (): Promise<void> => {
   isLoading.value = true
   try {
-    const config = await saveLauncherConfig(selectedPath.value)
+    const config = await initializeLauncher(selectedPath.value)
     coreStore.launcherConfig = config
     coreStore.hasLauncherConfig = true
     router.push('/')

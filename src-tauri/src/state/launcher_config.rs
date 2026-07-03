@@ -13,11 +13,55 @@ pub struct AuthProjectConfig {
     pub logins: Vec<SavedLogin>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct LauncherConfig {
     pub launcher_path: String,
+
+    #[serde(default = "default_true")]
+    pub discord_activity: bool,
+    #[serde(default = "default_true")]
+    pub keep_old_configs: bool,
+    #[serde(default)]
+    pub download_speed_limit: Option<u64>,
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
+    #[serde(default = "default_true")]
+    pub system_notifications: bool,
+    #[serde(default = "default_true")]
+    pub debug_mode: bool,
+    #[serde(default = "default_true")]
+    pub start_with_system: bool,
+    #[serde(default = "default_true")]
+    pub close_after_launch: bool,
+
+    #[serde(default)]
+    pub project_names: Vec<String>,
+
     #[serde(flatten)]
     pub projects: HashMap<String, AuthProjectConfig>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for LauncherConfig {
+    fn default() -> Self {
+        Self {
+            launcher_path: String::new(),
+            discord_activity: true,
+            keep_old_configs: true,
+            download_speed_limit: None,
+            auto_update: true,
+            system_notifications: true,
+            debug_mode: true,
+            start_with_system: true,
+            close_after_launch: true,
+            project_names: Vec::new(),
+            projects: HashMap::new(),
+        }
+    }
 }
 
 impl LauncherConfig {

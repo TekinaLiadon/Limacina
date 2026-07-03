@@ -1,5 +1,14 @@
 export interface LauncherConfig {
-  parentPath: string
+  launcherPath: string
+  discordActivity: boolean
+  keepOldConfigs: boolean
+  downloadSpeedLimit: number | null
+  autoUpdate: boolean
+  systemNotifications: boolean
+  debugMode: boolean
+  startWithSystem: boolean
+  closeAfterLaunch: boolean
+  projectNames: string[]
 }
 
 export interface AppInitData {
@@ -43,7 +52,6 @@ export interface CoreState {
   currentProject: string
   projects: string[]
   totalMemoryMb: number
-  debugLogs: ConsoleLog[]
   isLoggedIn: boolean
   loginSteps: StepProgressItem[]
   loginProgress: number
@@ -59,6 +67,7 @@ export interface ProjectConfig {
   jvmArgs: string[]
   minMemory: string
   maxMemory: string
+  initialized: boolean
 }
 
 export interface LoginForm {

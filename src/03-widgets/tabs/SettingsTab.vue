@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { PushNotification } from '@/06-shared'
 import { useProjectSettings } from '@/04-features'
 import ProjectSettings from './settings/ProjectSettings.vue'
@@ -7,16 +7,21 @@ import LauncherSettings from './settings/LauncherSettings.vue'
 
 type SettingsSubTab = 'project' | 'launcher'
 
-const activeSubTab = ref<SettingsSubTab>('project')
+const activeSubTab = ref<SettingsSubTab>('launcher')
 
 const {
   config,
+  isLoaded,
   maxMemoryLimit,
   isSaving,
   showNotification,
   selectJavaFolder,
   handleSave,
 } = useProjectSettings()
+
+const isProjectDisabled = computed((): boolean => {
+  return !isLoaded.value || !config.value.initialized
+})
 </script>
 
 <template>
@@ -31,17 +36,18 @@ const {
     <div class="settings-tab__tabs">
       <button
         class="settings-tab__tab"
-        :class="{ 'settings-tab__tab--active': activeSubTab === 'project' }"
-        @click="activeSubTab = 'project'"
-      >
-        Проект
-      </button>
-      <button
-        class="settings-tab__tab"
         :class="{ 'settings-tab__tab--active': activeSubTab === 'launcher' }"
         @click="activeSubTab = 'launcher'"
       >
         Лаунчер
+      </button>
+      <button
+        class="settings-tab__tab"
+        :class="{ 'settings-tab__tab--active': activeSubTab === 'project' }"
+        :disabled="isProjectDisabled"
+        @click="activeSubTab = 'project'"
+      >
+        Проект
       </button>
     </div>
 
@@ -102,13 +108,18 @@ const {
     transition: all 0.2s ease;
     font-family: inherit;
 
-    &:hover {
+    &:hover:not(:disabled) {
       color: var(--login-text-primary);
     }
 
     &--active {
       background: rgba(255, 255, 255, 0.1);
       color: var(--login-text-primary);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
   }
 

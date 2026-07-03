@@ -74,7 +74,48 @@ pub async fn save_launcher_config(
     std::fs::create_dir_all(base.join("manifest"))
         .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"manifest\": {}", e))?;
     std::fs::create_dir_all(base.join("java"))
-        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"java\": {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"java\": {}", e))?; // TODO удалить, папки создаются в другом месте
+
+    {
+        let mut state = state.lock().await;
+        state.launcher_config = Some(config.clone());
+    }
+    Ok(config)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherSettingsPayload {
+    pub discord_activity: bool,
+    pub keep_old_configs: bool,
+    pub download_speed_limit: Option<u64>,
+    pub auto_update: bool,
+    pub system_notifications: bool,
+    pub debug_mode: bool,
+    pub start_with_system: bool,
+    pub close_after_launch: bool,
+}
+
+#[tauri::command]
+pub async fn save_launcher_settings(
+    state: State<'_, Mutex<GlobalState>>,
+    settings: LauncherSettingsPayload,
+) -> CommandResult<LauncherConfig> {
+    let mut config = LauncherConfig::load()
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    config.discord_activity = settings.discord_activity;
+    config.keep_old_configs = settings.keep_old_configs;
+    config.download_speed_limit = settings.download_speed_limit;
+    config.auto_update = settings.auto_update;
+    config.system_notifications = settings.system_notifications;
+    config.debug_mode = settings.debug_mode;
+    config.start_with_system = settings.start_with_system;
+    config.close_after_launch = settings.close_after_launch;
+
+    config.save()?;
 
     {
         let mut state = state.lock().await;

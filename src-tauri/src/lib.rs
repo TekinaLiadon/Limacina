@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod auth;
 mod commands;
+mod init;
 mod java;
 mod launcher_server;
 mod minecraft;
@@ -13,7 +14,8 @@ use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
-use commands::launcher_config::{get_app_init_data, save_launcher_config};
+use commands::init::{initialize_launcher, initialize_project, set_initialized};
+use commands::launcher_config::{get_app_init_data, save_launcher_config, save_launcher_settings};
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
@@ -79,6 +81,10 @@ pub fn run() {
             auth_logins,
             get_app_init_data,
             save_launcher_config,
+            save_launcher_settings,
+            initialize_launcher,
+            initialize_project,
+            set_initialized,
             download_server_file,
             download_server_mods,
             download_minecraft,

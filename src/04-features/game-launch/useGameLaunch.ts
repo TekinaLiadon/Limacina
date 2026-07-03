@@ -1,55 +1,81 @@
 import { ref } from 'vue'
 import { useCoreStore } from '@/05-entities'
-import { downloadJava, downloadServerFile, downloadServerMods, startMinecraft } from '@/06-shared/api'
-import type { StepProgressItem } from '@/05-entities/core/types'
+import { initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft } from '@/06-shared/api'
+import type { StepProgressItem, ProjectConfig } from '@/05-entities/core/types'
 
-const STEP_DEFS = [
-  { label: 'Загрузка Java', action: downloadJava },
-  { label: 'Синхронизация файлов', action: downloadServerFile },
-  { label: 'Загрузка модов', action: downloadServerMods },
-  { label: 'Запуск', action: startMinecraft },
-] as const
+interface StepDef {
+  label: string
+  action: () => Promise<void>
+}
+
+const LAUNCH_SUFFIX: StepDef = { label: 'Запуск', action: startMinecraft }
+
+function buildInstallSteps(): StepDef[] {
+  const steps: StepDef[] = [
+    { label: 'Установка Java', action: downloadJava },
+    { label: 'Синхронизация файлов', action: downloadServerFile },
+    { label: 'Установка Minecraft', action: downloadMinecraft },
+  ]
+  steps.push(LAUNCH_SUFFIX)
+  return steps
+}
+
+function buildLaunchSteps(config: ProjectConfig): StepDef[] {
+  const steps: StepDef[] = [
+    { label: 'Синхронизация файлов', action: downloadServerFile },
+  ]
+  if (config.modLoader !== 'vanilla') {
+    steps.push({ label: 'Проверка модов', action: downloadServerMods })
+  }
+  steps.push(LAUNCH_SUFFIX)
+  return steps
+}
+
+function resetSteps(defs: StepDef[]): StepProgressItem[] {
+  return defs.map((def, i) => ({
+    id: i + 1,
+    label: def.label,
+    status: 'pending' as const,
+  }))
+}
 
 export function useGameLaunch() {
   const coreStore = useCoreStore()
   const launchSteps = ref<StepProgressItem[]>([])
   const activeProgress = ref<number>(0)
 
-  const resetSteps = (): void => {
-    launchSteps.value = STEP_DEFS.map((def, i) => ({
-      id: i + 1,
-      label: def.label,
-      status: 'pending' as const,
-    }))
+  const executeSteps = async (): Promise<void> => {
+    const config = await initializeProject(coreStore.currentProject)
+
+    const stepDefs = config.initialized ? buildLaunchSteps(config) : buildInstallSteps()
+
+    launchSteps.value = resetSteps(stepDefs)
     activeProgress.value = 0
-  }
+    coreStore.loginError = ''
 
-  const runStep = async (index: number): Promise<void> => {
-    if (index >= launchSteps.value.length) return
-    if (index > 0) launchSteps.value[index - 1].status = 'done'
+    for (let i = 0; i < stepDefs.length; i++) {
+      if (i > 0) launchSteps.value[i - 1].status = 'done'
 
-    const step = launchSteps.value[index]
-    step.status = 'active'
-    activeProgress.value = ((index + 1) / launchSteps.value.length) * 100
+      const step = launchSteps.value[i]
+      step.status = 'active'
+      activeProgress.value = ((i + 1) / stepDefs.length) * 100
 
-    try {
-      await STEP_DEFS[index].action()
-    } catch (error: unknown) {
-      const message = String(error)
-      step.status = 'error'
-      step.error = message
-      coreStore.loginError = message
-      return
+      try {
+        await stepDefs[i].action()
+      } catch (error: unknown) {
+        step.status = 'error'
+        coreStore.loginError = String(error)
+        return
+      }
     }
 
-    await runStep(index + 1)
-  }
-
-  const executeSteps = async (): Promise<void> => {
-    resetSteps()
-    await runStep(0)
-    launchSteps.value[launchSteps.value.length - 1].status = 'done'
+    const last = launchSteps.value[launchSteps.value.length - 1]
+    last.status = 'done'
     activeProgress.value = 100
+
+    if (!config.initialized) {
+      await setInitialized()
+    }
   }
 
   return {

@@ -1,32 +1,62 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onActivated } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { useDebugConsole } from '@/04-features'
+import { useDebugConsole, FLUSH_BATCH } from '@/04-features'
+import { Icon } from '@/06-shared'
 
 const { logs, handleCopy } = useDebugConsole()
 
 const parentRef = ref<HTMLDivElement | null>(null)
+const isAutoScroll = ref<boolean>(true)
+const LINE_HEIGHT = 20
 
 const virtualizer = useVirtualizer(
   computed(() => ({
     count: logs.value.length,
     getScrollElement: () => parentRef.value,
-    estimateSize: () => 20,
-    overscan: 20,
+    estimateSize: () => LINE_HEIGHT,
+    overscan: 100,
   }))
 )
 
-const scrollToBottom = (): void => {
+const scrollToBottom = (smooth = false): void => {
   if (!parentRef.value) return
-  parentRef.value.scrollTop = parentRef.value.scrollHeight
+  if (smooth) {
+    const maxDistance = FLUSH_BATCH * LINE_HEIGHT
+    const current = parentRef.value.scrollTop
+    const target = parentRef.value.scrollHeight - parentRef.value.clientHeight
+    const distance = Math.min(target - current, maxDistance)
+    if (distance <= 0) return
+    parentRef.value.scrollBy({ top: distance, behavior: 'smooth' })
+  } else {
+    parentRef.value.scrollTop = parentRef.value.scrollHeight
+  }
 }
 
-scrollToBottom()
+const toggleAutoScroll = (): void => {
+  isAutoScroll.value = !isAutoScroll.value
+  if (isAutoScroll.value) {
+    scrollToBottom(false)
+  }
+}
+
+onActivated((): void => {
+  scrollToBottom(false)
+})
+
+watch(() => logs.value.length, (): void => {
+  if (isAutoScroll.value) {
+    requestAnimationFrame(() => scrollToBottom(true))
+  }
+})
 </script>
 
 <template>
   <div class="debug-tab">
-    <div ref="parentRef" class="debug-tab__scroll">
+    <div
+      ref="parentRef"
+      class="debug-tab__scroll"
+    >
       <div
         :style="{ height: `${virtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }"
       >
@@ -53,6 +83,13 @@ scrollToBottom()
     </div>
 
     <div class="debug-tab__actions">
+      <button
+        class="debug-tab__autoscroll"
+        :class="{ 'debug-tab__autoscroll--off': !isAutoScroll }"
+        @click="toggleAutoScroll"
+      >
+        <Icon type="chevron-down" />
+      </button>
       <button class="debug-tab__copy-btn" @click="handleCopy">
         Копировать
       </button>
@@ -123,8 +160,32 @@ scrollToBottom()
     padding: 8px 12px;
     border-top: 1px solid #21262d;
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
     background: #161b22;
+  }
+
+  &__autoscroll {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    background: #21262d;
+    color: #58a6ff;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: #30363d;
+      border-color: #484f58;
+    }
+
+    &--off {
+      color: #484f58;
+    }
   }
 
   &__copy-btn {
