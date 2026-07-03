@@ -6,9 +6,10 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::state::dto::GlobalState;
@@ -24,6 +25,8 @@ fn build_auth_client(token: &str) -> Result<Client> {
     );
     Client::builder()
         .default_headers(headers)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
         .build()
         .context("Не удалось создать HTTP клиент")
 }
@@ -79,17 +82,17 @@ async fn download_file(
     }
 
     if let Some(parent) = Path::new(file_path).parent() {
-        fs::create_dir_all(parent)?;
+        tokio::fs::create_dir_all(parent).await?;
     }
 
-    let mut file = File::create(file_path)?;
+    let mut file = tokio::fs::File::create(file_path).await?;
     let mut stream = response.bytes_stream();
     let mut total_bytes: u64 = 0;
 
     while let Some(item) = stream.next().await {
         let chunk = item?;
         total_bytes += chunk.len() as u64;
-        file.write_all(&chunk)?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
     }
 
     log_info!("[download] Готово: {} ({} байт)", url, total_bytes);
@@ -238,22 +241,22 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
     let mods_dir = crate::utils::env_info::launcher_patch(Some(&project_name))?
         .join("mods");
 
-    fs::create_dir_all(&mods_dir)?;
+    tokio::fs::create_dir_all(&mods_dir).await?;
 
     let server_mods: std::collections::HashSet<&str> = mods.keys()
         .map(|k| k.strip_prefix("mods/").unwrap_or(k))
         .collect();
 
-    if let Ok(entries) = fs::read_dir(&mods_dir) {
-        for entry in entries.flatten() {
-            if entry.file_type().map_or(false, |ft| !ft.is_file()) {
+    if let Ok(mut entries) = tokio::fs::read_dir(&mods_dir).await {
+        while let Some(entry) = entries.next_entry().await? {
+            if entry.file_type().await?.is_file() {
                 continue;
             }
             let name_os = entry.file_name();
             let name = name_os.to_string_lossy();
             if !server_mods.contains(name.as_ref()) {
                 log_info!("[mods] Удаление лишнего мода: {}", name);
-                let _ = fs::remove_file(entry.path());
+                let _ = tokio::fs::remove_file(entry.path()).await;
             }
         }
     }

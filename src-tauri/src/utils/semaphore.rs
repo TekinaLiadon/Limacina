@@ -73,7 +73,7 @@ where
             }
 
             let elapsed = start_time.elapsed();
-            let min_duration = Duration::from_secs(1);
+            let min_duration = Duration::from_millis(100);
             if elapsed < min_duration {
                 sleep(min_duration - elapsed).await;
             }
