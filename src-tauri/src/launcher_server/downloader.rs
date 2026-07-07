@@ -26,7 +26,6 @@ fn build_auth_client(token: &str) -> Result<Client> {
     Client::builder()
         .default_headers(headers)
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(15))
         .build()
         .context("Не удалось создать HTTP клиент")
 }

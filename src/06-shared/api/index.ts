@@ -66,6 +66,10 @@ export async function authLogin(info: AuthUserData): Promise<void> {
   return invoke('auth_login', { projectName, username, password, rememberMe })
 }
 
+export async function authRefresh(projectName: string): Promise<boolean> {
+  return invoke<boolean>('auth_refresh', { projectName })
+}
+
 export async function downloadJava(): Promise<void> {
   return invoke('download_java')
 }

@@ -23,8 +23,14 @@ pub struct ProjectConfig {
     pub jvm_args: Vec<String>,
     pub min_memory: String,
     pub max_memory: String,
+    #[serde(default = "default_true")]
+    pub online: bool,
     #[serde(default)]
     pub initialized: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone)]

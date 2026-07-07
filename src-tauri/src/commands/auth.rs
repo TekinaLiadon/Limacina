@@ -19,13 +19,20 @@ pub async fn auth_login(
     password: String,
     remember_me: bool,
 ) -> CommandResult<()> {
-    let auth_data = auth::login(&username, &password).await?;
+    let auth_data = if let Ok(refresh_token) = storage::get_credential(&project_name, &username, "refresh_token") {
+        match auth::refresh(&refresh_token).await {
+            Ok(data) => data,
+            Err(_) => auth::login(&username, &password).await?,
+        }
+    } else {
+        auth::login(&username, &password).await?
+    };
 
     {
         let mut state = state.lock().await;
         state.session = Some(SessionTokens {
             access_token: auth_data.tokens.access_token,
-            refresh_token: auth_data.tokens.refresh_token,
+            refresh_token: auth_data.tokens.refresh_token.clone(),
             uuid: auth_data.profile.uuid,
             username: auth_data.profile.username,
         });
@@ -41,12 +48,59 @@ pub async fn auth_login(
     }
 
     if remember_me {
-        storage::save_password(&project_name, &username, &password)?;
+        storage::save_credential(&project_name, &username, "password", &password)?;
+        storage::save_credential(&project_name, &username, "refresh_token", &auth_data.tokens.refresh_token)?;
     } else {
-        let _ = storage::delete_password(&project_name, &username);
+        let _ = storage::delete_credential(&project_name, &username, "password");
+        let _ = storage::delete_credential(&project_name, &username, "refresh_token");
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn auth_refresh(
+    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
+) -> CommandResult<bool> {
+    let username = {
+        let state = state.lock().await;
+        state
+            .launcher_config
+            .as_ref()
+            .and_then(|lc| lc.get_first_login(&project_name))
+    };
+
+    let Some(username) = username else {
+        return Ok(false);
+    };
+
+    let refresh_token = match storage::get_credential(&project_name, &username, "refresh_token") {
+        Ok(token) => token,
+        Err(_) => return Ok(false),
+    };
+
+    let auth_data = match auth::refresh(&refresh_token).await {
+        Ok(data) => data,
+        Err(_) => {
+            let _ = storage::delete_credential(&project_name, &username, "refresh_token");
+            return Ok(false);
+        }
+    };
+
+    {
+        let mut state = state.lock().await;
+        state.session = Some(SessionTokens {
+            access_token: auth_data.tokens.access_token,
+            refresh_token: auth_data.tokens.refresh_token.clone(),
+            uuid: auth_data.profile.uuid,
+            username: auth_data.profile.username,
+        });
+    }
+
+    storage::save_credential(&project_name, &username, "refresh_token", &auth_data.tokens.refresh_token)?;
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -64,7 +118,7 @@ pub async fn auth_saved(
         return Ok(None);
     };
 
-    let password = storage::get_password(&project_name, &username)?;
+    let password = storage::get_credential(&project_name, &username, "password")?;
     Ok(Some(SavedCredentials { username, password }))
 }
 
