@@ -12,6 +12,7 @@ interface SettingsForm {
   javaPath: string
   jvmArgs: string
   memoryRange: [number, number]
+  online: boolean
   initialized: boolean
 }
 
@@ -29,6 +30,7 @@ export function useProjectSettings() {
     javaPath: '',
     jvmArgs: '',
     memoryRange: [512, 4096],
+    online: true,
     initialized: false,
   })
 
@@ -60,6 +62,7 @@ export function useProjectSettings() {
         javaPath: loaded.javaPath ?? '',
         jvmArgs: (loaded.jvmArgs ?? []).join(', '),
         memoryRange: [parseMemory(loaded.minMemory), parseMemory(loaded.maxMemory)],
+        online: loaded.online,
         initialized: loaded.initialized,
       }
       isLoaded.value = true
@@ -85,6 +88,7 @@ export function useProjectSettings() {
         jvmArgs: config.value.jvmArgs ? config.value.jvmArgs.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
         minMemory: `-Xms${config.value.memoryRange[0]}M`,
         maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
+        online: config.value.online,
         initialized: config.value.initialized,
       }
       await saveSettingsProject(projectConfig)

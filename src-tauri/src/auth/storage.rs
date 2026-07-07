@@ -15,20 +15,20 @@ struct EncryptedEntry {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct PasswordStore {
+struct CredentialStore {
     entries: Vec<EncryptedEntry>,
 }
 
 fn fallback_path() -> Result<PathBuf> {
     let base = launcher_patch(None)?;
-    Ok(base.join("passwords.json"))
+    Ok(base.join("credentials.json"))
 }
 
-fn derive_key(project: &str, username: &str) -> [u8; 8] {
+fn derive_key(project: &str, username: &str, key_suffix: &str) -> [u8; 8] {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();
-    format!("{}_{}", project, username).hash(&mut hasher);
+    format!("{}_{}_{}", project, username, key_suffix).hash(&mut hasher);
     hasher.finish().to_le_bytes()
 }
 
@@ -55,130 +55,137 @@ fn from_hex(s: &str) -> Result<Vec<u8>> {
     Ok(result)
 }
 
-fn save_fallback(project: &str, username: &str, password: &str) -> Result<()> {
+fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -> Result<()> {
     let path = fallback_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    let mut store: PasswordStore = if path.exists() {
+    let mut store: CredentialStore = if path.exists() {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
         serde_json::from_str(&content).unwrap_or_default()
     } else {
-        PasswordStore::default()
+        CredentialStore::default()
     };
 
-    store.entries.retain(|e| e.username != username);
-
-    let key = derive_key(project, username);
-    let encrypted = xor_crypt(password.as_bytes(), &key);
+    let entry_key = format!("{}_{}", username, key_suffix);
+    store.entries.retain(|e| e.username != entry_key);
+    let key = derive_key(project, username, key_suffix);
+    let encrypted = xor_crypt(value.as_bytes(), &key);
 
     store.entries.insert(
         0,
         EncryptedEntry {
-            username: username.to_string(),
+            username: entry_key,
             ciphertext: to_hex(&encrypted),
         },
     );
 
     let content = serde_json::to_string_pretty(&store)
-        .context("Не удалось сериализовать хранилище паролей")?;
+        .context("Не удалось сериализовать хранилище credentials")?;
     fs::write(&path, content)
         .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
 }
 
-fn load_fallback(project: &str, username: &str) -> Result<String> {
+fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<String> {
     let path = fallback_path()?;
     if !path.exists() {
-        anyhow::bail!("Файл хранилища паролей не найден");
+        anyhow::bail!("Файл хранилища credentials не найден");
     }
+    
     let content = fs::read_to_string(&path)
         .with_context(|| format!("Не удалось прочитать {:?}", path))?;
-    let store: PasswordStore =
-        serde_json::from_str(&content).context("Неверный формат хранилища паролей")?;
-
+    let store: CredentialStore =
+        serde_json::from_str(&content).context("Неверный формат хранилища credentials")?;
+    let entry_key = format!("{}_{}", username, key_suffix);
     let entry = store
         .entries
         .iter()
-        .find(|e| e.username == username)
-        .context("Пароль не найден в хранилище")?;
+        .find(|e| e.username == entry_key)
+        .context("Credentials не найдены в хранилище")?;
 
-    let key = derive_key(project, username);
+    let key = derive_key(project, username, key_suffix);
     let ciphertext = from_hex(&entry.ciphertext)?;
     let decrypted = xor_crypt(&ciphertext, &key);
-    String::from_utf8(decrypted).context("Не удалось расшифровать пароль")
+    String::from_utf8(decrypted).context("Не удалось расшифровать credentials")
 }
 
-fn delete_fallback(_project: &str, username: &str) -> Result<()> {
+fn delete_fallback(_project: &str, username: &str, key_suffix: &str) -> Result<()> {
     let path = fallback_path()?;
     if !path.exists() {
         return Ok(());
     }
+    
     let content = fs::read_to_string(&path)?;
-    let mut store: PasswordStore = serde_json::from_str(&content).unwrap_or_default();
-    store.entries.retain(|e| e.username != username);
+    let mut store: CredentialStore = serde_json::from_str(&content).unwrap_or_default();
+    let entry_key = format!("{}_{}", username, key_suffix);
+    store.entries.retain(|e| e.username != entry_key);
     let content = serde_json::to_string_pretty(&store)?;
     fs::write(&path, content)?;
     Ok(())
 }
 
-pub fn save_password(project: &str, username: &str, password: &str) -> Result<()> {
-    let key = format!("{}_{}", project, username);
+fn keyring_key(project: &str, username: &str, key_suffix: &str) -> String {
+    format!("{}_{}_{}", project, username, key_suffix)
+}
+
+pub fn save_credential(project: &str, username: &str, key_suffix: &str, value: &str) -> Result<()> {
+    let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    log_info!("Keyring save");
+    log_info!("Keyring save: {}", key_suffix);
 
     let keyring_result = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
         entry
-            .set_password(password)
-            .context("Не удалось сохранить пароль в keyring")?;
+            .set_password(value)
+            .context(format!("Не удалось сохранить {} в keyring", key_suffix))?;
         Ok(())
     })();
 
     match &keyring_result {
-        Ok(()) => log_info!("Keyring save: OK"),
+        Ok(()) => log_info!("Keyring save {}: OK", key_suffix),
         Err(e) => {
-            log_err!("Keyring save: ОШИБКА — {:?}", e);
-            save_fallback(project, username, password)?;
+            log_err!("Keyring save {}: ОШИБКА — {:?}", key_suffix, e);
+            save_fallback(project, username, key_suffix, value)?;
         },
     }
 
     Ok(())
 }
 
-pub fn get_password(project: &str, username: &str) -> Result<String> {
-    let key = format!("{}_{}", project, username);
+pub fn get_credential(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+    let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    log_info!("Keyring load");
+    log_info!("Keyring load: {}", key_suffix);
 
     let keyring_result = (|| -> Result<String> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
         entry
             .get_password()
-            .context("Не найден в keyring")
+            .context(format!("Не найден {} в keyring", key_suffix))
     })();
 
     match keyring_result {
-        Ok(pw) => {
-            log_info!("Keyring load: OK");
-            Ok(pw)
+        Ok(val) => {
+            log_info!("Keyring load {}: OK", key_suffix);
+            Ok(val)
         }
         Err(e) => {
-            log_err!("Keyring load: ОШИБКА — {:?}", e);
-            log_info!("Keyring load: пробуем fallback");
-            load_fallback(project, username)
+            log_err!("Keyring load {}: ОШИБКА — {:?}", key_suffix, e);
+            log_info!("Keyring load {}: пробуем fallback", key_suffix);
+            load_fallback(project, username, key_suffix)
         }
     }
 }
 
-pub fn delete_password(project: &str, username: &str) -> Result<()> {
-    let key = format!("{}_{}", project, username);
+pub fn delete_credential(project: &str, username: &str, key_suffix: &str) -> Result<()> {
+    let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
     let keyring_result = (|| -> Result<()> {
@@ -188,11 +195,11 @@ pub fn delete_password(project: &str, username: &str) -> Result<()> {
     })();
 
     match &keyring_result {
-        Ok(()) => log_info!("Keyring delete: OK"),
-        Err(e) => log_err!("Keyring delete: ОШИБКА — {}", e),
+        Ok(()) => log_info!("Keyring delete {}: OK", key_suffix),
+        Err(e) => log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e),
     }
 
-    let _ = delete_fallback(project, username);
+    let _ = delete_fallback(project, username, key_suffix);
 
     Ok(())
 }

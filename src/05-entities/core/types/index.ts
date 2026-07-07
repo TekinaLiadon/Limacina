@@ -67,6 +67,7 @@ export interface ProjectConfig {
   jvmArgs: string[]
   minMemory: string
   maxMemory: string
+  online: boolean
   initialized: boolean
 }
 

@@ -9,7 +9,7 @@ mod state;
 mod updater;
 mod utils;
 
-use commands::auth::{auth_login, auth_logins, auth_saved};
+use commands::auth::{auth_login, auth_logins, auth_refresh, auth_saved};
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
@@ -77,6 +77,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             auth_login,
+            auth_refresh,
             auth_saved,
             auth_logins,
             get_app_init_data,

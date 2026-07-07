@@ -1,11 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { PushNotification } from '@/06-shared'
+import { Button, PushNotification } from '@/06-shared'
 import { useProjectSettings } from '@/04-features'
 import ProjectSettings from './settings/ProjectSettings.vue'
 import LauncherSettings from './settings/LauncherSettings.vue'
+import SkinSettings from './settings/SkinSettings.vue'
 
-type SettingsSubTab = 'project' | 'launcher'
+type SettingsSubTab = 'project' | 'launcher' | 'skin'
+
+interface Tab {
+  key: SettingsSubTab
+  label: string
+  needsInit?: boolean
+}
+
+const tabs: Tab[] = [
+  { key: 'launcher', label: 'Лаунчер' },
+  { key: 'project', label: 'Проект', needsInit: true },
+  { key: 'skin', label: 'Скин', needsInit: true },
+]
 
 const activeSubTab = ref<SettingsSubTab>('launcher')
 
@@ -34,21 +47,16 @@ const isProjectDisabled = computed((): boolean => {
     <h2 class="settings-tab__title">Настройки</h2>
 
     <div class="settings-tab__tabs">
-      <button
+      <Button
+        v-for="tab in tabs"
+        :key="tab.key"
         class="settings-tab__tab"
-        :class="{ 'settings-tab__tab--active': activeSubTab === 'launcher' }"
-        @click="activeSubTab = 'launcher'"
+        :class="{ 'settings-tab__tab--active': activeSubTab === tab.key }"
+        :is-disabled="tab.needsInit && isProjectDisabled"
+        @click="activeSubTab = tab.key"
       >
-        Лаунчер
-      </button>
-      <button
-        class="settings-tab__tab"
-        :class="{ 'settings-tab__tab--active': activeSubTab === 'project' }"
-        :disabled="isProjectDisabled"
-        @click="activeSubTab = 'project'"
-      >
-        Проект
-      </button>
+        {{ tab.label }}
+      </Button>
     </div>
 
     <div v-if="activeSubTab === 'project'" class="settings-tab__config">
@@ -63,6 +71,10 @@ const isProjectDisabled = computed((): boolean => {
 
     <div v-if="activeSubTab === 'launcher'" class="settings-tab__config">
       <LauncherSettings />
+    </div>
+
+    <div v-if="activeSubTab === 'skin'" class="settings-tab__config">
+      <SkinSettings />
     </div>
   </div>
 </template>
@@ -108,7 +120,7 @@ const isProjectDisabled = computed((): boolean => {
     transition: all 0.2s ease;
     font-family: inherit;
 
-    &:hover:not(:disabled) {
+    &:hover:not(.disabled) {
       color: var(--login-text-primary);
     }
 
@@ -117,7 +129,7 @@ const isProjectDisabled = computed((): boolean => {
       color: var(--login-text-primary);
     }
 
-    &:disabled {
+    &.disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
