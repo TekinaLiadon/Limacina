@@ -8,7 +8,7 @@ const coreStore = useCoreStore()
 const items: TabItem[] = [
   { key: 'login', icon: 'home', label: 'Войти' },
   { key: 'add-server', icon: 'referals', label: 'Добавить сервер', disabled: true },
-  { key: 'register', icon: 'referals', label: 'Регистрация' },
+  { key: 'register', icon: 'referals', label: 'Аккаунты' },
   { key: 'settings', icon: 'settings', label: 'Настройки' },
   { key: 'debug', icon: 'settings', label: 'Дебаг' },
 ]
