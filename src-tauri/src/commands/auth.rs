@@ -12,6 +12,27 @@ pub struct SavedCredentials {
 }
 
 #[tauri::command]
+pub async fn auth_register(
+    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
+    username: String,
+    password: String,
+) -> CommandResult<()> {
+    auth::register(&username, &password).await?;
+
+    storage::save_credential(&project_name, &username, "password", &password)?;
+    {
+        let mut state = state.lock().await;
+        if let Some(ref mut config) = state.launcher_config {
+            config.add_login(&project_name, &username);
+            config.save()?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn auth_login(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
@@ -28,13 +49,26 @@ pub async fn auth_login(
         auth::login(&username, &password).await?
     };
 
+    let uuid = auth_data
+        .profile
+        .as_ref()
+        .map(|p| p.uuid.clone())
+        .or_else(|| auth_data.uuid.clone())
+        .unwrap_or_default();
+    let username_str = auth_data
+        .profile
+        .as_ref()
+        .map(|p| p.username.clone())
+        .or_else(|| auth_data.username.clone())
+        .unwrap_or_default();
+
     {
         let mut state = state.lock().await;
         state.session = Some(SessionTokens {
-            access_token: auth_data.tokens.access_token,
+            access_token: auth_data.tokens.access_token.clone(),
             refresh_token: auth_data.tokens.refresh_token.clone(),
-            uuid: auth_data.profile.uuid,
-            username: auth_data.profile.username,
+            uuid,
+            username: username_str,
         });
 
         if let Some(ref mut config) = state.launcher_config {
@@ -88,13 +122,26 @@ pub async fn auth_refresh(
         }
     };
 
+    let uuid = auth_data
+        .profile
+        .as_ref()
+        .map(|p| p.uuid.clone())
+        .or_else(|| auth_data.uuid.clone())
+        .unwrap_or_default();
+    let username_str = auth_data
+        .profile
+        .as_ref()
+        .map(|p| p.username.clone())
+        .or_else(|| auth_data.username.clone())
+        .unwrap_or_default();
+
     {
         let mut state = state.lock().await;
         state.session = Some(SessionTokens {
-            access_token: auth_data.tokens.access_token,
+            access_token: auth_data.tokens.access_token.clone(),
             refresh_token: auth_data.tokens.refresh_token.clone(),
-            uuid: auth_data.profile.uuid,
-            username: auth_data.profile.username,
+            uuid,
+            username: username_str,
         });
     }
 

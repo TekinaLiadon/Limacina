@@ -1,4 +1,5 @@
 export { useAuthLogin } from './auth-login/useAuthLogin'
+export { useAuthRegister } from './auth-register/useAuthRegister'
 export { useGameLaunch } from './game-launch/useGameLaunch'
 export { useProjectSettings } from './project-settings/useProjectSettings'
 export { useLauncherSettings } from './launcher-settings/useLauncherSettings'

@@ -70,6 +70,14 @@ export async function authRefresh(projectName: string): Promise<boolean> {
   return invoke<boolean>('auth_refresh', { projectName })
 }
 
+export async function authRegister(
+  projectName: string,
+  username: string,
+  password: string
+): Promise<void> {
+  return invoke('auth_register', { projectName, username, password })
+}
+
 export async function downloadJava(): Promise<void> {
   return invoke('download_java')
 }
