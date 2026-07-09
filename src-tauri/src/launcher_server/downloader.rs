@@ -258,7 +258,7 @@ pub async fn download_mods(app: AppHandle, project_name: String, state: &Mutex<G
 
     if let Ok(mut entries) = tokio::fs::read_dir(&mods_dir).await {
         while let Some(entry) = entries.next_entry().await? {
-            if entry.file_type().await?.is_file() {
+            if !entry.file_type().await?.is_file() {
                 continue;
             }
             let name_os = entry.file_name();
