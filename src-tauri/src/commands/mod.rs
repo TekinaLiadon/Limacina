@@ -6,3 +6,4 @@ pub mod launcher_config;
 pub mod settings_project;
 pub mod start;
 pub mod update;
+pub mod user_content;

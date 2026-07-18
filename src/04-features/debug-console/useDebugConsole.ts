@@ -1,6 +1,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useSettingsStore } from '@/05-entities'
-import { getStartupLogs, listenGameConsole, copyToClipboard } from '@/06-shared/api'
+import { getStartupLogs, listenGameConsole } from '@/06-shared/api'
+import { copyToClipboard } from '@/06-shared'
 import type { ConsoleLog } from '@/05-entities/core/types'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 

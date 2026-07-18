@@ -27,7 +27,19 @@ export interface UpdateInfo {
   version: string
 }
 
-export type TabKey = 'login' | 'add-server' | 'register' | 'settings' | 'debug'
+export type TabKey = 'accounts' | 'add-server' | 'settings' | 'debug'
+
+export type AuthSubTab = 'login' | 'register'
+
+export interface UserContentItem {
+  id: number | null
+  url: string
+}
+
+export interface SessionInfo {
+  uuid: string
+  username: string
+}
 
 export interface ConsoleLog {
   line: string
@@ -53,6 +65,7 @@ export interface CoreState {
   projects: string[]
   totalMemoryMb: number
   isLoggedIn: boolean
+  session: SessionInfo | null
   loginSteps: StepProgressItem[]
   loginProgress: number
   loginError: string
@@ -78,3 +91,64 @@ export interface LoginForm {
 }
 
 export type AuthSaved = Pick<LoginForm, 'username' | 'password'>
+
+export interface RegisterForm {
+  login: string
+  password: string
+  confirmPassword: string
+}
+
+export interface CPMVec3 {
+  x: number
+  y: number
+  z: number
+}
+
+export interface CPMFaceUV {
+  sx: number
+  sy: number
+  ex: number
+  ey: number
+  rot: string
+  autoUV: boolean
+}
+
+export interface CPMChild {
+  name: string
+  size: CPMVec3
+  offset: CPMVec3
+  pos: CPMVec3
+  rotation: CPMVec3
+  scale: CPMVec3
+  mcScale?: number
+  mirror?: boolean
+  texture?: boolean
+  hidden?: boolean
+  show?: boolean
+  faceUV: Record<string, CPMFaceUV>
+  children?: CPMChild[]
+  _hidden?: boolean
+  _visible: boolean
+}
+
+export interface CPMElement {
+  id: string
+  name: string
+  pos: CPMVec3
+  rotation: CPMVec3
+  scale?: CPMVec3
+  show?: boolean
+  children?: CPMChild[]
+}
+
+export interface CPMConfig {
+  skinSize: { x: number; y: number }
+  scaling?: number
+  skinType?: 'default' | 'slim'
+  elements: CPMElement[]
+}
+
+export interface CPMData {
+  config: CPMConfig
+  textureUrl: string
+}

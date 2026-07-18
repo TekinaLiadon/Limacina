@@ -28,6 +28,24 @@ pub struct AuthData {
     pub role: Option<String>,
 }
 
+impl AuthData {
+    pub fn uuid(&self) -> String {
+        self.profile
+            .as_ref()
+            .map(|p| p.uuid.clone())
+            .or_else(|| self.uuid.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn username(&self, fallback: &str) -> String {
+        self.profile
+            .as_ref()
+            .map(|p| p.username.clone())
+            .or_else(|| self.username.clone())
+            .unwrap_or_else(|| fallback.to_string())
+    }
+}
+
 #[derive(serde::Serialize)]
 struct AuthLoginRequest {
     username: String,

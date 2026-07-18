@@ -5,9 +5,48 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'Home',
-      component: () => import('@/02-pages/Home.vue'),
-      alias: '/home',
+      name: 'Accounts',
+      component: () => import('@/02-pages/Accounts.vue'),
+    },
+    {
+      path: '/add-server',
+      name: 'AddServer',
+      component: () => import('@/02-pages/AddServer.vue'),
+    },
+    {
+      path: '/settings',
+      component: () => import('@/02-pages/Settings.vue'),
+      children: [
+        {
+          path: '',
+          redirect: { name: 'SettingsLauncher' },
+        },
+        {
+          path: 'launcher',
+          name: 'SettingsLauncher',
+          component: () => import('@/02-pages/settings/LauncherPage.vue'),
+        },
+        {
+          path: 'project',
+          name: 'SettingsProject',
+          component: () => import('@/02-pages/settings/ProjectPage.vue'),
+        },
+        {
+          path: 'skin',
+          name: 'SettingsSkin',
+          component: () => import('@/02-pages/settings/SkinPage.vue'),
+        },
+        {
+          path: 'model',
+          name: 'SettingsModel',
+          component: () => import('@/02-pages/settings/ModelPage.vue'),
+        },
+      ],
+    },
+    {
+      path: '/debug',
+      name: 'Debug',
+      component: () => import('@/02-pages/Debug.vue'),
     },
     {
       path: '/setup',

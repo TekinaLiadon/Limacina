@@ -1,2 +1,1 @@
-export { default as init } from './init'
-export { useAppInit } from './useAppInit'
+export { useAppInit } from '@/04-features'

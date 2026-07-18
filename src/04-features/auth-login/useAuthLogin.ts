@@ -1,14 +1,14 @@
 import {ref, onMounted} from 'vue'
-import {useCoreStore} from '@/05-entities'
+import {useCoreStore, useNotificationStore} from '@/05-entities'
 import {authLogins, authSaved, authLogin} from '@/06-shared/api'
 import type {AuthUserData, LoginForm} from '@/05-entities/core/types'
 
 export function useAuthLogin() {
     const coreStore = useCoreStore()
+    const notification = useNotificationStore()
     const isLoading = ref<boolean>(false)
     const errorMessage = ref<string>('')
     const logins = ref<string[]>([])
-    const showNotification = ref<boolean>(false)
     const formData = ref<LoginForm>({
         username: '',
         password: '',
@@ -44,7 +44,7 @@ export function useAuthLogin() {
             }
             await authLogin(authData)
             coreStore.isLoggedIn = true
-            showNotification.value = true
+            notification.show('Авторизация прошла успешно')
         } catch (e: unknown) {
             console.error(e)
             errorMessage.value = String(e)
@@ -59,7 +59,6 @@ export function useAuthLogin() {
         isLoading,
         errorMessage,
         logins,
-        showNotification,
         formData,
         handleLogin,
     }
