@@ -1,6 +1,6 @@
-import { ref, watch, onMounted, onBeforeUnmount, shallowRef, type Ref } from 'vue'
+import { watch, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { useThreeScene } from '@/06-shared'
 
 interface BodyPart {
   w: number
@@ -43,7 +43,6 @@ function buildPlayerModel(texture: THREE.Texture): THREE.Group {
   const texW = img.width
   const texH = img.height
   const s = texW / 64
-
   const isOldFormat = texH === 32 * s
 
   PARTS.forEach((part, index) => {
@@ -103,66 +102,28 @@ function buildPlayerModel(texture: THREE.Texture): THREE.Group {
   return group
 }
 
-export function useSkinViewer(container: Ref<HTMLDivElement | null>, skinUrl: Ref<string>) {
-  const renderer = shallowRef<THREE.WebGLRenderer | null>(null)
-  const scene = shallowRef<THREE.Scene | null>(null)
-  const camera = shallowRef<THREE.PerspectiveCamera | null>(null)
+export function useSkinViewer(
+    container: Ref<HTMLDivElement | null>,
+    skinUrl: Ref<string>,
+    zoomLevel: Ref<number>,
+    rotationY: Ref<number>,
+) {
+  const { scene, camera } = useThreeScene(container, { autoRotate: false })
   const playerGroup = shallowRef<THREE.Group | null>(null)
-  const animationId = ref<number>(0)
   let loadGeneration = 0
-  let orbitControls: OrbitControls | null = null
 
-  function initScene(): void {
-    if (!container.value) return
+  function fitModelToView(): void {
+    if (!playerGroup.value || !camera.value) return
 
-    const w = container.value.clientWidth
-    const h = container.value.clientHeight
+    const box = new THREE.Box3().setFromObject(playerGroup.value)
+    const size = box.getSize(new THREE.Vector3())
+    const maxDim = Math.max(size.x, size.y, size.z)
+    const fov = camera.value.fov * (Math.PI / 180)
+    const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.2
 
-    const s = new THREE.Scene()
-    s.background = new THREE.Color(0x1a1d2e)
-    scene.value = s
-
-    const cam = new THREE.PerspectiveCamera(35, w / h, 0.1, 100)
-    cam.position.set(0, 5, 22)
-    camera.value = cam
-
-    const r = new THREE.WebGLRenderer({ antialias: true })
-    r.setSize(w, h)
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    container.value.appendChild(r.domElement)
-    renderer.value = r
-
-    s.add(new THREE.AmbientLight(0xffffff, 0.85))
-
-    const dLight = new THREE.DirectionalLight(0xffffff, 0.6)
-    dLight.position.set(5, 12, 8)
-    s.add(dLight)
-
-    const bLight = new THREE.DirectionalLight(0xffffff, 0.3)
-    bLight.position.set(-5, 5, -8)
-    s.add(bLight)
-
-    const ctrl = new OrbitControls(cam, r.domElement)
-    ctrl.enableDamping = true
-    ctrl.dampingFactor = 0.08
-    ctrl.enableZoom = false
-    ctrl.enablePan = false
-    ctrl.minPolarAngle = Math.PI / 4
-    ctrl.maxPolarAngle = Math.PI / 1.6
-    ctrl.autoRotate = true
-    ctrl.autoRotateSpeed = 1.5
-    orbitControls = ctrl
-
-    r.domElement.addEventListener('wheel', (e: WheelEvent) => {
-      e.preventDefault = () => {}
-    }, { capture: true, passive: true })
-
-    const animate = (): void => {
-      animationId.value = requestAnimationFrame(animate)
-      ctrl.update()
-      r.render(s, cam)
-    }
-    animate()
+    camera.value.position.set(0, 5, distance)
+    camera.value.lookAt(0, 5, 0)
+    zoomLevel.value = distance
   }
 
   function loadSkin(url: string): void {
@@ -187,37 +148,29 @@ export function useSkinViewer(container: Ref<HTMLDivElement | null>, skinUrl: Re
       const player = buildPlayerModel(texture)
       scene.value!.add(player)
       playerGroup.value = player
+      fitModelToView()
     })
   }
-
-  function onResize(): void {
-    if (!container.value || !camera.value || !renderer.value) return
-    const w = container.value.clientWidth
-    const h = container.value.clientHeight
-    camera.value.aspect = w / h
-    camera.value.updateProjectionMatrix()
-    renderer.value.setSize(w, h)
-  }
-
-  function cleanup(): void {
-    cancelAnimationFrame(animationId.value)
-    window.removeEventListener('resize', onResize)
-    orbitControls?.dispose()
-    renderer.value?.dispose()
-  }
-
-  onMounted(() => {
-    initScene()
-    window.addEventListener('resize', onResize)
-    if (skinUrl.value) loadSkin(skinUrl.value)
-  })
 
   watch(skinUrl, (url: string) => {
     if (url) loadSkin(url)
   })
 
-  onBeforeUnmount(() => {
-    cleanup()
+  watch(scene, (s) => {
+    if (s && skinUrl.value) loadSkin(skinUrl.value)
+  })
+
+  watch(zoomLevel, (dist) => {
+    if (camera.value) {
+      camera.value.position.set(0, 5, dist)
+      camera.value.lookAt(0, 5, 0)
+    }
+  })
+
+  watch(rotationY, (angle) => {
+    if (playerGroup.value) {
+      playerGroup.value.rotation.y = THREE.MathUtils.degToRad(angle)
+    }
   })
 
   return {}

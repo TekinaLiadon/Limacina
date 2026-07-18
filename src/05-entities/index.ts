@@ -11,7 +11,10 @@ export type {
   ProjectConfig,
   AuthSaved,
   LoginForm,
+  RegisterForm,
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'
 export type { SettingsState } from './settings/settingsStore'
+
+export { useNotificationStore } from './notification/notificationStore'

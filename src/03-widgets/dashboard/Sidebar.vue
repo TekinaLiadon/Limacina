@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { useCoreStore } from '@/05-entities'
 import { IconButton } from '@/06-shared'
 import type { TabItem, TabKey } from '@/03-widgets/types'
 
-const coreStore = useCoreStore()
+defineProps<{
+  activeTab: TabKey
+}>()
+
+const emit = defineEmits<{
+  navigate: [key: TabKey]
+}>()
 
 const items: TabItem[] = [
-  { key: 'login', icon: 'home', label: 'Войти' },
+  { key: 'accounts', icon: 'home', label: 'Аккаунты' },
   { key: 'add-server', icon: 'referals', label: 'Добавить сервер', disabled: true },
-  { key: 'register', icon: 'referals', label: 'Аккаунты' },
   { key: 'settings', icon: 'settings', label: 'Настройки' },
   { key: 'debug', icon: 'settings', label: 'Дебаг' },
 ]
-
-const setActiveTab = (key: TabKey): void => {
-  coreStore.activeTab = key
-}
 </script>
 
 <template>
@@ -26,10 +26,10 @@ const setActiveTab = (key: TabKey): void => {
         :key="item.key"
         class="sidebar__item"
         :class="{
-          'sidebar__item--active': coreStore.activeTab === item.key,
+          'sidebar__item--active': activeTab === item.key,
           'sidebar__item--disabled': item.disabled,
         }"
-        @click="setActiveTab(item.key)"
+        @click="!item.disabled && emit('navigate', item.key)"
       >
         <IconButton tag="span" :icon="item.icon" />
         <span class="sidebar__label">{{ item.label }}</span>

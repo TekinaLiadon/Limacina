@@ -1,6 +1,6 @@
 <script setup lang="ts">
 
-import { Button, Input, ProgressBar, PushNotification } from '@/06-shared'
+import { Button, Input, ProgressBar } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 import { useAuthLogin, useGameLaunch } from '@/04-features'
 import StepProgress from "@/03-widgets/tabs/login/StepProgress.vue";
@@ -10,7 +10,6 @@ const {
   isLoading,
   errorMessage,
   logins,
-  showNotification,
   formData,
   handleLogin: login,
 } = useAuthLogin()
@@ -29,12 +28,6 @@ const handleLogin = async (): Promise<void> => {
 
 <template>
   <div class="login-tab">
-    <PushNotification
-      :visible="showNotification"
-      message="Авторизация прошла успешно"
-      @update:visible="showNotification = $event"
-    />
-
     <template v-if="!coreStore.isLoggedIn">
       <div class="login-tab__form">
         <h2 class="login-tab__title">Вход</h2>

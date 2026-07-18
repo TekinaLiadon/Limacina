@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { CoreState } from './types'
+import type { CoreState } from './types/index'
 
 export const useCoreStore = defineStore('core', {
   state: (): CoreState => ({
@@ -9,11 +9,12 @@ export const useCoreStore = defineStore('core', {
     defaultParentPath: '',
     launcherConfig: null,
     version: '',
-    activeTab: 'login',
+    activeTab: 'accounts',
     currentProject: 'Cordelia',
     projects: ['Cordelia'],
     totalMemoryMb: 0,
     isLoggedIn: false,
+    session: null,
     loginSteps: [],
     loginProgress: 0,
     loginError: '',

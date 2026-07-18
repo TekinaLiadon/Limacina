@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, AuthSaved, ConsoleLog } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, AuthSaved, ConsoleLog, UserContentItem, SessionInfo } from '@/05-entities/core/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -57,6 +57,10 @@ export async function authLogins(projectName: string): Promise<string[]> {
   return invoke<string[]>('auth_logins', { projectName })
 }
 
+export async function deleteAccount(projectName: string, username: string): Promise<void> {
+  return invoke('delete_account', { projectName, username })
+}
+
 export async function authSaved(projectName: string): Promise<AuthSaved | null> {
   return invoke<AuthSaved | null>('auth_saved', { projectName })
 }
@@ -66,8 +70,8 @@ export async function authLogin(info: AuthUserData): Promise<void> {
   return invoke('auth_login', { projectName, username, password, rememberMe })
 }
 
-export async function authRefresh(projectName: string): Promise<boolean> {
-  return invoke<boolean>('auth_refresh', { projectName })
+export async function authRefresh(projectName: string): Promise<string> {
+  return invoke<string>('auth_refresh', { projectName })
 }
 
 export async function authRegister(
@@ -110,6 +114,38 @@ export async function listenGameConsole(
   })
 }
 
-export async function copyToClipboard(text: string): Promise<void> {
-  await navigator.clipboard.writeText(text)
+export async function selectAccount(projectName: string, username: string): Promise<SessionInfo> {
+  return invoke<SessionInfo>('select_account', { projectName, username })
+}
+
+export async function getSessionInfo(): Promise<SessionInfo | null> {
+  return invoke<SessionInfo | null>('get_session_info')
+}
+
+export async function logoutAccount(): Promise<void> {
+  return invoke('logout_account')
+}
+
+export async function uploadSkin(fileData: number[]): Promise<UserContentItem> {
+  return invoke<UserContentItem>('upload_skin', { fileData })
+}
+
+export async function listSkins(uuid: string): Promise<UserContentItem[]> {
+  return invoke<UserContentItem[]>('list_skins', { uuid })
+}
+
+export async function deleteSkin(id: number): Promise<void> {
+  return invoke('delete_skin', { id })
+}
+
+export async function uploadModel(fileContent: string): Promise<UserContentItem> {
+  return invoke<UserContentItem>('upload_model', { fileContent })
+}
+
+export async function listModels(uuid: string): Promise<UserContentItem[]> {
+  return invoke<UserContentItem[]>('list_models', { uuid })
+}
+
+export async function deleteModel(id: number): Promise<void> {
+  return invoke('delete_model', { id })
 }

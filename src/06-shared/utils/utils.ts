@@ -23,3 +23,7 @@ export const randomId = (): string => {
     arrayExample[Math.floor(Math.random() * arrayExample.length)]
   }${makeid(2)}`
 }
+
+export async function copyToClipboard(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text)
+}

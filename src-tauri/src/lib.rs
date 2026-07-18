@@ -9,7 +9,7 @@ mod state;
 mod updater;
 mod utils;
 
-use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, auth_saved};
+use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, auth_saved, delete_account};
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
@@ -20,6 +20,10 @@ use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
 use commands::update::{apply_update_cmd, check_update};
+use commands::user_content::{
+    delete_model, delete_skin, get_session_info, list_models, list_skins,
+    logout_account, select_account, upload_model, upload_skin,
+};
 use tauri::Manager;
 use tokio::sync::Mutex;
 use utils::logger_utils;
@@ -81,6 +85,7 @@ pub fn run() {
             auth_refresh,
             auth_saved,
             auth_logins,
+            delete_account,
             get_app_init_data,
             save_launcher_config,
             save_launcher_settings,
@@ -97,6 +102,15 @@ pub fn run() {
             check_update,
             apply_update_cmd,
             get_startup_logs,
+            select_account,
+            get_session_info,
+            logout_account,
+            upload_skin,
+            list_skins,
+            delete_skin,
+            upload_model,
+            list_models,
+            delete_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

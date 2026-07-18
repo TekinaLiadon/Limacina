@@ -1,13 +1,13 @@
 import { ref, onMounted } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { saveLauncherSettings, saveLauncherConfig } from '@/06-shared/api'
 import type { LauncherSettingsPayload } from '@/06-shared/api'
 import { open } from '@tauri-apps/plugin-dialog'
 
 export function useLauncherSettings() {
   const coreStore = useCoreStore()
+  const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
-  const showNotification = ref<boolean>(false)
   const launcherPath = ref<string>('')
 
   const settings = ref<LauncherSettingsPayload>({
@@ -61,7 +61,7 @@ export function useLauncherSettings() {
 
       const updated = await saveLauncherSettings(settings.value)
       coreStore.launcherConfig = updated
-      showNotification.value = true
+      notification.show('Настройки сохранены')
     } catch (e: unknown) {
       console.error(e)
     } finally {
@@ -73,7 +73,6 @@ export function useLauncherSettings() {
     launcherPath,
     settings,
     isSaving,
-    showNotification,
     selectLauncherFolder,
     handleSave,
   }

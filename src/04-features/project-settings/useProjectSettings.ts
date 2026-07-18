@@ -1,5 +1,5 @@
 import { ref, computed, watch } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { loadSettingsProject, saveSettingsProject } from '@/06-shared/api'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { ProjectConfig } from '@/05-entities/core/types'
@@ -18,8 +18,8 @@ interface SettingsForm {
 
 export function useProjectSettings() {
   const coreStore = useCoreStore()
+  const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
-  const showNotification = ref<boolean>(false)
   const isLoaded = ref<boolean>(false)
 
   const config = ref<SettingsForm>({
@@ -92,7 +92,7 @@ export function useProjectSettings() {
         initialized: config.value.initialized,
       }
       await saveSettingsProject(projectConfig)
-      showNotification.value = true
+      notification.show('Настройки сохранены')
     } catch (e: unknown) {
       console.error(e)
     } finally {
@@ -105,7 +105,6 @@ export function useProjectSettings() {
     isLoaded,
     maxMemoryLimit,
     isSaving,
-    showNotification,
     selectJavaFolder,
     handleSave,
   }

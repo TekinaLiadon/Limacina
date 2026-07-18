@@ -19,8 +19,7 @@ export interface TabItem {
   disabled?: boolean
 }
 
-export interface RegisterForm {
-  login: string
-  password: string
-  confirmPassword: string
+export interface ContentListItem {
+  id: number | null
+  url: string
 }

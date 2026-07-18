@@ -193,6 +193,7 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
             if let Ok(line) = line {
+                log_info!("[MC] {}", line);
                 let _ = app_out.emit(
                     "game-console",
                     ConsolePayload {
@@ -209,7 +210,7 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
-                log_err!("{}", line);
+                log_err!("[MC] {}", line);
                 let _ = app_err.emit(
                     "game-console",
                     ConsolePayload {

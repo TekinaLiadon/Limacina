@@ -1,26 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   modelValue: [number, number]
-  min: number
   max: number
-  step: number
-  label: string
-  unit: string
-  disabled?: boolean
-}>(), {
-  disabled: false,
-})
+}>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: [number, number]]
 }>()
 
+const min = 512
+const step = 512
+
 const minVal = computed({
   get: () => props.modelValue[0],
   set: (v: number) => {
-    const clamped = Math.min(v, props.modelValue[1] - props.step)
+    const clamped = Math.min(v, props.modelValue[1] - step)
     emit('update:modelValue', [clamped, props.modelValue[1]])
   },
 })
@@ -28,7 +24,7 @@ const minVal = computed({
 const maxVal = computed({
   get: () => props.modelValue[1],
   set: (v: number) => {
-    const clamped = Math.max(v, props.modelValue[0] + props.step)
+    const clamped = Math.max(v, props.modelValue[0] + step)
     emit('update:modelValue', [props.modelValue[0], clamped])
   },
 })
@@ -37,15 +33,15 @@ const formatValue = (val: number): string => {
   if (val >= 1024) {
     return `${(val / 1024).toFixed(val % 1024 === 0 ? 0 : 1)}G`
   }
-  return `${val}${props.unit}`
+  return `${val}M`
 }
 
 const minPercent = computed((): number => {
-  return ((minVal.value - props.min) / (props.max - props.min)) * 100
+  return ((minVal.value - min) / (props.max - min)) * 100
 })
 
 const maxPercent = computed((): number => {
-  return ((maxVal.value - props.min) / (props.max - props.min)) * 100
+  return ((maxVal.value - min) / (props.max - min)) * 100
 })
 
 const onMinInput = (e: Event): void => {
@@ -60,9 +56,9 @@ const onMaxInput = (e: Event): void => {
 </script>
 
 <template>
-  <div class="dual-range" :class="{ 'dual-range--disabled': disabled }">
+  <div class="dual-range">
     <div class="dual-range__header">
-      <label class="dual-range__label">{{ label }}</label>
+      <label class="dual-range__label">Память (min — max)</label>
       <span class="dual-range__values">
         {{ formatValue(minVal) }} — {{ formatValue(maxVal) }}
       </span>
@@ -82,7 +78,6 @@ const onMaxInput = (e: Event): void => {
         :max="max"
         :step="step"
         :value="minVal"
-        :disabled="disabled"
         @input="onMinInput"
       />
       <input
@@ -92,7 +87,6 @@ const onMaxInput = (e: Event): void => {
         :max="max"
         :step="step"
         :value="maxVal"
-        :disabled="disabled"
         @input="onMaxInput"
       />
     </div>
@@ -104,11 +98,6 @@ const onMaxInput = (e: Event): void => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-
-  &--disabled {
-    opacity: 0.5;
-    pointer-events: none;
-  }
 
   &__header {
     display: flex;
