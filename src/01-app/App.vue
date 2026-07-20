@@ -67,7 +67,7 @@ const navigateTo = (key: TabKey): void => {
       <template v-else>
         <div v-if="showLayout" class="app__layout">
           <div class="app__header">
-            <div class="app__project">
+            <div class="app__project" v-if="coreStore.projects.length > 0">
               <Dropdown
                 :options="projectOptions"
                 v-model="coreStore.currentProject"
