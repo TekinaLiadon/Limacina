@@ -8,7 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:update": "bunx tauri build && node scripts/build-update.cjs"
+    "build:update": "bunx tauri build && node scripts/build-update.cjs",
+    "clean": "cargo clean"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.31",
