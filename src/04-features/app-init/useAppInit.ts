@@ -5,7 +5,7 @@ import {useRouter} from 'vue-router'
 import type {ProjectConfig} from '@/05-entities/core/types'
 
 const defaultProjectConfig: ProjectConfig = {
-    projectName: 'Cordelia',
+    projectName: '',
     mcVersion: '1.21.1',
     modLoader: 'neoforge',
     loaderVersion: null,
@@ -33,6 +33,13 @@ export function useAppInit() {
             coreStore.version = initData.version
             coreStore.totalMemoryMb = initData.totalMemoryMb
 
+            if (initData.launcherConfig) {
+                coreStore.projects = [...initData.launcherConfig.projectNames]
+                if (coreStore.projects.length > 0) {
+                    coreStore.currentProject = coreStore.projects[0]
+                }
+            }
+
             preloaderText.value = 'Проверка обновлений...'
             const updateInfo = await checkUpdate()
             if (updateInfo) {
@@ -48,6 +55,12 @@ export function useAppInit() {
                 coreStore.version = freshData.version
                 coreStore.launcherConfig = freshData.launcherConfig
                 coreStore.hasLauncherConfig = !!freshData.launcherConfig
+                if (freshData.launcherConfig) {
+                    coreStore.projects = [...freshData.launcherConfig.projectNames]
+                    if (coreStore.projects.length > 0 && !coreStore.currentProject) {
+                        coreStore.currentProject = coreStore.projects[0]
+                    }
+                }
             }
 
             if (!coreStore.launcherConfig) {
@@ -55,11 +68,13 @@ export function useAppInit() {
                 return
             }
 
-            try {
-                await loadSettingsProject('Cordelia')
-            } catch (e: unknown) {
-                await saveSettingsProject(defaultProjectConfig)
-                console.error('Ошибка загрузки конфига:', e)
+            if (coreStore.currentProject) {
+                try {
+                    await loadSettingsProject(coreStore.currentProject)
+                } catch (e: unknown) {
+                    await saveSettingsProject({ ...defaultProjectConfig, projectName: coreStore.currentProject })
+                    console.error('Ошибка загрузки конфига:', e)
+                }
             }
         } catch (e: unknown) {
             console.error('Ошибка инициализации:', e)
