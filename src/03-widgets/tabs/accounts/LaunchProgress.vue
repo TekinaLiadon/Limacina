@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ProgressBar } from '@/06-shared'
+import {Button, ProgressBar} from '@/06-shared'
 import { StepProgress } from '@/03-widgets'
 import type { StepProgressItem } from '@/05-entities/core/types'
 
@@ -8,6 +8,17 @@ defineProps<{
   steps: StepProgressItem[]
   error?: string
 }>()
+
+defineEmits<{
+  'go-to-accounts': []
+}>()
+
+const isLaunchStep = (steps: StepProgressItem[]): boolean => {
+  if (steps.length === 0) return false
+
+  const last = steps[steps.length - 1]
+  return last.status === 'active' || last.status === 'done' || last.status === 'error'
+}
 </script>
 
 <template>
@@ -17,6 +28,14 @@ defineProps<{
     </div>
 
     <StepProgress :steps="steps" />
+
+    <Button
+        class="btn-yellow current-account__btn current-account__btn--secondary"
+        :is-disabled="!isLaunchStep(steps)"
+        @click="$emit('go-to-accounts')"
+    >
+      Выбрать другой
+    </Button>
 
     <div v-if="error" class="launch-progress__error">
       {{ error }}

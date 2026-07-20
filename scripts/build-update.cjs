@@ -31,7 +31,7 @@ if (platform === "win32") {
   zipName = `limacina-${version}-osx-${arch}.zip`;
 } else {
   osName = "linux";
-  binaryName = productName.toLowerCase();
+  binaryName = productName;
   zipName = `limacina-${version}-linux-${arch}.zip`;
 }
 

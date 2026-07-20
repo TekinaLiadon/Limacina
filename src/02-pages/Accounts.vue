@@ -37,6 +37,7 @@ const {
       :error-message="errorMessage"
       @select="handleSelect"
       @delete="handleDeleteAccount"
+      @show-login="showLoginForm"
     />
 
     <CurrentAccount
@@ -52,6 +53,7 @@ const {
       :progress="activeProgress"
       :steps="launchSteps"
       :error="loginError"
+      @go-to-accounts="goToAccounts"
     />
 
     <AuthTabsWidget

@@ -1,12 +1,12 @@
-import { ref, computed } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { computed } from 'vue'
+import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { useAccounts, useGameLaunch } from '@/04-features'
 import { deleteAccount } from '@/06-shared/api'
-import type { AuthSubTab } from '@/05-entities/core/types'
 
 export function useAccountsPage() {
   const coreStore = useCoreStore()
   const notificationStore = useNotificationStore()
+  const store = useAccountsStore()
 
   const {
     isLoading,
@@ -23,34 +23,42 @@ export function useAccountsPage() {
     executeSteps,
   } = useGameLaunch()
 
-  const showAuthForm = ref<boolean>(false)
-  const activeSubTab = ref<AuthSubTab>('login')
-  const isLaunching = ref<boolean>(false)
+  let launchCancelled = false
 
   const hasAccounts = computed((): boolean => logins.value.length > 0)
-  const showAccountList = computed((): boolean => hasAccounts.value && !coreStore.isLoggedIn && !showAuthForm.value && !isLaunching.value)
-  const showCurrentAccount = computed((): boolean => coreStore.isLoggedIn && !showAuthForm.value && !isLaunching.value)
-  const showLaunchProgress = computed((): boolean => isLaunching.value)
+  const showAccountList = computed((): boolean => hasAccounts.value && !coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
+  const showCurrentAccount = computed((): boolean => coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
+  const showLaunchProgress = computed((): boolean => store.isLaunching)
   const showAuthTabs = computed((): boolean => !showAccountList.value && !showCurrentAccount.value && !showLaunchProgress.value)
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
 
   const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
 
   const handleLaunch = async (): Promise<void> => {
-    isLaunching.value = true
-    await executeSteps()
+    launchCancelled = false
+    store.isLaunching = true
+    await executeSteps(() => launchCancelled)
   }
 
   const showLoginForm = (): void => {
-    showAuthForm.value = true
-    activeSubTab.value = 'login'
+    store.showAuthForm = true
+    store.activeSubTab = 'login'
   }
 
   const goToAccounts = (): void => {
+    launchCancelled = true
+    store.isLaunching = false
     coreStore.isLoggedIn = false
     coreStore.session = null
-    showAuthForm.value = false
+    store.showAuthForm = false
   }
+
+  const activeSubTab = computed({
+    get: () => store.activeSubTab,
+    set: (v) => { store.activeSubTab = v },
+  })
+  const loginError = computed((): string => coreStore.loginError)
+  const sessionUsername = computed((): string => coreStore.session?.username ?? '')
 
   const handleDeleteAccount = async (username: string): Promise<void> => {
     const confirmed = await notificationStore.confirm(`Вы хотите удалить аккаунт ${username}?`)
@@ -79,8 +87,8 @@ export function useAccountsPage() {
     activeSubTab,
     launchSteps,
     activeProgress,
-    loginError: computed((): string => coreStore.loginError),
-    sessionUsername: computed((): string => coreStore.session?.username ?? ''),
+    loginError,
+    sessionUsername,
     handleLaunch,
     showLoginForm,
     goToAccounts,

@@ -2,7 +2,7 @@
 
 import { Button, Input, ProgressBar } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
-import { useAuthLogin, useGameLaunch } from '@/04-features'
+import { useAuth, useGameLaunch } from '@/04-features'
 import StepProgress from "@/03-widgets/tabs/login/StepProgress.vue";
 
 const coreStore = useCoreStore()
@@ -10,9 +10,9 @@ const {
   isLoading,
   errorMessage,
   logins,
-  formData,
+  loginFormData,
   handleLogin: login,
-} = useAuthLogin()
+} = useAuth()
 
 const {
   launchSteps,
@@ -34,22 +34,22 @@ const handleLogin = async (): Promise<void> => {
 
         <div class="login-tab__field">
           <Input
-            v-model="formData.username"
+            v-model="loginFormData.username"
             :options="{ placeholder: 'Никнейм', list: logins }"
           />
         </div>
 
         <div class="login-tab__field">
           <Input
-            v-model="formData.password"
+            v-model="loginFormData.password"
             :options="{ placeholder: 'Пароль', type: 'password' }"
           />
         </div>
 
         <div class="login-tab__field">
-          <label class="login-tab__checkbox" @click.prevent="formData.rememberMe = !formData.rememberMe">
-            <span class="login-tab__check" :class="{ 'login-tab__check--checked': formData.rememberMe }">
-              <svg v-if="formData.rememberMe" width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <label class="login-tab__checkbox" @click.prevent="loginFormData.rememberMe = !loginFormData.rememberMe">
+            <span class="login-tab__check" :class="{ 'login-tab__check--checked': loginFormData.rememberMe }">
+              <svg v-if="loginFormData.rememberMe" width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </span>

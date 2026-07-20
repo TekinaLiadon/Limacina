@@ -18,3 +18,6 @@ export { useSettingsStore } from './settings/settingsStore'
 export type { SettingsState } from './settings/settingsStore'
 
 export { useNotificationStore } from './notification/notificationStore'
+
+export { useAccountsStore } from './accounts/accountsStore'
+export type { AccountsState } from './accounts/accountsStore'

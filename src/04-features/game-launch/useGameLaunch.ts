@@ -1,5 +1,5 @@
-import { ref } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { computed } from 'vue'
+import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft } from '@/06-shared/api'
 import type { StepProgressItem, ProjectConfig } from '@/05-entities/core/types'
 
@@ -41,10 +41,18 @@ function resetSteps(defs: StepDef[]): StepProgressItem[] {
 
 export function useGameLaunch() {
   const coreStore = useCoreStore()
-  const launchSteps = ref<StepProgressItem[]>([])
-  const activeProgress = ref<number>(0)
+  const store = useAccountsStore()
 
-  const executeSteps = async (): Promise<void> => {
+  const launchSteps = computed({
+    get: (): StepProgressItem[] => store.launchSteps,
+    set: (v: StepProgressItem[]): void => { store.launchSteps = v },
+  })
+  const activeProgress = computed({
+    get: (): number => store.activeProgress,
+    set: (v: number): void => { store.activeProgress = v },
+  })
+
+  const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
     const config = await initializeProject(coreStore.currentProject)
 
     const stepDefs = config.initialized ? buildLaunchSteps(config) : buildInstallSteps()
@@ -54,6 +62,8 @@ export function useGameLaunch() {
     coreStore.loginError = ''
 
     for (let i = 0; i < stepDefs.length; i++) {
+      if (isCancelled?.()) return
+
       if (i > 0) launchSteps.value[i - 1].status = 'done'
 
       const step = launchSteps.value[i]
@@ -63,11 +73,14 @@ export function useGameLaunch() {
       try {
         await stepDefs[i].action()
       } catch (error: unknown) {
+        if (isCancelled?.()) return
         step.status = 'error'
         coreStore.loginError = String(error)
         return
       }
     }
+
+    if (isCancelled?.()) return
 
     const last = launchSteps.value[launchSteps.value.length - 1]
     last.status = 'done'

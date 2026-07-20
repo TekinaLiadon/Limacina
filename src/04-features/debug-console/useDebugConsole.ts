@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useSettingsStore } from '@/05-entities'
 import { getStartupLogs, listenGameConsole } from '@/06-shared/api'
 import { copyToClipboard } from '@/06-shared'
@@ -80,18 +80,12 @@ export function useDebugConsole() {
     await copyToClipboard(text)
   }
 
-  onMounted(async (): Promise<void> => {
-    await initLogs()
-    await startStreaming()
-  })
-
-  onUnmounted((): void => {
-    stopStreaming()
-  })
-
   return {
     logs: computed(() => logs.value),
     settingsStore,
     handleCopy,
+    initLogs,
+    startStreaming,
+    stopStreaming,
   }
 }

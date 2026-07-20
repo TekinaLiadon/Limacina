@@ -89,18 +89,8 @@ pub async fn auth_login(
 pub async fn auth_refresh(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
+    username: String,
 ) -> CommandResult<String> {
-    let username = {
-        let state = state.lock().await;
-        state
-            .launcher_config
-            .as_ref()
-            .and_then(|lc| lc.get_first_login(&project_name))
-    };
-
-    let Some(username) = username else {
-        return Ok(String::new());
-    };
 
     let auth_data = if let Ok(refresh_token) = storage::get_credential(&project_name, &username, "refresh_token") {
         match auth::refresh(&refresh_token).await {

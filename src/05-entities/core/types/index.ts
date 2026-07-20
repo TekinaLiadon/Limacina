@@ -152,3 +152,8 @@ export interface CPMData {
   config: CPMConfig
   textureUrl: string
 }
+
+export interface JavaDistribution {
+  name: string
+  apiParameter: string
+}

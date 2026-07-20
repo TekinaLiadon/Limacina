@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::dto::{create_mod_loader, resolve_latest_loader_version};
 use crate::java::install_java;
+use crate::java::alternative_java::{download_alt_java, get_java_distributions_list, JavaDistribution};
 use crate::launcher_server::downloader::download_all_files;
 use crate::launcher_server::downloader::download_mods;
 use crate::minecraft::structs::MinecraftLoader;
@@ -81,4 +82,29 @@ pub async fn download_server_mods(
         .project_name
         .clone();
     download_mods(app, project_name, &state).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_java_distributions() -> CommandResult<Vec<JavaDistribution>> {
+    Ok(get_java_distributions_list())
+}
+
+#[tauri::command]
+pub async fn download_alternative_java(
+    state: tauri::State<'_, Mutex<GlobalState>>,
+    distribution: String,
+    java_version: Option<String>,
+    replace_default: bool,
+) -> CommandResult<String> {
+    let (mc_version, _) = {
+        let s = state.lock().await;
+        (s.project_config.mc_version.clone(), s.project_config.java_path.clone())
+    };
+    let java_path = download_alt_java(&distribution, java_version.as_deref(), &mc_version).await?;
+    if replace_default {
+        let mut state = state.lock().await;
+        state.project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+        state.project_config.save_config().await?;
+    }
+    Ok("Ok".to_string())
 }
