@@ -1,21 +1,7 @@
 import {onBeforeMount, ref} from 'vue'
 import {useCoreStore} from '@/05-entities'
-import {getAppInitData, checkUpdate, applyUpdateCmd, loadSettingsProject, saveSettingsProject} from '@/06-shared/api'
+import {getAppInitData, checkUpdate, applyUpdateCmd, loadSettingsProject} from '@/06-shared/api'
 import {useRouter} from 'vue-router'
-import type {ProjectConfig} from '@/05-entities/core/types'
-
-const defaultProjectConfig: ProjectConfig = {
-    projectName: '',
-    mcVersion: '1.21.1',
-    modLoader: 'neoforge',
-    loaderVersion: null,
-    javaPath: null,
-    jvmArgs: [],
-    minMemory: '-Xms512M',
-    maxMemory: '-Xmx4G',
-    online: true,
-    initialized: false,
-}
 
 export function useAppInit() {
     const coreStore = useCoreStore()
@@ -72,8 +58,7 @@ export function useAppInit() {
                 try {
                     await loadSettingsProject(coreStore.currentProject)
                 } catch (e: unknown) {
-                    await saveSettingsProject({ ...defaultProjectConfig, projectName: coreStore.currentProject })
-                    console.error('Ошибка загрузки конфига:', e)
+                    console.error('Конфиг проекта не найден, будет создан при запуске:', e)
                 }
             }
         } catch (e: unknown) {

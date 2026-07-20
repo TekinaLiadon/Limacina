@@ -23,7 +23,22 @@ pub struct AppInitData {
 pub async fn get_app_init_data(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<AppInitData> {
-    let config = LauncherConfig::load().ok().flatten();
+    let mut config = LauncherConfig::load().ok().flatten();
+
+    if let Some(ref mut cfg) = config {
+        if cfg.project_names.is_empty() {
+            let server_url = env!("LAUNCHER_SERVER_URL");
+            if let Ok(response) = reqwest::get(format!("{}/launcher/config", server_url)).await {
+                if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await {
+                    if !server_config.project_name.is_empty() {
+                        cfg.project_names = vec![server_config.project_name];
+                        let _ = cfg.save();
+                    }
+                }
+            }
+        }
+    }
+
     let version;
     {
         let mut state = state.lock().await;
