@@ -12,6 +12,13 @@ defineProps<{
 defineEmits<{
   'go-to-accounts': []
 }>()
+
+const isLaunchStep = (steps: StepProgressItem[]): boolean => {
+  if (steps.length === 0) return false
+
+  const last = steps[steps.length - 1]
+  return last.status === 'active' || last.status === 'done' || last.status === 'error'
+}
 </script>
 
 <template>
@@ -24,6 +31,7 @@ defineEmits<{
 
     <Button
         class="btn-yellow current-account__btn current-account__btn--secondary"
+        :is-disabled="!isLaunchStep(steps)"
         @click="$emit('go-to-accounts')"
     >
       Выбрать другой

@@ -12,6 +12,7 @@ defineProps<{
 defineEmits<{
   'select': [username: string]
   'delete': [username: string]
+  'show-login': []
 }>()
 </script>
 
@@ -20,6 +21,12 @@ defineEmits<{
     <h2 class="account-list__title">Аккаунты</h2>
 
     <div class="account-list__items">
+      <Button
+          class="btn-yellow current-account__btn current-account__btn--secondary"
+          @click="$emit('show-login')"
+      >
+        Ввести новый
+      </Button>
       <div
         v-for="login in logins"
         :key="login"

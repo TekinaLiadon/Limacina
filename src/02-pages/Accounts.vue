@@ -37,6 +37,7 @@ const {
       :error-message="errorMessage"
       @select="handleSelect"
       @delete="handleDeleteAccount"
+      @show-login="showLoginForm"
     />
 
     <CurrentAccount

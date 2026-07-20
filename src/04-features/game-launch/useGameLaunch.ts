@@ -1,5 +1,5 @@
-import { ref } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { computed } from 'vue'
+import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft } from '@/06-shared/api'
 import type { StepProgressItem, ProjectConfig } from '@/05-entities/core/types'
 
@@ -41,8 +41,16 @@ function resetSteps(defs: StepDef[]): StepProgressItem[] {
 
 export function useGameLaunch() {
   const coreStore = useCoreStore()
-  const launchSteps = ref<StepProgressItem[]>([])
-  const activeProgress = ref<number>(0)
+  const store = useAccountsStore()
+
+  const launchSteps = computed({
+    get: (): StepProgressItem[] => store.launchSteps,
+    set: (v: StepProgressItem[]): void => { store.launchSteps = v },
+  })
+  const activeProgress = computed({
+    get: (): number => store.activeProgress,
+    set: (v: number): void => { store.activeProgress = v },
+  })
 
   const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
     const config = await initializeProject(coreStore.currentProject)

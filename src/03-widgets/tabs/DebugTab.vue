@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { useDebugConsole, FLUSH_BATCH } from '@/04-features'
+import { useDebugConsole } from '@/04-features'
 import { Icon } from '@/06-shared'
 
 const { logs, handleCopy, initLogs, startStreaming, stopStreaming } = useDebugConsole()
@@ -19,24 +19,16 @@ const virtualizer = useVirtualizer(
   }))
 )
 
-const scrollToBottom = (smooth = false): void => {
+const scrollToBottom = (): void => {
+  if (logs.value.length === 0) return
   if (!parentRef.value) return
-  if (smooth) {
-    const maxDistance = FLUSH_BATCH * LINE_HEIGHT
-    const current = parentRef.value.scrollTop
-    const target = parentRef.value.scrollHeight - parentRef.value.clientHeight
-    const distance = Math.min(target - current, maxDistance)
-    if (distance <= 0) return
-    parentRef.value.scrollBy({ top: distance, behavior: 'smooth' })
-  } else {
-    parentRef.value.scrollTop = parentRef.value.scrollHeight
-  }
+  parentRef.value.scrollTop = parentRef.value.scrollHeight
 }
 
 const toggleAutoScroll = (): void => {
   isAutoScroll.value = !isAutoScroll.value
   if (isAutoScroll.value) {
-    scrollToBottom(false)
+    scrollToBottom()
   }
 }
 
@@ -44,16 +36,19 @@ onMounted(async (): Promise<void> => {
   await initLogs()
   await startStreaming()
   await nextTick()
-  scrollToBottom(false)
+  if (logs.value.length > 0) {
+    virtualizer.value.scrollToIndex(logs.value.length - 1, { align: 'end' })
+  }
 })
 
 onUnmounted((): void => {
   stopStreaming()
 })
 
-watch(() => logs.value.length, (): void => {
+watch(() => logs.value.length, async (): Promise<void> => {
   if (isAutoScroll.value) {
-    requestAnimationFrame(() => scrollToBottom(true))
+    await nextTick()
+    scrollToBottom()
   }
 })
 </script>

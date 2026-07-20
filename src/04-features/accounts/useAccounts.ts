@@ -1,17 +1,31 @@
-import { ref, onMounted } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { computed, onMounted } from 'vue'
+import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { authLogins, authRefresh, getSessionInfo } from '@/06-shared/api'
 
 export function useAccounts() {
   const coreStore = useCoreStore()
-  const isLoading = ref<boolean>(false)
-  const errorMessage = ref<string>('')
-  const logins = ref<string[]>([])
-  const selectedUsername = ref<string>('')
+  const store = useAccountsStore()
+
+  const isLoading = computed({
+    get: (): boolean => store.isLoading,
+    set: (v: boolean): void => { store.isLoading = v },
+  })
+  const errorMessage = computed({
+    get: (): string => store.errorMessage,
+    set: (v: string): void => { store.errorMessage = v },
+  })
+  const logins = computed({
+    get: (): string[] => store.logins,
+    set: (v: string[]): void => { store.logins = v },
+  })
+  const selectedUsername = computed({
+    get: (): string => store.selectedUsername,
+    set: (v: string): void => { store.selectedUsername = v },
+  })
 
   const loadAccounts = async (): Promise<void> => {
     try {
-      logins.value = await authLogins(coreStore.currentProject)
+      store.logins = await authLogins(coreStore.currentProject)
     } catch (e: unknown) {
       console.error(e)
     }
@@ -23,7 +37,7 @@ export function useAccounts() {
       if (session) {
         coreStore.session = session
         coreStore.isLoggedIn = true
-        selectedUsername.value = session.username
+        store.selectedUsername = session.username
       }
     } catch (e: unknown) {
       console.error(e)

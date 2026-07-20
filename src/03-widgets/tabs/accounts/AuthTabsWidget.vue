@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button, Input } from '@/06-shared'
-import { useAuthLogin, useAuthRegister } from '@/04-features'
+import { useAuth } from '@/04-features'
 import { AuthForm } from '@/03-widgets'
 import type { AuthSubTab } from '@/05-entities/core/types'
 
@@ -15,21 +15,16 @@ const emit = defineEmits<{
 }>()
 
 const {
-  isLoading: loginLoading,
-  errorMessage: loginError,
+  isLoading,
+  errorMessage,
   logins,
-  formData: loginData,
-  handleLogin,
-} = useAuthLogin()
-
-const {
-  isLoading: registerLoading,
-  errorMessage: registerError,
-  formData: registerData,
+  loginFormData,
+  registerFormData,
   passwordsMatch,
-  isValid,
-  handleSubmit,
-} = useAuthRegister()
+  isRegisterValid,
+  handleLogin,
+  handleRegister,
+} = useAuth()
 
 interface AuthButtonTab  {
   text: string
@@ -58,20 +53,20 @@ const tabs: AuthButtonTab[] = [
     <div class="auth-tabs__content">
       <AuthForm
         v-if="activeTab === 'login'"
-        v-model:username="loginData.username"
-        v-model:password="loginData.password"
+        v-model:username="loginFormData.username"
+        v-model:password="loginFormData.password"
         submit-label="Войти"
-        :is-loading="loginLoading"
-        :is-disabled="loginData.username.length < 4 || loginData.password.length < 4"
-        :error-message="loginError"
+        :is-loading="isLoading"
+        :is-disabled="loginFormData.username.length < 4 || loginFormData.password.length < 4"
+        :error-message="errorMessage"
         :username-list="logins"
         @submit="handleLogin"
         @back="emit('back')"
         :is-back="showBack"
       >
-        <label class="auth-tabs__checkbox" @click.prevent="loginData.rememberMe = !loginData.rememberMe">
-          <span class="auth-tabs__check" :class="{ 'auth-tabs__check--checked': loginData.rememberMe }">
-            <svg v-if="loginData.rememberMe" width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <label class="auth-tabs__checkbox" @click.prevent="loginFormData.rememberMe = !loginFormData.rememberMe">
+          <span class="auth-tabs__check" :class="{ 'auth-tabs__check--checked': loginFormData.rememberMe }">
+            <svg v-if="loginFormData.rememberMe" width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </span>
@@ -81,21 +76,21 @@ const tabs: AuthButtonTab[] = [
 
       <AuthForm
         v-else
-        v-model:username="registerData.login"
-        v-model:password="registerData.password"
+        v-model:username="registerFormData.login"
+        v-model:password="registerFormData.password"
         submit-label="Зарегистрироваться"
-        :is-loading="registerLoading"
-        :is-disabled="!isValid || registerData.login.length < 4 || registerData.password.length < 4"
-        :error-message="registerError"
+        :is-loading="isLoading"
+        :is-disabled="!isRegisterValid || registerFormData.login.length < 4 || registerFormData.password.length < 4"
+        :error-message="errorMessage"
         username-placeholder="Логин"
-        @submit="handleSubmit"
+        @submit="handleRegister"
         @back="emit('back')"
         :is-back="showBack"
       >
         <div class="auth-tabs__field">
           <Input
-            :model-value="registerData.confirmPassword"
-            @update:model-value="registerData.confirmPassword = $event"
+            :model-value="registerFormData.confirmPassword"
+            @update:model-value="registerFormData.confirmPassword = $event"
             :options="{ placeholder: 'Повторите пароль', type: 'password' }"
           />
           <span v-if="!passwordsMatch" class="auth-tabs__error">
