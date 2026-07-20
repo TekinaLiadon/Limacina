@@ -44,7 +44,7 @@ export function useGameLaunch() {
   const launchSteps = ref<StepProgressItem[]>([])
   const activeProgress = ref<number>(0)
 
-  const executeSteps = async (): Promise<void> => {
+  const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
     const config = await initializeProject(coreStore.currentProject)
 
     const stepDefs = config.initialized ? buildLaunchSteps(config) : buildInstallSteps()
@@ -54,6 +54,8 @@ export function useGameLaunch() {
     coreStore.loginError = ''
 
     for (let i = 0; i < stepDefs.length; i++) {
+      if (isCancelled?.()) return
+
       if (i > 0) launchSteps.value[i - 1].status = 'done'
 
       const step = launchSteps.value[i]
@@ -63,11 +65,14 @@ export function useGameLaunch() {
       try {
         await stepDefs[i].action()
       } catch (error: unknown) {
+        if (isCancelled?.()) return
         step.status = 'error'
         coreStore.loginError = String(error)
         return
       }
     }
+
+    if (isCancelled?.()) return
 
     const last = launchSteps.value[launchSteps.value.length - 1]
     last.status = 'done'

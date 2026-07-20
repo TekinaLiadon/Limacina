@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ProgressBar } from '@/06-shared'
+import {Button, ProgressBar} from '@/06-shared'
 import { StepProgress } from '@/03-widgets'
 import type { StepProgressItem } from '@/05-entities/core/types'
 
@@ -7,6 +7,10 @@ defineProps<{
   progress: number
   steps: StepProgressItem[]
   error?: string
+}>()
+
+defineEmits<{
+  'go-to-accounts': []
 }>()
 </script>
 
@@ -17,6 +21,13 @@ defineProps<{
     </div>
 
     <StepProgress :steps="steps" />
+
+    <Button
+        class="btn-yellow current-account__btn current-account__btn--secondary"
+        @click="$emit('go-to-accounts')"
+    >
+      Выбрать другой
+    </Button>
 
     <div v-if="error" class="launch-progress__error">
       {{ error }}

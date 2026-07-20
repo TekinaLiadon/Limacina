@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onActivated } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useDebugConsole, FLUSH_BATCH } from '@/04-features'
 import { Icon } from '@/06-shared'
 
-const { logs, handleCopy } = useDebugConsole()
+const { logs, handleCopy, initLogs, startStreaming, stopStreaming } = useDebugConsole()
 
 const parentRef = ref<HTMLDivElement | null>(null)
 const isAutoScroll = ref<boolean>(true)
@@ -40,8 +40,15 @@ const toggleAutoScroll = (): void => {
   }
 }
 
-onActivated((): void => {
+onMounted(async (): Promise<void> => {
+  await initLogs()
+  await startStreaming()
+  await nextTick()
   scrollToBottom(false)
+})
+
+onUnmounted((): void => {
+  stopStreaming()
 })
 
 watch(() => logs.value.length, (): void => {

@@ -26,6 +26,7 @@ export function useAccountsPage() {
   const showAuthForm = ref<boolean>(false)
   const activeSubTab = ref<AuthSubTab>('login')
   const isLaunching = ref<boolean>(false)
+  let launchCancelled = false
 
   const hasAccounts = computed((): boolean => logins.value.length > 0)
   const showAccountList = computed((): boolean => hasAccounts.value && !coreStore.isLoggedIn && !showAuthForm.value && !isLaunching.value)
@@ -37,8 +38,9 @@ export function useAccountsPage() {
   const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
 
   const handleLaunch = async (): Promise<void> => {
+    launchCancelled = false
     isLaunching.value = true
-    await executeSteps()
+    await executeSteps(() => launchCancelled)
   }
 
   const showLoginForm = (): void => {
@@ -47,6 +49,8 @@ export function useAccountsPage() {
   }
 
   const goToAccounts = (): void => {
+    launchCancelled = true
+    isLaunching.value = false
     coreStore.isLoggedIn = false
     coreStore.session = null
     showAuthForm.value = false

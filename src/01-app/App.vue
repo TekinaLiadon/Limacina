@@ -72,6 +72,7 @@ const navigateTo = (key: TabKey): void => {
                 :options="projectOptions"
                 v-model="coreStore.currentProject"
                 :width="'220px'"
+                :disabled="true"
               />
             </div>
           </div>
@@ -81,11 +82,7 @@ const navigateTo = (key: TabKey): void => {
 
             <div class="app__content">
               <div class="app__content-inner">
-                <router-view v-slot="{ Component }">
-                  <keep-alive>
-                    <component :is="Component" />
-                  </keep-alive>
-                </router-view>
+                <router-view />
               </div>
             </div>
           </div>
@@ -150,22 +147,18 @@ const navigateTo = (key: TabKey): void => {
     background: var(--login-bg-form);
     border: 1px solid var(--login-border);
     border-radius: 16px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  &__content-inner {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
     overflow-y: auto;
     scrollbar-width: none;
 
     &::-webkit-scrollbar {
       display: none;
     }
+  }
+
+  &__content-inner {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
   }
 
   @include breakpoints.media-under-lg {

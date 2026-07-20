@@ -36,7 +36,7 @@ export function useAccounts() {
     selectedUsername.value = username
 
     try {
-      const error = await authRefresh(coreStore.currentProject)
+      const error = await authRefresh(coreStore.currentProject, username)
       if (!error) {
         const session = await getSessionInfo()
         if (session) {

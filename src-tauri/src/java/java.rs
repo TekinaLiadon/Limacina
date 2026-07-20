@@ -19,7 +19,7 @@ use tokio::{
 
 pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
     let (java_dir, archive_path) = download_archive(&config.mc_version).await?;
-    working_archive(&java_dir, &archive_path).await?;
+    working_archive(&java_dir, &archive_path, "eclipse").await?;
     let executable_path = find_java_executable(&java_dir)?;
     Ok(executable_path)
 }
@@ -49,7 +49,7 @@ async fn download_archive(mc_version: &str) -> Result<(PathBuf, PathBuf)> {
     Ok((java_path, archive_path))
 }
 
-fn get_java_version(mc_version: &str) -> String {
+pub(crate) fn get_java_version(mc_version: &str) -> String {
     if compare_versions(&mc_version, "1.20.5") == Ordering::Greater {
         return "21".to_string();
     }
@@ -60,8 +60,7 @@ fn get_java_version(mc_version: &str) -> String {
     return "8".to_string();
 }
 
-async fn working_archive(java_path: &PathBuf, archive_path: &PathBuf) -> Result<()> {
-    let vendor = "eclipse";
+pub(crate) async fn working_archive(java_path: &PathBuf, archive_path: &PathBuf, vendor: &str) -> Result<()> {
     let java_path_extract = java_path.clone();
     let archive_path_extract = archive_path.clone();
     task::spawn_blocking(move || extract_archive(&archive_path_extract, &java_path_extract))
@@ -72,7 +71,7 @@ async fn working_archive(java_path: &PathBuf, archive_path: &PathBuf) -> Result<
     Ok(())
 }
 
-fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
+pub(crate) fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     let file = File::open(archive_path)?;
 
     #[cfg(target_os = "windows")]
@@ -94,7 +93,7 @@ fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result<()> {
+pub(crate) async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result<()> {
     let new_path = java_path.join(vendor);
     if new_path.exists() {
         return Ok(());
@@ -108,7 +107,7 @@ async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result<()> {
             let folder_name = entry.file_name();
             let folder_name_str = folder_name.to_string_lossy();
 
-            if folder_name_str.starts_with("jdk") {
+            if folder_name_str != vendor && !folder_name_str.starts_with("archive") {
                 fs::rename(&path, &new_path).await?;
                 break;
             }
@@ -118,7 +117,7 @@ async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result<()> {
     Ok(())
 }
 
-fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
+pub(crate) fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
     let target_name = if cfg!(target_os = "windows") {
         "java.exe"
     } else {

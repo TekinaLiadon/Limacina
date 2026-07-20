@@ -84,6 +84,7 @@ defineEmits<{
     display: flex;
     flex-direction: column;
     min-height: 0;
+    gap: 20px;
   }
 
   &__item {

@@ -107,5 +107,6 @@ export function useProjectSettings() {
     isSaving,
     selectJavaFolder,
     handleSave,
+    loadConfig,
   }
 }

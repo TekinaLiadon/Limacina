@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, AuthSaved, ConsoleLog, UserContentItem, SessionInfo } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, AuthSaved, ConsoleLog, UserContentItem, SessionInfo, JavaDistribution } from '@/05-entities/core/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -70,8 +70,8 @@ export async function authLogin(info: AuthUserData): Promise<void> {
   return invoke('auth_login', { projectName, username, password, rememberMe })
 }
 
-export async function authRefresh(projectName: string): Promise<string> {
-  return invoke<string>('auth_refresh', { projectName })
+export async function authRefresh(projectName: string, username: string): Promise<string> {
+  return invoke<string>('auth_refresh', { projectName, username })
 }
 
 export async function authRegister(
@@ -148,4 +148,16 @@ export async function listModels(uuid: string): Promise<UserContentItem[]> {
 
 export async function deleteModel(id: number): Promise<void> {
   return invoke('delete_model', { id })
+}
+
+export async function getJavaDistributions(): Promise<JavaDistribution[]> {
+  return invoke<JavaDistribution[]>('get_java_distributions')
+}
+
+export async function downloadAlternativeJava(
+  distribution: string,
+  javaVersion: string | null,
+  replaceDefault: boolean
+): Promise<void> {
+  return invoke('download_alternative_java', { distribution, javaVersion, replaceDefault })
 }

@@ -1,11 +1,10 @@
 {
   "name": "Limacina-front",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:clean": "rm -rf node_modules/.vite && vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

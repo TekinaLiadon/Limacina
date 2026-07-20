@@ -52,6 +52,7 @@ const {
       :progress="activeProgress"
       :steps="launchSteps"
       :error="loginError"
+      @go-to-accounts="goToAccounts"
     />
 
     <AuthTabsWidget
