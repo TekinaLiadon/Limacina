@@ -1,19 +1,9 @@
 <script setup lang="ts">
 import { useLauncherSettings } from "@/04-features";
-import { LauncherPath, LauncherToggle, SpeedLimit } from "@/03-widgets";
+import { LauncherPath } from "@/03-widgets";
 import { Button } from "@/06-shared";
 
-const { launcherPath, settings, isSaving, selectLauncherFolder, handleSave } = useLauncherSettings()
-
-const toggles = [
-  { key: 'discordActivity' as const, label: 'Показывать активность в Discord' },
-  { key: 'keepOldConfigs' as const, label: 'Сохранять старые конфиги при перекачке' },
-  { key: 'autoUpdate' as const, label: 'Автоматическое обновление лаунчера' },
-  { key: 'systemNotifications' as const, label: 'Системные уведомления' },
-  { key: 'debugMode' as const, label: 'Включить дебаг' },
-  { key: 'startWithSystem' as const, label: 'Запускать лаунчер с системой' },
-  { key: 'closeAfterLaunch' as const, label: 'Закрывать лаунчер после запуска игры' },
-]
+const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncherSettings()
 </script>
 
 <template>
