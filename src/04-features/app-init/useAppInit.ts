@@ -1,6 +1,6 @@
 import {onBeforeMount, ref} from 'vue'
 import {useCoreStore} from '@/05-entities'
-import {getAppInitData, checkUpdate, applyUpdateCmd, loadSettingsProject} from '@/06-shared/api'
+import {getAppInitData, checkUpdate, applyUpdateCmd} from '@/06-shared/api'
 import {useRouter} from 'vue-router'
 
 export function useAppInit() {
@@ -43,8 +43,8 @@ export function useAppInit() {
                 coreStore.hasLauncherConfig = !!freshData.launcherConfig
                 if (freshData.launcherConfig) {
                     coreStore.projects = [...freshData.launcherConfig.projectNames]
-                    if (coreStore.projects.length > 0 && !coreStore.currentProject) {
-                        coreStore.currentProject = coreStore.projects[0]
+                    if (freshData.launcherConfig.projectNames.length > 0 && !coreStore.currentProject) {
+                        coreStore.currentProject = freshData.launcherConfig.projectNames[0]
                     }
                 }
             }
@@ -52,14 +52,6 @@ export function useAppInit() {
             if (!coreStore.launcherConfig) {
                 router.replace('/setup')
                 return
-            }
-
-            if (coreStore.currentProject) {
-                try {
-                    await loadSettingsProject(coreStore.currentProject)
-                } catch (e: unknown) {
-                    console.error('Конфиг проекта не найден, будет создан при запуске:', e)
-                }
             }
         } catch (e: unknown) {
             console.error('Ошибка инициализации:', e)

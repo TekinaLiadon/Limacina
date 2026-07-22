@@ -1,6 +1,6 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
-import { authLogins, authSaved, authLogin, authRegister } from '@/06-shared/api'
+import { authLogins, authSaved, authLogin, authRegister, getSessionInfo } from '@/06-shared/api'
 import type { AuthUserData } from '@/05-entities/core/types'
 
 export function useAuth() {
@@ -85,6 +85,14 @@ export function useAuth() {
       }
       await authLogin(authData)
       coreStore.isLoggedIn = true
+
+      const session = await getSessionInfo()
+      if (session) {
+        coreStore.session = session
+      }
+
+      await loadAccounts()
+      store.showAuthForm = false
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
       console.error(e)
@@ -100,17 +108,36 @@ export function useAuth() {
     isLoading.value = true
     errorMessage.value = ''
 
+    const login = store.registerFormData.login
+    const password = store.registerFormData.password
+
     try {
       await authRegister(
         coreStore.currentProject,
-        store.registerFormData.login,
-        store.registerFormData.password
+        login,
+        password
       )
 
       notification.show('Аккаунт успешно создан. Ожидайте одобрения администратора.')
-      showRegisterForm.value = false
-      store.registerFormData = { login: '', password: '', confirmPassword: '' }
       await loadAccounts()
+
+      const authData: AuthUserData = {
+        projectName: coreStore.currentProject,
+        username: login,
+        password: password,
+        rememberMe: false,
+      }
+      await authLogin(authData)
+      coreStore.isLoggedIn = true
+
+      const session = await getSessionInfo()
+      if (session) {
+        coreStore.session = session
+      }
+
+      store.registerFormData = { login: '', password: '', confirmPassword: '' }
+      store.showAuthForm = false
+      store.registerShowForm = false
     } catch (e: unknown) {
       errorMessage.value = String(e)
     } finally {

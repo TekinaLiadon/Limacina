@@ -18,5 +18,6 @@ export const useCoreStore = defineStore('core', {
     loginSteps: [],
     loginProgress: 0,
     loginError: '',
+    projectConfig: null,
   }),
 })

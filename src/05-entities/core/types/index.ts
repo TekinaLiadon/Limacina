@@ -69,6 +69,7 @@ export interface CoreState {
   loginSteps: StepProgressItem[]
   loginProgress: number
   loginError: string
+  projectConfig: ProjectConfig | null
 }
 
 export interface ProjectConfig {

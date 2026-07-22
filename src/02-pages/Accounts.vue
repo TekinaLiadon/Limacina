@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { useAccountsPage } from '@/04-features'
+import { useAccountsPage, useProjectConfig } from '@/04-features'
 import { AccountList, CurrentAccount, LaunchProgress, AuthTabsWidget } from '@/03-widgets'
+
+useProjectConfig()
 
 const {
   isLoading,

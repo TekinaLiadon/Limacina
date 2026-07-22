@@ -20,14 +20,16 @@ const toggles = [
   <div class="launcher-settings">
     <LauncherPath :launcher-path="launcherPath" @browse="selectLauncherFolder" />
 
-    <LauncherToggle
+<!--    <LauncherToggle
         v-for="toggle in toggles"
         :key="toggle.key"
         v-model="settings[toggle.key]"
         :label="toggle.label"
-    />
+    />-->
 
+<!--
     <SpeedLimit v-model="settings.downloadSpeedLimit" />
+-->
 
     <Button
         class="btn-yellow launcher-settings__btn"

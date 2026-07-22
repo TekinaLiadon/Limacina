@@ -11,8 +11,8 @@ defineProps<{
 }>()
 
 const fields = [
-  { key: 'mcVersion' as const, label: 'Версия Minecraft', placeholder: '1.21.1' },
-  { key: 'modLoader' as const, label: 'Загрузчик модов', placeholder: 'neoforge' },
+  { key: 'mcVersion' as const, label: 'Версия Minecraft', placeholder: '1.21.1', disabled: true },
+  { key: 'modLoader' as const, label: 'Загрузчик модов', placeholder: 'neoforge', disabled: true },
   { key: 'loaderVersion' as const, label: 'Версия загрузчика', placeholder: 'Не указана' },
   { key: 'jvmArgs' as const, label: 'JVM аргументы', placeholder: '-XX:+UseG1GC, -XX:MaxGCPauseMillis=50' },
 ]
@@ -24,7 +24,7 @@ const fields = [
       v-for="field in fields"
       :key="field.key"
       :model-value="config[field.key]"
-      :options="{ label: field.label, placeholder: field.placeholder, disabled: true }"
+      :options="{ label: field.label, placeholder: field.placeholder, disabled: field?.disabled }"
     />
   </div>
 </template>
