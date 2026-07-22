@@ -59,11 +59,13 @@ pub async fn init_project_config(launcher_path: &str, project_name: &str) -> Res
     let config_dir = PathBuf::from(&normalized).join("project").join("config");
     fs::create_dir_all(&config_dir).await?;
 
-    let toml_path = config_dir.join(format!("{}.toml", project_name));
-    if toml_path.exists() {
-        let content = fs::read_to_string(&toml_path).await?;
-        let config: ProjectConfig = toml::from_str(&content)?;
-        return Ok(config);
+    if !project_name.is_empty() {
+        let toml_path = config_dir.join(format!("{}.toml", project_name));
+        if toml_path.exists() {
+            let content = fs::read_to_string(&toml_path).await?;
+            let config: ProjectConfig = toml::from_str(&content)?;
+            return Ok(config);
+        }
     }
 
     let server_url = env!("LAUNCHER_SERVER_URL");
@@ -85,9 +87,12 @@ pub async fn init_project_config(launcher_path: &str, project_name: &str) -> Res
     };
 
     let mut config = config;
-    config.project_name = project_name.to_string();
+    if !project_name.is_empty() {
+        config.project_name = project_name.to_string();
+    }
     config.initialized = false;
 
+    let toml_path = config_dir.join(format!("{}.toml", config.project_name));
     let toml_string = toml::to_string_pretty(&config)?;
     fs::write(&toml_path, toml_string).await?;
     Ok(config)
