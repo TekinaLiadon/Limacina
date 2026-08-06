@@ -103,7 +103,7 @@ const getIcon = (status: StepProgressItem['status']): string => {
     &--active {
       background: var(--login-accent);
       color: var(--white);
-      box-shadow: 0 0 0 4px rgba(108, 127, 216, 0.2);
+      box-shadow: 0 0 0 4px var(--accent-active-bg);
     }
 
     &--done {

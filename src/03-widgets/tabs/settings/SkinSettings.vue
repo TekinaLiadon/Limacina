@@ -160,7 +160,7 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--surface-subtle);
     border: 1px solid var(--login-border);
     border-radius: 8px;
   }

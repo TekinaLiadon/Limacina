@@ -8,6 +8,7 @@ export interface LauncherConfig {
   debugMode: boolean
   startWithSystem: boolean
   closeAfterLaunch: boolean
+  theme: string
   projectNames: string[]
 }
 

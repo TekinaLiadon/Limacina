@@ -17,7 +17,7 @@ use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
 use commands::download::download_alternative_java;
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
-use commands::launcher_config::{get_app_init_data, save_launcher_config, save_launcher_settings};
+use commands::launcher_config::{get_app_init_data, save_launcher_config, save_launcher_settings, save_theme};
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
@@ -91,6 +91,7 @@ pub fn run() {
             get_app_init_data,
             save_launcher_config,
             save_launcher_settings,
+            save_theme,
             initialize_launcher,
             initialize_project,
             set_initialized,

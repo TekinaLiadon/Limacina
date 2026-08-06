@@ -74,12 +74,7 @@ const isProjectDisabled = computed((): boolean => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
+  height: 0;
 
   &__title {
     font-size: 28px;
@@ -94,7 +89,7 @@ const isProjectDisabled = computed((): boolean => {
     display: flex;
     gap: 4px;
     margin-bottom: 24px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-light);
     border-radius: 8px;
     padding: 4px;
   }
@@ -117,7 +112,7 @@ const isProjectDisabled = computed((): boolean => {
     }
 
     &--active {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--surface-active);
       color: var(--login-text-primary);
     }
 

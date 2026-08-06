@@ -138,3 +138,23 @@ pub async fn save_launcher_settings(
     }
     Ok(config)
 }
+
+#[tauri::command]
+pub async fn save_theme(
+    state: State<'_, Mutex<GlobalState>>,
+    theme: String,
+) -> CommandResult<LauncherConfig> {
+    let mut config = LauncherConfig::load()
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    config.theme = theme;
+    config.save()?;
+
+    {
+        let mut state = state.lock().await;
+        state.launcher_config = Some(config.clone());
+    }
+    Ok(config)
+}

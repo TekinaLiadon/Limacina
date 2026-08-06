@@ -99,18 +99,18 @@ defineEmits<{
     align-items: center;
     gap: 14px;
     padding: 14px 18px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--surface-subtle);
     border: 1px solid var(--login-border);
     border-radius: 12px;
     transition: all 0.2s ease;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--surface-hover);
       border-color: var(--login-accent);
     }
 
     &--selected {
-      background: rgba(108, 127, 216, 0.15);
+      background: var(--accent-hover-bg);
       border-color: var(--login-accent);
     }
   }
@@ -120,13 +120,15 @@ defineEmits<{
     height: 40px;
     border-radius: 10px;
     background: var(--login-accent);
-    color: var(--white);
+    color: var(--text-on-accent);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 18px;
-    font-weight: 700;
+    font-weight: 800;
+    font-family: "Manrope", sans-serif;
     flex-shrink: 0;
+    line-height: 1;
   }
 
   &__name {
@@ -150,7 +152,7 @@ defineEmits<{
     align-items: center;
     justify-content: center;
     border-radius: 8px;
-    background: rgba(108, 127, 216, 0.2);
+    background: var(--accent-active-bg);
     color: var(--login-accent);
     flex-shrink: 0;
   }
@@ -170,9 +172,9 @@ defineEmits<{
     flex-shrink: 0;
 
     &:hover:not(:disabled) {
-      background: rgba(255, 80, 80, 0.1);
-      border-color: rgba(255, 80, 80, 0.4);
-      color: #ff5050;
+      background: var(--delete-bg);
+      border-color: var(--delete-border);
+      color: var(--delete-text);
     }
 
     &:disabled {

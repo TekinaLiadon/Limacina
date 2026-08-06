@@ -84,7 +84,7 @@ const dropdownOptions = () =>
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
 }
 
@@ -129,14 +129,14 @@ const dropdownOptions = () =>
     height: 40px;
     padding: 0 14px;
     color: var(--login-text-primary);
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: var(--surface-input);
     font-size: 14px;
     outline: none;
     width: 100%;
     box-sizing: border-box;
 
     &::placeholder {
-      color: rgba(255, 255, 255, 0.3);
+      color: var(--login-text-muted);
     }
 
     &:focus {
@@ -161,7 +161,7 @@ const dropdownOptions = () =>
       color: var(--login-text-primary);
 
       &:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--surface-light);
       }
     }
   }

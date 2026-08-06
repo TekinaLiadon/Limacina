@@ -159,7 +159,7 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     overflow-y: auto;
     padding: 8px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-light);
   }
 
   &__actions {
@@ -265,7 +265,7 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--surface-subtle);
     border: 1px solid var(--login-border);
     border-radius: 8px;
   }

@@ -99,7 +99,7 @@ const emit = defineEmits<{
       color: var(--login-text-primary);
 
       &:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--surface-light);
       }
     }
   }

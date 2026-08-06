@@ -69,7 +69,7 @@ function selectOption(value: string): void {
     align-content: center;
     padding: 0 14px;
     color: var(--login-text-primary);
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: var(--surface-input);
     font-size: 14px;
   }
 
@@ -109,7 +109,7 @@ function selectOption(value: string): void {
     transition: background 0.15s;
 
     &:hover {
-      background: rgba(108, 127, 216, 0.15);
+      background: var(--accent-hover-bg);
     }
   }
 

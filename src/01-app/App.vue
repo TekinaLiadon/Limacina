@@ -3,8 +3,8 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Preloader from '@/01-app/preloader/Preloader.vue'
 import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { useAppInit } from '@/04-features'
+import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
+import { useAppInit, useTheme, ThemeSwitchAnimation } from '@/04-features'
 import { Sidebar } from '@/03-widgets'
 import type { DropdownOption } from '@/06-shared/types'
 import type { TabKey } from '@/05-entities/core/types'
@@ -12,8 +12,11 @@ import type { TabKey } from '@/05-entities/core/types'
 const router = useRouter()
 const route = useRoute()
 const coreStore = useCoreStore()
+const settingsStore = useSettingsStore()
 const { preloaderText } = useAppInit()
 const notificationStore = useNotificationStore()
+
+const { isSwitching, switchDirection } = useTheme()
 
 interface Tab {
   key: TabKey
@@ -51,6 +54,7 @@ const navigateTo = (key: TabKey): void => {
 
 <template>
   <main class="app">
+    <ThemeSwitchAnimation :visible="isSwitching" :direction="switchDirection" />
     <PushNotification
       :visible="notificationStore.visible"
       :message="notificationStore.message"
@@ -75,6 +79,24 @@ const navigateTo = (key: TabKey): void => {
                 :disabled="true"
               />
             </div>
+            <button class="app__theme-toggle" :class="{ 'app__theme-toggle--disabled': isSwitching }" @click="settingsStore.toggleDarkLight" :disabled="isSwitching" :title="settingsStore.isDark ? 'Светлая тема' : 'Тёмная тема'">
+              <span class="app__theme-icon" :class="{ 'app__theme-icon--light': !settingsStore.isDark }">
+                <svg v-if="settingsStore.isDark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/>
+                  <line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/>
+                  <line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              </span>
+            </button>
           </div>
 
           <div class="app__body">
@@ -106,8 +128,8 @@ const navigateTo = (key: TabKey): void => {
     bottom: 4px;
     left: 8px;
     font-size: 12px;
-    color: #ffffff;
-    -webkit-text-stroke: 1px #000;
+    color: var(--white);
+    -webkit-text-stroke: 1px var(--black);
     paint-order: stroke fill;
     z-index: 1000;
   }
@@ -128,10 +150,53 @@ const navigateTo = (key: TabKey): void => {
     align-items: center;
     justify-content: flex-end;
     flex-shrink: 0;
+    gap: 12px;
   }
 
   &__project {
     min-width: 220px;
+  }
+
+  &__theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--login-border);
+    background: var(--surface-input);
+    color: var(--login-text-primary);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+
+    &:hover:not(&--disabled) {
+      background: var(--surface-hover);
+      border-color: var(--login-accent);
+      transform: scale(1.05);
+    }
+
+    &:active:not(&--disabled) {
+      transform: scale(0.95);
+    }
+
+    &--disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+  }
+
+  &__theme-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease;
+
+    &--light {
+      color: var(--yellow);
+    }
   }
 
   &__body {

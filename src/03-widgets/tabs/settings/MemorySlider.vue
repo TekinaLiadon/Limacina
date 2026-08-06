@@ -153,7 +153,7 @@ const onMaxInput = (e: Event): void => {
       border-radius: 50%;
       background: var(--login-accent);
       border: 2px solid var(--white);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 2px 6px var(--login-shadow);
       cursor: pointer;
       pointer-events: auto;
       transition: transform 0.15s ease;
@@ -169,7 +169,7 @@ const onMaxInput = (e: Event): void => {
       border-radius: 50%;
       background: var(--login-accent);
       border: 2px solid var(--white);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 2px 6px var(--login-shadow);
       cursor: pointer;
       pointer-events: auto;
     }
