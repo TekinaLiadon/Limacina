@@ -105,7 +105,7 @@ watch(() => logs.value.length, async (): Promise<void> => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #0d1117;
+  background: var(--debug-bg);
   border-radius: 8px;
   overflow: hidden;
 
@@ -132,7 +132,7 @@ watch(() => logs.value.length, async (): Promise<void> => {
   }
 
   &__num {
-    color: #484f58;
+    color: var(--debug-line-num);
     min-width: 40px;
     text-align: right;
     padding-right: 12px;
@@ -143,28 +143,28 @@ watch(() => logs.value.length, async (): Promise<void> => {
 
   &__text {
     &--normal, & {
-      color: #c9d1d9;
+      color: var(--debug-text);
     }
 
     &--error {
-      color: #ff7b72;
+      color: var(--debug-error);
       font-weight: 500;
     }
   }
 
   &__cursor {
     opacity: 0;
-    color: #c9d1d9;
+    color: var(--debug-text);
     display: inline;
   }
 
   &__actions {
     padding: 8px 12px;
-    border-top: 1px solid #21262d;
+    border-top: 1px solid var(--debug-border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #161b22;
+    background: var(--debug-actions-bg);
   }
 
   &__autoscroll {
@@ -173,28 +173,28 @@ watch(() => logs.value.length, async (): Promise<void> => {
     justify-content: center;
     width: 28px;
     height: 28px;
-    border: 1px solid #30363d;
+    border: 1px solid var(--debug-btn-border);
     border-radius: 6px;
-    background: #21262d;
-    color: #58a6ff;
+    background: var(--debug-btn-bg);
+    color: var(--debug-accent);
     cursor: pointer;
     transition: all 0.15s ease;
 
     &:hover {
-      background: #30363d;
-      border-color: #484f58;
+      background: var(--debug-btn-hover-bg);
+      border-color: var(--debug-btn-hover-border);
     }
 
     &--off {
-      color: #484f58;
+      color: var(--debug-line-num);
     }
   }
 
   &__copy-btn {
     padding: 5px 14px;
-    background: #21262d;
-    color: #c9d1d9;
-    border: 1px solid #30363d;
+    background: var(--debug-btn-bg);
+    color: var(--debug-text);
+    border: 1px solid var(--debug-btn-border);
     border-radius: 6px;
     cursor: pointer;
     font-size: 12px;
@@ -202,12 +202,12 @@ watch(() => logs.value.length, async (): Promise<void> => {
     transition: all 0.15s ease;
 
     &:hover {
-      background: #30363d;
-      border-color: #484f58;
+      background: var(--debug-btn-hover-bg);
+      border-color: var(--debug-btn-hover-border);
     }
 
     &:active {
-      background: #282e33;
+      background: var(--debug-btn-active-bg);
     }
   }
 }

@@ -103,7 +103,7 @@ const items: TabItem[] = [
     }
 
     &:hover:not(&--disabled) .icon-btn {
-      background-color: rgba(108, 127, 216, 0.15);
+      background-color: var(--accent-hover-bg);
 
       .icon-btn__icon {
         color: var(--login-text-primary);
@@ -111,7 +111,7 @@ const items: TabItem[] = [
     }
 
     &--active .icon-btn {
-      background-color: rgba(108, 127, 216, 0.2);
+      background-color: var(--accent-active-bg);
 
       .icon-btn__icon {
         color: var(--login-accent);

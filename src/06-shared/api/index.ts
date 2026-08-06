@@ -41,6 +41,10 @@ export async function saveLauncherSettings(settings: LauncherSettingsPayload): P
   return invoke<LauncherConfig>('save_launcher_settings', { settings })
 }
 
+export async function saveTheme(theme: string): Promise<LauncherConfig> {
+  return invoke<LauncherConfig>('save_theme', { theme })
+}
+
 export async function initializeLauncher(parentPath: string): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('initialize_launcher', { parentPath })
 }

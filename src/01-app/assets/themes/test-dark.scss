@@ -1,0 +1,63 @@
+[data-theme="test-dark"] {
+  --white: rgba(255, 255, 255, 1);
+  --black: rgba(0, 0, 0, 1);
+  --grey: rgba(231, 233, 241, 1);
+  --grey-text-db: rgba(105, 107, 115, 1);
+  --grey-stroke: rgba(230, 229, 232, 1);
+  --half-blue: rgba(8, 46, 83, 0.3);
+  --green: rgba(162, 251, 176, 1);
+  --green-2: rgba(2, 221, 36, 1);
+  --yellow: rgba(238, 251, 162, 1);
+  --yellow-2: rgba(218, 243, 70, 1);
+  --red: rgba(255, 40, 40, 1);
+  --transparent-blue: rgba(6, 31, 54, 0.6);
+  --transparent-white: rgba(255, 255, 255, 0.7);
+
+  --landing-bg: rgba(242, 247, 247, 1);
+  --landing-title: rgba(6, 31, 54, 1);
+  --landing-text: rgba(145, 160, 171, 1);
+  --landing-border: rgba(218, 228, 236, 1);
+  --hero-border: rgba(206, 225, 238, 1);
+  --item-grey: rgba(236, 235, 241, 1);
+  --bg: rgba(246, 245, 249, 1);
+
+  --login-bg-primary: #1a1d2e;
+  --login-bg-secondary: #16213e;
+  --login-bg-form: rgba(26, 29, 46, 0.95);
+  --login-border: rgba(139, 172, 255, 0.25);
+  --login-border-hover: rgba(139, 172, 255, 0.5);
+
+  --login-text-primary: #e8eaf6;
+  --login-text-secondary: #b0b8d4;
+  --login-text-muted: #7a82a0;
+
+  --login-accent: #6c7fd8;
+  --login-accent-hover: #8b9fe8;
+  --login-accent-glow: rgba(108, 127, 216, 0.4);
+
+  --login-shadow: rgba(0, 0, 0, 0.3);
+  --login-shadow-strong: rgba(0, 0, 0, 0.6);
+
+  --error: #ff5555;
+  --error-bg: rgba(255, 85, 85, 0.1);
+  --error-border: rgba(255, 85, 85, 0.3);
+
+  --app-bg: linear-gradient(135deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
+
+  --surface-subtle: rgba(255, 255, 255, 0.04);
+  --surface-light: rgba(255, 255, 255, 0.05);
+  --surface-input: rgba(255, 255, 255, 0.06);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-active: rgba(255, 255, 255, 0.1);
+  --surface-elevated: rgba(255, 255, 255, 0.15);
+  --accent-subtle: rgba(108, 127, 216, 0.08);
+  --accent-hover-bg: rgba(108, 127, 216, 0.15);
+  --accent-active-bg: rgba(108, 127, 216, 0.2);
+  --overlay: rgba(0, 0, 0, 0.5);
+  --text-on-accent: #21252b;
+  --border-subtle: rgba(176, 184, 212, 0.2);
+  --delete-bg: rgba(255, 80, 80, 0.1);
+  --delete-border: rgba(255, 80, 80, 0.4);
+  --delete-text: #ff5050;
+  --html-bg: #1b2636;
+}

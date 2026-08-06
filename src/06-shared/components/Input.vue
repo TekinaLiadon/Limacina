@@ -134,7 +134,7 @@ onUnmounted((): void => {
     color: var(--login-text-primary);
     border-radius: 8px;
     border: 1px solid var(--login-border);
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: var(--surface-input);
     font-family: inherit;
     transition: all .2s;
     width: 100%;
@@ -196,7 +196,7 @@ onUnmounted((): void => {
     }
 
     &:hover {
-      background: rgba(108, 127, 216, 0.15);
+      background: var(--accent-hover-bg);
     }
   }
 

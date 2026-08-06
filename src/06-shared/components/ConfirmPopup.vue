@@ -43,7 +43,7 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
 }
 
@@ -82,7 +82,7 @@ const emit = defineEmits<{
       color: var(--login-text-primary);
 
       &:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--surface-light);
       }
     }
   }

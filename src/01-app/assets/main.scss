@@ -1,6 +1,11 @@
 @use "base";
 @use "../assets/fonts/icomoon/icons";
 @use "colors";
+@use "themes/test-dark";
+@use "themes/test-light";
+@use "themes/minecraft-dark";
+@use "themes/minecraft-light";
 @use "breakpoints";
 @use "general";
 @use "animations";
+@use "view-transitions";

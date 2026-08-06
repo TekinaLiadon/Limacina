@@ -1,7 +1,7 @@
 @use "fonts/manrope/fonts";
 
 html {
-  background-color: rgba(27, 38, 54, 1);
+  background-color: var(--html-bg);
   text-align: center;
   color: black;
 }

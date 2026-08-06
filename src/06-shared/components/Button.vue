@@ -61,7 +61,7 @@ const props = defineProps<{
     font-family: "RisingSun", sans-serif;
     font-size: 14px;
     font-weight: 600;
-    color: rgba(33, 37, 43, 1);
+    color: var(--text-on-accent);
     border-radius: 60px;
     background-color: var(--yellow);
     border: 1px solid transparent;
@@ -80,7 +80,7 @@ const props = defineProps<{
     &.loading {
       position: relative;
       background-color: var(--grey);
-      color: var(--blue3);
+      color: var(--grey-text-db);
       pointer-events: none;
 
       &::before {
@@ -94,7 +94,7 @@ const props = defineProps<{
         vertical-align: middle;
         border: 3px solid transparent;
         border-radius: 50%;
-        color: #131313;
+        color: var(--text-on-accent);
         left: 10px;
       }
     }

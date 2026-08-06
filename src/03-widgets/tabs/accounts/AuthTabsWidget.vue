@@ -114,7 +114,7 @@ const tabs: AuthButtonTab[] = [
     display: flex;
     gap: 4px;
     margin-bottom: 24px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-light);
     border-radius: 8px;
     padding: 4px;
   }
@@ -137,7 +137,7 @@ const tabs: AuthButtonTab[] = [
     }
 
     &--active {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--surface-active);
       color: var(--login-text-primary);
     }
   }

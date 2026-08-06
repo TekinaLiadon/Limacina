@@ -89,8 +89,8 @@ const save = async (): Promise<void> => {
   background: var(--app-bg);
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 0;
+  justify-content: center;
+  padding: 20px;
   position: relative;
 
   &::before {
@@ -102,7 +102,7 @@ const save = async (): Promise<void> => {
     bottom: 0;
     background: radial-gradient(
             ellipse at top left,
-            rgba(108, 127, 216, 0.08) 0%,
+            var(--accent-subtle) 0%,
             transparent 50%
     );
     pointer-events: none;
@@ -110,12 +110,12 @@ const save = async (): Promise<void> => {
 }
 
 .setup-container {
-  width: 50%;
-  min-height: 100vh;
+  width: 100%;
+  max-width: 480px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  padding: 0;
   position: relative;
   z-index: 1;
 }
@@ -129,7 +129,7 @@ const save = async (): Promise<void> => {
   border-radius: 12px;
   padding: 56px 48px;
   box-shadow: 0 8px 32px var(--login-shadow),
-  inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  inset 0 1px 0 var(--surface-light);
   position: relative;
 
   &::before {
@@ -189,13 +189,13 @@ const save = async (): Promise<void> => {
   font-size: 15px;
   background: transparent;
   color: var(--login-text-secondary);
-  border: 1px solid rgba(176, 184, 212, 0.2);
+  border: 1px solid var(--border-subtle);
   transition: all 0.3s ease;
 
   &:hover {
     color: var(--login-text-primary);
     border-color: var(--login-border-hover);
-    background: rgba(108, 127, 216, 0.08);
+    background: var(--accent-subtle);
   }
 }
 
@@ -221,7 +221,7 @@ const save = async (): Promise<void> => {
 .setup-preview {
   margin-bottom: 28px;
   padding: 12px 16px;
-  background: rgba(108, 127, 216, 0.08);
+  background: var(--accent-subtle);
   border: 1px solid var(--login-border);
   border-radius: 8px;
 
@@ -241,22 +241,7 @@ const save = async (): Promise<void> => {
   }
 }
 
-@media (max-width: 1024px) {
-  .setup-container {
-    width: 100%;
-  }
-}
-
 @media (max-width: 768px) {
-  .setup-screen {
-    padding: 20px;
-  }
-
-  .setup-container {
-    min-height: auto;
-    padding: 20px;
-  }
-
   .setup-form {
     padding: 40px 32px;
   }

@@ -1,10 +1,11 @@
 import {onBeforeMount, ref} from 'vue'
-import {useCoreStore} from '@/05-entities'
+import {useCoreStore, useSettingsStore} from '@/05-entities'
 import {getAppInitData, checkUpdate, applyUpdateCmd} from '@/06-shared/api'
 import {useRouter} from 'vue-router'
 
 export function useAppInit() {
     const coreStore = useCoreStore()
+    const settingsStore = useSettingsStore()
     const router = useRouter()
     const preloaderText = ref<string>('')
 
@@ -24,6 +25,9 @@ export function useAppInit() {
                 if (coreStore.projects.length > 0) {
                     coreStore.currentProject = coreStore.projects[0]
                 }
+
+                const savedTheme = initData.launcherConfig.theme || 'test-dark'
+                settingsStore.setTheme(savedTheme)
             }
 
             preloaderText.value = 'Проверка обновлений...'
@@ -46,6 +50,9 @@ export function useAppInit() {
                     if (freshData.launcherConfig.projectNames.length > 0 && !coreStore.currentProject) {
                         coreStore.currentProject = freshData.launcherConfig.projectNames[0]
                     }
+
+                    const refreshedTheme = freshData.launcherConfig.theme || 'test-dark'
+                    settingsStore.setTheme(refreshedTheme)
                 }
             }
 
