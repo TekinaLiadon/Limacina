@@ -64,12 +64,12 @@ const getIcon = (status: StepProgressItem['status']): string => {
 .step-progress {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-12);
 
   &__item {
     display: flex;
-    align-items: flex-start;
-    gap: 14px;
+    align-items: center;
+    gap: var(--space-12);
     opacity: 0.5;
     transition: opacity 0.3s ease;
 
@@ -84,54 +84,63 @@ const getIcon = (status: StepProgressItem['status']): string => {
   }
 
   &__indicator {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-circle);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
     flex-shrink: 0;
-    transition: all 0.3s ease;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
 
     &--pending {
-      background: var(--grey-stroke);
+      background: var(--surface-active);
+      box-shadow: var(--elevation-inset);
       color: var(--login-text-muted);
     }
 
     &--active {
       background: var(--login-accent);
-      color: var(--white);
+      color: var(--text-on-accent);
       box-shadow: 0 0 0 4px var(--accent-active-bg);
     }
 
     &--done {
-      background: var(--green-2);
-      color: var(--white);
+      background: var(--accent-active-bg);
+      box-shadow: var(--elevation-inset);
+      color: var(--login-accent);
     }
 
     &--error {
-      background: var(--error);
-      color: var(--white);
+      background: var(--error-bg);
+      box-shadow: inset 0 0 0 1px var(--error-border);
+      color: var(--error);
     }
   }
 
   &__content {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding-top: 3px;
+    gap: var(--space-4);
+    text-align: left;
   }
 
   &__label {
-    font-size: 14px;
-    color: var(--login-text-primary);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
   }
 
   &__error {
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--error);
+  }
+
+  &__item--active &__label,
+  &__item--done &__label {
+    color: var(--login-text-primary);
   }
 }
 </style>

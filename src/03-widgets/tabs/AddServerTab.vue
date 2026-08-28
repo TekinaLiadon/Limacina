@@ -16,7 +16,7 @@
   min-height: 300px;
 
   &__text {
-    font-size: 16px;
+    font-size: var(--text-body);
     color: var(--login-text-muted);
   }
 }

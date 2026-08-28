@@ -13,6 +13,7 @@ export { default as AddServerTab } from './tabs/AddServerTab.vue'
 export { default as DebugTab } from './tabs/DebugTab.vue'
 
 export { default as LauncherPath } from './tabs/settings/LauncherPath.vue'
+export { default as ThemeSelector } from './tabs/settings/ThemeSelector.vue'
 export { default as LauncherToggle } from './tabs/settings/LauncherToggle.vue'
 export { default as SpeedLimit } from './tabs/settings/SpeedLimit.vue'
 export { default as ProjectInfoFields } from './tabs/settings/ProjectInfoFields.vue'

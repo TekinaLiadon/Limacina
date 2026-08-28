@@ -106,7 +106,7 @@ watch(() => logs.value.length, async (): Promise<void> => {
   height: 100%;
   min-height: 0;
   background: var(--debug-bg);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   overflow: hidden;
 
   &__scroll {
@@ -114,9 +114,10 @@ watch(() => logs.value.length, async (): Promise<void> => {
     min-height: 0;
     overflow-y: scroll;
     padding: 0;
-    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     line-height: 20px;
+    letter-spacing: normal;
     scrollbar-width: none;
 
     &::-webkit-scrollbar {

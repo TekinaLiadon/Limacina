@@ -72,7 +72,7 @@ const {
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
-  padding: 40px;
+  padding: var(--space-40) var(--space-32);
   display: flex;
   flex-direction: column;
   height: 100%;

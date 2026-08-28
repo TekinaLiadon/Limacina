@@ -36,10 +36,13 @@ const props = withDefaults(defineProps<{
   }
 
   &__text {
-    margin-top: 20px;
-    font-size: 16px;
-    color: var(--login-text-primary);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    margin-top: var(--space-20);
+    font-family: var(--font-eyebrow);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-eyebrow);
+    text-transform: uppercase;
+    color: var(--login-text-muted);
   }
 }
 </style>

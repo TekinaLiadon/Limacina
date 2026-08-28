@@ -1,0 +1,97 @@
+/*
+ * Тема "Default" (тёмная).
+ * Основа — дизайн-система Authkit: "frosted glass cathedral at midnight".
+ * Палитра: Midnight Canvas #05060f, Void Violet #663af3, Blueprint Blue #b6d9fc,
+ * текст Ice Highlight #d8ecf8 -> Frost Glow #d1e4fa -> Moon Mist #c7d3ea -> Fog Veil #9da7ba.
+ *
+ * Набор токенов одинаков во всех темах — см. любой файл в `themes/`.
+ */
+[data-theme="default-dark"] {
+  /* Фон приложения: conic-спотлайт + halo поверх near-black холста */
+  /* Типографика: Untitled Sans -> Inter (UI), aeonikPro -> Onest (заголовки), dotDigital -> JetBrains Mono */
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Onest", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-eyebrow: var(--font-mono);
+  --weight-display: 500;
+  --tracking-body: -0.01em;
+  --tracking-heading: normal;
+  --tracking-eyebrow: 0.1em;
+
+  /* Форма: pill-кнопки, карточки 16, инпуты и бейджи 6 */
+  --radius-button: var(--radius-pill);
+  --radius-card: 16px;
+  --radius-modal: 16px;
+  --radius-input: 6px;
+  --radius-badge: 6px;
+
+  --login-bg-primary: #05060f;
+  --login-bg-secondary: #0b0e1c;
+  --app-bg:
+    conic-gradient(
+      at 50% -5%,
+      transparent 45%,
+      rgba(124, 145, 182, 0.18) 49%,
+      rgba(124, 145, 182, 0.3) 50%,
+      rgba(124, 145, 182, 0.18) 51%,
+      transparent 55%
+    ),
+    radial-gradient(120% 90% at 50% -20%, rgba(124, 145, 182, 0.22) 0%, transparent 60%),
+    linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-primary) 100%);
+  --html-bg: #05060f;
+
+  /* Поверхность карточек и модалок (Deep Glass) */
+  --login-bg-form: rgba(5, 6, 15, 0.97);
+
+  /* Текст: heading -> body -> muted */
+  --login-text-primary: #d8ecf8;
+  --login-text-secondary: #c7d3ea;
+  --login-text-muted: #9da7ba;
+  --grey-text-db: #9da7ba;
+
+  /* Акцент — единственный хроматический цвет системы */
+  --login-accent: #663af3;
+  --login-accent-hover: #7c55f5;
+  --text-on-accent: #ffffff;
+  /* Заливка основного действия: в этой теме — сплошной акцент */
+  --accent-fill: var(--login-accent);
+  --text-on-accent-fill: var(--text-on-accent);
+  --accent-subtle: rgba(102, 58, 243, 0.1);
+  --accent-active-bg: rgba(102, 58, 243, 0.26);
+
+  /* Морозные поверхности (Frosted Glass) */
+  --surface-subtle: rgba(186, 214, 247, 0.03);
+  --surface-light: rgba(186, 214, 247, 0.06);
+  --surface-input: rgba(199, 211, 234, 0.06);
+  --surface-hover: rgba(186, 214, 247, 0.1);
+  --surface-active: rgba(199, 211, 234, 0.12);
+  --overlay: rgba(5, 6, 15, 0.72);
+
+  /* Hairline вместо сплошных бордеров */
+  --border-subtle: rgba(186, 215, 247, 0.12);
+  --elevation-inset: inset 0 0 0 1px rgba(186, 215, 247, 0.12);
+  --elevation-inset-strong: inset 0 0 0 1px rgba(186, 214, 247, 0.24);
+
+  /* Объём: inset-подсветка сверху + внутреннее свечение + холодная тень */
+  --elevation-card:
+    inset 0 1px 1px rgba(199, 211, 234, 0.12),
+    inset 0 24px 48px rgba(199, 211, 234, 0.05),
+    0 24px 32px rgba(6, 6, 14, 0.7);
+  --elevation-modal:
+    inset 0 1px 1px rgba(216, 236, 248, 0.2),
+    inset 0 24px 48px rgba(168, 216, 245, 0.06),
+    0 16px 32px rgba(0, 0, 0, 0.3);
+  --elevation-glow: 0 0 6px rgba(186, 207, 247, 0.32), 0 0 12px rgba(238, 186, 247, 0.24);
+
+  /* Статусы */
+  --error: #e46d4c;
+  --error-bg: rgba(228, 109, 76, 0.12);
+  --error-border: rgba(228, 109, 76, 0.32);
+  --delete-bg: rgba(228, 109, 76, 0.12);
+  --delete-border: rgba(228, 109, 76, 0.4);
+  --delete-text: #e46d4c;
+
+  /* Фоновая «чертёжная» сетка и Skywash для крупных заголовков */
+  --grid-line: rgba(186, 215, 247, 0.06);
+  --heading-gradient: linear-gradient(180deg, #d8ecf8 0%, #98c0ef 100%);
+}

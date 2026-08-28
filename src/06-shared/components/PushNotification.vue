@@ -54,21 +54,20 @@ onUnmounted((): void => {
 <style lang="scss">
 .push-notification {
   position: fixed;
-  top: 24px;
-  right: 24px;
+  top: var(--space-24);
+  right: var(--space-24);
   z-index: 2000;
   background: var(--login-bg-form);
-  border: 1px solid var(--login-border);
-  border-radius: 12px;
-  padding: 14px 24px;
-  box-shadow: 0 8px 24px var(--login-shadow-strong);
+  border-radius: var(--radius-card);
+  padding: var(--space-16) var(--space-20);
+  box-shadow: var(--elevation-modal);
   max-width: 360px;
 
   &__text {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--green);
-    line-height: 130%;
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    font-weight: var(--weight-medium);
+    color: var(--login-text-primary);
   }
 }
 

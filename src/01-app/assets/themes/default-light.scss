@@ -1,0 +1,85 @@
+/*
+ * Тема "Default" (светлая).
+ * Светлая версия дизайн-системы Authkit: та же морозная стеклянная логика,
+ * но на холодном белом холсте. Void Violet затемнён до #5b2fe0 для контраста.
+ */
+[data-theme="default-light"] {
+  /* Типографика: Untitled Sans -> Inter (UI), aeonikPro -> Onest (заголовки), dotDigital -> JetBrains Mono */
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Onest", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-eyebrow: var(--font-mono);
+  --weight-display: 500;
+  --tracking-body: -0.01em;
+  --tracking-heading: normal;
+  --tracking-eyebrow: 0.1em;
+
+  /* Форма: pill-кнопки, карточки 16, инпуты и бейджи 6 */
+  --radius-button: var(--radius-pill);
+  --radius-card: 16px;
+  --radius-modal: 16px;
+  --radius-input: 6px;
+  --radius-badge: 6px;
+
+  --login-bg-primary: #f4f6fb;
+  --login-bg-secondary: #e9eef7;
+  --app-bg:
+    conic-gradient(
+      at 50% -5%,
+      transparent 45%,
+      rgba(124, 145, 182, 0.16) 49%,
+      rgba(124, 145, 182, 0.26) 50%,
+      rgba(124, 145, 182, 0.16) 51%,
+      transparent 55%
+    ),
+    radial-gradient(120% 90% at 50% -20%, rgba(154, 176, 214, 0.28) 0%, transparent 60%),
+    linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
+  --html-bg: #e9eef7;
+
+  --login-bg-form: rgba(255, 255, 255, 0.94);
+
+  --login-text-primary: #0b0e1c;
+  --login-text-secondary: #3d4658;
+  --login-text-muted: #5e6a7d;
+  --grey-text-db: #5e6a7d;
+
+  --login-accent: #5b2fe0;
+  --login-accent-hover: #4a22c9;
+  --text-on-accent: #ffffff;
+  /* Заливка основного действия: в этой теме — сплошной акцент */
+  --accent-fill: var(--login-accent);
+  --text-on-accent-fill: var(--text-on-accent);
+  --accent-subtle: rgba(91, 47, 224, 0.07);
+  --accent-active-bg: rgba(91, 47, 224, 0.18);
+
+  --surface-subtle: rgba(63, 73, 89, 0.03);
+  --surface-light: rgba(63, 73, 89, 0.05);
+  --surface-input: rgba(63, 73, 89, 0.05);
+  --surface-hover: rgba(63, 73, 89, 0.08);
+  --surface-active: rgba(63, 73, 89, 0.11);
+  --overlay: rgba(11, 14, 28, 0.4);
+
+  --border-subtle: rgba(63, 73, 89, 0.12);
+  --elevation-inset: inset 0 0 0 1px rgba(63, 73, 89, 0.12);
+  --elevation-inset-strong: inset 0 0 0 1px rgba(63, 73, 89, 0.22);
+
+  --elevation-card:
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 24px 48px rgba(154, 176, 214, 0.08),
+    0 24px 32px rgba(63, 73, 89, 0.1);
+  --elevation-modal:
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 24px 48px rgba(154, 176, 214, 0.1),
+    0 16px 32px rgba(63, 73, 89, 0.16);
+  --elevation-glow: 0 0 6px rgba(91, 47, 224, 0.18), 0 0 12px rgba(154, 176, 214, 0.24);
+
+  --error: #c04a28;
+  --error-bg: rgba(192, 74, 40, 0.08);
+  --error-border: rgba(192, 74, 40, 0.28);
+  --delete-bg: rgba(192, 74, 40, 0.08);
+  --delete-border: rgba(192, 74, 40, 0.32);
+  --delete-text: #b3441f;
+
+  --grid-line: rgba(63, 73, 89, 0.07);
+  --heading-gradient: linear-gradient(180deg, #101528 0%, #40508a 100%);
+}

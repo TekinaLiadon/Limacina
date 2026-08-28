@@ -43,14 +43,16 @@ const isProjectDisabled = computed((): boolean => {
 
 <template>
   <div class="settings-page">
-    <h2 class="settings-page__title">Настройки</h2>
+    <h2 class="settings-page__title heading-display">Настройки</h2>
 
-    <div class="settings-page__tabs">
+    <div class="settings-page__tabs" role="tablist">
       <Button
         v-for="tab in tabs"
         :key="tab.key"
         class="settings-page__tab"
         :class="{ 'settings-page__tab--active': activeSubTab === tab.key }"
+        role="tab"
+        :aria-selected="activeSubTab === tab.key"
         :is-disabled="(tab.needsInit && isProjectDisabled) || (tab.needsAuth && !coreStore.isLoggedIn)"
         @click="router.push({ name: tab.name })"
       >
@@ -69,7 +71,7 @@ const isProjectDisabled = computed((): boolean => {
   width: 100%;
   max-width: 560px;
   margin: 0 auto;
-  padding: 40px;
+  padding: var(--space-40) var(--space-32);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -77,42 +79,33 @@ const isProjectDisabled = computed((): boolean => {
   height: 0;
 
   &__title {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--login-text-primary);
-    margin: 0 0 24px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    margin-bottom: var(--space-24);
   }
 
   &__tabs {
     display: flex;
-    gap: 4px;
-    margin-bottom: 24px;
+    gap: var(--space-4);
+    margin-bottom: var(--space-32);
     background: var(--surface-light);
-    border-radius: 8px;
-    padding: 4px;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-pill);
+    padding: var(--space-4);
   }
 
   &__tab {
     flex: 1;
-    padding: 10px 16px;
-    border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--login-text-muted);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-family: inherit;
 
     &:hover:not(.disabled) {
       color: var(--login-text-primary);
+      background: var(--surface-light);
     }
 
     &--active {
       background: var(--surface-active);
+      box-shadow: var(--elevation-inset);
       color: var(--login-text-primary);
     }
 
@@ -125,7 +118,7 @@ const isProjectDisabled = computed((): boolean => {
   &__content {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--element-gap);
   }
 }
 </style>

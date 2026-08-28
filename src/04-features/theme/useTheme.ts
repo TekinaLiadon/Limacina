@@ -1,13 +1,22 @@
-import { ref, watch } from 'vue'
-import { useSettingsStore } from '@/05-entities'
+import { ref, watch, type Ref } from 'vue'
+import { useSettingsStore, parseThemeId } from '@/05-entities'
 import { saveTheme } from '@/06-shared/api'
+
+const SWITCH_DURATION = 1500
 
 const isSwitching = ref<boolean>(false)
 const switchDirection = ref<'to-light' | 'to-dark'>('to-light')
 
+export function useThemeSwitchState(): {
+  isSwitching: Ref<boolean>
+  switchDirection: Ref<'to-light' | 'to-dark'>
+} {
+  return { isSwitching, switchDirection }
+}
+
 export function useTheme(): {
-  isSwitching: import('vue').Ref<boolean>
-  switchDirection: import('vue').Ref<'to-light' | 'to-dark'>
+  isSwitching: Ref<boolean>
+  switchDirection: Ref<'to-light' | 'to-dark'>
 } {
   const settingsStore = useSettingsStore()
 
@@ -17,25 +26,31 @@ export function useTheme(): {
 
   applyTheme(settingsStore.theme)
 
-  watch(() => settingsStore.theme, (newTheme, oldTheme) => {
-    if (!oldTheme) return
-
-    const goingToLight = newTheme.endsWith('-light')
-    switchDirection.value = goingToLight ? 'to-light' : 'to-dark'
-
-    isSwitching.value = true
+  watch(() => settingsStore.theme, (newTheme: string, oldTheme: string | undefined): void => {
+    if (!oldTheme || newTheme === oldTheme) return
 
     saveTheme(newTheme).catch((e: unknown) => {
       console.error('Ошибка сохранения темы:', e)
     })
 
-    setTimeout(() => {
+    const newMode = parseThemeId(newTheme).mode
+    const oldMode = parseThemeId(oldTheme).mode
+    const modeChanged: boolean = newMode !== oldMode
+
+    // Анимация перехода нужна только при смене светлая <-> тёмная.
+    // Смена семейства темы внутри одного режима применяется сразу.
+    if (!modeChanged || !settingsStore.animationsEnabled) {
       applyTheme(newTheme)
-    }, 1500)
+      return
+    }
+
+    switchDirection.value = newMode === 'light' ? 'to-light' : 'to-dark'
+    isSwitching.value = true
 
     setTimeout(() => {
+      applyTheme(newTheme)
       isSwitching.value = false
-    }, 1500)
+    }, SWITCH_DURATION)
   })
 
   return { isSwitching, switchDirection }

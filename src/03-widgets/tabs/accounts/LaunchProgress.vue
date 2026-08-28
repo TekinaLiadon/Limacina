@@ -24,13 +24,14 @@ const isLaunchStep = (steps: StepProgressItem[]): boolean => {
 <template>
   <div class="launch-progress">
     <div class="launch-progress__header">
+      <span class="launch-progress__label eyebrow">Подготовка запуска</span>
       <ProgressBar :progress="progress" />
     </div>
 
     <StepProgress :steps="steps" />
 
     <Button
-        class="btn-yellow current-account__btn current-account__btn--secondary"
+        class="btn-quiet btn-block launch-progress__btn"
         :is-disabled="!isLaunchStep(steps)"
         @click="$emit('go-to-accounts')"
     >
@@ -48,21 +49,26 @@ const isLaunchStep = (steps: StepProgressItem[]): boolean => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: var(--space-24);
 
   &__header {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--space-12);
+  }
+
+  &__btn {
+    min-height: 44px;
   }
 
   &__error {
-    padding: 10px 14px;
-    border-radius: 8px;
+    padding: var(--space-12);
+    border-radius: var(--radius-badge);
     background: var(--error-bg);
-    border: 1px solid var(--error-border);
+    box-shadow: inset 0 0 0 1px var(--error-border);
     color: var(--error);
-    font-size: 13px;
+    font-size: var(--text-body-sm);
+    text-align: left;
     word-break: break-word;
   }
 }

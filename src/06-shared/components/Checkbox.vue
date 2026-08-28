@@ -46,35 +46,38 @@ const emit = defineEmits<{
   }
 
   &__box {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--login-border);
-    border-radius: 4px;
+    width: 18px;
+    height: 18px;
+    border: none;
+    box-shadow: var(--elevation-inset);
+    background: var(--surface-input);
+    border-radius: var(--radius-badge);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
     flex-shrink: 0;
 
     .checkbox__input:checked + & {
-      background: var(--yellow);
-      border-color: var(--yellow);
+      background: var(--login-accent);
+      box-shadow: var(--elevation-inset);
     }
 
     .checkbox:hover & {
-      border-color: var(--login-border-hover);
+      box-shadow: var(--elevation-inset-strong);
     }
   }
 
   &__icon {
     width: 12px;
     height: 10px;
-    color: var(--login-bg-primary);
+    color: var(--text-on-accent);
   }
 
   &__label {
-    font-size: 14px;
-    color: var(--login-text-primary);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
   }
 }
 </style>

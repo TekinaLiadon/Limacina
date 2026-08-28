@@ -48,7 +48,8 @@ const save = async (): Promise<void> => {
   <div class="setup-screen">
     <div class="setup-container">
       <div class="setup-form">
-        <h1 class="setup-title">Настройка лаунчера</h1>
+        <span class="setup-eyebrow eyebrow">Первый запуск</span>
+        <h1 class="setup-title heading-display">Настройка лаунчера</h1>
         <p class="setup-description">Укажите папку для хранения файлов лаунчера</p>
 
         <div class="form-group">
@@ -59,17 +60,17 @@ const save = async (): Promise<void> => {
         </div>
 
         <div v-if="fullDisplayPath" class="setup-preview">
-          <span class="setup-preview__label">Путь установки:</span>
+          <span class="setup-preview__label eyebrow">Путь установки</span>
           <span class="setup-preview__path">{{ fullDisplayPath }}</span>
         </div>
 
         <div class="form-actions">
-          <Button class="btn-yellow btn-setup" @click="selectFolder">
+          <Button class="btn-secondary btn-block btn-setup" @click="selectFolder">
             Обзор
           </Button>
 
           <Button
-            class="btn-yellow btn-save"
+            class="btn-primary btn-lg btn-block"
             :is-loading="isLoading"
             :is-disabled="isLoading || !selectedPath"
             @click="save"
@@ -90,21 +91,19 @@ const save = async (): Promise<void> => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-20);
   position: relative;
 
   &::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(
-            ellipse at top left,
-            var(--accent-subtle) 0%,
-            transparent 50%
-    );
+    inset: 0;
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 80px 80px;
+    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
     pointer-events: none;
   }
 }
@@ -115,7 +114,6 @@ const save = async (): Promise<void> => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
   position: relative;
   z-index: 1;
 }
@@ -125,129 +123,67 @@ const save = async (): Promise<void> => {
   max-width: 480px;
   background: var(--login-bg-form);
   backdrop-filter: blur(12px);
-  border: 1px solid var(--login-border);
-  border-radius: 12px;
-  padding: 56px 48px;
-  box-shadow: 0 8px 32px var(--login-shadow),
-  inset 0 1px 0 var(--surface-light);
-  position: relative;
+  border-radius: var(--radius-modal);
+  padding: var(--space-40) var(--space-32);
+  box-shadow: var(--elevation-modal);
+  text-align: left;
+}
 
-  &::before {
-    content: '';
-    position: absolute;
-    top: -1px;
-    left: -1px;
-    right: -1px;
-    bottom: -1px;
-    background: linear-gradient(
-            135deg,
-            var(--login-accent) 0%,
-            transparent 30%,
-            transparent 70%,
-            var(--login-accent) 100%
-    );
-    border-radius: 12px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: -1;
-  }
-
-  &:hover::before {
-    opacity: 0.2;
-  }
+.setup-eyebrow {
+  margin-bottom: var(--space-12);
 }
 
 .setup-title {
-  font-size: 38px;
-  font-weight: 700;
-  color: var(--login-text-primary);
-  text-transform: uppercase;
-  margin: 0 0 40px 0;
-  text-shadow: 0 2px 8px var(--login-shadow);
-  letter-spacing: 1.5px;
+  font-size: var(--text-heading);
+  margin: 0 0 var(--space-12) 0;
 }
 
 .setup-description {
-  color: var(--login-text-secondary);
-  margin: 0 0 32px 0;
-  font-size: 15px;
+  color: var(--login-text-muted);
+  margin: 0 0 var(--space-32) 0;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-body-sm);
 }
 
 .form-group {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-16);
 }
 
 .form-actions {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-8);
 }
 
 .btn-setup {
-  width: 100%;
-  height: 48px;
-  font-size: 15px;
-  background: transparent;
-  color: var(--login-text-secondary);
-  border: 1px solid var(--border-subtle);
-  transition: all 0.3s ease;
-
-  &:hover {
-    color: var(--login-text-primary);
-    border-color: var(--login-border-hover);
-    background: var(--accent-subtle);
-  }
-}
-
-.btn-save {
-  width: 100%;
-  height: 52px;
-  font-size: 16px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  transition: all 0.3s ease;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 24px var(--login-accent-glow);
-  }
-
-  &:active {
-    transform: translateY(0);
-  }
+  min-height: 44px;
 }
 
 .setup-preview {
-  margin-bottom: 28px;
-  padding: 12px 16px;
-  background: var(--accent-subtle);
-  border: 1px solid var(--login-border);
-  border-radius: 8px;
+  margin-bottom: var(--space-24);
+  padding: var(--space-12);
+  background: var(--surface-subtle);
+  box-shadow: var(--elevation-inset);
+  border-radius: var(--radius-card);
 
   &__label {
     display: block;
-    font-size: 12px;
-    color: var(--login-text-muted);
-    margin-bottom: 4px;
+    margin-bottom: var(--space-4);
   }
 
   &__path {
     display: block;
-    font-size: 14px;
-    color: var(--login-text-primary);
+    font-size: var(--text-caption);
+    color: var(--login-text-secondary);
     word-break: break-all;
-    font-family: monospace;
+    font-family: var(--font-mono);
+    letter-spacing: normal;
   }
 }
 
 @media (max-width: 768px) {
   .setup-form {
-    padding: 40px 32px;
-  }
-
-  .setup-title {
-    font-size: 32px;
+    padding: var(--space-32) var(--space-24);
   }
 }
 </style>

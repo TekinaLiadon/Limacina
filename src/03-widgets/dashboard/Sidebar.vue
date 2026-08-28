@@ -46,38 +46,45 @@ const items: TabItem[] = [
   flex-direction: column;
   width: 220px;
   background: var(--login-bg-form);
-  border-radius: 16px;
-  padding: 20px 12px;
-  gap: 8px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-inset);
+  padding: var(--space-20) var(--space-12);
+  gap: var(--space-8);
 
   &__tabs {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-4);
     flex: 1;
   }
 
   &__item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 10px;
+    gap: var(--space-12);
+    padding: 6px 12px 6px 6px;
+    border-radius: var(--radius-button);
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     color: var(--login-text-secondary);
-    font-size: 14px;
+    font-family: inherit;
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    font-weight: var(--weight-medium);
     text-align: left;
     width: 100%;
 
     &:hover:not(&--disabled) {
       color: var(--login-text-primary);
+      background: var(--surface-light);
     }
 
     &--active {
       color: var(--login-text-primary);
+      background: var(--surface-light);
+      box-shadow: var(--elevation-inset);
     }
 
     &--disabled {
@@ -87,23 +94,22 @@ const items: TabItem[] = [
     }
 
     .icon-btn {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       flex-shrink: 0;
       background-color: transparent;
-      transition: all 0.2s ease;
+      box-shadow: none;
 
       &__icon {
         font-size: 18px;
         width: 18px;
         height: 18px;
-        color: var(--login-text-secondary);
-        transition: color 0.2s ease;
       }
     }
 
     &:hover:not(&--disabled) .icon-btn {
-      background-color: var(--accent-hover-bg);
+      background-color: var(--surface-hover);
+      box-shadow: var(--elevation-inset);
 
       .icon-btn__icon {
         color: var(--login-text-primary);
@@ -112,6 +118,7 @@ const items: TabItem[] = [
 
     &--active .icon-btn {
       background-color: var(--accent-active-bg);
+      box-shadow: var(--elevation-inset);
 
       .icon-btn__icon {
         color: var(--login-accent);
@@ -128,8 +135,8 @@ const items: TabItem[] = [
   @include breakpoints.media-under-lg {
     width: 100%;
     flex-direction: row;
-    border-radius: 16px 16px 0 0;
-    padding: 12px 16px;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    padding: var(--space-12) var(--space-16);
     position: fixed;
     bottom: 0;
     left: 0;
@@ -137,19 +144,20 @@ const items: TabItem[] = [
 
     &__tabs {
       flex-direction: row;
-      gap: 4px;
+      gap: var(--space-4);
       overflow-x: auto;
     }
 
     &__item {
       flex-direction: column;
-      gap: 4px;
-      padding: 8px 12px;
+      gap: var(--space-4);
+      padding: var(--space-8) var(--space-12);
       min-width: fit-content;
+      border-radius: var(--radius-card);
     }
 
     &__label {
-      font-size: 10px;
+      font-size: var(--text-caption);
     }
   }
 

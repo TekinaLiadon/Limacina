@@ -14,7 +14,7 @@ pub struct AuthProjectConfig {
 }
 
 fn default_theme() -> String {
-    "test-dark".to_string()
+    "default-dark".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -48,13 +48,14 @@ const speedValue = computed({
 .speed-limit {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-4);
+  align-items: flex-start;
 
   &__row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--space-8);
+    margin-top: var(--space-8);
 
     .input__core {
       max-width: 120px;
@@ -62,7 +63,7 @@ const speedValue = computed({
   }
 
   &__unit {
-    font-size: 14px;
+    font-size: var(--text-body-sm);
     color: var(--login-text-muted);
     white-space: nowrap;
   }

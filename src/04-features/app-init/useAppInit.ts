@@ -1,5 +1,5 @@
 import {onBeforeMount, ref} from 'vue'
-import {useCoreStore, useSettingsStore} from '@/05-entities'
+import {useCoreStore, useSettingsStore, normalizeTheme} from '@/05-entities'
 import {getAppInitData, checkUpdate, applyUpdateCmd} from '@/06-shared/api'
 import {useRouter} from 'vue-router'
 
@@ -26,7 +26,7 @@ export function useAppInit() {
                     coreStore.currentProject = coreStore.projects[0]
                 }
 
-                const savedTheme = initData.launcherConfig.theme || 'test-dark'
+                const savedTheme = normalizeTheme(initData.launcherConfig.theme)
                 settingsStore.setTheme(savedTheme)
             }
 
@@ -51,7 +51,7 @@ export function useAppInit() {
                         coreStore.currentProject = freshData.launcherConfig.projectNames[0]
                     }
 
-                    const refreshedTheme = freshData.launcherConfig.theme || 'test-dark'
+                    const refreshedTheme = normalizeTheme(freshData.launcherConfig.theme)
                     settingsStore.setTheme(refreshedTheme)
                 }
             }

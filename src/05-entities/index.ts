@@ -16,6 +16,17 @@ export type {
 
 export { useSettingsStore } from './settings/settingsStore'
 export type { SettingsState } from './settings/settingsStore'
+export {
+  THEME_FAMILIES,
+  DEFAULT_THEME,
+  DEFAULT_THEME_FAMILY,
+  DEFAULT_THEME_MODE,
+  buildThemeId,
+  parseThemeId,
+  isKnownTheme,
+  normalizeTheme,
+} from './settings/themes'
+export type { ThemeFamily, ThemeMode, ThemePreview } from './settings/types'
 
 export { useNotificationStore } from './notification/notificationStore'
 

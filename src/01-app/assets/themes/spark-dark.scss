@@ -1,0 +1,85 @@
+/*
+ * Тема "Искра" (тёмная).
+ * Основа — дизайн-система n8n: "workflow engine at midnight".
+ * Void Base #0e0918 (почти чёрный с фиолетовым подтоном) -> Elevated #1a1624 -> Deep Panel #1b1728.
+ * Текст: Cloud White заголовки -> Ash #d1cece -> Fog #9d9797.
+ * Два градиента делят роли: Ember (30deg, orange->red) — только основное действие,
+ * Electric Current (blue->violet) — активные состояния, иконки, прогресс, ссылки.
+ * Глубина — исключительно ступени фона + inset-подсветка, внешних теней нет.
+ */
+[data-theme="spark-dark"] {
+  /* Типографика: geomanist -> Jost (геометрический, есть вес 300 и кириллица) */
+  --font-body: "Jost", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Jost", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-eyebrow: var(--font-body);
+  --weight-display: 300; /* n8n: заголовки шепчут — вес 300 на крупных кеглях */
+  --tracking-body: normal;
+  --tracking-heading: -0.018em;
+  --tracking-eyebrow: 0.06em;
+
+  /* Форма: кнопки и инпуты 8, карточки 16, крупные панели 24 */
+  --radius-button: 8px;
+  --radius-card: 16px;
+  --radius-modal: 24px;
+  --radius-input: 8px;
+  --radius-badge: 8px;
+
+  --login-bg-primary: #0e0918;
+  --login-bg-secondary: #1b1728;
+  /* Atmospheric Ember: тёплое свечение на 13% — подсознательное, не заметное сразу */
+  --app-bg:
+    radial-gradient(120% 100% at 12% 115%, rgba(217, 126, 75, 0.16) 0%, transparent 45%),
+    linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-primary) 100%);
+  --html-bg: #0e0918;
+
+  /* Elevated Surface — на одну ступень выше void */
+  --login-bg-form: #1a1624;
+
+  --login-text-primary: #ffffff;
+  --login-text-secondary: #d1cece;
+  --login-text-muted: #9d9797;
+  --grey-text-db: #9d9797;
+
+  /* Electric Current: активные состояния и связи */
+  --login-accent: #8250f0;
+  --login-accent-hover: #9a70f5;
+  --text-on-accent: #ffffff;
+  /* Ember: единственная тёплая заливка в интерфейсе — основное действие */
+  --accent-fill: linear-gradient(30deg, rgb(253, 137, 37), rgb(255, 12, 0));
+  --text-on-accent-fill: #ffffff;
+  --accent-subtle: rgba(130, 80, 240, 0.1);
+  --accent-active-bg: rgba(130, 80, 240, 0.2);
+
+  --surface-subtle: rgba(255, 255, 255, 0.03);
+  --surface-light: rgba(255, 255, 255, 0.06);
+  /* Frosted ghost из ДС: панель внутри панели */
+  --surface-input: rgba(13, 10, 25, 0.28);
+  --surface-hover: rgba(255, 255, 255, 0.09);
+  --surface-active: rgba(255, 255, 255, 0.13);
+  --overlay: rgba(14, 9, 24, 0.82);
+
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --elevation-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  --elevation-inset-strong: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+
+  /* Подсветка идёт изнутри поверхности: белый hairline + тёплая полоса по нижней кромке */
+  --elevation-card:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 0 rgba(255, 142, 93, 0.3);
+  --elevation-modal:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 0 rgba(255, 142, 93, 0.3),
+    0 0 8px rgba(0, 0, 0, 0.26);
+  --elevation-glow: 0 0 8px rgba(130, 80, 240, 0.5);
+
+  --error: #ff6b5b;
+  --error-bg: rgba(255, 107, 91, 0.1);
+  --error-border: rgba(255, 107, 91, 0.32);
+  --delete-bg: rgba(255, 107, 91, 0.1);
+  --delete-border: rgba(255, 107, 91, 0.4);
+  --delete-text: #ff6b5b;
+
+  --grid-line: rgba(255, 255, 255, 0.045);
+  --heading-gradient: linear-gradient(180deg, #ffffff 0%, #d1cece 100%);
+}

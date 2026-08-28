@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button, Input } from '@/06-shared'
+import { Button, Input, Checkbox } from '@/06-shared'
 import { useAuth } from '@/04-features'
 import { AuthForm } from '@/03-widgets'
 import type { AuthSubTab } from '@/05-entities/core/types'
@@ -42,6 +42,7 @@ const tabs: AuthButtonTab[] = [
     <div class="auth-tabs__tabs">
       <Button
           v-for="el in tabs"
+          :key="el.key"
           class="auth-tabs__tab"
           :class="{ 'auth-tabs__tab--active': activeTab === el.key }"
           @click="emit('update:activeTab', el.key)"
@@ -64,14 +65,10 @@ const tabs: AuthButtonTab[] = [
         @back="emit('back')"
         :is-back="showBack"
       >
-        <label class="auth-tabs__checkbox" @click.prevent="loginFormData.rememberMe = !loginFormData.rememberMe">
-          <span class="auth-tabs__check" :class="{ 'auth-tabs__check--checked': loginFormData.rememberMe }">
-            <svg v-if="loginFormData.rememberMe" width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <span>Сохранить данные</span>
-        </label>
+        <Checkbox
+          v-model="loginFormData.rememberMe"
+          label="Сохранить данные"
+        />
       </AuthForm>
 
       <AuthForm
@@ -112,32 +109,29 @@ const tabs: AuthButtonTab[] = [
 
   &__tabs {
     display: flex;
-    gap: 4px;
-    margin-bottom: 24px;
+    gap: var(--space-4);
+    margin-bottom: var(--space-24);
     background: var(--surface-light);
-    border-radius: 8px;
-    padding: 4px;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-pill);
+    padding: var(--space-4);
   }
 
   &__tab {
     flex: 1;
-    padding: 10px 16px;
-    border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-pill);
     background: transparent;
+    box-shadow: none;
     color: var(--login-text-muted);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-family: inherit;
 
     &:hover:not(.disabled) {
       color: var(--login-text-primary);
+      background: var(--surface-light);
     }
 
     &--active {
       background: var(--surface-active);
+      box-shadow: var(--elevation-inset);
       color: var(--login-text-primary);
     }
   }
@@ -152,40 +146,12 @@ const tabs: AuthButtonTab[] = [
   &__field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  &__checkbox {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    font-size: 14px;
-    color: var(--login-text-secondary);
-    user-select: none;
-  }
-
-  &__check {
-    width: 18px;
-    height: 18px;
-    border: 1.5px solid var(--login-border);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: all 0.2s ease;
-    color: transparent;
-
-    &--checked {
-      background: var(--login-accent);
-      border-color: var(--login-accent);
-      color: var(--white);
-    }
+    gap: var(--space-4);
   }
 
   &__error {
-    font-size: 12px;
+    font-size: var(--text-caption);
+    text-align: left;
     color: var(--error);
   }
 }

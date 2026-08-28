@@ -58,7 +58,7 @@ const onMaxInput = (e: Event): void => {
 <template>
   <div class="dual-range">
     <div class="dual-range__header">
-      <label class="dual-range__label">Память (min — max)</label>
+      <label class="dual-range__label eyebrow">Память (min — max)</label>
       <span class="dual-range__values">
         {{ formatValue(minVal) }} — {{ formatValue(maxVal) }}
       </span>
@@ -97,22 +97,19 @@ const onMaxInput = (e: Event): void => {
 .dual-range {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-12);
 
   &__header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-  }
-
-  &__label {
-    font-size: 13px;
-    color: var(--login-text-secondary);
+    gap: var(--space-12);
   }
 
   &__values {
-    font-size: 14px;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
     color: var(--login-text-primary);
     font-variant-numeric: tabular-nums;
   }
@@ -120,8 +117,9 @@ const onMaxInput = (e: Event): void => {
   &__track {
     position: relative;
     height: 6px;
-    background: var(--grey-stroke);
-    border-radius: 3px;
+    background: var(--surface-active);
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-pill);
   }
 
   &__fill {
@@ -129,7 +127,7 @@ const onMaxInput = (e: Event): void => {
     top: 0;
     height: 100%;
     background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
-    border-radius: 3px;
+    border-radius: var(--radius-pill);
     pointer-events: none;
   }
 
@@ -148,12 +146,12 @@ const onMaxInput = (e: Event): void => {
 
     &::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-circle);
       background: var(--login-accent);
-      border: 2px solid var(--white);
-      box-shadow: 0 2px 6px var(--login-shadow);
+      border: none;
+      box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
       cursor: pointer;
       pointer-events: auto;
       transition: transform 0.15s ease;
@@ -164,12 +162,12 @@ const onMaxInput = (e: Event): void => {
     }
 
     &::-moz-range-thumb {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-circle);
       background: var(--login-accent);
-      border: 2px solid var(--white);
-      box-shadow: 0 2px 6px var(--login-shadow);
+      border: none;
+      box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
       cursor: pointer;
       pointer-events: auto;
     }

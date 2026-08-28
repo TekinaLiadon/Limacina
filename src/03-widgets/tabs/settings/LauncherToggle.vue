@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Checkbox } from '@/06-shared'
 
 defineProps<{
   modelValue: boolean
@@ -12,15 +13,11 @@ const emit = defineEmits<{
 
 <template>
   <div class="launcher-toggles__item">
-    <label class="launcher-toggles__toggle">
-      <input
-        type="checkbox"
-        :checked="modelValue"
-        class="launcher-toggles__checkbox"
-        @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
-      />
-      <span class="launcher-toggles__label">{{ label }}</span>
-    </label>
+    <Checkbox
+      :model-value="modelValue"
+      :label="label"
+      @update:model-value="emit('update:modelValue', $event)"
+    />
   </div>
 </template>
 
@@ -28,26 +25,6 @@ const emit = defineEmits<{
 .launcher-toggles__item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.launcher-toggles__toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.launcher-toggles__checkbox {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--yellow);
-  cursor: pointer;
-}
-
-.launcher-toggles__label {
-  font-size: 14px;
-  color: var(--login-text-primary);
-  cursor: pointer;
+  gap: var(--space-4);
 }
 </style>

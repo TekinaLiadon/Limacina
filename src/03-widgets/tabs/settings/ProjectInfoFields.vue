@@ -33,6 +33,6 @@ const fields = [
 .project-info-fields {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--element-gap);
 }
 </style>

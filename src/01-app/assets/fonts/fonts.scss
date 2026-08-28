@@ -1,0 +1,21 @@
+/*
+ * Все самохостинговые семейства шрифтов.
+ * Файлы и `<slug>/fonts.scss` генерирует `bun run fonts` (scripts/subset-fonts.ts):
+ * из полного вариативного TTF остаются только латиница, кириллица и общие символы.
+ *
+ * Какое семейство применяется — решает тема через
+ * --font-body / --font-display / --font-mono / --font-eyebrow.
+ *
+ * Inter          — UI и body тем default и lime (Untitled Sans / Inter Variable из ДС)
+ * Onest          — заголовки темы default (замена aeonikPro: геометрический sans с кириллицей)
+ * Inter Tight    — заголовки темы lime (замена Goga, указана в ДС Modal)
+ * Jost           — UI и заголовки темы "Искра" (замена geomanist, нужен вес 300)
+ * JetBrains Mono — моноширинный: консоль, пути (замена dotDigital / Fira Mono)
+ * Manrope        — UI и заголовки темы "Ночная синь"
+ */
+@use "inter/fonts" as inter;
+@use "onest/fonts" as onest;
+@use "inter-tight/fonts" as inter-tight;
+@use "jost/fonts" as jost;
+@use "jetbrains-mono/fonts" as jetbrains-mono;
+@use "manrope/fonts" as manrope;

@@ -62,19 +62,25 @@ function selectOption(value: string): void {
   cursor: pointer;
 
   &__value {
-    border: 1px solid var(--login-border);
-    border-radius: 10px;
-    transition: border-radius 0.25s ease-out;
+    border: none;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-input);
+    transition: border-radius 0.25s ease-out, background-color 0.2s ease;
     height: 40px;
     align-content: center;
-    padding: 0 14px;
+    text-align: left;
+    padding: 0 12px;
     color: var(--login-text-primary);
     background-color: var(--surface-input);
-    font-size: 14px;
+    font-size: var(--text-body-sm);
+  }
+
+  &:not(.disabled):hover .dropdown__value {
+    background-color: var(--surface-hover);
   }
 
   &.shown .dropdown__value {
-    border-radius: 10px 10px 0 0;
+    border-radius: var(--radius-input) var(--radius-input) 0 0;
   }
 
   &.disabled {
@@ -89,27 +95,25 @@ function selectOption(value: string): void {
   left: 0;
   right: 0;
   background-color: var(--login-bg-form);
-  border: 1px solid var(--login-border);
-  border-top: none;
-  border-radius: 0 0 10px 10px;
-  padding: 6px 0;
+  border-radius: 0 0 var(--radius-input) var(--radius-input);
+  padding: var(--space-4) 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
   z-index: 100;
-  box-shadow: 0 8px 24px var(--login-shadow-strong);
+  box-shadow: var(--elevation-modal);
   overflow-y: auto;
 
   &__item {
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
+    gap: var(--space-8);
+    padding: 9px 12px;
     transition: background 0.15s;
 
     &:hover {
-      background: var(--accent-hover-bg);
+      background: var(--surface-hover);
     }
   }
 
@@ -119,9 +123,9 @@ function selectOption(value: string): void {
   }
 
   &__item-title {
-    font-size: 14px;
-    line-height: 130%;
-    color: var(--login-text-primary);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
   }
 
   // anim

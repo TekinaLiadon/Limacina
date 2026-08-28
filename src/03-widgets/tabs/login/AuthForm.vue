@@ -45,7 +45,7 @@ const emit = defineEmits<{
     <div v-if="errorMessage" class="auth-form__error">{{ errorMessage }}</div>
 
     <Button
-        class="btn-yellow auth-form__btn"
+        class="btn-primary btn-lg btn-block"
         :is-loading="isLoading"
         :is-disabled="isDisabled"
         @click="emit('submit')"
@@ -54,7 +54,7 @@ const emit = defineEmits<{
     </Button>
     <Button
         v-if="isBack"
-        class="btn-yellow auth-form__btn auth-form__btn--secondary"
+        class="btn-quiet btn-block auth-form__back-btn"
         @click="emit('back')"
     >
       Назад к аккаунтам
@@ -67,41 +67,27 @@ const emit = defineEmits<{
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--element-gap);
 
   &__field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-4);
   }
 
   &__error {
     color: var(--error);
-    font-size: 13px;
-    padding: 10px 14px;
+    font-size: var(--text-body-sm);
+    text-align: left;
+    padding: var(--space-12);
     background: var(--error-bg);
-    border: 1px solid var(--error-border);
-    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px var(--error-border);
+    border-radius: var(--radius-badge);
     word-break: break-word;
   }
 
-  &__btn {
-    width: 100%;
-    height: 48px;
-    font-size: 16px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-
-    &--secondary {
-      background: transparent;
-      border: 1px solid var(--login-border);
-      color: var(--login-text-primary);
-
-      &:hover {
-        background: var(--surface-light);
-      }
-    }
+  &__back-btn {
+    min-height: 44px;
   }
 }
 </style>

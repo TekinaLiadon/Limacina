@@ -1,6 +1,6 @@
 <script setup lang="ts">
 
-import { Button, Input, ProgressBar } from '@/06-shared'
+import { Button, Input, ProgressBar, Checkbox } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 import { useAuth, useGameLaunch } from '@/04-features'
 import StepProgress from "@/03-widgets/tabs/login/StepProgress.vue";
@@ -30,7 +30,7 @@ const handleLogin = async (): Promise<void> => {
   <div class="login-tab">
     <template v-if="!coreStore.isLoggedIn">
       <div class="login-tab__form">
-        <h2 class="login-tab__title">Вход</h2>
+        <h2 class="login-tab__title heading-display">Вход</h2>
 
         <div class="login-tab__field">
           <Input
@@ -47,20 +47,16 @@ const handleLogin = async (): Promise<void> => {
         </div>
 
         <div class="login-tab__field">
-          <label class="login-tab__checkbox" @click.prevent="loginFormData.rememberMe = !loginFormData.rememberMe">
-            <span class="login-tab__check" :class="{ 'login-tab__check--checked': loginFormData.rememberMe }">
-              <svg v-if="loginFormData.rememberMe" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6L5 9L10 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </span>
-            <span>Сохранить данные</span>
-          </label>
+          <Checkbox
+            v-model="loginFormData.rememberMe"
+            label="Сохранить данные"
+          />
         </div>
 
         <div v-if="errorMessage" class="login-tab__error">{{ errorMessage }}</div>
 
         <Button
-          class="btn-yellow login-tab__btn"
+          class="btn-primary btn-lg btn-block"
           :is-loading="isLoading"
           :is-disabled="isLoading"
           @click="handleLogin"
@@ -73,7 +69,7 @@ const handleLogin = async (): Promise<void> => {
     <template v-else>
       <div class="login-tab__progress">
         <div class="login-tab__progress-header">
-          <h2 class="login-tab__title">{{ coreStore.currentProject }}</h2>
+          <h2 class="login-tab__title heading-display">{{ coreStore.currentProject }}</h2>
           <ProgressBar :progress="activeProgress" />
         </div>
 
@@ -92,88 +88,46 @@ const handleLogin = async (): Promise<void> => {
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
-  padding: 40px;
+  padding: var(--space-40) var(--space-32);
 
   &__form {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--element-gap);
   }
 
   &__title {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--login-text-primary);
-    margin: 0 0 8px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    margin-bottom: var(--space-8);
   }
 
   &__field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  &__checkbox {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    font-size: 14px;
-    color: var(--login-text-secondary);
-    user-select: none;
-  }
-
-  &__check {
-    width: 18px;
-    height: 18px;
-    border: 1.5px solid var(--login-border);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: all 0.2s ease;
-    color: transparent;
-
-    &--checked {
-      background: var(--login-accent);
-      border-color: var(--login-accent);
-      color: var(--white);
-    }
-  }
-
-  &__btn {
-    width: 100%;
-    height: 48px;
-    font-size: 16px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-top: 8px;
+    align-items: flex-start;
+    gap: var(--space-4);
   }
 
   &__error {
     color: var(--error);
-    font-size: 13px;
-    padding: 10px 14px;
+    font-size: var(--text-body-sm);
+    text-align: left;
+    padding: var(--space-12);
     background: var(--error-bg);
-    border: 1px solid var(--error-border);
-    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px var(--error-border);
+    border-radius: var(--radius-badge);
     word-break: break-word;
   }
 
   &__progress {
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: var(--space-24);
   }
 
   &__progress-header {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--space-12);
   }
 }
 </style>

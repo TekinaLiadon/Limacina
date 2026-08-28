@@ -24,7 +24,7 @@ const versionInput = defineModel<string>('versionInput', { default: '' })
 <template>
   <div class="alt-java-button">
     <span class="alt-java-button__text">Загрузить другую Java</span>
-    <Button class="btn-yellow alt-java-button__btn" @click="emit('open-popup')">
+    <Button class="btn-secondary alt-java-button__btn" @click="emit('open-popup')">
       Выбрать
     </Button>
     <AlternativeJavaPopup
@@ -46,16 +46,17 @@ const versionInput = defineModel<string>('versionInput', { default: '' })
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-12);
 
   &__text {
-    font-size: 14px;
-    color: var(--login-text-primary);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
+    text-align: left;
   }
 
   &__btn {
-    height: 40px;
-    padding: 0 20px;
-    font-size: 13px;
+    min-height: 40px;
     white-space: nowrap;
     flex-shrink: 0;
   }
