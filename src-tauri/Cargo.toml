@@ -1,7 +1,7 @@
 [package]
 name = "Limacina"
 version = "1.2.1"
-description = "A Tauri App"
+description = "Limacina — Minecraft launcher"
 authors = ["Tekina"]
 edition = "2021"
 
@@ -30,7 +30,7 @@ futures = "0.3"
 zip = "0.6"
 uuid = { version = "1", features = ["v4", "fast-rng", "macro-diagnostics"] }
 md-5 = "0.10"
-thiserror = "1.0"
+sha1 = "0.10"
 async-trait = "0.1.89"
 toml = "1.1.2"
 quick-xml = { version = "0.40.1", features = ["serialize"] }

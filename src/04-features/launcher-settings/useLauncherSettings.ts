@@ -1,45 +1,40 @@
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { saveLauncherSettings, saveLauncherConfig } from '@/06-shared/api'
 import type { LauncherSettingsPayload } from '@/06-shared/api'
 import { open } from '@tauri-apps/plugin-dialog'
 
-export function useLauncherSettings() {
+export function useLauncherSettings(): {
+  launcherPath: Ref<string>
+  settings: ComputedRef<LauncherSettingsPayload>
+  isSaving: Ref<boolean>
+  selectLauncherFolder: () => Promise<void>
+  handleSave: () => Promise<void>
+  setAutoUpdate: (value: boolean) => Promise<void>
+} {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
   const launcherPath = ref<string>('')
 
-  const settings = ref<LauncherSettingsPayload>({
-    discordActivity: false,
-    keepOldConfigs: false,
-    downloadSpeedLimit: null,
-    autoUpdate: true,
-    systemNotifications: false,
-    debugMode: false,
-    startWithSystem: false,
-    closeAfterLaunch: false,
+  const settings = computed<LauncherSettingsPayload>(() => {
+    const config = coreStore.launcherConfig
+    return {
+      discordActivity: config?.discordActivity ?? false,
+      keepOldConfigs: config?.keepOldConfigs ?? false,
+      downloadSpeedLimit: config?.downloadSpeedLimit ?? null,
+      autoUpdate: config?.autoUpdate ?? true,
+      systemNotifications: config?.systemNotifications ?? false,
+      debugMode: config?.debugMode ?? false,
+      startWithSystem: config?.startWithSystem ?? false,
+      closeAfterLaunch: config?.closeAfterLaunch ?? false,
+    }
   })
 
-  const loadSettings = (): void => {
-    const config = coreStore.launcherConfig
-    if (!config) return
-
-    launcherPath.value = config.launcherPath
-    settings.value = {
-      discordActivity: config.discordActivity,
-      keepOldConfigs: config.keepOldConfigs,
-      downloadSpeedLimit: config.downloadSpeedLimit,
-      autoUpdate: config.autoUpdate,
-      systemNotifications: config.systemNotifications,
-      debugMode: config.debugMode,
-      startWithSystem: config.startWithSystem,
-      closeAfterLaunch: config.closeAfterLaunch,
-    }
-  }
-
   onMounted((): void => {
-    loadSettings()
+    if (coreStore.launcherConfig) {
+      launcherPath.value = coreStore.launcherConfig.launcherPath
+    }
   })
 
   const selectLauncherFolder = async (): Promise<void> => {
@@ -63,9 +58,19 @@ export function useLauncherSettings() {
       coreStore.launcherConfig = updated
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
-      console.error(e)
+      notification.show(String(e))
     } finally {
       isSaving.value = false
+    }
+  }
+
+  const setAutoUpdate = async (value: boolean): Promise<void> => {
+    try {
+      const updated = await saveLauncherSettings({ ...settings.value, autoUpdate: value })
+      coreStore.launcherConfig = updated
+      notification.show(value ? 'Автообновление включено' : 'Автообновление отключено')
+    } catch (e: unknown) {
+      notification.show(String(e))
     }
   }
 
@@ -75,5 +80,6 @@ export function useLauncherSettings() {
     isSaving,
     selectLauncherFolder,
     handleSave,
+    setAutoUpdate,
   }
 }

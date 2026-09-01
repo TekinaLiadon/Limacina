@@ -173,10 +173,9 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
 
     .cpm-settings__btn {
       flex: 1;
-      min-height: 40px;
+      min-height: var(--control-height);
 
       &--reset,
-      &--save,
       &--upload {
         flex: 0 0 auto;
       }
@@ -203,7 +202,7 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
 
     .cpm-settings__btn {
       flex: 1;
-      min-height: 40px;
+      min-height: var(--control-height);
 
       &--upload {
         flex: 0 0 auto;
@@ -264,7 +263,7 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
 
   &__copy-btn,
   &__delete-btn {
-    padding: 6px 12px;
+    padding: var(--space-4) var(--control-padding-x);
     font-size: var(--text-caption);
   }
 }

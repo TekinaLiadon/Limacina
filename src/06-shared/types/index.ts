@@ -32,10 +32,6 @@ export interface PopupOptions {
   header?: string
 }
 
-export interface SmoothHeightOptions {
-  property?: string[]
-  transition?: string
-}
 
 export interface SliderOptions {
   min: number

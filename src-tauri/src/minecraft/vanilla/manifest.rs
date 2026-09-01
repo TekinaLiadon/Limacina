@@ -1,4 +1,4 @@
-use ::anyhow::Result;
+use anyhow::Result;
 
 use crate::minecraft::{structs::Versions, vanilla::structs::VersionInfo};
 

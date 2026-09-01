@@ -1,10 +1,13 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use md5::{Digest, Md5};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 use std::{
     process::{Command, Stdio},
     thread,
@@ -18,7 +21,7 @@ use crate::utils::logger_utils::ConsolePayload;
 use crate::utils::{compare_versions, get_classpath_separator};
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
 
-#[warn(dead_code)]
+
 pub fn generate_offline_uuid(nickname: &str) -> String {
     log_info!("Генерация офлайн uuid");
     let data = format!("OfflinePlayer:{}", nickname);
@@ -101,6 +104,30 @@ pub fn filter_classpath(classpath: Vec<String>) -> Vec<String> {
     final_classpath
 }
 
+
+
+pub fn strip_classpath_args(args: Vec<String>) -> Vec<String> {
+    let mut result = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "-cp" {
+            skip_next = true;
+            continue;
+        }
+        if arg.contains("${classpath}") {
+            continue;
+        }
+        result.push(arg);
+    }
+
+    result
+}
+
 fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
     let path = Path::new(path_str);
     let file_name = path.file_name()?.to_str()?;
@@ -123,7 +150,96 @@ pub fn find_authlib_jar(game_dir: &Path) -> Option<PathBuf> {
     }
 }
 
-pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
+
+const WINDOW_OPEN_MARKERS: &[&str] = &[
+    "Reloading ResourceManager",
+    "Sound engine started",
+    "OpenAL initialized",
+    "Backend library: LWJGL",
+    "LWJGL Version:",
+];
+
+
+const OUTPUT_TAIL_LIMIT: usize = 20;
+const ERROR_TAIL_LINES: usize = 5;
+
+
+pub struct GameProcess {
+    window_opened: Arc<AtomicBool>,
+    exited: Arc<AtomicBool>,
+    exit_status: Arc<StdMutex<Option<String>>>,
+    last_output: Arc<StdMutex<VecDeque<String>>>,
+}
+
+impl GameProcess {
+
+
+
+    pub async fn wait_for_window(&self, timeout: Duration) -> Result<()> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self.window_opened.load(AtomicOrdering::Relaxed) {
+                log_info!("Окно игры открыто");
+                return Ok(());
+            }
+            if self.exited.load(AtomicOrdering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let status = self
+                    .exit_status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+                    .unwrap_or_else(|| "неизвестный статус".to_string());
+                let tail = self.output_tail();
+                let details = if tail.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n{}", tail)
+                };
+                anyhow::bail!("Игра завершилась до открытия окна ({}){}", status, details);
+            }
+            if Instant::now() >= deadline {
+                log_info!(
+                    "Окно игры не обнаружено по логам за {} сек, ожидание прекращено",
+                    timeout.as_secs()
+                );
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    }
+
+    fn output_tail(&self) -> String {
+        let log = self.last_output.lock().unwrap_or_else(|e| e.into_inner());
+        let len = log.len();
+        log.iter()
+            .skip(len.saturating_sub(ERROR_TAIL_LINES))
+            .cloned()
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+}
+
+fn is_window_open_marker(line: &str) -> bool {
+    WINDOW_OPEN_MARKERS.iter().any(|marker| line.contains(marker))
+}
+
+fn track_output(last_output: &StdMutex<VecDeque<String>>, line: &str) {
+    let truncated: String = line.chars().take(300).collect();
+    let mut log = last_output.lock().unwrap_or_else(|e| e.into_inner());
+    if log.len() >= OUTPUT_TAIL_LIMIT {
+        log.pop_front();
+    }
+    log.push_back(truncated);
+}
+
+
+
+pub fn spawn_game_process(
+    app: AppHandle,
+    config: GameConfig,
+    server_url: Option<&str>,
+) -> Result<GameProcess> {
     log_info!("\n▶ Запуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
     log_info!("Java: {:?}", &config.java_path);
@@ -137,26 +253,12 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     let mut command = Command::new(&config.java_path);
     let separator = get_classpath_separator();
     let classpath = &config.classpath.join(separator);
-    let mut skip_next = false;
     let mut jvm_args: Vec<String> = config
         .jvm_args
-        .iter()
-        .cloned()
-        .filter(|arg| {
-            if skip_next {
-                skip_next = false;
-                return false;
-            }
-            if arg == "-cp" || arg.contains("${classpath}") {
-                skip_next = true;
-                return false;
-            }
-            !arg.is_empty()
-        })
+        .iter().filter(|&arg| !arg.is_empty()).cloned()
         .collect();
 
-    if let Some(authlib_path) = find_authlib_jar(&config.game_dir) {
-        let server_url = env!("LAUNCHER_SERVER_URL");
+    if let (Some(server_url), Some(authlib_path)) = (server_url, find_authlib_jar(&config.game_dir)) {
         let agent_arg = format!("-javaagent:{}={}", authlib_path.to_string_lossy(), server_url);
         log_info!("Authlib-injector: {}", agent_arg);
         jvm_args.insert(0, agent_arg);
@@ -167,14 +269,14 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
     command
         .args(jvm_args)
         .arg("-cp")
-        .arg(&classpath)
+        .arg(classpath)
         .arg(&config.main_class)
         .args(config.game_args)
         .current_dir(&config.game_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    //eprintln!("Аргументы: {:?}", command.get_args().collect::<Vec<_>>());
+
 
     #[cfg(target_os = "windows")]
     {
@@ -185,47 +287,86 @@ pub fn spawn_game_process(app: AppHandle, config: GameConfig) -> Result<()> {
         .spawn()
         .context("Не удалось запустить Java процесс")?;
 
-    let stdout = child.stdout.take().expect("Failed to open stdout");
-    let stderr = child.stderr.take().expect("Failed to open stderr");
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("Не удалось получить stdout процесса"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("Не удалось получить stderr процесса"))?;
+
+    let process = GameProcess {
+        window_opened: Arc::new(AtomicBool::new(false)),
+        exited: Arc::new(AtomicBool::new(false)),
+        exit_status: Arc::new(StdMutex::new(None)),
+        last_output: Arc::new(StdMutex::new(VecDeque::new())),
+    };
 
     let app_out = app.clone();
+    let window_opened_out = Arc::clone(&process.window_opened);
+    let last_output_out = Arc::clone(&process.last_output);
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                log_info!("[MC] {}", line);
-                let _ = app_out.emit(
-                    "game-console",
-                    ConsolePayload {
-                        line,
-                        is_error: false,
-                    },
-                );
+        for line in reader.lines().map_while(Result::ok) {
+            log_info!("[MC] {}", line);
+            let _ = app_out.emit(
+                "game-console",
+                ConsolePayload {
+                    line: line.clone(),
+                    is_error: false,
+                },
+            );
+            track_output(&last_output_out, &line);
+            if !window_opened_out.load(AtomicOrdering::Relaxed)
+                && is_window_open_marker(&line)
+            {
+                log_info!("Обнаружено открытие окна игры");
+                window_opened_out.store(true, AtomicOrdering::Relaxed);
             }
         }
     });
 
     let app_err = app.clone();
+    let window_opened_err = Arc::clone(&process.window_opened);
+    let last_output_err = Arc::clone(&process.last_output);
     thread::spawn(move || {
         let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                log_err!("[MC] {}", line);
-                let _ = app_err.emit(
-                    "game-console",
-                    ConsolePayload {
-                        line,
-                        is_error: true,
-                    },
-                );
+        for line in reader.lines().map_while(Result::ok) {
+            log_err!("[MC] {}", line);
+            let _ = app_err.emit(
+                "game-console",
+                ConsolePayload {
+                    line: line.clone(),
+                    is_error: true,
+                },
+            );
+            track_output(&last_output_err, &line);
+            if !window_opened_err.load(AtomicOrdering::Relaxed)
+                && is_window_open_marker(&line)
+            {
+                log_info!("Обнаружено открытие окна игры");
+                window_opened_err.store(true, AtomicOrdering::Relaxed);
             }
         }
     });
 
-    thread::spawn(move || match child.wait() {
-        Ok(status) => log_info!("Minecraft завершился: {:?}", status),
-        Err(e) => log_err!("Ошибка ожидания процесса: {}", e),
+    let exited = Arc::clone(&process.exited);
+    let exit_status = Arc::clone(&process.exit_status);
+    thread::spawn(move || {
+        let result = match child.wait() {
+            Ok(status) => {
+                log_info!("Minecraft завершился: {:?}", status);
+                Some(status.to_string())
+            }
+            Err(e) => {
+                log_err!("Ошибка ожидания процесса: {}", e);
+                Some(format!("ошибка ожидания: {}", e))
+            }
+        };
+        *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
+        exited.store(true, AtomicOrdering::Relaxed);
     });
 
-    Ok(())
+    Ok(process)
 }

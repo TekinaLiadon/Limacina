@@ -1,9 +1,4 @@
-/*
- * Тема "Ночная синь" (светлая) — базовая тема лаунчера,
- * переведённая на токены дизайн-системы.
- */
 [data-theme="test-light"] {
-  /* Типографика: Manrope — собственное лицо базовой темы */
   --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Manrope", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
@@ -13,7 +8,6 @@
   --tracking-heading: -0.01em;
   --tracking-eyebrow: 0.08em;
 
-  /* Форма: pill-кнопки, карточки 16, инпуты и бейджи 6 */
   --radius-button: var(--radius-pill);
   --radius-card: 16px;
   --radius-modal: 16px;
@@ -32,16 +26,15 @@
   --login-text-primary: #1a1d2e;
   --login-text-secondary: #4a4e6a;
   --login-text-muted: #6a6f85;
-  --grey-text-db: #6a6f85;
 
   --login-accent: #5a6a9a;
   --login-accent-hover: #4a5a86;
   --text-on-accent: #ffffff;
-  /* Заливка основного действия: в этой теме — сплошной акцент */
   --accent-fill: var(--login-accent);
   --text-on-accent-fill: var(--text-on-accent);
   --accent-subtle: rgba(90, 106, 154, 0.07);
   --accent-active-bg: rgba(90, 106, 154, 0.18);
+  --accent-text: var(--login-accent);
 
   --surface-subtle: rgba(26, 29, 46, 0.03);
   --surface-light: rgba(26, 29, 46, 0.05);

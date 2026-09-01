@@ -12,7 +12,7 @@ const emit = defineEmits<{
 
 const items: TabItem[] = [
   { key: 'accounts', icon: 'home', label: 'Аккаунты' },
-  { key: 'add-server', icon: 'referals', label: 'Добавить сервер', disabled: true },
+  { key: 'add-profile', icon: 'referals', label: 'Новый профиль' },
   { key: 'settings', icon: 'settings', label: 'Настройки' },
   { key: 'debug', icon: 'settings', label: 'Дебаг' },
 ]
@@ -44,12 +44,12 @@ const items: TabItem[] = [
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 220px;
+  flex-shrink: 0;
+  width: var(--sidebar-width);
   background: var(--login-bg-form);
   border-radius: var(--radius-card);
-  box-shadow: var(--elevation-inset);
-  padding: var(--space-20) var(--space-12);
-  gap: var(--space-8);
+  box-shadow: var(--elevation-card);
+  padding: var(--panel-padding-y) var(--panel-padding-x);
 
   &__tabs {
     display: flex;
@@ -61,8 +61,8 @@ const items: TabItem[] = [
   &__item {
     display: flex;
     align-items: center;
-    gap: var(--space-12);
-    padding: 6px 12px 6px 6px;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-12) var(--space-4) var(--space-4);
     border-radius: var(--radius-button);
     background: transparent;
     border: none;
@@ -94,8 +94,8 @@ const items: TabItem[] = [
     }
 
     .icon-btn {
-      width: 32px;
-      height: 32px;
+      width: var(--control-height-sm);
+      height: var(--control-height-sm);
       flex-shrink: 0;
       background-color: transparent;
       box-shadow: none;
@@ -121,7 +121,7 @@ const items: TabItem[] = [
       box-shadow: var(--elevation-inset);
 
       .icon-btn__icon {
-        color: var(--login-accent);
+        color: var(--accent-text);
       }
     }
   }
@@ -135,12 +135,6 @@ const items: TabItem[] = [
   @include breakpoints.media-under-lg {
     width: 100%;
     flex-direction: row;
-    border-radius: var(--radius-card) var(--radius-card) 0 0;
-    padding: var(--space-12) var(--space-16);
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    z-index: 10;
 
     &__tabs {
       flex-direction: row;

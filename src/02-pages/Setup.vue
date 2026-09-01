@@ -2,13 +2,14 @@
 import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import { useCoreStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { initializeLauncher } from '@/06-shared/api'
 import { Button, Input } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 
 const router = useRouter()
 const coreStore = useCoreStore()
+const notificationStore = useNotificationStore()
 const { defaultParentPath, launcherName } = storeToRefs(coreStore)
 const selectedPath = ref<string>('')
 const isLoading = ref<boolean>(false)
@@ -37,7 +38,7 @@ const save = async (): Promise<void> => {
     coreStore.hasLauncherConfig = true
     router.push('/')
   } catch (e: unknown) {
-    console.error(e)
+    notificationStore.show(String(e))
   } finally {
     isLoading.value = false
   }
@@ -84,6 +85,8 @@ const save = async (): Promise<void> => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/breakpoints';
+
 .setup-screen {
   min-height: 100vh;
   width: 100%;
@@ -91,7 +94,7 @@ const save = async (): Promise<void> => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-20);
+  padding: var(--layout-padding);
   position: relative;
 
   &::before {
@@ -110,7 +113,7 @@ const save = async (): Promise<void> => {
 
 .setup-container {
   width: 100%;
-  max-width: 480px;
+  max-width: var(--page-max-width);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -120,11 +123,10 @@ const save = async (): Promise<void> => {
 
 .setup-form {
   width: 100%;
-  max-width: 480px;
   background: var(--login-bg-form);
   backdrop-filter: blur(12px);
   border-radius: var(--radius-modal);
-  padding: var(--space-40) var(--space-32);
+  padding: var(--page-padding-y) var(--page-padding-x);
   box-shadow: var(--elevation-modal);
   text-align: left;
 }
@@ -140,7 +142,7 @@ const save = async (): Promise<void> => {
 
 .setup-description {
   color: var(--login-text-muted);
-  margin: 0 0 var(--space-32) 0;
+  margin: 0 0 var(--title-gap) 0;
   font-size: var(--text-body-sm);
   line-height: var(--leading-body-sm);
 }
@@ -156,7 +158,7 @@ const save = async (): Promise<void> => {
 }
 
 .btn-setup {
-  min-height: 44px;
+  min-height: var(--control-height);
 }
 
 .setup-preview {
@@ -181,7 +183,7 @@ const save = async (): Promise<void> => {
   }
 }
 
-@media (max-width: 768px) {
+@include breakpoints.media-under-md {
   .setup-form {
     padding: var(--space-32) var(--space-24);
   }

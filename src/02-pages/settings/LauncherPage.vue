@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useLauncherSettings } from "@/04-features";
-import { LauncherPath, ThemeSelector } from "@/03-widgets";
+import { LauncherPath, ThemeSelector, LauncherUpdate } from "@/03-widgets";
 import { Button } from "@/06-shared";
 
 const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncherSettings()
@@ -13,22 +13,6 @@ const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncher
       <LauncherPath :launcher-path="launcherPath" @browse="selectLauncherFolder" />
     </div>
 
-    <div class="launcher-settings__section">
-      <div class="section-label">Внешний вид</div>
-      <ThemeSelector />
-    </div>
-
-<!--    <LauncherToggle
-        v-for="toggle in toggles"
-        :key="toggle.key"
-        v-model="settings[toggle.key]"
-        :label="toggle.label"
-    />-->
-
-<!--
-    <SpeedLimit v-model="settings.downloadSpeedLimit" />
--->
-
     <Button
         class="btn-primary btn-lg btn-block"
         :is-loading="isSaving"
@@ -37,6 +21,16 @@ const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncher
     >
       Сохранить
     </Button>
+
+    <div class="launcher-settings__section">
+      <div class="section-label">Внешний вид</div>
+      <ThemeSelector />
+    </div>
+
+    <div class="launcher-settings__section">
+      <div class="section-label">Обновление</div>
+      <LauncherUpdate />
+    </div>
   </div>
 </template>
 

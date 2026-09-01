@@ -20,20 +20,13 @@ const props = defineProps<{
 </template>
 
 <style lang="scss">
-/*
- * Кнопки: радиус задаёт тема (--radius-button — pill или 12px).
- * Границы — не сплошные линии, а inset hairline (--elevation-inset).
- * .btn-primary — единственная залитая акцентом кнопка (основное действие).
- * .btn-secondary — ghost с подложкой поверхности.
- * .btn-quiet — прозрачная, только hairline.
- * .btn-danger — деструктивное действие.
- */
 .btn {
   display: inline-flex;
   justify-content: center;
   align-items: center;
   gap: var(--space-8);
-  padding: 8px 16px;
+  padding: var(--space-8) var(--space-16);
+  min-height: var(--control-height);
   border: none;
   border-radius: var(--radius-button);
   background: transparent;
@@ -61,8 +54,6 @@ const props = defineProps<{
     animation: btn-spin 0.7s linear infinite;
   }
 
-  /* Заливка приходит из темы: сплошной акцент или градиент.
-     Поэтому hover осветляет её фильтром, а не подменяет цвет. */
   &.btn-primary {
     background: var(--accent-fill);
     color: var(--text-on-accent-fill);
@@ -115,9 +106,9 @@ const props = defineProps<{
   }
 
   &.btn-lg {
-    padding: 12px 24px;
+    padding: var(--space-12) var(--space-24);
     font-size: var(--text-body);
-    min-height: 48px;
+    min-height: var(--control-height-lg);
   }
 }
 

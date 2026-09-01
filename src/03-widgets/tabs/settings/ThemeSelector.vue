@@ -115,7 +115,7 @@ const modes: ModeOption[] = [
   }
 
   &__mode {
-    padding: 5px 14px;
+    padding: var(--space-4) var(--space-16);
     border: none;
     border-radius: var(--radius-pill);
     background: transparent;

@@ -37,7 +37,11 @@ export function useAccountsPage() {
   const handleLaunch = async (): Promise<void> => {
     launchCancelled = false
     store.isLaunching = true
-    await executeSteps(() => launchCancelled)
+    try {
+      await executeSteps(() => launchCancelled)
+    } catch (e: unknown) {
+      coreStore.loginError = String(e)
+    }
   }
 
   const showLoginForm = (): void => {

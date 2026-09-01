@@ -114,7 +114,7 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
 
     .skin-settings__btn {
       flex: 1;
-      min-height: 40px;
+      min-height: var(--control-height);
 
       &--upload,
       &--reset {
@@ -171,7 +171,7 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
 
   &__copy-btn,
   &__delete-btn {
-    padding: 6px 12px;
+    padding: var(--space-4) var(--control-padding-x);
     font-size: var(--text-caption);
   }
 }

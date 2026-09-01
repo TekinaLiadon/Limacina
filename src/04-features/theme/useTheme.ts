@@ -37,8 +37,6 @@ export function useTheme(): {
     const oldMode = parseThemeId(oldTheme).mode
     const modeChanged: boolean = newMode !== oldMode
 
-    // Анимация перехода нужна только при смене светлая <-> тёмная.
-    // Смена семейства темы внутри одного режима применяется сразу.
     if (!modeChanged || !settingsStore.animationsEnabled) {
       applyTheme(newTheme)
       return

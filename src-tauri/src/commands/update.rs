@@ -1,7 +1,9 @@
-use crate::updater::{check_for_update, download_update, apply_update, UpdateInfo};
+use crate::updater::{
+    apply_update, check_for_update, download_update, get_launcher_versions as fetch_launcher_versions,
+    UpdateInfo, UpdateVersions,
+};
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
-use anyhow::Context;
 use tauri::AppHandle;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -21,46 +23,52 @@ pub async fn check_update(
 }
 
 #[tauri::command]
+pub async fn get_launcher_versions() -> CommandResult<UpdateVersions> {
+    let versions = fetch_launcher_versions().await?;
+    Ok(versions)
+}
+
+#[tauri::command]
 #[allow(unreachable_code)]
 pub async fn apply_update_cmd(
     app: AppHandle,
+    version: Option<String>,
 ) -> CommandResult<()> {
     if cfg!(debug_assertions) {
         log_info!("Режим разработки, скачивание и применение обновления пропущены");
         return Ok(());
     }
 
-    let version = app.package_info().version.to_string();
-    log_info!("Текущая версия: v{}", version);
+    let target_version = match version {
+        Some(v) => v,
+        None => {
+            let current_version = app.package_info().version.to_string();
+            log_info!("Текущая версия: v{}", current_version);
 
-    let server_url = env!("LAUNCHER_SERVER_URL");
-    let url = format!("{}/launcher/version", server_url);
-    let resp = reqwest::Client::new()
-        .get(&url)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу обновлений")?;
+            let info = check_for_update(&current_version).await?;
+            match info {
+                Some(info) => {
+                    log_info!("Сервер предлагает обновление до v{}", info.version);
+                    info.version
+                }
+                None => {
+                    log_info!("Обновление не требуется");
+                    return Ok(());
+                }
+            }
+        }
+    };
 
-    if !resp.status().is_success() {
-        log_err!("Сервер обновлений вернул статус {}", resp.status());
-        return Err(anyhow::anyhow!("Сервер обновлений недоступен").into());
-    }
+    log_info!("Установка версии лаунчера v{}", target_version);
 
-    let info: UpdateInfo = resp
-        .json()
-        .await
-        .context("Не удалось распарсить информацию об обновлении")?;
-
-    log_info!("Сервер предлагает обновление до v{}", info.version);
-
-    let archive_path = match download_update(&info).await {
+    let archive_path = match download_update(&target_version).await {
         Ok(path) => {
-            log_info!("Обновление v{} скачано: {:?}", info.version, path);
+            log_info!("Обновление v{} скачано: {:?}", target_version, path);
             path
         }
         Err(e) => {
             log_err!("Не удалось скачать обновление: {}", e);
-            return Ok(());
+            return Err(anyhow::anyhow!("Не удалось скачать версию v{}", target_version).into());
         }
     };
 
@@ -72,6 +80,7 @@ pub async fn apply_update_cmd(
         Err(e) => {
             log_err!("Не удалось применить обновление: {}", e);
             let _ = std::fs::remove_file(&archive_path);
+            return Err(anyhow::anyhow!("Не удалось применить обновление").into());
         }
     }
 

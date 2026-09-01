@@ -42,7 +42,7 @@ const emit = defineEmits<{
   }
 
   &__browse-btn {
-    min-height: 40px;
+    min-height: var(--control-height);
     white-space: nowrap;
     flex-shrink: 0;
   }

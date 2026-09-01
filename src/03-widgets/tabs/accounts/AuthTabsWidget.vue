@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Button, Input, Checkbox } from '@/06-shared'
 import { useAuth } from '@/04-features'
 import { AuthForm } from '@/03-widgets'
 import type { AuthSubTab } from '@/05-entities/core/types'
 
-defineProps<{
+const props = defineProps<{
   activeTab: AuthSubTab
   showBack?: boolean
 }>()
@@ -21,6 +22,8 @@ const {
   loginFormData,
   registerFormData,
   passwordsMatch,
+  isOffline,
+  isLoginValid,
   isRegisterValid,
   handleLogin,
   handleRegister,
@@ -35,11 +38,14 @@ const tabs: AuthButtonTab[] = [
   {text: "Вход", key: "login" },
   {text: "Регистрация", key: "register" }
 ]
+
+const showTabs = computed((): boolean => !isOffline.value)
+const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props.activeTab))
 </script>
 
 <template>
   <div class="auth-tabs">
-    <div class="auth-tabs__tabs">
+    <div v-if="showTabs" class="auth-tabs__tabs">
       <Button
           v-for="el in tabs"
           :key="el.key"
@@ -53,19 +59,21 @@ const tabs: AuthButtonTab[] = [
 
     <div class="auth-tabs__content">
       <AuthForm
-        v-if="activeTab === 'login'"
+        v-if="currentTab === 'login'"
         v-model:username="loginFormData.username"
         v-model:password="loginFormData.password"
-        submit-label="Войти"
+        :submit-label="isOffline ? 'Играть' : 'Войти'"
         :is-loading="isLoading"
-        :is-disabled="loginFormData.username.length < 4 || loginFormData.password.length < 4"
+        :is-disabled="!isLoginValid"
         :error-message="errorMessage"
         :username-list="logins"
+        :hide-password="isOffline"
         @submit="handleLogin"
         @back="emit('back')"
         :is-back="showBack"
       >
         <Checkbox
+          v-if="!isOffline"
           v-model="loginFormData.rememberMe"
           label="Сохранить данные"
         />
@@ -110,7 +118,7 @@ const tabs: AuthButtonTab[] = [
   &__tabs {
     display: flex;
     gap: var(--space-4);
-    margin-bottom: var(--space-24);
+    margin-bottom: var(--tabs-gap);
     background: var(--surface-light);
     box-shadow: var(--elevation-inset);
     border-radius: var(--radius-pill);

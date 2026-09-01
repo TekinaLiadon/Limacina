@@ -4,8 +4,10 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::auth::{self, storage};
+use crate::commands::auth::restore_session;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::log_info;
+use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::tauri_err::CommandResult;
 
@@ -21,11 +23,15 @@ pub async fn select_account(
     project_name: String,
     username: String,
 ) -> CommandResult<SessionInfo> {
-    let refresh_token =
-        storage::get_credential(&project_name, &username, "refresh_token")
-            .context("Не найден refresh_token для аккаунта")?;
+    let project = load_config_or_default(&project_name).await;
 
-    let auth_data = auth::refresh(&refresh_token).await?;
+
+
+    let auth_data = if project.online {
+        restore_session(&project_name, &username, None).await?
+    } else {
+        auth::offline(&username)
+    };
 
     let uuid = auth_data.uuid();
     let username_str = auth_data.username(&username);
@@ -34,16 +40,23 @@ pub async fn select_account(
         let mut state = state.lock().await;
         state.session = Some(SessionTokens {
             access_token: auth_data.tokens.access_token.clone(),
-            refresh_token: auth_data.tokens.refresh_token.clone(),
             uuid: uuid.clone(),
             username: username_str.clone(),
         });
     }
 
-    if !uuid.is_empty() {
-        let _ = storage::save_credential(&project_name, &username, "uuid", &uuid);
+    if project.online {
+        if !uuid.is_empty() {
+            let _ = storage::save_credential(&project_name, &username, "uuid", &uuid).await;
+        }
+        storage::save_credential(
+            &project_name,
+            &username,
+            "refresh_token",
+            &auth_data.tokens.refresh_token,
+        )
+        .await?;
     }
-    storage::save_credential(&project_name, &username, "refresh_token", &auth_data.tokens.refresh_token)?;
 
     log_info!("Аккаунт выбран: {}", username_str);
 
@@ -76,8 +89,16 @@ pub async fn logout_account(
 #[tauri::command]
 pub async fn upload_skin(
     state: State<'_, Mutex<GlobalState>>,
-    file_data: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> CommandResult<UserContentItem> {
+
+    let file_data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+
+        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
+            .context("Некорректное тело запроса загрузки скина")?,
+    };
+
     let item = user_content::upload_skin(&state, file_data).await?;
     Ok(item)
 }

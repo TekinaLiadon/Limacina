@@ -39,24 +39,21 @@ pub struct GameConfig {
 }
 
 pub async fn new_launch_config(
-    username: &String,
-    uuid: &String,
-    access_token: &String,
+    username: &str,
+    uuid: &str,
+    access_token: &str,
     state_project: &ProjectConfig,
 ) -> Result<LaunchConfig> {
     let base_dir = launcher_patch(Some(&state_project.project_name))?;
-    let mut jvm_sub_arg = Vec::<String>::new();
-    jvm_sub_arg.push(state_project.min_memory.clone());
-    jvm_sub_arg.push(state_project.max_memory.clone());
+    let jvm_sub_arg = vec![
+        state_project.min_memory.clone(),
+        state_project.max_memory.clone(),
+    ];
 
-    //min_memory: "512M".to_string(),
-    //max_memory: "4G".to_string(),
-    // jvm_args.push(format!("-Xms{}", &config.min_memory));
-    // jvm_args.push(format!("-Xmx{}", &config.max_memory));
     Ok(LaunchConfig {
-        username: username.clone(),
-        uuid: uuid.clone(),
-        access_token: access_token.clone(),
+        username: username.to_string(),
+        uuid: uuid.to_string(),
+        access_token: access_token.to_string(),
         mc_version: state_project.mc_version.clone(),
         loader_version: state_project.loader_version.clone(),
         game_dir: base_dir.clone(),
@@ -98,7 +95,7 @@ pub trait ModLoader: Send + Sync {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>>;
     async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod>;
     async fn latest_version(&self, state: &ProjectConfig) -> Result<String>;
-    async fn setup(&self, state: &ProjectConfig, manifest: &Vec<VersionMod>) -> Result<()>;
+    async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()>;
     async fn config(
         &self,
         state: &ProjectConfig,

@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "fonts": "bun run scripts/subset-fonts.ts",
     "build:update": "bunx tauri build && node scripts/build-update.cjs",
-    "clean": "cargo clean"
+    "clean": "cargo clean",
+    "clean:cache": "rm -rf ~/.local/share/com.tekina.limacina/WebKitCache ~/.local/share/com.tekina.limacina/CacheStorage"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.31",

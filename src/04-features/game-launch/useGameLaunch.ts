@@ -1,80 +1,74 @@
 import { computed } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft } from '@/06-shared/api'
-import type { StepProgressItem, ProjectConfig } from '@/05-entities/core/types'
+import type { ProjectConfig, StepProgressItem } from '@/05-entities/core/types'
+import { useLaunchStepsStream } from './useLaunchStepsStream'
 
-interface StepDef {
-  label: string
-  action: () => Promise<void>
-}
+type StepAction = () => Promise<void>
 
-const LAUNCH_SUFFIX: StepDef = { label: 'Запуск', action: startMinecraft }
+const LAUNCH_ACTION: StepAction = startMinecraft
 
-function buildInstallSteps(): StepDef[] {
-  const steps: StepDef[] = [
-    { label: 'Установка Java', action: downloadJava },
-    { label: 'Синхронизация файлов', action: downloadServerFile },
-    { label: 'Установка Minecraft', action: downloadMinecraft },
-  ]
-  steps.push(LAUNCH_SUFFIX)
-  return steps
-}
-
-function buildLaunchSteps(config: ProjectConfig): StepDef[] {
-  const steps: StepDef[] = [
-    { label: 'Синхронизация файлов', action: downloadServerFile },
-  ]
-  if (config.modLoader !== 'vanilla') {
-    steps.push({ label: 'Проверка модов', action: downloadServerMods })
+function buildInstallActions(config: ProjectConfig): StepAction[] {
+  const actions: StepAction[] = [downloadJava]
+  if (config.online) {
+    actions.push(downloadServerFile)
   }
-  steps.push(LAUNCH_SUFFIX)
-  return steps
+  actions.push(downloadMinecraft, LAUNCH_ACTION)
+  return actions
 }
 
-function resetSteps(defs: StepDef[]): StepProgressItem[] {
-  return defs.map((def, i) => ({
-    id: i + 1,
-    label: def.label,
-    status: 'pending' as const,
-  }))
+function buildLaunchActions(config: ProjectConfig): StepAction[] {
+  const actions: StepAction[] = []
+  if (config.online) {
+    actions.push(downloadServerFile)
+    if (config.modLoader !== 'vanilla') {
+      actions.push(downloadServerMods)
+    }
+  }
+  actions.push(LAUNCH_ACTION)
+  return actions
 }
 
 export function useGameLaunch() {
   const coreStore = useCoreStore()
   const store = useAccountsStore()
+  const { resetLaunchSteps } = useLaunchStepsStream()
 
-  const launchSteps = computed({
-    get: (): StepProgressItem[] => store.launchSteps,
-    set: (v: StepProgressItem[]): void => { store.launchSteps = v },
-  })
-  const activeProgress = computed({
-    get: (): number => store.activeProgress,
-    set: (v: number): void => { store.activeProgress = v },
-  })
+  const launchSteps = computed((): StepProgressItem[] => store.launchSteps)
+  const activeProgress = computed((): number => store.activeProgress)
+
+  const markActiveStepError = (message: string): void => {
+    const step = store.launchSteps.find((s) => s.status === 'active')
+    if (step) {
+      step.status = 'error'
+      step.error = message
+    }
+  }
 
   const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
-    const config = await initializeProject(coreStore.currentProject)
+    let config: ProjectConfig
+    try {
+      config = await initializeProject(coreStore.currentProject)
+    } catch (e: unknown) {
+      if (isCancelled?.()) return
+      coreStore.loginError = String(e)
+      return
+    }
+    coreStore.projectConfig = config
 
-    const stepDefs = config.initialized ? buildLaunchSteps(config) : buildInstallSteps()
+    const actions = config.initialized ? buildLaunchActions(config) : buildInstallActions(config)
 
-    launchSteps.value = resetSteps(stepDefs)
-    activeProgress.value = 0
+    resetLaunchSteps()
     coreStore.loginError = ''
 
-    for (let i = 0; i < stepDefs.length; i++) {
+    for (const action of actions) {
       if (isCancelled?.()) return
 
-      if (i > 0) launchSteps.value[i - 1].status = 'done'
-
-      const step = launchSteps.value[i]
-      step.status = 'active'
-      activeProgress.value = ((i + 1) / stepDefs.length) * 100
-
       try {
-        await stepDefs[i].action()
+        await action()
       } catch (error: unknown) {
         if (isCancelled?.()) return
-        step.status = 'error'
+        markActiveStepError(String(error))
         coreStore.loginError = String(error)
         return
       }
@@ -82,13 +76,11 @@ export function useGameLaunch() {
 
     if (isCancelled?.()) return
 
-    const last = launchSteps.value[launchSteps.value.length - 1]
-    last.status = 'done'
-    activeProgress.value = 100
-
     if (!config.initialized) {
       await setInitialized()
     }
+
+    store.isLaunching = false
   }
 
   return {

@@ -57,7 +57,7 @@ defineEmits<{
     font-weight: var(--weight-medium);
     letter-spacing: var(--tracking-heading);
     color: var(--login-text-primary);
-    margin: 0 0 var(--space-24) 0;
+    margin: 0 0 var(--title-gap) 0;
   }
 
   &__actions {
@@ -68,7 +68,7 @@ defineEmits<{
   }
 
   &__btn {
-    min-height: 44px;
+    min-height: var(--control-height);
   }
 }
 </style>

@@ -13,10 +13,6 @@ function makeid(length: number): string {
   return result
 }
 
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export const randomId = (): string => {
   window.crypto.getRandomValues(arrayExample)
   return `re${

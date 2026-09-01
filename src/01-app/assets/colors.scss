@@ -1,18 +1,7 @@
-/*
- * Токены формы, типографики и ритма — общие для всех тем.
- * Основа: дизайн-система Authkit (base unit 4px, density comfortable).
- * Цвета живут в `themes/*.scss`, здесь только то, что не зависит от темы.
- */
 :root {
-  /*
-   * Радиусы формы задаются темой (см. `themes/*.scss`):
-   * --radius-button, --radius-card, --radius-modal, --radius-input, --radius-badge.
-   * Здесь только геометрические константы, одинаковые для всех тем.
-   */
   --radius-pill: 999px;
   --radius-circle: 9999px;
 
-  /* Ритм: шаг 4px */
   --space-4: 4px;
   --space-8: 8px;
   --space-12: 12px;
@@ -23,12 +12,29 @@
   --space-40: 40px;
   --space-48: 48px;
 
-  /* Layout */
-  --card-padding: 24px;
-  --element-gap: 16px;
-  --section-gap: 32px;
+  --card-padding: var(--space-24);
+  --element-gap: var(--space-16);
+  --section-gap: var(--space-32);
 
-  /* Типографика */
+  --layout-padding: var(--space-24);
+  --layout-gap: var(--space-24);
+
+  --page-padding-y: var(--space-40);
+  --page-padding-x: var(--space-32);
+  --page-max-width: 480px;
+
+  --sidebar-width: 220px;
+  --panel-padding-y: var(--space-12);
+  --panel-padding-x: var(--space-12);
+
+  --title-gap: var(--space-32);
+  --tabs-gap: var(--space-24);
+
+  --control-height-sm: 32px;
+  --control-height: 40px;
+  --control-height-lg: 48px;
+  --control-padding-x: var(--space-12);
+
   --text-caption: 12px;
   --text-body-sm: 14px;
   --text-body: 16px;
@@ -42,17 +48,9 @@
   --leading-body: 1.5;
   --leading-heading: 1.14;
 
-  /* Начертания: в шрифтах лежат только 400 и 500 (плюс 300 у темы "Искра"),
-     чтобы браузер не подделывал жирный. Вес заголовков задаёт тема. */
   --weight-regular: 400;
   --weight-medium: 500;
 
-  /*
-   * Семейства шрифтов, вес заголовков и трекинг задаются темой:
-   * --font-body, --font-display, --font-mono, --font-eyebrow,
-   * --weight-display, --tracking-body, --tracking-heading, --tracking-eyebrow.
-   * Значения ниже — фолбэк на случай, если data-theme ещё не проставлен.
-   */
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Onest", "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;

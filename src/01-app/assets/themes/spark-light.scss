@@ -1,15 +1,9 @@
-/*
- * Тема "Искра" (светлая).
- * n8n — тема dark-first, поэтому светлый вариант собран по её логике:
- * фиолетовый подтон вместо нейтрального серого, ступени фона вместо теней,
- * Ember-градиент только на основном действии, Electric Current на активных состояниях.
- */
 [data-theme="spark-light"] {
   --font-body: "Jost", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Jost", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   --font-eyebrow: var(--font-body);
-  --weight-display: 300; /* n8n: заголовки шепчут — вес 300 на крупных кеглях */
+  --weight-display: 300;
   --tracking-body: normal;
   --tracking-heading: -0.018em;
   --tracking-eyebrow: 0.06em;
@@ -32,7 +26,6 @@
   --login-text-primary: #1b1728;
   --login-text-secondary: #4a4458;
   --login-text-muted: #6b6478;
-  --grey-text-db: #6b6478;
 
   --login-accent: #5a1fd0;
   --login-accent-hover: #4a17b8;
@@ -41,6 +34,7 @@
   --text-on-accent-fill: #ffffff;
   --accent-subtle: rgba(90, 31, 208, 0.07);
   --accent-active-bg: rgba(90, 31, 208, 0.16);
+  --accent-text: var(--login-accent);
 
   --surface-subtle: rgba(27, 23, 40, 0.03);
   --surface-light: rgba(27, 23, 40, 0.05);

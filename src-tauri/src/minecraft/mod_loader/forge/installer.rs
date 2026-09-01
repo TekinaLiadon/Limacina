@@ -1,6 +1,6 @@
-use ::anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::{fs, process::Command};
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     utils::{download_file::download_json, env_info::launcher_patch},
 };
 
-pub async fn create_installer_manifest(base_url: &PathBuf) -> Result<()> {
+pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
     let launcher_profiles_path = base_url.join("launcher_profiles.json");
     if !launcher_profiles_path.exists() {
         let profiles = json!({
@@ -42,13 +42,13 @@ pub async fn start_installer(
     let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
     let output = Command::new(java_cmd)
         .arg("-jar")
-        .arg(&url)
+        .arg(url)
         .arg("--installClient")
-        .arg(&vanilla_url)
+        .arg(vanilla_url)
         .output()
         .await
         .context("Не удалось запустить Forge installer: ")?;
-    //let stdout = String::from_utf8_lossy(&output.stdout);
+
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !stderr.is_empty() {

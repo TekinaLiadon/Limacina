@@ -56,16 +56,10 @@ input {
 
 a {
   text-decoration: none;
-  color: var(--login-accent);
+  color: var(--accent-text);
 }
 
-.grey-text-db {
-  color: var(--grey-text-db);
-}
 
-/* --- Утилиты дизайн-системы --- */
-
-/* All-caps подпись (eyebrow label): 12px, трекинг задаёт тема */
 .eyebrow {
   display: block;
   font-family: var(--font-eyebrow);
@@ -78,7 +72,6 @@ a {
   font-feature-settings: "tnum" on;
 }
 
-/* Разделитель секции: подпись, окружённая затухающими hairline-линиями */
 .section-label {
   display: flex;
   align-items: center;
@@ -102,9 +95,8 @@ a {
   }
 }
 
-/* Заголовок с градиентной заливкой */
 .heading-display {
-  margin: 0;
+  margin: 0 0 10px 0;
   font-family: var(--font-display);
   font-size: var(--text-heading);
   line-height: var(--leading-heading);
@@ -122,20 +114,4 @@ a {
   &-colum {
     flex-direction: column;
   }
-  &-justify-center {
-    justify-content: center;
-  }
-  &-justify-around {
-    justify-content: space-around;
-  }
-  &-justify-between {
-    justify-content: space-between;
-  }
-  &-align-center {
-    align-items: center;
-  }
-}
-
-.hidden {
-  display: none !important;
 }

@@ -42,8 +42,15 @@ pub struct LauncherConfig {
     #[serde(default = "default_theme")]
     pub theme: String,
 
+    #[serde(default = "default_true")]
+    pub animations_enabled: bool,
+
     #[serde(default)]
     pub project_names: Vec<String>,
+
+
+    #[serde(default)]
+    pub current_project: Option<String>,
 
     #[serde(flatten)]
     pub projects: HashMap<String, AuthProjectConfig>,
@@ -66,7 +73,9 @@ impl Default for LauncherConfig {
             start_with_system: true,
             close_after_launch: true,
             theme: default_theme(),
+            animations_enabled: true,
             project_names: Vec::new(),
+            current_project: None,
             projects: HashMap::new(),
         }
     }
@@ -147,5 +156,59 @@ impl LauncherConfig {
             .get(project)
             .map(|p| p.logins.iter().map(|l| l.username.clone()).collect())
             .unwrap_or_default()
+    }
+
+    pub fn has_project(&self, project: &str) -> bool {
+        self.project_names.iter().any(|p| p == project)
+    }
+
+
+    pub fn add_project(&mut self, project: &str) {
+        if !self.has_project(project) {
+            self.project_names.push(project.to_string());
+        }
+        self.current_project = Some(project.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_project_survives_json_round_trip_with_flattened_logins() {
+        let mut config = LauncherConfig {
+            launcher_path: "/home/user/Limacina".to_string(),
+            ..Default::default()
+        };
+        config.add_login("Cordelia", "player");
+        config.add_project("Cordelia");
+        config.add_project("Sandbox");
+
+        let json = serde_json::to_string(&config).expect("сериализация в JSON");
+        let parsed: LauncherConfig = serde_json::from_str(&json).expect("разбор JSON");
+
+        assert_eq!(parsed.project_names, vec!["Cordelia", "Sandbox"]);
+        assert_eq!(parsed.current_project.as_deref(), Some("Sandbox"));
+        assert_eq!(parsed.get_logins("Cordelia"), vec!["player".to_string()]);
+    }
+
+    #[test]
+    fn old_config_without_current_project_parses() {
+        let json = r#"{ "launcherPath": "/home/user/Limacina", "projectNames": ["Cordelia"] }"#;
+        let parsed: LauncherConfig = serde_json::from_str(json).expect("разбор старого JSON");
+
+        assert_eq!(parsed.current_project, None);
+        assert!(parsed.has_project("Cordelia"));
+        assert!(parsed.auto_update);
+    }
+
+    #[test]
+    fn add_project_is_idempotent() {
+        let mut config = LauncherConfig::default();
+        config.add_project("Cordelia");
+        config.add_project("Cordelia");
+
+        assert_eq!(config.project_names, vec!["Cordelia"]);
     }
 }

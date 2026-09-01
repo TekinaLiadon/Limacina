@@ -1,13 +1,9 @@
 use tokio::sync::Mutex;
 
-use crate::{
-    init::init_project_config,
-    state::{
-        config::load_config,
-        dto::{GlobalState, ProjectConfig},
-    },
-    utils::tauri_err::CommandResult,
-};
+use crate::init::init_project_config;
+use crate::state::config::load_config;
+use crate::state::dto::{GlobalState, ProjectConfig};
+use crate::utils::tauri_err::CommandResult;
 
 #[tauri::command]
 pub async fn save_settings_project(
@@ -38,7 +34,7 @@ pub async fn load_settings_project(
         .map(|c| c.launcher_path.clone())
         .unwrap_or_default();
 
-    let config = init_project_config(&launcher_path, &project_name).await?;
+    let config = init_project_config(&launcher_path, &project_name, None).await?;
     state.project_config = config.clone();
     Ok(config)
 }

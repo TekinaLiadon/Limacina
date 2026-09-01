@@ -1,36 +1,25 @@
 import { defineStore } from 'pinia'
 import type { ThemeMode } from './types'
-import { DEFAULT_THEME, buildThemeId, normalizeTheme, parseThemeId } from './themes'
+import { buildThemeId, normalizeTheme, parseThemeId } from './themes'
 
 export interface SettingsState {
   animationsEnabled: boolean
   theme: string
 }
 
-const STORAGE_KEY = 'limacina-settings'
+const THEME_CACHE_KEY = 'limacina-theme'
+const LEGACY_STORAGE_KEY = 'limacina-settings'
 
-function loadFromStorage(): SettingsState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed: Partial<SettingsState> = JSON.parse(raw)
-      return {
-        animationsEnabled: parsed.animationsEnabled ?? true,
-        theme: normalizeTheme(parsed.theme),
-      }
-    }
-  } catch (e: unknown) {
-    console.error(e)
-  }
-  return { animationsEnabled: true, theme: DEFAULT_THEME }
-}
-
-function saveToStorage(state: SettingsState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+function loadCachedTheme(): string {
+  localStorage.removeItem(LEGACY_STORAGE_KEY)
+  return normalizeTheme(localStorage.getItem(THEME_CACHE_KEY))
 }
 
 export const useSettingsStore = defineStore('settings', {
-  state: (): SettingsState => loadFromStorage(),
+  state: (): SettingsState => ({
+    animationsEnabled: true,
+    theme: loadCachedTheme(),
+  }),
 
   getters: {
     isDark(): boolean {
@@ -47,23 +36,17 @@ export const useSettingsStore = defineStore('settings', {
   },
 
   actions: {
-    persist(): void {
-      saveToStorage({ animationsEnabled: this.animationsEnabled, theme: this.theme })
-    },
-
     toggleAnimations(): void {
       this.animationsEnabled = !this.animationsEnabled
-      this.persist()
     },
 
     setAnimationsEnabled(value: boolean): void {
       this.animationsEnabled = value
-      this.persist()
     },
 
     setTheme(theme: string): void {
       this.theme = normalizeTheme(theme)
-      this.persist()
+      localStorage.setItem(THEME_CACHE_KEY, this.theme)
     },
 
     setThemeFamily(family: string): void {

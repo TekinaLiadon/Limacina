@@ -57,11 +57,27 @@ struct AuthRefreshRequest {
     refresh_token: String,
 }
 
-pub async fn register(username: &str, password: &str) -> Result<AuthData> {
-    let server_url = env!("LAUNCHER_SERVER_URL");
+
+pub const OFFLINE_ACCESS_TOKEN: &str = "0";
+
+
+pub fn offline(username: &str) -> AuthData {
+    AuthData {
+        tokens: AuthTokens {
+            access_token: OFFLINE_ACCESS_TOKEN.to_string(),
+            refresh_token: String::new(),
+        },
+        profile: None,
+        uuid: Some(crate::minecraft::mod_loader::utils::generate_offline_uuid(username)),
+        username: Some(username.to_string()),
+        role: None,
+    }
+}
+
+pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
     let url = format!("{}/auth/registration", server_url);
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let body = AuthLoginRequest {
         username: username.to_string(),
         password: password.to_string(),
@@ -91,11 +107,10 @@ pub async fn register(username: &str, password: &str) -> Result<AuthData> {
     Ok(auth_data)
 }
 
-pub async fn login(username: &str, password: &str) -> Result<AuthData> {
-    let server_url = env!("LAUNCHER_SERVER_URL");
+pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
     let url = format!("{}/auth/login", server_url);
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let body = AuthLoginRequest {
         username: username.to_string(),
         password: password.to_string(),
@@ -125,11 +140,10 @@ pub async fn login(username: &str, password: &str) -> Result<AuthData> {
     Ok(auth_data)
 }
 
-pub async fn refresh(refresh_token: &str) -> Result<AuthData> {
-    let server_url = env!("LAUNCHER_SERVER_URL");
+pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {
     let url = format!("{}/auth/refresh", server_url);
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let body = AuthRefreshRequest {
         refresh_token: refresh_token.to_string(),
     };

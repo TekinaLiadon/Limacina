@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useDebugConsole } from '@/04-features'
 import { Icon } from '@/06-shared'
 
-const { logs, handleCopy, initLogs, startStreaming, stopStreaming } = useDebugConsole()
+const { logs, handleCopy } = useDebugConsole()
 
 const parentRef = ref<HTMLDivElement | null>(null)
 const isAutoScroll = ref<boolean>(true)
@@ -33,16 +33,10 @@ const toggleAutoScroll = (): void => {
 }
 
 onMounted(async (): Promise<void> => {
-  await initLogs()
-  await startStreaming()
   await nextTick()
   if (logs.value.length > 0) {
     virtualizer.value.scrollToIndex(logs.value.length - 1, { align: 'end' })
   }
-})
-
-onUnmounted((): void => {
-  stopStreaming()
 })
 
 watch(() => logs.value.length, async (): Promise<void> => {
@@ -76,7 +70,7 @@ watch(() => logs.value.length, async (): Promise<void> => {
           class="debug-tab__line"
         >
           <span class="debug-tab__num">{{ String(row.index + 1).padStart(4, ' ') }}</span>
-          <span :class="logs[row.index].is_error ? 'debug-tab__text--error' : 'debug-tab__text'" class="debug-tab__text">
+          <span :class="logs[row.index].isError ? 'debug-tab__text--error' : 'debug-tab__text'" class="debug-tab__text">
             {{ logs[row.index].line }}
           </span>
           <span class="debug-tab__cursor">&#9612;</span>
@@ -128,15 +122,15 @@ watch(() => logs.value.length, async (): Promise<void> => {
   &__line {
     display: flex;
     align-items: baseline;
-    padding: 0 12px;
+    padding: 0 var(--space-12);
     white-space: pre;
   }
 
   &__num {
     color: var(--debug-line-num);
-    min-width: 40px;
+    min-width: var(--space-40);
     text-align: right;
-    padding-right: 12px;
+    padding-right: var(--space-12);
     user-select: none;
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
@@ -160,7 +154,7 @@ watch(() => logs.value.length, async (): Promise<void> => {
   }
 
   &__actions {
-    padding: 8px 12px;
+    padding: var(--space-8) var(--space-12);
     border-top: 1px solid var(--debug-border);
     display: flex;
     align-items: center;
@@ -192,7 +186,7 @@ watch(() => logs.value.length, async (): Promise<void> => {
   }
 
   &__copy-btn {
-    padding: 5px 14px;
+    padding: var(--space-4) var(--space-16);
     background: var(--debug-btn-bg);
     color: var(--debug-text);
     border: 1px solid var(--debug-btn-border);

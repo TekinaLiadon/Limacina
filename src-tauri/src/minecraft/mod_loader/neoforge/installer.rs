@@ -1,4 +1,4 @@
-use ::anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tokio::{fs, process::Command};
@@ -11,7 +11,7 @@ use crate::{
     utils::{download_file::download_json, env_info::launcher_patch},
 };
 
-pub async fn create_installer_manifest(base_url: &PathBuf) -> Result<()> {
+pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
     let launcher_profiles_path = base_url.join("launcher_profiles.json");
     if !launcher_profiles_path.exists() {
         let profiles = json!({
@@ -42,11 +42,10 @@ async fn find_neoforge_json_in_dir(dir: &Path) -> Option<PathBuf> {
     };
     while let Some(entry) = inner.next_entry().await.ok()? {
         let p = entry.path();
-        if p.extension().and_then(|e| e.to_str()) == Some("json") {
-            if is_neoforge_manifest(&p).await {
+        if p.extension().and_then(|e| e.to_str()) == Some("json")
+            && is_neoforge_manifest(&p).await {
                 return Some(p);
             }
-        }
     }
     None
 }
@@ -71,9 +70,9 @@ pub async fn start_installer(
     let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
     let output = Command::new(java_cmd)
         .arg("-jar")
-        .arg(&url)
+        .arg(url)
         .arg("--installClient")
-        .arg(&vanilla_url)
+        .arg(vanilla_url)
         .output()
         .await
         .context("Не удалось запустить NeoForge installer: ")?;

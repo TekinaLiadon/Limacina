@@ -2,15 +2,7 @@ import type { TabKey } from '@/05-entities/core/types'
 
 export type { TabKey }
 
-export interface SidebarItem {
-  icon: string
-  link: string
-}
 
-export interface HeaderUser {
-  title: string
-  value: string
-}
 
 export interface TabItem {
   key: TabKey
@@ -19,7 +11,3 @@ export interface TabItem {
   disabled?: boolean
 }
 
-export interface ContentListItem {
-  id: number | null
-  url: string
-}

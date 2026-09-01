@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ::anyhow::Result;
+use anyhow::Result;
 use tokio::fs;
 
 use crate::{
@@ -26,7 +26,7 @@ pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
     }
 
     let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
-    let metadata = download_xml::<Metadata>(&url).await?;
+    let metadata = download_xml::<Metadata>(url).await?;
     let mut grouped_versions: HashMap<String, Vec<String>> = HashMap::new();
 
     for v in metadata.versioning.versions.version_list {
@@ -77,7 +77,7 @@ pub fn transform_neoforge_manifest(neoforge_manifest: HashMap<String, Vec<String
     manifest
 }
 
-pub async fn modify_manifest(version: &str, manifest: &mut Vec<VersionMod>) -> Result<()> {
+pub async fn modify_manifest(version: &str, manifest: &mut [VersionMod]) -> Result<()> {
     let neoforge_url = launcher_patch(None)?
         .join("manifest")
         .join(format!("neoforge_{}.json", &version));

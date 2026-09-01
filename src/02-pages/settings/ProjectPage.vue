@@ -11,8 +11,10 @@ const {
   config,
   maxMemoryLimit,
   isSaving,
+  isRefreshingManifests,
   selectJavaFolder,
   handleSave,
+  handleRefreshManifests,
   loadConfig,
 } = useProjectSettings()
 
@@ -40,7 +42,7 @@ const handleOpenPopup = async (): Promise<void> => {
 const handleDownload = async (): Promise<void> => {
   const replaced = await startDownload()
   if (replaced) {
-    await loadConfig(coreStore.currentProject)
+    await loadConfig(coreStore.currentProject, true)
   }
 }
 </script>
@@ -50,6 +52,14 @@ const handleDownload = async (): Promise<void> => {
     <div class="project-settings__section">
       <div class="section-label">Профиль сборки</div>
       <ProjectInfoFields :config="config" />
+      <Button
+        class="btn-secondary btn-block"
+        :is-loading="isRefreshingManifests"
+        :is-disabled="isRefreshingManifests || isSaving"
+        @click="handleRefreshManifests"
+      >
+        Обновить списки версий
+      </Button>
     </div>
 
     <div class="project-settings__section">

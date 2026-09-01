@@ -1,38 +1,53 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import {Button, ProgressBar} from '@/06-shared'
 import { StepProgress } from '@/03-widgets'
 import type { StepProgressItem } from '@/05-entities/core/types'
 
-defineProps<{
+const props = defineProps<{
   progress: number
   steps: StepProgressItem[]
   error?: string
 }>()
 
+const isLaunchingGame = computed((): boolean => {
+  const last = props.steps[props.steps.length - 1]
+  return last?.status === 'active'
+})
+
+const headerLabel = computed((): string =>
+  isLaunchingGame.value ? 'Запуск игры' : 'Подготовка запуска'
+)
+
 defineEmits<{
   'go-to-accounts': []
 }>()
 
-const isLaunchStep = (steps: StepProgressItem[]): boolean => {
-  if (steps.length === 0) return false
+const canGoBack = (steps: StepProgressItem[]): boolean => {
+  if (steps.length === 0) return true
+  if (steps.some((step) => step.status === 'error')) return true
 
   const last = steps[steps.length - 1]
-  return last.status === 'active' || last.status === 'done' || last.status === 'error'
+  return last.status === 'active' || last.status === 'done'
 }
 </script>
 
 <template>
   <div class="launch-progress">
     <div class="launch-progress__header">
-      <span class="launch-progress__label eyebrow">Подготовка запуска</span>
+      <span class="launch-progress__label eyebrow">{{ headerLabel }}</span>
       <ProgressBar :progress="progress" />
     </div>
 
     <StepProgress :steps="steps" />
 
+    <p v-if="isLaunchingGame" class="launch-progress__hint">
+      Игра запускается — окно откроется автоматически
+    </p>
+
     <Button
         class="btn-quiet btn-block launch-progress__btn"
-        :is-disabled="!isLaunchStep(steps)"
+        :is-disabled="!canGoBack(steps)"
         @click="$emit('go-to-accounts')"
     >
       Выбрать другой
@@ -57,8 +72,15 @@ const isLaunchStep = (steps: StepProgressItem[]): boolean => {
     gap: var(--space-12);
   }
 
+  &__hint {
+    margin: 0;
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-muted);
+  }
+
   &__btn {
-    min-height: 44px;
+    min-height: var(--control-height);
   }
 
   &__error {

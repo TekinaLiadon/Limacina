@@ -7,6 +7,7 @@ export function useProjectConfig() {
 
   const fetchConfig = async (): Promise<void> => {
     if (!coreStore.currentProject) return
+    if (coreStore.projectConfig?.projectName === coreStore.currentProject) return
 
     try {
       const config = await loadSettingsProject(coreStore.currentProject)

@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use crate::state::dto::GlobalState;
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::env_info::{get_home_dir, get_launcher_name};
+use crate::utils::http::http_client;
 use crate::utils::tauri_err::CommandResult;
 
 #[derive(Serialize)]
@@ -19,6 +20,26 @@ pub struct AppInitData {
     pub total_memory_mb: u64,
 }
 
+
+
+
+pub(crate) async fn update_launcher_config(
+    state: &State<'_, Mutex<GlobalState>>,
+    mutate: impl FnOnce(&mut LauncherConfig),
+) -> anyhow::Result<LauncherConfig> {
+    let mut guard = state.lock().await;
+    let mut config = match guard.launcher_config.clone() {
+        Some(config) => config,
+        None => LauncherConfig::load().ok().flatten().unwrap_or_default(),
+    };
+
+    mutate(&mut config);
+    config.save()?;
+
+    guard.launcher_config = Some(config.clone());
+    Ok(config)
+}
+
 #[tauri::command]
 pub async fn get_app_init_data(
     state: State<'_, Mutex<GlobalState>>,
@@ -28,7 +49,8 @@ pub async fn get_app_init_data(
     if let Some(ref mut cfg) = config {
         if cfg.project_names.is_empty() {
             let server_url = env!("LAUNCHER_SERVER_URL");
-            if let Ok(response) = reqwest::get(format!("{}/launcher/config", server_url)).await {
+            let url = format!("{}/launcher/config", server_url);
+            if let Ok(response) = http_client().get(&url).send().await {
                 if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await {
                     if !server_config.project_name.is_empty() {
                         cfg.project_names = vec![server_config.project_name];
@@ -50,7 +72,7 @@ pub async fn get_app_init_data(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let mut sys = System::new_all();
+    let mut sys = System::new();
     sys.refresh_memory();
     let total_memory_mb = sys.total_memory() / 1024 / 1024;
 
@@ -74,14 +96,12 @@ pub async fn save_launcher_config(
         .to_string_lossy()
         .to_string();
 
-    let mut config = LauncherConfig::load()
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    config.launcher_path = launcher_path.clone();
-    config.save()?;
+    let config = update_launcher_config(&state, |config| {
+        config.launcher_path = launcher_path.clone();
+    })
+    .await?;
 
-    let base = PathBuf::from(&launcher_path);
+    let base = PathBuf::from(&config.launcher_path);
     std::fs::create_dir_all(&base)
         .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"{}\": {}", base.display(), e))?;
     std::fs::create_dir_all(base.join("project"))
@@ -89,12 +109,8 @@ pub async fn save_launcher_config(
     std::fs::create_dir_all(base.join("manifest"))
         .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"manifest\": {}", e))?;
     std::fs::create_dir_all(base.join("java"))
-        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"java\": {}", e))?; // TODO удалить, папки создаются в другом месте
+        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"java\": {}", e))?;
 
-    {
-        let mut state = state.lock().await;
-        state.launcher_config = Some(config.clone());
-    }
     Ok(config)
 }
 
@@ -116,27 +132,18 @@ pub async fn save_launcher_settings(
     state: State<'_, Mutex<GlobalState>>,
     settings: LauncherSettingsPayload,
 ) -> CommandResult<LauncherConfig> {
-    let mut config = LauncherConfig::load()
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-
-    config.discord_activity = settings.discord_activity;
-    config.keep_old_configs = settings.keep_old_configs;
-    config.download_speed_limit = settings.download_speed_limit;
-    config.auto_update = settings.auto_update;
-    config.system_notifications = settings.system_notifications;
-    config.debug_mode = settings.debug_mode;
-    config.start_with_system = settings.start_with_system;
-    config.close_after_launch = settings.close_after_launch;
-
-    config.save()?;
-
-    {
-        let mut state = state.lock().await;
-        state.launcher_config = Some(config.clone());
-    }
-    Ok(config)
+    update_launcher_config(&state, |config| {
+        config.discord_activity = settings.discord_activity;
+        config.keep_old_configs = settings.keep_old_configs;
+        config.download_speed_limit = settings.download_speed_limit;
+        config.auto_update = settings.auto_update;
+        config.system_notifications = settings.system_notifications;
+        config.debug_mode = settings.debug_mode;
+        config.start_with_system = settings.start_with_system;
+        config.close_after_launch = settings.close_after_launch;
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -144,17 +151,21 @@ pub async fn save_theme(
     state: State<'_, Mutex<GlobalState>>,
     theme: String,
 ) -> CommandResult<LauncherConfig> {
-    let mut config = LauncherConfig::load()
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    update_launcher_config(&state, |config| {
+        config.theme = theme.clone();
+    })
+    .await
+    .map_err(Into::into)
+}
 
-    config.theme = theme;
-    config.save()?;
-
-    {
-        let mut state = state.lock().await;
-        state.launcher_config = Some(config.clone());
-    }
-    Ok(config)
+#[tauri::command]
+pub async fn save_animations_enabled(
+    state: State<'_, Mutex<GlobalState>>,
+    animations_enabled: bool,
+) -> CommandResult<LauncherConfig> {
+    update_launcher_config(&state, |config| {
+        config.animations_enabled = animations_enabled;
+    })
+    .await
+    .map_err(Into::into)
 }

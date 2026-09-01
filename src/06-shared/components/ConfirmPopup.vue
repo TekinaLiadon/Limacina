@@ -71,7 +71,7 @@ const emit = defineEmits<{
 
   &__btn {
     flex: 1;
-    min-height: 40px;
+    min-height: var(--control-height);
   }
 }
 

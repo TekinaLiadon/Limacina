@@ -4,9 +4,8 @@ import { useRouter, useRoute } from 'vue-router'
 import Preloader from '@/01-app/preloader/Preloader.vue'
 import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, ThemeSwitchAnimation } from '@/04-features'
+import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream } from '@/04-features'
 import { Sidebar } from '@/03-widgets'
-import type { DropdownOption } from '@/06-shared/types'
 import type { TabKey } from '@/05-entities/core/types'
 
 const router = useRouter()
@@ -17,6 +16,11 @@ const { preloaderText } = useAppInit()
 const notificationStore = useNotificationStore()
 
 const { isSwitching, switchDirection } = useTheme()
+const { projectOptions, canSwitch, selectProject } = useProjectSwitch()
+const { startConsoleStream } = useConsoleStream()
+void startConsoleStream()
+const { startLaunchStepsStream } = useLaunchStepsStream()
+void startLaunchStepsStream()
 
 interface Tab {
   key: TabKey
@@ -25,7 +29,7 @@ interface Tab {
 
 const tabs: Tab[] = [
   { key: 'accounts', name: 'Accounts' },
-  { key: 'add-server', name: 'AddServer' },
+  { key: 'add-profile', name: 'AddProfile' },
   { key: 'settings', name: 'SettingsLauncher' },
   { key: 'debug', name: 'Debug' },
 ]
@@ -40,10 +44,6 @@ const currentTab = computed((): TabKey => {
 
   const tab = tabs.find((t) => t.name === name)
   return tab?.key ?? 'accounts'
-})
-
-const projectOptions = computed((): DropdownOption[] => {
-  return coreStore.projects.map((p) => ({ title: p, value: p }))
 })
 
 const navigateTo = (key: TabKey): void => {
@@ -74,9 +74,11 @@ const navigateTo = (key: TabKey): void => {
             <div class="app__project" v-if="coreStore.projects.length > 0">
               <Dropdown
                 :options="projectOptions"
-                v-model="coreStore.currentProject"
+                :model-value="coreStore.currentProject"
+                @update:model-value="selectProject"
                 :width="'220px'"
-                :disabled="true"
+                :max-visible="6"
+                :disabled="!canSwitch"
               />
             </div>
             <div class="app__theme-switch" role="group" aria-label="Тема оформления">
@@ -160,11 +162,10 @@ const navigateTo = (key: TabKey): void => {
     background: var(--app-bg);
     display: flex;
     flex-direction: column;
-    gap: var(--element-gap);
-    padding: var(--space-24);
+    gap: var(--layout-gap);
+    padding: var(--layout-padding);
     overflow: hidden;
 
-    /* Фоновая «чертёжная» сетка, затухающая к краям */
     &::before {
       content: '';
       position: absolute;
@@ -191,7 +192,7 @@ const navigateTo = (key: TabKey): void => {
   }
 
   &__project {
-    min-width: 220px;
+    min-width: var(--sidebar-width);
   }
 
   &__theme-switch {
@@ -208,8 +209,8 @@ const navigateTo = (key: TabKey): void => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
     border: none;
     border-radius: var(--radius-circle);
     background: transparent;
@@ -238,7 +239,7 @@ const navigateTo = (key: TabKey): void => {
     z-index: 1;
     flex: 1;
     display: flex;
-    gap: var(--space-24);
+    gap: var(--layout-gap);
     min-height: 0;
   }
 
@@ -264,8 +265,8 @@ const navigateTo = (key: TabKey): void => {
 
   @include breakpoints.media-under-lg {
     &__layout {
-      padding: var(--space-16);
-      padding-bottom: 100px;
+      --layout-padding: var(--space-16);
+      --layout-gap: var(--space-16);
     }
 
     &__header {
@@ -273,7 +274,7 @@ const navigateTo = (key: TabKey): void => {
     }
 
     &__body {
-      flex-direction: column;
+      flex-direction: column-reverse;
     }
   }
 }

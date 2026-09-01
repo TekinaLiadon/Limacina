@@ -34,7 +34,7 @@ pub async fn initialize_project(
         .map(|c| c.launcher_path.clone())
         .unwrap_or_default();
 
-    let config = init::init_project_config(&launcher_path, &project_name).await?;
+    let config = init::init_project_config(&launcher_path, &project_name, None).await?;
 
     {
         let mut state = state.lock().await;

@@ -56,7 +56,7 @@ const versionInput = defineModel<string>('versionInput', { default: '' })
   }
 
   &__btn {
-    min-height: 40px;
+    min-height: var(--control-height);
     white-space: nowrap;
     flex-shrink: 0;
   }

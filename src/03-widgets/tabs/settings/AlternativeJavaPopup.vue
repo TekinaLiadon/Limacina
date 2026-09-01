@@ -123,8 +123,8 @@ const dropdownOptions = () =>
     border: none;
     box-shadow: var(--elevation-inset);
     border-radius: var(--radius-input);
-    height: 40px;
-    padding: 0 12px;
+    height: var(--control-height);
+    padding: 0 var(--control-padding-x);
     color: var(--login-text-primary);
     background-color: var(--surface-input);
     font-family: inherit;
@@ -154,7 +154,7 @@ const dropdownOptions = () =>
 
   &__btn {
     flex: 1;
-    min-height: 40px;
+    min-height: var(--control-height);
   }
 
   &__loading {

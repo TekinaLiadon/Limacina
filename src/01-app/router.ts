@@ -9,9 +9,9 @@ const router = createRouter({
       component: () => import('@/02-pages/Accounts.vue'),
     },
     {
-      path: '/add-server',
-      name: 'AddServer',
-      component: () => import('@/02-pages/AddServer.vue'),
+      path: '/add-profile',
+      name: 'AddProfile',
+      component: () => import('@/02-pages/AddProfile.vue'),
     },
     {
       path: '/settings',

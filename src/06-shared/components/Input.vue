@@ -129,7 +129,7 @@ onUnmounted((): void => {
   }
 
   &__text {
-    padding: 11px 12px;
+    padding: var(--space-8) var(--control-padding-x);
     font-size: var(--text-body-sm);
     line-height: var(--leading-body-sm);
     color: var(--login-text-primary);
@@ -187,7 +187,7 @@ onUnmounted((): void => {
   }
 
   &__dropdown-item {
-    padding: 9px 12px;
+    padding: var(--space-8) var(--control-padding-x);
     font-size: var(--text-body-sm);
     color: var(--login-text-secondary);
     text-align: left;
@@ -216,19 +216,6 @@ onUnmounted((): void => {
     &:hover {
       color: var(--login-text-primary);
     }
-  }
-
-  &.error {
-    color: var(--error);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-  }
-
-  &__error {
-    margin-top: var(--space-8);
-    font-size: var(--text-caption);
-    line-height: var(--leading-caption);
-    font-weight: var(--weight-regular);
-    color: var(--error);
   }
 
 }

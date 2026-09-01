@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ::anyhow::Result;
+use anyhow::Result;
 
 use crate::{
     log_err,
@@ -41,13 +41,13 @@ impl ArgumentsMap {
                 "${natives_directory}",
                 config.natives_dir.to_string_lossy().to_string(),
             ),
-            ("${launcher_name}", "Lumacina".to_string()),
+            ("${launcher_name}", "Limacina".to_string()),
             ("${launcher_version}", "1.0".to_string()),
             ("${width}", config.window_width.to_string()),
             ("${height}", config.window_height.to_string()),
-            ("${clientid}", "1".to_string()),  // TODO
-            ("${auth_xuid}", "1".to_string()), // TODO
-            //("${classpath}", classpath.to_string()),
+            ("${clientid}", "1".to_string()),
+            ("${auth_xuid}", "1".to_string()),
+
             (
                 "${library_directory}",
                 config.libraries_dir.to_string_lossy().to_string(),
@@ -62,7 +62,7 @@ impl ArgumentsMap {
         ArgumentsMap { map }
     }
     fn get_value_by_key(&self, arg: &str) -> String {
-        let mut result = arg.replace("${classpath}", "");
+        let mut result = arg.to_string();
         for (placeholder, value) in &self.map {
             result = result.replace(placeholder, value);
         }
@@ -70,13 +70,13 @@ impl ArgumentsMap {
     }
     fn get_value(&self, arg: &ArgumentValue) -> Vec<String> {
         match arg {
-            ArgumentValue::Simple(s) => vec![self.get_value_by_key(&s)],
+            ArgumentValue::Simple(s) => vec![self.get_value_by_key(s)],
             ArgumentValue::Conditional { value, rules } => {
-                if is_rule_allowed(&rules) {
+                if is_rule_allowed(rules) {
                     match value {
-                        StringOrVec::Single(s) => vec![self.get_value_by_key(&s)],
+                        StringOrVec::Single(s) => vec![self.get_value_by_key(s)],
                         StringOrVec::Multiple(vec) => {
-                            vec.iter().map(|s| self.get_value_by_key(&s)).collect()
+                            vec.iter().map(|s| self.get_value_by_key(s)).collect()
                         }
                     }
                 } else {
@@ -105,7 +105,7 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
             }
         } else {
             let local_path = maven_to_path(&lib.name)?;
-            config.libraries_dir.join(local_path) // Test?
+            config.libraries_dir.join(local_path)
         };
 
         if lib_path.exists() {
@@ -124,13 +124,13 @@ fn is_rule_allowed(rules: &[Rule]) -> bool {
 
     for rule in rules {
         let os_matches = match &rule.os {
-            Some(os) => os.name.as_ref().map_or(true, |n| n == current_os),
+            Some(os) => os.name.as_ref().is_none_or(|n| n == current_os),
             None => true,
         };
 
         let features_match = match &rule.features {
             Some(_) => {
-                false // TODO Поддержка фичей, тут просто демо версия игры
+                false
             }
             None => true,
         };
@@ -154,7 +154,15 @@ pub fn get_jvm_args(
         for arg in &arguments.jvm {
             jvm_args.extend(args_map.get_value(arg));
         }
+        let jvm_args = crate::minecraft::mod_loader::utils::strip_classpath_args(jvm_args);
+        return jvm_args;
     }
+
+    jvm_args.extend(config.jvm_sub_arg.clone());
+    jvm_args.push(format!(
+        "-Djava.library.path={}",
+        config.natives_dir.to_string_lossy()
+    ));
     jvm_args
 }
 
@@ -166,7 +174,7 @@ pub fn get_game_args(manifest: &VersionDetailsManifest, args_map: &ArgumentsMap)
             game_args.extend(args_map.get_value(arg));
         }
     }
-    // OLd (minecraftArguments)
+
     if let Some(mc_args) = &manifest.minecraft_arguments {
         for arg in mc_args.split_whitespace() {
             game_args.push(args_map.get_value_by_key(arg));

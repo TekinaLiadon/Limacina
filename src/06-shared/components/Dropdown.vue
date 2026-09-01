@@ -20,6 +20,11 @@ const emit = defineEmits<{
 const shown = ref(false)
 const maxHeight = computed((): string => `${props.maxVisible * 40 + 12}px`)
 
+const selectedTitle = computed((): string => {
+  const selected = props.options.find((option) => option.value === props.modelValue)
+  return selected?.title ?? props.modelValue
+})
+
 function selectOption(value: string): void {
   emit('update:modelValue', value)
   shown.value = false
@@ -33,7 +38,7 @@ function selectOption(value: string): void {
          @click="!disabled && (shown = !shown)"
          :style="`width: ${width}`"
     >
-      {{ props.modelValue }}
+      {{ selectedTitle }}
     </div>
     <Transition name="dropdown-options">
       <div v-if="shown" class="dropdown-options" :style="{ maxHeight }">
@@ -66,10 +71,10 @@ function selectOption(value: string): void {
     box-shadow: var(--elevation-inset);
     border-radius: var(--radius-input);
     transition: border-radius 0.25s ease-out, background-color 0.2s ease;
-    height: 40px;
+    height: var(--control-height);
     align-content: center;
     text-align: left;
-    padding: 0 12px;
+    padding: 0 var(--control-padding-x);
     color: var(--login-text-primary);
     background-color: var(--surface-input);
     font-size: var(--text-body-sm);
@@ -99,7 +104,7 @@ function selectOption(value: string): void {
   padding: var(--space-4) 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-4);
   z-index: 100;
   box-shadow: var(--elevation-modal);
   overflow-y: auto;
@@ -109,7 +114,7 @@ function selectOption(value: string): void {
     display: flex;
     align-items: center;
     gap: var(--space-8);
-    padding: 9px 12px;
+    padding: var(--space-8) var(--control-padding-x);
     transition: background 0.15s;
 
     &:hover {
@@ -128,7 +133,6 @@ function selectOption(value: string): void {
     color: var(--login-text-secondary);
   }
 
-  // anim
   &-enter-active,
   &-leave-active {
     transition: all 0.2s ease;

@@ -82,7 +82,7 @@ defineEmits<{
   height: 100%;
 
   &__title {
-    margin-bottom: var(--space-24);
+    margin-bottom: var(--title-gap);
   }
 
   &__items {
@@ -94,7 +94,7 @@ defineEmits<{
   }
 
   &__add-btn {
-    min-height: 44px;
+    min-height: var(--control-height);
   }
 
   &__divider {
@@ -164,7 +164,7 @@ defineEmits<{
     border-radius: var(--radius-circle);
     background: var(--accent-active-bg);
     box-shadow: var(--elevation-inset);
-    color: var(--login-accent);
+    color: var(--accent-text);
     flex-shrink: 0;
   }
 

@@ -9,7 +9,7 @@ const props = defineProps<{
 
 const activeRef = ref<HTMLDivElement | null>(null)
 
-watch(() => props.steps.map(s => s.status).join(','), () => {
+watch(() => props.steps.map(s => `${s.status}:${s.current}:${s.detail}`).join(','), () => {
   if (activeRef.value) {
     anime({
       targets: activeRef.value.querySelector('.step-progress__indicator'),
@@ -22,7 +22,6 @@ watch(() => props.steps.map(s => s.status).join(','), () => {
 
 const getIndicatorClass = (status: StepProgressItem['status']): string => {
   const map: Record<StepProgressItem['status'], string> = {
-    pending: 'step-progress__indicator--pending',
     active: 'step-progress__indicator--active',
     done: 'step-progress__indicator--done',
     error: 'step-progress__indicator--error',
@@ -32,12 +31,23 @@ const getIndicatorClass = (status: StepProgressItem['status']): string => {
 
 const getIcon = (status: StepProgressItem['status']): string => {
   const map: Record<StepProgressItem['status'], string> = {
-    pending: '○',
     active: '●',
     done: '✓',
     error: '✕',
   }
   return map[status]
+}
+
+const hasCounter = (step: StepProgressItem): boolean =>
+  step.status === 'active' && step.total > 0
+
+const counterText = (step: StepProgressItem): string => `${step.current}/${step.total}`
+
+const subLabel = (step: StepProgressItem): string => {
+  if (step.status === 'error' && step.error) return step.error
+  if (step.status === 'done' && step.skipped) return 'Уже установлено'
+  if (step.status === 'active' && step.detail) return step.detail
+  return ''
 }
 </script>
 
@@ -45,7 +55,7 @@ const getIcon = (status: StepProgressItem['status']): string => {
   <div class="step-progress">
     <div
       v-for="step in steps"
-      :key="step.id"
+      :key="step.key"
       :ref="el => { if (step.status === 'active') activeRef = el as HTMLDivElement }"
       class="step-progress__item"
       :class="`step-progress__item--${step.status}`"
@@ -54,7 +64,11 @@ const getIcon = (status: StepProgressItem['status']): string => {
         {{ getIcon(step.status) }}
       </div>
       <div class="step-progress__content">
-        <span class="step-progress__label">{{ step.label }}</span>
+        <span class="step-progress__label">
+          {{ step.label }}
+          <span v-if="hasCounter(step)" class="step-progress__counter">{{ counterText(step) }}</span>
+        </span>
+        <span v-if="subLabel(step)" class="step-progress__sublabel">{{ subLabel(step) }}</span>
       </div>
     </div>
   </div>
@@ -68,16 +82,13 @@ const getIcon = (status: StepProgressItem['status']): string => {
 
   &__item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-12);
     opacity: 0.5;
     transition: opacity 0.3s ease;
 
     &--active,
-    &--done {
-      opacity: 1;
-    }
-
+    &--done,
     &--error {
       opacity: 1;
     }
@@ -95,12 +106,6 @@ const getIcon = (status: StepProgressItem['status']): string => {
     flex-shrink: 0;
     transition: background-color 0.3s ease, box-shadow 0.3s ease;
 
-    &--pending {
-      background: var(--surface-active);
-      box-shadow: var(--elevation-inset);
-      color: var(--login-text-muted);
-    }
-
     &--active {
       background: var(--login-accent);
       color: var(--text-on-accent);
@@ -110,7 +115,7 @@ const getIcon = (status: StepProgressItem['status']): string => {
     &--done {
       background: var(--accent-active-bg);
       box-shadow: var(--elevation-inset);
-      color: var(--login-accent);
+      color: var(--accent-text);
     }
 
     &--error {
@@ -125,6 +130,7 @@ const getIcon = (status: StepProgressItem['status']): string => {
     flex-direction: column;
     gap: var(--space-4);
     text-align: left;
+    min-width: 0;
   }
 
   &__label {
@@ -133,14 +139,30 @@ const getIcon = (status: StepProgressItem['status']): string => {
     color: var(--login-text-secondary);
   }
 
-  &__error {
+  &__counter {
+    font-variant-numeric: tabular-nums;
+    color: var(--login-text-primary);
+    margin-left: var(--space-8);
+  }
+
+  &__sublabel {
     font-size: var(--text-caption);
-    color: var(--error);
+    line-height: var(--leading-caption);
+    color: var(--login-text-muted);
+    word-break: break-word;
   }
 
   &__item--active &__label,
   &__item--done &__label {
     color: var(--login-text-primary);
+  }
+
+  &__item--error &__sublabel {
+    color: var(--error);
+  }
+
+  &__item--done &__counter {
+    display: none;
   }
 }
 </style>

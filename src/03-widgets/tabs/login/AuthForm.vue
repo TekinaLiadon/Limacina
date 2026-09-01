@@ -8,6 +8,7 @@ defineProps<{
   isLoading: boolean
   isDisabled: boolean
   isBack?: boolean
+  hidePassword?: boolean
   errorMessage?: string
   usernamePlaceholder?: string
   passwordPlaceholder?: string
@@ -32,7 +33,7 @@ const emit = defineEmits<{
       />
     </div>
 
-    <div class="auth-form__field">
+    <div v-if="!hidePassword" class="auth-form__field">
       <Input
           :model-value="password"
           @update:model-value="emit('update:password', $event)"
@@ -87,7 +88,7 @@ const emit = defineEmits<{
   }
 
   &__back-btn {
-    min-height: 44px;
+    min-height: var(--control-height);
   }
 }
 </style>

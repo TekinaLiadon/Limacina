@@ -22,7 +22,7 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Vec<Ve
             };
             library.push(lib)
         }
-        let url_intermediary = maven_to_url(&version.intermediary.maven, &url);
+        let url_intermediary = maven_to_url(&version.intermediary.maven, url);
         let intermediary = LibraryMod {
             name: version.intermediary.maven,
             url: url_intermediary,
@@ -36,7 +36,7 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Vec<Ve
             MainClass::AsObject(data) => &data.client,
         };
         let data = VersionMod {
-            url: maven_to_url(&version.loader.maven, &url),
+            url: maven_to_url(&version.loader.maven, url),
             id: version.loader.version,
             main_class: main_class_client.to_string(),
             library,

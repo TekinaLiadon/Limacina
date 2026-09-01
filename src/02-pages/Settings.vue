@@ -13,6 +13,7 @@ interface Tab {
   name: string
   needsInit?: boolean
   needsAuth?: boolean
+  needsOnline?: boolean
 }
 
 const router = useRouter()
@@ -22,8 +23,8 @@ const coreStore = useCoreStore()
 const tabs: Tab[] = [
   { key: 'launcher', label: 'Лаунчер', name: 'SettingsLauncher' },
   { key: 'project', label: 'Проект', name: 'SettingsProject', needsInit: true },
-  { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true },
-  { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true },
+  { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true, needsOnline: true },
+  { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true, needsOnline: true },
 ]
 
 const { config, isLoaded } = useProjectSettings()
@@ -39,6 +40,15 @@ const isProjectDisabled = computed((): boolean => {
   return !isLoaded.value || !config.value.initialized
 })
 
+const isOfflineProject = computed((): boolean => isLoaded.value && !config.value.online)
+
+const isTabDisabled = (tab: Tab): boolean => {
+  if (tab.needsInit && isProjectDisabled.value) return true
+  if (tab.needsAuth && !coreStore.isLoggedIn) return true
+  if (tab.needsOnline && isOfflineProject.value) return true
+  return false
+}
+
 </script>
 
 <template>
@@ -53,7 +63,7 @@ const isProjectDisabled = computed((): boolean => {
         :class="{ 'settings-page__tab--active': activeSubTab === tab.key }"
         role="tab"
         :aria-selected="activeSubTab === tab.key"
-        :is-disabled="(tab.needsInit && isProjectDisabled) || (tab.needsAuth && !coreStore.isLoggedIn)"
+        :is-disabled="isTabDisabled(tab)"
         @click="router.push({ name: tab.name })"
       >
         {{ tab.label }}
@@ -69,9 +79,9 @@ const isProjectDisabled = computed((): boolean => {
 <style lang="scss">
 .settings-page {
   width: 100%;
-  max-width: 560px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: var(--space-40) var(--space-32);
+  padding: var(--page-padding-y) var(--page-padding-x);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -79,13 +89,13 @@ const isProjectDisabled = computed((): boolean => {
   height: 0;
 
   &__title {
-    margin-bottom: var(--space-24);
+    margin-bottom: var(--title-gap);
   }
 
   &__tabs {
     display: flex;
     gap: var(--space-4);
-    margin-bottom: var(--space-32);
+    margin-bottom: var(--tabs-gap);
     background: var(--surface-light);
     box-shadow: var(--elevation-inset);
     border-radius: var(--radius-pill);

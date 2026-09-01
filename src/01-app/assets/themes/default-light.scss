@@ -1,10 +1,4 @@
-/*
- * Тема "Default" (светлая).
- * Светлая версия дизайн-системы Authkit: та же морозная стеклянная логика,
- * но на холодном белом холсте. Void Violet затемнён до #5b2fe0 для контраста.
- */
 [data-theme="default-light"] {
-  /* Типографика: Untitled Sans -> Inter (UI), aeonikPro -> Onest (заголовки), dotDigital -> JetBrains Mono */
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Onest", "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
@@ -14,7 +8,6 @@
   --tracking-heading: normal;
   --tracking-eyebrow: 0.1em;
 
-  /* Форма: pill-кнопки, карточки 16, инпуты и бейджи 6 */
   --radius-button: var(--radius-pill);
   --radius-card: 16px;
   --radius-modal: 16px;
@@ -41,16 +34,15 @@
   --login-text-primary: #0b0e1c;
   --login-text-secondary: #3d4658;
   --login-text-muted: #5e6a7d;
-  --grey-text-db: #5e6a7d;
 
   --login-accent: #5b2fe0;
   --login-accent-hover: #4a22c9;
   --text-on-accent: #ffffff;
-  /* Заливка основного действия: в этой теме — сплошной акцент */
   --accent-fill: var(--login-accent);
   --text-on-accent-fill: var(--text-on-accent);
   --accent-subtle: rgba(91, 47, 224, 0.07);
   --accent-active-bg: rgba(91, 47, 224, 0.18);
+  --accent-text: var(--login-accent);
 
   --surface-subtle: rgba(63, 73, 89, 0.03);
   --surface-light: rgba(63, 73, 89, 0.05);

@@ -85,11 +85,11 @@ fn is_rules_allowed(rules: &[Value]) -> bool {
             .get("os")
             .and_then(|os| os.get("name"))
             .and_then(|n| n.as_str())
-            .map_or(true, |n| n == current_os);
+            .is_none_or(|n| n == current_os);
 
         let features_match = rule
             .get("features")
-            .map_or(true, |_| false);
+            .is_none_or(|_| false);
 
         if os_matches && features_match {
             allowed = rule.get("action").and_then(|a| a.as_str()) == Some("allow");
