@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useLauncherSettings } from "@/04-features";
-import { LauncherPath } from "@/03-widgets";
+import { LauncherPath, ThemeSelector, LauncherUpdate } from "@/03-widgets";
 import { Button } from "@/06-shared";
 
 const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncherSettings()
@@ -8,27 +8,29 @@ const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncher
 
 <template>
   <div class="launcher-settings">
-    <LauncherPath :launcher-path="launcherPath" @browse="selectLauncherFolder" />
-
-<!--    <LauncherToggle
-        v-for="toggle in toggles"
-        :key="toggle.key"
-        v-model="settings[toggle.key]"
-        :label="toggle.label"
-    />-->
-
-<!--
-    <SpeedLimit v-model="settings.downloadSpeedLimit" />
--->
+    <div class="launcher-settings__section">
+      <div class="section-label">Расположение</div>
+      <LauncherPath :launcher-path="launcherPath" @browse="selectLauncherFolder" />
+    </div>
 
     <Button
-        class="btn-yellow launcher-settings__btn"
+        class="btn-primary btn-lg btn-block"
         :is-loading="isSaving"
         :is-disabled="isSaving"
         @click="handleSave"
     >
       Сохранить
     </Button>
+
+    <div class="launcher-settings__section">
+      <div class="section-label">Внешний вид</div>
+      <ThemeSelector />
+    </div>
+
+    <div class="launcher-settings__section">
+      <div class="section-label">Обновление</div>
+      <LauncherUpdate />
+    </div>
   </div>
 </template>
 
@@ -36,16 +38,12 @@ const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncher
 .launcher-settings {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--section-gap);
 
-  &__btn {
-    width: 100%;
-    height: 48px;
-    font-size: 16px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-top: 8px;
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--element-gap);
   }
 }
 </style>

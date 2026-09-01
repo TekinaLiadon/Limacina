@@ -40,28 +40,30 @@ watch(() => props.progress, (val: number) => {
 .progress-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   width: 100%;
 
   &__track {
     flex: 1;
-    height: 8px;
-    background: var(--grey-stroke);
-    border-radius: 4px;
+    height: 6px;
+    background: var(--surface-active);
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-pill);
     overflow: hidden;
   }
 
   &__fill {
     height: 100%;
     background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
-    border-radius: 4px;
+    border-radius: var(--radius-pill);
     transition: width 0.3s ease;
   }
 
   &__label {
     min-width: 40px;
     text-align: right;
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
     color: var(--login-text-secondary);
     font-variant-numeric: tabular-nums;
   }

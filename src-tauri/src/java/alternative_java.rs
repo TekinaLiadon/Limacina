@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tokio::fs::{create_dir_all, read_dir, remove_file, rename};
 use tokio::task::spawn_blocking;
 
-use crate::java::java::{extract_archive, find_java_executable, get_java_version};
+use crate::java::{extract_archive, find_java_executable, get_java_version};
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::{get_arch, get_current_os, launcher_patch};
 
@@ -84,7 +84,7 @@ async fn fetch_package(
             SUPPORTED_ARCHIVE_TYPES.contains(&p.archive_type.as_str())
                 && p.links
                     .as_ref()
-                    .map_or(false, |l| !l.pkg_download_redirect.is_empty())
+                    .is_some_and(|l| !l.pkg_download_redirect.is_empty())
         });
 
     Ok(pkg.map(|p| (p.links.unwrap().pkg_download_redirect, p.archive_type)))
@@ -94,7 +94,7 @@ async fn collect_dirs(path: &PathBuf) -> Result<Vec<String>> {
     let mut dirs = Vec::new();
     let mut entries = read_dir(path).await?;
     while let Some(entry) = entries.next_entry().await? {
-        if entry.file_type().await.map_or(false, |t| t.is_dir()) {
+        if entry.file_type().await.is_ok_and(|t| t.is_dir()) {
             dirs.push(entry.file_name().to_string_lossy().into_owned());
         }
     }
@@ -106,10 +106,8 @@ pub async fn download_alt_java(
     java_version: Option<&str>,
     mc_version: &str,
 ) -> Result<PathBuf> {
-    let version = java_version.unwrap_or_else(|| {
-        let v = get_java_version(mc_version);
-        Box::leak(v.into_boxed_str())
-    });
+    let fallback_version = get_java_version(mc_version);
+    let version = java_version.unwrap_or(&fallback_version);
 
     let os = get_current_os();
     let arch = match get_arch() {
@@ -122,12 +120,12 @@ pub async fn download_alt_java(
         other => other,
     };
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
 
-    let (download_url, archive_type) = match fetch_package(&client, distribution, version, arch, os_foojay, "jre").await? {
+    let (download_url, archive_type) = match fetch_package(client, distribution, version, arch, os_foojay, "jre").await? {
         Some(result) => result,
         None => {
-            fetch_package(&client, distribution, version, arch, os_foojay, "jdk")
+            fetch_package(client, distribution, version, arch, os_foojay, "jdk")
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Foojay API не вернул файлов для скачивания (ни JRE, ни JDK)"))?
         }

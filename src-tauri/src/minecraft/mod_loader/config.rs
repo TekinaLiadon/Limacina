@@ -5,22 +5,22 @@ use crate::{
     minecraft::{structs::LibraryMod, mod_loader::utils::maven_to_path},
     utils::env_info::launcher_patch,
 };
-use ::anyhow::Result;
+use anyhow::Result;
 
 pub fn merge_classpath(
     project_name: &str,
     version: &str,
-    libraries: &Vec<LibraryMod>,
-    vanilla_classpath: &Vec<String>,
+    libraries: &[LibraryMod],
+    vanilla_classpath: &[String],
 ) -> Result<Vec<String>> {
     let base_path = launcher_patch(Some(project_name))?;
     let version_jar = base_path.join(format!("{}.jar", version));
     let libraries_path = base_path.join("libraries");
 
-    let mut classpath = build_mod_classpath(&libraries, &libraries_path)?;
+    let mut classpath = build_mod_classpath(libraries, &libraries_path)?;
     classpath.push(version_jar.to_string_lossy().to_string());
 
-    let mut result_classpath = vanilla_classpath.clone();
+    let mut result_classpath = vanilla_classpath.to_vec();
     result_classpath.extend(classpath);
     Ok(result_classpath)
 }

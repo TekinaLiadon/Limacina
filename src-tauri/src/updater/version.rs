@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::utils::env_info::{get_arch, get_current_os};
-use crate::utils::utils::compare_versions;
+use crate::utils::compare_versions;
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -17,6 +17,19 @@ pub struct UpdateInfo {
     pub platforms: Option<Vec<Platform>>,
 }
 
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct UpdateVersionInfo {
+    pub version: String,
+    pub platforms: Vec<Platform>,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct UpdateVersions {
+    pub version: String,
+    pub platforms: Vec<Platform>,
+    pub versions: Vec<UpdateVersionInfo>,
+}
+
 fn arch_matches(server_arch: &str, local_arch: &str) -> bool {
     match (server_arch, local_arch) {
         ("x64" | "x86_64", "x64" | "x86_64") => true,
@@ -24,11 +37,41 @@ fn arch_matches(server_arch: &str, local_arch: &str) -> bool {
     }
 }
 
+pub async fn get_launcher_versions() -> Result<UpdateVersions> {
+    let server_url = env!("LAUNCHER_SERVER_URL");
+    let url = format!("{}/v1/launcher/update/version", server_url);
+
+    let client = crate::utils::http::http_client();
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .context("Не удалось подключиться к серверу обновлений")?
+        .error_for_status()
+        .context("Сервер вернул ошибку при получении списка версий")?;
+
+    let mut data: UpdateVersions = resp
+        .json()
+        .await
+        .context("Не удалось распарсить список версий")?;
+
+    let os = get_current_os();
+    let arch = get_arch();
+    data.versions.retain(|entry| {
+        entry
+            .platforms
+            .iter()
+            .any(|p| p.os == os && arch_matches(&p.arch, arch))
+    });
+
+    Ok(data)
+}
+
 pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo>> {
     let server_url = env!("LAUNCHER_SERVER_URL");
     let url = format!("{}/launcher/version", server_url);
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let resp = client
         .get(&url)
         .send()

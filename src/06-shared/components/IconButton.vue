@@ -29,31 +29,34 @@ const props = withDefaults(defineProps<{
 
 .icon-btn {
   cursor: pointer;
-  width: 50px;
-  height: 50px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background-color: var(--item-grey);
+  border-radius: var(--radius-circle);
+  background-color: var(--surface-light);
+  box-shadow: var(--elevation-inset);
   border: none;
-  transition: all 0.2s;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 
   &__icon {
-    font-size: 24px;
-    width: 24px;
-    height: 24px;
-    color: var(--landing-text);
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: var(--login-text-secondary);
+    transition: color 0.2s ease;
   }
 
   @include breakpoints.media-under-sm {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
   }
 }
 
 .active .icon-btn,
 .icon-btn:hover {
-  background-color: rgba(0, 0, 0, 1);
+  background-color: var(--surface-hover);
+  box-shadow: var(--elevation-inset-strong);
 }
 </style>

@@ -113,30 +113,32 @@ onUnmounted((): void => {
 <style lang="scss">
 .input {
   &__core {
-    grid-gap: 10px;
+    gap: var(--space-8);
 
     .label {
-      margin-bottom: 5px;
-      grid-gap: 10px;
-      display: flex;
-      flex-direction: column;
-        color: var(--yellow);
-        font-size: 14px;
-        font-weight: 400;
-
+      margin-bottom: var(--space-4);
+      display: block;
+      color: var(--login-text-muted);
+      font-size: var(--text-caption);
+      line-height: var(--leading-caption);
+      font-weight: var(--weight-medium);
+      letter-spacing: var(--tracking-eyebrow);
+      text-transform: uppercase;
+      text-align: left;
     }
   }
 
   &__text {
-    padding: 15px;
-    font-size: 12px;
-    line-height: 130%;
+    padding: var(--space-8) var(--control-padding-x);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
     color: var(--login-text-primary);
-    border-radius: 8px;
-    border: 1px solid var(--login-border);
+    border-radius: var(--radius-input);
+    border: none;
+    box-shadow: var(--elevation-inset);
     background-color: var(--surface-input);
     font-family: inherit;
-    transition: all .2s;
+    transition: box-shadow 0.2s ease, background-color 0.2s ease;
     width: 100%;
     box-sizing: border-box;
 
@@ -153,8 +155,12 @@ onUnmounted((): void => {
       color: var(--login-text-muted);
     }
 
+    &:hover:not(&--disabled) {
+      background-color: var(--surface-hover);
+    }
+
     &:focus {
-      border-color: var(--login-border-hover);
+      box-shadow: var(--elevation-inset-strong);
       outline: none;
     }
   }
@@ -170,33 +176,27 @@ onUnmounted((): void => {
     top: 100%;
     left: 0;
     right: 0;
-    margin-top: 4px;
+    margin-top: var(--space-4);
     background: var(--login-bg-form);
-    border: 1px solid var(--login-border);
-    border-radius: 8px;
+    border-radius: var(--radius-input);
+    padding: var(--space-4) 0;
     max-height: 200px;
     overflow-y: auto;
     z-index: 100;
-    box-shadow: 0 8px 24px var(--login-shadow-strong);
+    box-shadow: var(--elevation-modal);
   }
 
   &__dropdown-item {
-    padding: 10px 15px;
-    font-size: 12px;
-    color: var(--login-text-primary);
+    padding: var(--space-8) var(--control-padding-x);
+    font-size: var(--text-body-sm);
+    color: var(--login-text-secondary);
+    text-align: left;
     cursor: pointer;
-    transition: background 0.15s;
-
-    &:first-child {
-      border-radius: 8px 8px 0 0;
-    }
-
-    &:last-child {
-      border-radius: 0 0 8px 8px;
-    }
+    transition: background 0.15s, color 0.15s;
 
     &:hover {
-      background: var(--accent-hover-bg);
+      background: var(--surface-hover);
+      color: var(--login-text-primary);
     }
   }
 
@@ -210,25 +210,12 @@ onUnmounted((): void => {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--grey-text-db);
+    color: var(--login-text-muted);
     transition: color 0.2s;
 
     &:hover {
-      color: var(--yellow);
+      color: var(--login-text-primary);
     }
-  }
-
-  &.error {
-    color: var(--red);
-    border-color: var(--red);
-  }
-
-  &__error {
-    margin-top: 10px;
-    font-size: 14px;
-    line-height: 130%;
-    font-weight: 400;
-    color: var(--red);
   }
 
 }

@@ -4,9 +4,8 @@ import { useRouter, useRoute } from 'vue-router'
 import Preloader from '@/01-app/preloader/Preloader.vue'
 import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, ThemeSwitchAnimation } from '@/04-features'
+import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream } from '@/04-features'
 import { Sidebar } from '@/03-widgets'
-import type { DropdownOption } from '@/06-shared/types'
 import type { TabKey } from '@/05-entities/core/types'
 
 const router = useRouter()
@@ -17,6 +16,11 @@ const { preloaderText } = useAppInit()
 const notificationStore = useNotificationStore()
 
 const { isSwitching, switchDirection } = useTheme()
+const { projectOptions, canSwitch, selectProject } = useProjectSwitch()
+const { startConsoleStream } = useConsoleStream()
+void startConsoleStream()
+const { startLaunchStepsStream } = useLaunchStepsStream()
+void startLaunchStepsStream()
 
 interface Tab {
   key: TabKey
@@ -25,7 +29,7 @@ interface Tab {
 
 const tabs: Tab[] = [
   { key: 'accounts', name: 'Accounts' },
-  { key: 'add-server', name: 'AddServer' },
+  { key: 'add-profile', name: 'AddProfile' },
   { key: 'settings', name: 'SettingsLauncher' },
   { key: 'debug', name: 'Debug' },
 ]
@@ -40,10 +44,6 @@ const currentTab = computed((): TabKey => {
 
   const tab = tabs.find((t) => t.name === name)
   return tab?.key ?? 'accounts'
-})
-
-const projectOptions = computed((): DropdownOption[] => {
-  return coreStore.projects.map((p) => ({ title: p, value: p }))
 })
 
 const navigateTo = (key: TabKey): void => {
@@ -74,14 +74,37 @@ const navigateTo = (key: TabKey): void => {
             <div class="app__project" v-if="coreStore.projects.length > 0">
               <Dropdown
                 :options="projectOptions"
-                v-model="coreStore.currentProject"
+                :model-value="coreStore.currentProject"
+                @update:model-value="selectProject"
                 :width="'220px'"
-                :disabled="true"
+                :max-visible="6"
+                :disabled="!canSwitch"
               />
             </div>
-            <button class="app__theme-toggle" :class="{ 'app__theme-toggle--disabled': isSwitching }" @click="settingsStore.toggleDarkLight" :disabled="isSwitching" :title="settingsStore.isDark ? 'Светлая тема' : 'Тёмная тема'">
-              <span class="app__theme-icon" :class="{ 'app__theme-icon--light': !settingsStore.isDark }">
-                <svg v-if="settingsStore.isDark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <div class="app__theme-switch" role="group" aria-label="Тема оформления">
+              <button
+                class="app__theme-segment"
+                :class="{ 'app__theme-segment--active': settingsStore.isDark }"
+                :disabled="isSwitching"
+                :aria-pressed="settingsStore.isDark"
+                aria-label="Тёмная тема"
+                title="Тёмная тема"
+                @click="settingsStore.setThemeMode('dark')"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              </button>
+              <button
+                class="app__theme-segment"
+                :class="{ 'app__theme-segment--active': !settingsStore.isDark }"
+                :disabled="isSwitching"
+                :aria-pressed="!settingsStore.isDark"
+                aria-label="Светлая тема"
+                title="Светлая тема"
+                @click="settingsStore.setThemeMode('light')"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="5"/>
                   <line x1="12" y1="1" x2="12" y2="3"/>
                   <line x1="12" y1="21" x2="12" y2="23"/>
@@ -92,11 +115,8 @@ const navigateTo = (key: TabKey): void => {
                   <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
                   <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
                 </svg>
-                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
-              </span>
-            </button>
+              </button>
+            </div>
           </div>
 
           <div class="app__body">
@@ -127,82 +147,99 @@ const navigateTo = (key: TabKey): void => {
     position: fixed;
     bottom: 4px;
     left: 8px;
-    font-size: 12px;
-    color: var(--white);
-    -webkit-text-stroke: 1px var(--black);
-    paint-order: stroke fill;
+    font-family: var(--font-eyebrow);
+    font-size: var(--text-caption);
+    letter-spacing: var(--tracking-eyebrow);
+    color: var(--login-text-muted);
+    font-variant-numeric: tabular-nums;
     z-index: 1000;
   }
 
   &__layout {
+    position: relative;
     height: 100vh;
     width: 100%;
     background: var(--app-bg);
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    padding: 24px;
+    gap: var(--layout-gap);
+    padding: var(--layout-padding);
     overflow: hidden;
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+      background-size: 80px 80px;
+      mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
+      -webkit-mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
+      pointer-events: none;
+      z-index: 0;
+    }
   }
 
   &__header {
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: flex-end;
     flex-shrink: 0;
-    gap: 12px;
+    gap: var(--space-12);
   }
 
   &__project {
-    min-width: 220px;
+    min-width: var(--sidebar-width);
   }
 
-  &__theme-toggle {
+  &__theme-switch {
+    display: flex;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--surface-light);
+    box-shadow: var(--elevation-inset);
+    flex-shrink: 0;
+  }
+
+  &__theme-segment {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    border: 1px solid var(--login-border);
-    background: var(--surface-input);
-    color: var(--login-text-primary);
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
+    border: none;
+    border-radius: var(--radius-circle);
+    background: transparent;
+    color: var(--login-text-muted);
     cursor: pointer;
-    transition: all 0.3s ease;
-    flex-shrink: 0;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 
-    &:hover:not(&--disabled) {
-      background: var(--surface-hover);
-      border-color: var(--login-accent);
-      transform: scale(1.05);
+    &:hover:not(:disabled) {
+      color: var(--login-text-primary);
     }
 
-    &:active:not(&--disabled) {
-      transform: scale(0.95);
+    &--active {
+      background: var(--surface-active);
+      box-shadow: var(--elevation-inset);
+      color: var(--login-text-primary);
     }
 
-    &--disabled {
+    &:disabled {
       opacity: 0.5;
       cursor: not-allowed;
-      pointer-events: none;
-    }
-  }
-
-  &__theme-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.3s ease;
-
-    &--light {
-      color: var(--yellow);
     }
   }
 
   &__body {
+    position: relative;
+    z-index: 1;
     flex: 1;
     display: flex;
-    gap: 24px;
+    gap: var(--layout-gap);
     min-height: 0;
   }
 
@@ -210,8 +247,8 @@ const navigateTo = (key: TabKey): void => {
     flex: 1;
     min-height: 0;
     background: var(--login-bg-form);
-    border: 1px solid var(--login-border);
-    border-radius: 16px;
+    border-radius: var(--radius-card);
+    box-shadow: var(--elevation-card);
     overflow-y: auto;
     scrollbar-width: none;
 
@@ -228,8 +265,8 @@ const navigateTo = (key: TabKey): void => {
 
   @include breakpoints.media-under-lg {
     &__layout {
-      padding: 16px;
-      padding-bottom: 100px;
+      --layout-padding: var(--space-16);
+      --layout-gap: var(--space-16);
     }
 
     &__header {
@@ -237,7 +274,7 @@ const navigateTo = (key: TabKey): void => {
     }
 
     &__body {
-      flex-direction: column;
+      flex-direction: column-reverse;
     }
   }
 }

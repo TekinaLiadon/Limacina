@@ -11,8 +11,10 @@ const {
   config,
   maxMemoryLimit,
   isSaving,
+  isRefreshingManifests,
   selectJavaFolder,
   handleSave,
+  handleRefreshManifests,
   loadConfig,
 } = useProjectSettings()
 
@@ -40,31 +42,46 @@ const handleOpenPopup = async (): Promise<void> => {
 const handleDownload = async (): Promise<void> => {
   const replaced = await startDownload()
   if (replaced) {
-    await loadConfig(coreStore.currentProject)
+    await loadConfig(coreStore.currentProject, true)
   }
 }
 </script>
 
 <template>
   <div class="project-settings">
-    <ProjectInfoFields :config="config" />
-    <JavaPathPicker :java-path="config.javaPath" @browse="selectJavaFolder" />
-    <AlternativeJavaButton
-      :distributions="distributions"
-      :is-downloading="isAltDownloading"
-      :popup-visible="isPopupOpen"
-      :java-version="javaVersion"
-      v-model:selected-distribution="selectedDistribution"
-      v-model:replace-default="replaceDefault"
-      v-model:version-input="javaVersion"
-      @open-popup="handleOpenPopup"
-      @download="handleDownload"
-      @close-popup="closePopup"
-    />
-    <MemorySlider v-model="memoryRange" :max="maxMemoryLimit" />
+    <div class="project-settings__section">
+      <div class="section-label">Профиль сборки</div>
+      <ProjectInfoFields :config="config" />
+      <Button
+        class="btn-secondary btn-block"
+        :is-loading="isRefreshingManifests"
+        :is-disabled="isRefreshingManifests || isSaving"
+        @click="handleRefreshManifests"
+      >
+        Обновить списки версий
+      </Button>
+    </div>
+
+    <div class="project-settings__section">
+      <div class="section-label">Java</div>
+      <JavaPathPicker :java-path="config.javaPath" @browse="selectJavaFolder" />
+      <AlternativeJavaButton
+        :distributions="distributions"
+        :is-downloading="isAltDownloading"
+        :popup-visible="isPopupOpen"
+        :java-version="javaVersion"
+        v-model:selected-distribution="selectedDistribution"
+        v-model:replace-default="replaceDefault"
+        v-model:version-input="javaVersion"
+        @open-popup="handleOpenPopup"
+        @download="handleDownload"
+        @close-popup="closePopup"
+      />
+      <MemorySlider v-model="memoryRange" :max="maxMemoryLimit" />
+    </div>
 
     <Button
-      class="btn-yellow project-settings__btn"
+      class="btn-primary btn-lg btn-block"
       :is-loading="isSaving"
       :is-disabled="isSaving"
       @click="handleSave"
@@ -78,16 +95,12 @@ const handleDownload = async (): Promise<void> => {
 .project-settings {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--section-gap);
 
-  &__btn {
-    width: 100%;
-    height: 48px;
-    font-size: 16px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-top: 8px;
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--element-gap);
   }
 }
 </style>

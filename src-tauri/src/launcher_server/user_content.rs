@@ -11,13 +11,15 @@ pub struct UserContentItem {
     pub url: String,
 }
 
-async fn require_access_token(state: &Mutex<GlobalState>) -> Result<String> {
+
+async fn require_api_context(state: &Mutex<GlobalState>) -> Result<(String, String)> {
     let state = state.lock().await;
-    state
+    let token = state
         .session
         .as_ref()
         .map(|s| s.access_token.clone())
-        .context("Нет активной сессии. Войдите в аккаунт.")
+        .context("Нет активной сессии. Войдите в аккаунт.")?;
+    Ok((token, state.project_config.resolved_server_url()))
 }
 
 async fn require_success(response: reqwest::Response) -> Result<reqwest::Response> {
@@ -33,7 +35,7 @@ async fn require_success(response: reqwest::Response) -> Result<reqwest::Respons
 }
 
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let response = require_success(
         client
             .get(url)
@@ -51,7 +53,7 @@ async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) ->
 }
 
 async fn api_delete(url: &str, token: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let response = require_success(
         client
             .delete(url)
@@ -67,9 +69,7 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
 }
 
 pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Result<UserContentItem> {
-    let token = require_access_token(state).await?;
-
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/user-content/skins", server_url);
 
     let part = reqwest::multipart::Part::bytes(file_data)
@@ -79,7 +79,7 @@ pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Resu
 
     let form = reqwest::multipart::Form::new().part("file", part);
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let response = require_success(
         client
             .post(&url)
@@ -102,9 +102,7 @@ pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Resu
 }
 
 pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
-    let token = require_access_token(state).await?;
-
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/user-content/skins/{}", server_url, uuid);
 
     let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
@@ -112,9 +110,7 @@ pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<
 }
 
 pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let token = require_access_token(state).await?;
-
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/user-content/skins/{}", server_url, id);
 
     api_delete(&url, &token).await?;
@@ -127,9 +123,7 @@ pub async fn upload_model(
     state: &Mutex<GlobalState>,
     file_content: String,
 ) -> Result<UserContentItem> {
-    let token = require_access_token(state).await?;
-
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/user-content/models", server_url);
 
     let part = reqwest::multipart::Part::bytes(file_content.into_bytes())
@@ -139,7 +133,7 @@ pub async fn upload_model(
 
     let form = reqwest::multipart::Form::new().part("file", part);
 
-    let client = reqwest::Client::new();
+    let client = crate::utils::http::http_client();
     let response = require_success(
         client
             .post(&url)
@@ -165,9 +159,7 @@ pub async fn list_models(
     state: &Mutex<GlobalState>,
     uuid: String,
 ) -> Result<Vec<UserContentItem>> {
-    let token = require_access_token(state).await?;
-
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/user-content/models/{}", server_url, uuid);
 
     let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
@@ -175,9 +167,7 @@ pub async fn list_models(
 }
 
 pub async fn delete_model(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let token = require_access_token(state).await?;
-
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/user-content/models/{}", server_url, id);
 
     api_delete(&url, &token).await?;

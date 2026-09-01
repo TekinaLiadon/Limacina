@@ -50,18 +50,14 @@ export function useAccounts() {
     selectedUsername.value = username
 
     try {
-      const error = await authRefresh(coreStore.currentProject, username)
-      if (!error) {
-        const session = await getSessionInfo()
-        if (session) {
-          coreStore.session = session
-          coreStore.isLoggedIn = true
-        }
-      } else {
-        errorMessage.value = error
+      await authRefresh(coreStore.currentProject, username)
+      const session = await getSessionInfo()
+      if (session) {
+        coreStore.session = session
+        coreStore.isLoggedIn = true
       }
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = e instanceof Error ? e.message : String(e)
       coreStore.isLoggedIn = false
       coreStore.session = null
     } finally {

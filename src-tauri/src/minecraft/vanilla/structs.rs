@@ -18,6 +18,9 @@ pub struct Latest {
 pub struct VersionInfo {
     pub id: String,
     pub url: String,
+
+    #[serde(rename = "type", default)]
+    pub version_type: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

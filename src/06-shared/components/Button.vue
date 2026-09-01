@@ -12,99 +12,109 @@ const props = defineProps<{
       disabled: isDisabled,
       loading: isLoading,
     }"
+    :aria-busy="isLoading"
   >
+    <span v-if="isLoading" class="btn__spinner" aria-hidden="true" />
     <slot></slot>
   </button>
 </template>
 
 <style lang="scss">
 .btn {
-  display: flex;
+  display: inline-flex;
   justify-content: center;
   align-items: center;
-  transition: all 0.2s ease-in;
-  outline: none;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-16);
+  min-height: var(--control-height);
+  border: none;
+  border-radius: var(--radius-button);
   background: transparent;
+  font-family: inherit;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-body-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
   cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, filter 0.2s ease;
 
   &.disabled {
     opacity: 0.5;
     pointer-events: none;
   }
 
-  &.btn-yellow {
-    padding: 10px 20px;
-    font-family: "Poppins", sans-serif;
-    font-weight: 500;
-    font-size: 18px;
-    line-height: 24px;
-    color: var(--yellow);
-    border-radius: 60px;
-    border: 1px solid var(--yellow);
-    background: transparent;
+  &__spinner {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: btn-spin 0.7s linear infinite;
+  }
+
+  &.btn-primary {
+    background: var(--accent-fill);
+    color: var(--text-on-accent-fill);
+    box-shadow: var(--elevation-inset);
 
     &:hover {
-      color: var(--transparent-white);
-      border: 1px solid var(--transparent-white);
+      filter: brightness(1.12);
     }
 
-    &.rounded {
-      padding: 12px;
-      border-radius: 50%;
+    &:active {
+      filter: brightness(0.96);
     }
   }
 
-  &.btn-db-green {
-    display: inline-flex;
-    align-items: center;
-    padding: 10px 20px;
-    font-family: "RisingSun", sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-on-accent);
-    border-radius: 60px;
-    background-color: var(--yellow);
-    border: 1px solid transparent;
-    min-width: 120px;
-
-    .icon {
-      margin-left: 14px;
-      font-size: 12px;
-      font-weight: 600;
-    }
+  &.btn-secondary {
+    background: var(--surface-light);
+    color: var(--login-text-primary);
+    box-shadow: var(--elevation-inset);
 
     &:hover {
-      background-color: var(--yellow-2);
+      background: var(--surface-hover);
+      box-shadow: var(--elevation-inset-strong);
     }
+  }
 
-    &.loading {
-      position: relative;
-      background-color: var(--grey);
-      color: var(--grey-text-db);
-      pointer-events: none;
+  &.btn-quiet {
+    background: transparent;
+    color: var(--login-text-secondary);
+    box-shadow: var(--elevation-inset);
 
-      &::before {
-        position: absolute;
-        content: "";
-        display: inline-block;
-        width: 21px;
-        height: 21px;
-        transition: border 0.3s ease;
-        animation: btn-preloader 1.5s ease infinite;
-        vertical-align: middle;
-        border: 3px solid transparent;
-        border-radius: 50%;
-        color: var(--text-on-accent);
-        left: 10px;
-      }
+    &:hover {
+      background: var(--surface-light);
+      color: var(--login-text-primary);
     }
+  }
 
-    &.disabled {
-      border-color: var(--grey-stroke);
-      background-color: var(--item-grey);
-      color: var(--landing-text);
+  &.btn-danger {
+    background: var(--delete-bg);
+    color: var(--delete-text);
+    box-shadow: inset 0 0 0 1px var(--delete-border);
+
+    &:hover {
+      background: var(--delete-bg);
+      box-shadow: inset 0 0 0 1px var(--delete-text);
     }
+  }
 
+  &.btn-block {
+    width: 100%;
+  }
+
+  &.btn-lg {
+    padding: var(--space-12) var(--space-24);
+    font-size: var(--text-body);
+    min-height: var(--control-height-lg);
+  }
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

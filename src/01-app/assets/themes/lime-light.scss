@@ -1,0 +1,66 @@
+[data-theme="lime-light"] {
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Inter Tight", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Mono", Consolas, monospace;
+  --font-eyebrow: var(--font-body);
+  --weight-display: 500;
+  --tracking-body: -0.024em;
+  --tracking-heading: -0.012em;
+  --tracking-eyebrow: 0.05em;
+
+  --radius-button: 12px;
+  --radius-card: 8px;
+  --radius-modal: 12px;
+  --radius-input: 8px;
+  --radius-badge: 8px;
+
+  --login-bg-primary: #eef7ec;
+  --login-bg-secondary: #def0dd;
+  --app-bg:
+    radial-gradient(100% 70% at 50% -10%, rgba(47, 125, 31, 0.1) 0%, transparent 55%),
+    linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
+  --html-bg: #def0dd;
+
+  --login-bg-form: #f6fbf4;
+
+  --login-text-primary: #15200f;
+  --login-text-secondary: #3c4a38;
+  --login-text-muted: #5a6b56;
+
+  --login-accent: #2f7d1f;
+  --login-accent-hover: #266a19;
+  --text-on-accent: #f4fbf2;
+  --accent-fill: var(--login-accent);
+  --text-on-accent-fill: var(--text-on-accent);
+  --accent-subtle: rgba(47, 125, 31, 0.07);
+  --accent-active-bg: rgba(47, 125, 31, 0.16);
+  --accent-text: var(--login-accent);
+
+  --surface-subtle: rgba(21, 32, 15, 0.03);
+  --surface-light: rgba(21, 32, 15, 0.05);
+  --surface-input: rgba(21, 32, 15, 0.05);
+  --surface-hover: rgba(21, 32, 15, 0.08);
+  --surface-active: rgba(21, 32, 15, 0.12);
+  --overlay: rgba(21, 32, 15, 0.45);
+
+  --border-subtle: rgba(72, 83, 70, 0.28);
+  --elevation-inset: inset 0 0 0 1px rgba(72, 83, 70, 0.28);
+  --elevation-inset-strong: inset 0 0 0 1px rgba(47, 125, 31, 0.45);
+
+  --elevation-card: inset 0 0 0 1px rgba(72, 83, 70, 0.28);
+  --elevation-modal:
+    inset 0 0 0 1px rgba(72, 83, 70, 0.28),
+    0 10px 15px -3px rgba(21, 32, 15, 0.12),
+    0 4px 6px -4px rgba(21, 32, 15, 0.12);
+  --elevation-glow: 0 0 8px rgba(47, 125, 31, 0.3);
+
+  --error: #b23a26;
+  --error-bg: rgba(178, 58, 38, 0.08);
+  --error-border: rgba(178, 58, 38, 0.28);
+  --delete-bg: rgba(178, 58, 38, 0.08);
+  --delete-border: rgba(178, 58, 38, 0.32);
+  --delete-text: #b23a26;
+
+  --grid-line: rgba(72, 83, 70, 0.16);
+  --heading-gradient: linear-gradient(180deg, #15200f 0%, #2f7d1f 100%);
+}

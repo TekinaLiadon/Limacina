@@ -1,4 +1,3 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod auth;
 mod commands;
 mod init;
@@ -17,11 +16,15 @@ use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
 use commands::download::download_alternative_java;
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
-use commands::launcher_config::{get_app_init_data, save_launcher_config, save_launcher_settings, save_theme};
+use commands::launcher_config::{get_app_init_data, save_launcher_config, save_launcher_settings, save_theme, save_animations_enabled};
+use commands::profile::{
+    create_offline_profile, create_server_profile, get_loader_versions, get_minecraft_versions,
+    refresh_manifests, save_current_project,
+};
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::start_minecraft;
-use commands::update::{apply_update_cmd, check_update};
+use commands::update::{apply_update_cmd, check_update, get_launcher_versions};
 use commands::user_content::{
     delete_model, delete_skin, get_session_info, list_models, list_skins,
     logout_account, select_account, upload_model, upload_skin,
@@ -92,9 +95,16 @@ pub fn run() {
             save_launcher_config,
             save_launcher_settings,
             save_theme,
+            save_animations_enabled,
             initialize_launcher,
             initialize_project,
             set_initialized,
+            create_server_profile,
+            create_offline_profile,
+            save_current_project,
+    get_minecraft_versions,
+    get_loader_versions,
+    refresh_manifests,
             download_server_file,
             download_server_mods,
             download_minecraft,
@@ -106,6 +116,7 @@ pub fn run() {
             load_settings_project,
             check_update,
             apply_update_cmd,
+            get_launcher_versions,
             get_startup_logs,
             select_account,
             get_session_info,

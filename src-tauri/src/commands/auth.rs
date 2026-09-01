@@ -1,8 +1,11 @@
+use anyhow::{bail, Result};
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth::{self, storage};
+use crate::auth::{self, storage, AuthData};
+use crate::commands::launcher_config::update_launcher_config;
 use crate::log_err;
+use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::tauri_err::CommandResult;
 
@@ -12,6 +15,85 @@ pub struct SavedCredentials {
     pub password: String,
 }
 
+
+async fn store_session(
+    state: &State<'_, Mutex<GlobalState>>,
+    data: &AuthData,
+    fallback_username: &str,
+) -> (String, String) {
+    let uuid = data.uuid();
+    let username = data.username(fallback_username);
+
+    let mut state = state.lock().await;
+    state.session = Some(SessionTokens {
+        access_token: data.tokens.access_token.clone(),
+        uuid: uuid.clone(),
+        username: username.clone(),
+    });
+
+    (uuid, username)
+}
+
+
+async fn remember_login(
+    state: &State<'_, Mutex<GlobalState>>,
+    project_name: &str,
+    username: &str,
+    remember: bool,
+) -> Result<()> {
+    update_launcher_config(state, |config| {
+        if remember {
+            config.add_login(project_name, username);
+        } else {
+            config.remove_login(project_name, username);
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+
+
+pub(crate) async fn restore_session(
+    project_name: &str,
+    username: &str,
+    password: Option<&str>,
+) -> Result<AuthData> {
+    let project = load_config_or_default(project_name).await;
+    if !project.online {
+        bail!(
+            "Профиль «{}» — одиночный, серверная авторизация недоступна",
+            project_name
+        );
+    }
+    let server_url = project.resolved_server_url();
+
+    if let Ok(refresh_token) = storage::get_credential(project_name, username, "refresh_token").await
+    {
+        match auth::refresh(&server_url, &refresh_token).await {
+            Ok(data) => return Ok(data),
+            Err(e) => {
+                log_err!("restore_session: refresh не удался ({}), пробуем вход по паролю", e);
+                let _ = storage::delete_credential(project_name, username, "refresh_token").await;
+            }
+        }
+    }
+
+    let stored_password = match password {
+        Some(password) => Some(password.to_string()),
+        None => storage::get_credential(project_name, username, "password")
+            .await
+            .ok(),
+    };
+    match stored_password {
+        Some(password) => auth::login(&server_url, username, &password).await,
+        None => bail!(
+            "Нет сохранённых учётных данных для «{}» — войдите с паролем",
+            username
+        ),
+    }
+}
+
 #[tauri::command]
 pub async fn auth_register(
     state: State<'_, Mutex<GlobalState>>,
@@ -19,16 +101,25 @@ pub async fn auth_register(
     username: String,
     password: String,
 ) -> CommandResult<()> {
-    auth::register(&username, &password).await?;
+    register_account(&state, &project_name, &username, &password).await?;
+    Ok(())
+}
 
-    storage::save_credential(&project_name, &username, "password", &password)?;
-    {
-        let mut state = state.lock().await;
-        if let Some(ref mut config) = state.launcher_config {
-            config.add_login(&project_name, &username);
-            config.save()?;
-        }
+async fn register_account(
+    state: &State<'_, Mutex<GlobalState>>,
+    project_name: &str,
+    username: &str,
+    password: &str,
+) -> Result<()> {
+    let project = load_config_or_default(project_name).await;
+    if !project.online {
+        bail!("Регистрация недоступна для одиночного профиля");
     }
+
+    auth::register(&project.resolved_server_url(), username, password).await?;
+
+    storage::save_credential(project_name, username, "password", password).await?;
+    remember_login(state, project_name, username, true).await?;
 
     Ok(())
 }
@@ -41,45 +132,51 @@ pub async fn auth_login(
     password: String,
     remember_me: bool,
 ) -> CommandResult<()> {
-    let data = if let Ok(saved_refresh_token) = storage::get_credential(&project_name, &username, "refresh_token") {
-        auth::refresh(&saved_refresh_token).await
-            .unwrap_or(auth::login(&username, &password).await?)
-    } else {
-        auth::login(&username, &password).await?
-    };
+    login_account(&state, &project_name, &username, &password, remember_me).await?;
+    Ok(())
+}
 
-    let uuid = data.uuid();
-    let username_str = data.username(&username);
+async fn login_account(
+    state: &State<'_, Mutex<GlobalState>>,
+    project_name: &str,
+    username: &str,
+    password: &str,
+    remember_me: bool,
+) -> Result<()> {
+    let project = load_config_or_default(project_name).await;
 
-    {
-        let mut state = state.lock().await;
-        state.session = Some(SessionTokens {
-            access_token: data.tokens.access_token.clone(),
-            refresh_token: data.tokens.refresh_token.clone(),
-            uuid: uuid.clone(),
-            username: username_str,
-        });
 
-        if let Some(ref mut config) = state.launcher_config {
-            if remember_me {
-                config.add_login(&project_name, &username);
-            } else {
-                config.remove_login(&project_name, &username);
-            }
-            config.save()?;
+    if !project.online {
+        if username.trim().is_empty() {
+            bail!("Введите ник");
         }
+        let data = auth::offline(username);
+        store_session(state, &data, username).await;
+        remember_login(state, project_name, username, true).await?;
+        return Ok(());
     }
 
+    let data = restore_session(project_name, username, Some(password)).await?;
+
+    let (uuid, _) = store_session(state, &data, username).await;
+    remember_login(state, project_name, username, remember_me).await?;
+
     if remember_me {
-        storage::save_credential(&project_name, &username, "password", &password)?;
-        storage::save_credential(&project_name, &username, "refresh_token", &data.tokens.refresh_token)?;
+        storage::save_credential(project_name, username, "password", password).await?;
+        storage::save_credential(
+            project_name,
+            username,
+            "refresh_token",
+            &data.tokens.refresh_token,
+        )
+        .await?;
         if !uuid.is_empty() {
-            storage::save_credential(&project_name, &username, "uuid", &uuid)?;
+            storage::save_credential(project_name, username, "uuid", &uuid).await?;
         }
     } else {
-        let _ = storage::delete_credential(&project_name, &username, "password");
-        let _ = storage::delete_credential(&project_name, &username, "refresh_token");
-        let _ = storage::delete_credential(&project_name, &username, "uuid");
+        let _ = storage::delete_credential(project_name, username, "password").await;
+        let _ = storage::delete_credential(project_name, username, "refresh_token").await;
+        let _ = storage::delete_credential(project_name, username, "uuid").await;
     }
 
     Ok(())
@@ -90,58 +187,30 @@ pub async fn auth_refresh(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
     username: String,
-) -> CommandResult<String> {
+) -> CommandResult<()> {
+    let project = load_config_or_default(&project_name).await;
 
-    let auth_data = if let Ok(refresh_token) = storage::get_credential(&project_name, &username, "refresh_token") {
-        match auth::refresh(&refresh_token).await {
-            Ok(data) => data,
-            Err(e) => {
-                log_err!("auth_refresh: refresh failed: {}, trying login", e);
-                let _ = storage::delete_credential(&project_name, &username, "refresh_token");
-                match storage::get_credential(&project_name, &username, "password") {
-                    Ok(password) => match auth::login(&username, &password).await {
-                        Ok(data) => data,
-                        Err(e) => {
-                            log_err!("auth_refresh: login fallback failed: {}", e);
-                            return Ok(format!("{:#}", e));
-                        }
-                    },
-                    Err(_) => return Ok(String::new()),
-                }
-            }
-        }
-    } else {
-        match storage::get_credential(&project_name, &username, "password") {
-            Ok(password) => match auth::login(&username, &password).await {
-                Ok(data) => data,
-                Err(e) => {
-                    log_err!("auth_refresh: login failed: {}", e);
-                    return Ok(format!("{:#}", e));
-                }
-            },
-            Err(_) => return Ok(String::new()),
-        }
-    };
-
-    let uuid = auth_data.uuid();
-    let username_str = auth_data.username(&username);
-
-    {
-        let mut state = state.lock().await;
-        state.session = Some(SessionTokens {
-            access_token: auth_data.tokens.access_token.clone(),
-            refresh_token: auth_data.tokens.refresh_token.clone(),
-            uuid: uuid.clone(),
-            username: username_str,
-        });
+    if !project.online {
+        let data = auth::offline(&username);
+        store_session(&state, &data, &username).await;
+        return Ok(());
     }
+
+    let auth_data = restore_session(&project_name, &username, None).await?;
+    let (uuid, _) = store_session(&state, &auth_data, &username).await;
 
     if !uuid.is_empty() {
-        let _ = storage::save_credential(&project_name, &username, "uuid", &uuid);
+        let _ = storage::save_credential(&project_name, &username, "uuid", &uuid).await;
     }
-    storage::save_credential(&project_name, &username, "refresh_token", &auth_data.tokens.refresh_token)?;
+    storage::save_credential(
+        &project_name,
+        &username,
+        "refresh_token",
+        &auth_data.tokens.refresh_token,
+    )
+    .await?;
 
-    Ok(String::new())
+    Ok(())
 }
 
 #[tauri::command]
@@ -149,17 +218,32 @@ pub async fn auth_saved(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<Option<SavedCredentials>> {
-    let state = state.lock().await;
-    let username = state
-        .launcher_config
-        .as_ref()
-        .and_then(|lc| lc.get_first_login(&project_name));
+    let username = {
+        let state = state.lock().await;
+        state
+            .launcher_config
+            .as_ref()
+            .and_then(|lc| lc.get_first_login(&project_name))
+    };
 
     let Some(username) = username else {
         return Ok(None);
     };
 
-    let password = storage::get_credential(&project_name, &username, "password")?;
+
+    let project = load_config_or_default(&project_name).await;
+    if !project.online {
+        return Ok(Some(SavedCredentials {
+            username,
+            password: String::new(),
+        }));
+    }
+
+
+
+    let password = storage::get_credential(&project_name, &username, "password")
+        .await
+        .unwrap_or_default();
     Ok(Some(SavedCredentials { username, password }))
 }
 
@@ -183,17 +267,11 @@ pub async fn delete_account(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
-    let _ = storage::delete_credential(&project_name, &username, "password");
-    let _ = storage::delete_credential(&project_name, &username, "refresh_token");
-    let _ = storage::delete_credential(&project_name, &username, "uuid");
+    let _ = storage::delete_credential(&project_name, &username, "password").await;
+    let _ = storage::delete_credential(&project_name, &username, "refresh_token").await;
+    let _ = storage::delete_credential(&project_name, &username, "uuid").await;
 
-    {
-        let mut state = state.lock().await;
-        if let Some(ref mut config) = state.launcher_config {
-            config.remove_login(&project_name, &username);
-            config.save()?;
-        }
-    }
+    remember_login(&state, &project_name, &username, false).await?;
 
     Ok(())
 }

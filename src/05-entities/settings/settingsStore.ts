@@ -1,60 +1,60 @@
 import { defineStore } from 'pinia'
+import type { ThemeMode } from './types'
+import { buildThemeId, normalizeTheme, parseThemeId } from './themes'
 
 export interface SettingsState {
   animationsEnabled: boolean
   theme: string
 }
 
-const STORAGE_KEY = 'limacina-settings'
+const THEME_CACHE_KEY = 'limacina-theme'
+const LEGACY_STORAGE_KEY = 'limacina-settings'
 
-function loadFromStorage(): SettingsState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      return JSON.parse(raw)
-    }
-  } catch (e: unknown) {
-    console.error(e)
-  }
-  return { animationsEnabled: true, theme: 'test-dark' }
-}
-
-function saveToStorage(state: SettingsState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+function loadCachedTheme(): string {
+  localStorage.removeItem(LEGACY_STORAGE_KEY)
+  return normalizeTheme(localStorage.getItem(THEME_CACHE_KEY))
 }
 
 export const useSettingsStore = defineStore('settings', {
-  state: (): SettingsState => loadFromStorage(),
+  state: (): SettingsState => ({
+    animationsEnabled: true,
+    theme: loadCachedTheme(),
+  }),
 
   getters: {
     isDark(): boolean {
       return !this.theme.endsWith('-light')
+    },
+
+    themeMode(): ThemeMode {
+      return parseThemeId(this.theme).mode
+    },
+
+    themeFamily(): string {
+      return parseThemeId(this.theme).family
     },
   },
 
   actions: {
     toggleAnimations(): void {
       this.animationsEnabled = !this.animationsEnabled
-      saveToStorage({ animationsEnabled: this.animationsEnabled, theme: this.theme })
     },
 
     setAnimationsEnabled(value: boolean): void {
       this.animationsEnabled = value
-      saveToStorage({ animationsEnabled: this.animationsEnabled, theme: this.theme })
     },
 
     setTheme(theme: string): void {
-      this.theme = theme
-      saveToStorage({ animationsEnabled: this.animationsEnabled, theme: this.theme })
+      this.theme = normalizeTheme(theme)
+      localStorage.setItem(THEME_CACHE_KEY, this.theme)
     },
 
-    toggleDarkLight(): void {
-      if (this.theme.endsWith('-light')) {
-        this.theme = this.theme.replace('-light', '-dark')
-      } else {
-        this.theme = this.theme.replace('-dark', '-light')
-      }
-      saveToStorage({ animationsEnabled: this.animationsEnabled, theme: this.theme })
+    setThemeFamily(family: string): void {
+      this.setTheme(buildThemeId(family, this.themeMode))
+    },
+
+    setThemeMode(mode: ThemeMode): void {
+      this.setTheme(buildThemeId(this.themeFamily, mode))
     },
   },
 })

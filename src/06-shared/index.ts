@@ -1,7 +1,6 @@
 export { default as Button } from './components/Button.vue'
 export { default as Input } from './components/Input.vue'
 export { default as Dropdown } from './components/Dropdown.vue'
-export { default as SmoothHeight } from './components/SmoothHeight.vue'
 export { default as IconButton } from './components/IconButton.vue'
 export { default as Icon } from './components/Icon.vue'
 export { default as ProgressBar } from './components/ProgressBar.vue'
@@ -11,7 +10,7 @@ export { default as Checkbox } from './components/Checkbox.vue'
 
 export * from './api'
 
-export type { InputOptions, DropdownOption, IconProps, IconButtonProps, PopupOptions, SmoothHeightOptions, SliderOptions } from './types'
-export { sleep, randomId, copyToClipboard } from './utils/utils'
+export type { InputOptions, DropdownOption, IconProps, IconButtonProps, PopupOptions, SliderOptions } from './types'
+export { copyToClipboard } from './utils/utils'
 export { selectFile } from './utils/useFileUpload'
 export { useThreeScene } from './utils/useThreeScene'

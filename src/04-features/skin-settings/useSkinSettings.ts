@@ -8,7 +8,7 @@ export function useSkinSettings() {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const skinUrl = ref<string>('')
-  const skinFileBytes = ref<number[]>([])
+  const skinFileBytes = ref<Uint8Array>(new Uint8Array())
   const errorMessage = ref<string>('')
   const isUploading = ref<boolean>(false)
   const uploadedSkins = ref<UserContentItem[]>([])
@@ -38,8 +38,7 @@ export function useSkinSettings() {
         errorMessage.value = msg
       },
       onLoad: (_file: File, result: string | ArrayBuffer) => {
-        const bytes = new Uint8Array(result as ArrayBuffer)
-        skinFileBytes.value = Array.from(bytes)
+        skinFileBytes.value = new Uint8Array(result as ArrayBuffer)
 
         const blob = new Blob([result as ArrayBuffer], { type: 'image/png' })
         const dataUrl = URL.createObjectURL(blob)
@@ -95,7 +94,7 @@ export function useSkinSettings() {
     if (skinUrl.value.startsWith('blob:')) URL.revokeObjectURL(skinUrl.value)
 
     skinUrl.value = ''
-    skinFileBytes.value = []
+    skinFileBytes.value = new Uint8Array()
     errorMessage.value = ''
   }
 

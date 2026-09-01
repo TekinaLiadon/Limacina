@@ -1,38 +1,28 @@
-import { ref, computed, watch } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { loadSettingsProject, saveSettingsProject } from '@/06-shared/api'
+import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { useCoreStore, useNotificationStore, useProjectSettingsStore } from '@/05-entities'
+import type { ProjectSettingsForm } from '@/05-entities'
+import { loadSettingsProject, saveSettingsProject, refreshManifests } from '@/06-shared/api'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { ProjectConfig } from '@/05-entities/core/types'
 
-interface SettingsForm {
-  projectName: string
-  mcVersion: string
-  modLoader: string
-  loaderVersion: string
-  javaPath: string
-  jvmArgs: string
-  memoryRange: [number, number]
-  online: boolean
-  initialized: boolean
-}
-
-export function useProjectSettings() {
+export function useProjectSettings(): {
+  config: ComputedRef<ProjectSettingsForm>
+  isLoaded: ComputedRef<boolean>
+  maxMemoryLimit: ComputedRef<number>
+  isSaving: ComputedRef<boolean>
+  isRefreshingManifests: Ref<boolean>
+  selectJavaFolder: () => Promise<void>
+  handleSave: () => Promise<void>
+  handleRefreshManifests: () => Promise<void>
+  loadConfig: (project: string, force?: boolean) => Promise<void>
+} {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
-  const isSaving = ref<boolean>(false)
-  const isLoaded = ref<boolean>(false)
+  const store = useProjectSettingsStore()
 
-  const config = ref<SettingsForm>({
-    projectName: '',
-    mcVersion: '',
-    modLoader: '',
-    loaderVersion: '',
-    javaPath: '',
-    jvmArgs: '',
-    memoryRange: [512, 4096],
-    online: true,
-    initialized: false,
-  })
+  const config = computed((): ProjectSettingsForm => store.config)
+  const isLoaded = computed((): boolean => store.isLoaded)
+  const isSaving = computed((): boolean => store.isSaving)
 
   const maxMemoryLimit = computed((): number => {
     return Math.max(512, coreStore.totalMemoryMb - 2048)
@@ -49,12 +39,14 @@ export function useProjectSettings() {
     if (selected) config.value.javaPath = selected
   }
 
-  const loadConfig = async (project: string): Promise<void> => {
+  const loadConfig = async (project: string, force: boolean = false): Promise<void> => {
     if (!project) return
-    isLoaded.value = false
+    if (!force && (store.loadedProject === project || store.loadingProject === project)) return
+
+    store.startLoading(project)
     try {
       const loaded = await loadSettingsProject(project)
-      config.value = {
+      store.applyLoaded(project, {
         projectName: loaded.projectName,
         mcVersion: loaded.mcVersion,
         modLoader: loaded.modLoader,
@@ -64,10 +56,12 @@ export function useProjectSettings() {
         memoryRange: [parseMemory(loaded.minMemory), parseMemory(loaded.maxMemory)],
         online: loaded.online,
         initialized: loaded.initialized,
-      }
-      isLoaded.value = true
+        serverUrl: loaded.serverUrl,
+      })
     } catch (e: unknown) {
       console.error(e)
+    } finally {
+      store.finishLoading()
     }
   }
 
@@ -76,7 +70,7 @@ export function useProjectSettings() {
   }, { immediate: true })
 
   const handleSave = async (): Promise<void> => {
-    isSaving.value = true
+    store.startSaving()
 
     try {
       const projectConfig: ProjectConfig = {
@@ -90,13 +84,29 @@ export function useProjectSettings() {
         maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
         online: config.value.online,
         initialized: config.value.initialized,
+        serverUrl: config.value.serverUrl,
       }
       await saveSettingsProject(projectConfig)
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
-      console.error(e)
+      notification.show(String(e))
     } finally {
-      isSaving.value = false
+      store.finishSaving()
+    }
+  }
+
+  const isRefreshingManifests = ref<boolean>(false)
+
+  const handleRefreshManifests = async (): Promise<void> => {
+    if (isRefreshingManifests.value) return
+    isRefreshingManifests.value = true
+    try {
+      const message = await refreshManifests()
+      notification.show(message)
+    } catch (e: unknown) {
+      notification.show(e instanceof Error ? e.message : String(e))
+    } finally {
+      isRefreshingManifests.value = false
     }
   }
 
@@ -105,8 +115,10 @@ export function useProjectSettings() {
     isLoaded,
     maxMemoryLimit,
     isSaving,
+    isRefreshingManifests,
     selectJavaFolder,
     handleSave,
+    handleRefreshManifests,
     loadConfig,
   }
 }

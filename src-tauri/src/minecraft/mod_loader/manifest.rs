@@ -2,7 +2,7 @@ use crate::{
     minecraft::{structs::Versions, vanilla::structs::VersionDetailsManifest},
     utils::{download_file::download_json, env_info::launcher_patch},
 };
-use ::anyhow::{Context, Result};
+use anyhow::{Context, Result};
 
 pub async fn get_manifest_version(
     version: &str,

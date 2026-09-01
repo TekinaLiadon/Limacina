@@ -18,15 +18,18 @@ defineEmits<{
 
 <template>
   <div class="account-list">
-    <h2 class="account-list__title">Аккаунты</h2>
+    <h2 class="account-list__title heading-display">Аккаунты</h2>
 
     <div class="account-list__items">
       <Button
-          class="btn-yellow current-account__btn current-account__btn--secondary"
+          class="btn-secondary btn-block account-list__add-btn"
           @click="$emit('show-login')"
       >
         Ввести новый
       </Button>
+
+      <div v-if="logins.length > 0" class="account-list__divider section-label">Сохранённые</div>
+
       <div
         v-for="login in logins"
         :key="login"
@@ -39,7 +42,7 @@ defineEmits<{
         <span class="account-list__name">{{ login }}</span>
         <Button
           v-if="!isSelected(login)"
-          class="btn-yellow account-list__select-btn"
+          class="btn-primary account-list__select-btn"
           :is-loading="isLoading && selectedUsername === login"
           :is-disabled="isLoading"
           @click="$emit('select', login)"
@@ -55,6 +58,7 @@ defineEmits<{
           v-if="!isSelected(login)"
           class="account-list__delete-btn"
           :disabled="isLoading"
+          aria-label="Удалить аккаунт"
           @click="$emit('delete', login)"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -78,12 +82,7 @@ defineEmits<{
   height: 100%;
 
   &__title {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--login-text-primary);
-    margin: 0 0 24px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    margin-bottom: var(--title-gap);
   }
 
   &__items {
@@ -91,89 +90,102 @@ defineEmits<{
     display: flex;
     flex-direction: column;
     min-height: 0;
-    gap: 20px;
+    gap: var(--space-8);
+  }
+
+  &__add-btn {
+    min-height: var(--control-height);
+  }
+
+  &__divider {
+    margin: var(--space-8) 0;
   }
 
   &__item {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 14px 18px;
+    gap: var(--space-12);
+    padding: var(--space-12);
     background: var(--surface-subtle);
-    border: 1px solid var(--login-border);
-    border-radius: 12px;
-    transition: all 0.2s ease;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-card);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
 
     &:hover {
       background: var(--surface-hover);
-      border-color: var(--login-accent);
+      box-shadow: var(--elevation-inset-strong);
     }
 
     &--selected {
-      background: var(--accent-hover-bg);
-      border-color: var(--login-accent);
+      background: var(--accent-subtle);
+      box-shadow: inset 0 0 0 1px var(--login-accent);
     }
   }
 
   &__avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-circle);
     background: var(--login-accent);
     color: var(--text-on-accent);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
-    font-weight: 800;
-    font-family: "Manrope", sans-serif;
+    font-family: var(--font-display);
+    font-size: var(--text-body-sm);
+    font-weight: var(--weight-medium);
+    letter-spacing: normal;
     flex-shrink: 0;
     line-height: 1;
   }
 
   &__name {
     flex: 1;
-    font-size: 16px;
-    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-size: var(--text-body-sm);
+    font-weight: var(--weight-medium);
     color: var(--login-text-primary);
   }
 
   &__select-btn {
     flex: 0 0 auto;
-    padding: 0 20px;
-    height: 36px;
-    font-size: 13px;
   }
 
   &__check {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: var(--radius-circle);
     background: var(--accent-active-bg);
-    color: var(--login-accent);
+    box-shadow: var(--elevation-inset);
+    color: var(--accent-text);
     flex-shrink: 0;
   }
 
   &__delete-btn {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: var(--radius-circle);
     background: transparent;
-    border: 1px solid var(--login-border);
+    border: none;
+    box-shadow: var(--elevation-inset);
     color: var(--login-text-muted);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     flex-shrink: 0;
 
     &:hover:not(:disabled) {
       background: var(--delete-bg);
-      border-color: var(--delete-border);
+      box-shadow: inset 0 0 0 1px var(--delete-border);
       color: var(--delete-text);
     }
 
@@ -184,13 +196,14 @@ defineEmits<{
   }
 
   &__error {
-    padding: 10px 14px;
-    border-radius: 8px;
+    padding: var(--space-12);
+    border-radius: var(--radius-badge);
     background: var(--error-bg);
-    border: 1px solid var(--error-border);
+    box-shadow: inset 0 0 0 1px var(--error-border);
     color: var(--error);
-    font-size: 13px;
-    margin-top: 16px;
+    font-size: var(--text-body-sm);
+    text-align: left;
+    margin-top: var(--space-16);
     word-break: break-word;
   }
 }

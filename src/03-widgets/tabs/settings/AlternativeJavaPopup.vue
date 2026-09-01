@@ -31,7 +31,7 @@ const dropdownOptions = () =>
             <h3 class="alt-java-popup__title">Загрузка Java</h3>
             <div class="alt-java-popup__form">
               <div class="alt-java-popup__field">
-                <span class="alt-java-popup__label">Вендор</span>
+                <span class="alt-java-popup__label eyebrow">Вендор</span>
                 <Dropdown
                   v-model="selectedDistribution"
                   :options="dropdownOptions()"
@@ -39,7 +39,7 @@ const dropdownOptions = () =>
                 />
               </div>
               <div class="alt-java-popup__field">
-                <span class="alt-java-popup__label">Версия Java</span>
+                <span class="alt-java-popup__label eyebrow">Версия Java</span>
                 <input
                   v-model="versionInput"
                   class="alt-java-popup__input"
@@ -52,11 +52,11 @@ const dropdownOptions = () =>
                 label="Заменить Java по умолчанию"
               />
               <div class="alt-java-popup__actions">
-                <Button class="btn-yellow alt-java-popup__btn" @click="emit('download')">
+                <Button class="btn-primary alt-java-popup__btn" @click="emit('download')">
                   Загрузить
                 </Button>
                 <Button
-                  class="btn-yellow alt-java-popup__btn alt-java-popup__btn--cancel"
+                  class="btn-quiet alt-java-popup__btn"
                   @click="emit('close')"
                 >
                   Отмена
@@ -90,87 +90,78 @@ const dropdownOptions = () =>
 
 .alt-java-popup {
   background: var(--login-bg-form);
-  border: 1px solid var(--login-border);
-  border-radius: 16px;
-  padding: 28px;
-  box-shadow: 0 8px 32px var(--login-shadow-strong);
+  border-radius: var(--radius-modal);
+  padding: var(--card-padding);
+  box-shadow: var(--elevation-modal);
   max-width: 400px;
   width: 100%;
 
   &__title {
-    font-size: 18px;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: var(--text-subheading);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-heading);
     color: var(--login-text-primary);
-    margin: 0 0 20px 0;
+    margin: 0 0 var(--space-20) 0;
     text-align: center;
   }
 
   &__form {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--element-gap);
   }
 
   &__field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  &__label {
-    font-size: 14px;
-    color: var(--yellow);
-    font-weight: 400;
+    gap: var(--space-8);
+    text-align: left;
   }
 
   &__input {
-    border: 1px solid var(--login-border);
-    border-radius: 10px;
-    height: 40px;
-    padding: 0 14px;
+    border: none;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-input);
+    height: var(--control-height);
+    padding: 0 var(--control-padding-x);
     color: var(--login-text-primary);
     background-color: var(--surface-input);
-    font-size: 14px;
+    font-family: inherit;
+    font-size: var(--text-body-sm);
     outline: none;
     width: 100%;
     box-sizing: border-box;
+    transition: box-shadow 0.2s ease, background-color 0.2s ease;
 
     &::placeholder {
       color: var(--login-text-muted);
     }
 
+    &:hover {
+      background-color: var(--surface-hover);
+    }
+
     &:focus {
-      border-color: var(--yellow);
+      box-shadow: var(--elevation-inset-strong);
     }
   }
 
   &__actions {
     display: flex;
-    gap: 10px;
+    gap: var(--space-8);
   }
 
   &__btn {
     flex: 1;
-    height: 44px;
-    font-size: 14px;
-    font-weight: 600;
-
-    &--cancel {
-      background: transparent;
-      border: 1px solid var(--login-border);
-      color: var(--login-text-primary);
-
-      &:hover {
-        background: var(--surface-light);
-      }
-    }
+    min-height: var(--control-height);
   }
 
   &__loading {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 20px 0;
+    padding: var(--space-20) 0;
   }
 
   &__spinner {
@@ -179,9 +170,9 @@ const dropdownOptions = () =>
   }
 
   &__loading-text {
-    margin-top: 16px;
-    font-size: 16px;
-    color: var(--login-text-primary);
+    margin-top: var(--element-gap);
+    font-size: var(--text-body-sm);
+    color: var(--login-text-secondary);
   }
 }
 

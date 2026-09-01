@@ -20,3 +20,24 @@
 
 ---
 
+## Сборка
+
+Требуется: [Node/bun](https://bun.sh), Rust toolchain, системные зависимости Tauri (Linux: `libwebkit2gtk-4.1-dev` и пр., см. [tauri docs](https://tauri.app/start/prerequisites/)).
+
+```bash
+# 1. Конфиг окружения (gitignored)
+cp src-tauri/.env.example src-tauri/.env
+# LAUNCHER_NAME — имя папки/приложения, LAUNCHER_SERVER_URL — адрес лаунчер-сервера
+
+# 2. Зависимости
+bun install
+
+# 3. Разработка (Vite dev server + Rust)
+bunx tauri dev
+
+# 4. Прод-сборка (фронтенд + бинарник под текущую ОС)
+bunx tauri build
+```
+
+> `.env` встраивается в бинарник на этапе компиляции (`include_str!` в `lib.rs`) — после изменения значений нужен `cargo clean`.
+

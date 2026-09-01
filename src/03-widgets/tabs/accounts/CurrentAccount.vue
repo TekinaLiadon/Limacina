@@ -14,24 +14,24 @@ defineEmits<{
 
 <template>
   <div class="current-account">
-    <p class="current-account__label">Текущий аккаунт:</p>
+    <span class="current-account__label eyebrow">Текущий аккаунт</span>
     <p class="current-account__name">{{ username }}</p>
 
     <div class="current-account__actions">
       <Button
-        class="btn-yellow current-account__btn"
+        class="btn-primary btn-lg btn-block"
         @click="$emit('launch')"
       >
         Войти
       </Button>
       <Button
-        class="btn-yellow current-account__btn current-account__btn--secondary"
+        class="btn-secondary btn-block current-account__btn"
         @click="$emit('show-login')"
       >
         Ввести новый
       </Button>
       <Button
-        class="btn-yellow current-account__btn current-account__btn--secondary"
+        class="btn-quiet btn-block current-account__btn"
         @click="$emit('go-to-accounts')"
       >
         Выбрать другой
@@ -47,45 +47,28 @@ defineEmits<{
   flex-direction: column;
 
   &__label {
-    font-size: 14px;
-    color: var(--login-text-secondary);
-    margin: 0;
+    margin-bottom: var(--space-8);
   }
 
   &__name {
-    font-size: 24px;
-    font-weight: 700;
+    font-family: var(--font-display);
+    font-size: var(--text-heading-sm);
+    line-height: var(--leading-heading);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-heading);
     color: var(--login-text-primary);
-    margin: 0 0 12px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    margin: 0 0 var(--title-gap) 0;
   }
 
   &__actions {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-8);
     width: 100%;
-    margin-top: 12px;
   }
 
   &__btn {
-    width: 100%;
-    height: 48px;
-    font-size: 16px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-
-    &--secondary {
-      background: transparent;
-      border: 1px solid var(--login-border);
-      color: var(--login-text-primary);
-
-      &:hover {
-        background: var(--surface-light);
-      }
-    }
+    min-height: var(--control-height);
   }
 }
 </style>

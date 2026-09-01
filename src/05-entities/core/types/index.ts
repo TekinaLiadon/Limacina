@@ -9,7 +9,9 @@ export interface LauncherConfig {
   startWithSystem: boolean
   closeAfterLaunch: boolean
   theme: string
+  animationsEnabled: boolean
   projectNames: string[]
+  currentProject: string | null
 }
 
 export interface AppInitData {
@@ -28,7 +30,23 @@ export interface UpdateInfo {
   version: string
 }
 
-export type TabKey = 'accounts' | 'add-server' | 'settings' | 'debug'
+export interface UpdatePlatform {
+  os: string
+  arch: string
+}
+
+export interface UpdateVersionInfo {
+  version: string
+  platforms: UpdatePlatform[]
+}
+
+export interface UpdateVersions {
+  version: string
+  platforms: UpdatePlatform[]
+  versions: UpdateVersionInfo[]
+}
+
+export type TabKey = 'accounts' | 'add-profile' | 'settings' | 'debug'
 
 export type AuthSubTab = 'login' | 'register'
 
@@ -44,14 +62,28 @@ export interface SessionInfo {
 
 export interface ConsoleLog {
   line: string
-  is_error: boolean
+  isError: boolean
 }
 
+export type StepEvent =
+  | { type: 'started'; id: string; label: string }
+  | { type: 'progress'; id: string; current: number; total: number }
+  | { type: 'detail'; id: string; text: string }
+  | { type: 'finished'; id: string; skipped: boolean }
+  | { type: 'failed'; id: string; message: string }
+
+export type StepStatus = 'active' | 'done' | 'error'
+
 export interface StepProgressItem {
-  id: number
+  key: string
   label: string
-  status: 'pending' | 'active' | 'done' | 'error'
-  error?: string
+  status: StepStatus
+  skipped: boolean
+  current: number
+  total: number
+  detail: string
+  error: string
+  shownAt: number
 }
 
 export interface CoreState {
@@ -76,7 +108,7 @@ export interface CoreState {
 export interface ProjectConfig {
   projectName: string
   mcVersion: string
-  modLoader: string
+  modLoader: ModLoaderKind
   loaderVersion: string | null
   javaPath: string | null
   jvmArgs: string[]
@@ -84,6 +116,23 @@ export interface ProjectConfig {
   maxMemory: string
   online: boolean
   initialized: boolean
+  serverUrl: string | null
+}
+
+export type ModLoaderKind = 'vanilla' | 'fabric' | 'forge' | 'neoforge'
+
+export type ProfileKind = 'server' | 'offline'
+
+export interface ServerProfileForm {
+  serverUrl: string
+}
+
+export interface OfflineProfileForm {
+  name: string
+  mcVersion: string
+  modLoader: ModLoaderKind
+  loaderVersion: string
+  includeSnapshots: boolean
 }
 
 export interface LoginForm {

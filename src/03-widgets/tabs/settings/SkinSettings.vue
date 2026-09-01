@@ -30,12 +30,12 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
     </div>
 
     <div class="skin-settings__actions">
-      <Button class="btn-yellow skin-settings__btn" @click="selectSkin">
+      <Button class="btn-secondary skin-settings__btn" @click="selectSkin">
         {{ hasSkin ? 'Заменить скин' : 'Загрузить скин' }}
       </Button>
       <Button
         v-if="hasSkin"
-        class="btn-yellow skin-settings__btn skin-settings__btn--upload"
+        class="btn-primary skin-settings__btn skin-settings__btn--upload"
         :is-loading="isUploading"
         :is-disabled="isUploading"
         @click="handleUpload"
@@ -44,7 +44,7 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
       </Button>
       <Button
         v-if="hasSkin"
-        class="btn-yellow skin-settings__btn skin-settings__btn--reset"
+        class="btn-danger skin-settings__btn skin-settings__btn--reset"
         @click="resetSkin"
       >
         Удалить
@@ -56,7 +56,7 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
     </p>
 
     <div v-if="uploadedSkins.length > 0" class="skin-settings__content-list">
-      <h3 class="skin-settings__content-title">Загруженные скины</h3>
+      <div class="skin-settings__content-title section-label">Загруженные скины</div>
       <div class="skin-settings__content-items">
         <div
           v-for="item in uploadedSkins"
@@ -66,14 +66,14 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
           <span class="skin-settings__content-url">{{ item.url }}</span>
           <div class="skin-settings__content-actions">
             <Button
-              class="btn-yellow skin-settings__copy-btn"
+              class="btn-quiet skin-settings__copy-btn"
               @click="handleCopyUrl(item.url)"
             >
               Копировать
             </Button>
             <Button
               v-if="item.id != null"
-              class="btn-yellow skin-settings__delete-btn"
+              class="btn-danger skin-settings__delete-btn"
               @click="handleDelete(item.id!)"
             >
               Удалить
@@ -89,102 +89,90 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
 .skin-settings {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--element-gap);
 
   &__preview {
     width: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     overflow: hidden;
-    border: 1px solid var(--login-border);
+    box-shadow: var(--elevation-inset);
   }
 
   &__error {
-    padding: 10px 14px;
-    border-radius: 8px;
+    padding: var(--space-12);
+    border-radius: var(--radius-badge);
     background: var(--error-bg);
-    border: 1px solid var(--error-border);
+    box-shadow: inset 0 0 0 1px var(--error-border);
     color: var(--error);
-    font-size: 13px;
+    font-size: var(--text-body-sm);
+    text-align: left;
   }
 
   &__actions {
     display: flex;
-    gap: 10px;
+    gap: var(--space-8);
 
     .skin-settings__btn {
       flex: 1;
-      height: 44px;
-      font-size: 14px;
-      font-weight: 500;
+      min-height: var(--control-height);
 
-      &--upload {
-        flex: 0 0 auto;
-        padding: 0 24px;
-      }
-
+      &--upload,
       &--reset {
         flex: 0 0 auto;
-        padding: 0 24px;
       }
     }
   }
 
   &__hint {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--login-text-muted);
     text-align: center;
   }
 
   &__content-list {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--login-border);
-  }
-
-  &__content-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--login-text-primary);
-    margin: 0 0 12px 0;
+    margin-top: var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
   }
 
   &__content-items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-8);
   }
 
   &__content-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: var(--space-12);
+    padding: var(--space-12);
     background: var(--surface-subtle);
-    border: 1px solid var(--login-border);
-    border-radius: 8px;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-card);
   }
 
   &__content-url {
     flex: 1;
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--login-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
   }
 
   &__content-actions {
     display: flex;
-    gap: 6px;
+    gap: var(--space-4);
     flex-shrink: 0;
   }
 
   &__copy-btn,
   &__delete-btn {
-    height: 32px;
-    padding: 0 12px;
-    font-size: 12px;
+    padding: var(--space-4) var(--control-padding-x);
+    font-size: var(--text-caption);
   }
 }
 </style>

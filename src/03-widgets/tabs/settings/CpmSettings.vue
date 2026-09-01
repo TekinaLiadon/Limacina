@@ -53,12 +53,12 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     </div>
 
     <div class="cpm-settings__actions">
-      <Button class="btn-yellow cpm-settings__btn" @click="selectCpmFile">
+      <Button class="btn-secondary cpm-settings__btn" @click="selectCpmFile">
         {{ hasModel ? 'Заменить модель' : 'Загрузить модель' }}
       </Button>
       <Button
         v-if="hasModel"
-        class="btn-yellow cpm-settings__btn cpm-settings__btn--reset"
+        class="btn-danger cpm-settings__btn cpm-settings__btn--reset"
         @click="resetCpm"
       >
         Удалить
@@ -70,14 +70,14 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     </p>
 
     <div class="cpm-settings__txt-block">
-      <h3 class="cpm-settings__txt-title">Загрузка модели (.txt)</h3>
+      <div class="cpm-settings__txt-title section-label">Загрузка модели (.txt)</div>
       <div class="cpm-settings__txt-actions">
-        <Button class="btn-yellow cpm-settings__btn" @click="selectTxtFile">
+        <Button class="btn-secondary cpm-settings__btn" @click="selectTxtFile">
           {{ hasTxtFile ? 'Заменить файл' : 'Выбрать .txt файл' }}
         </Button>
         <Button
           v-if="hasTxtFile"
-          class="btn-yellow cpm-settings__btn cpm-settings__btn--upload"
+          class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
           :is-loading="isUploading"
           :is-disabled="isUploading"
           @click="handleUploadModel"
@@ -94,7 +94,7 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     </div>
 
     <div v-if="uploadedModels.length > 0" class="cpm-settings__content-list">
-      <h3 class="cpm-settings__content-title">Загруженные модели</h3>
+      <div class="cpm-settings__content-title section-label">Загруженные модели</div>
       <div class="cpm-settings__content-items">
         <div
           v-for="item in uploadedModels"
@@ -104,14 +104,14 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
           <span class="cpm-settings__content-url">{{ item.url }}</span>
           <div class="cpm-settings__content-actions">
             <Button
-              class="btn-yellow cpm-settings__copy-btn"
+              class="btn-quiet cpm-settings__copy-btn"
               @click="handleCopyUrl(item.url)"
             >
               Копировать
             </Button>
             <Button
               v-if="item.id != null"
-              class="btn-yellow cpm-settings__delete-btn"
+              class="btn-danger cpm-settings__delete-btn"
               @click="handleDeleteModel(item.id!)"
             >
               Удалить
@@ -127,169 +127,144 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
 .cpm-settings {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--element-gap);
 
   &__preview {
     width: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     overflow: hidden;
-    border: 1px solid var(--login-border);
+    box-shadow: var(--elevation-inset);
   }
 
   &__error {
-    padding: 10px 14px;
-    border-radius: 8px;
+    padding: var(--space-12);
+    border-radius: var(--radius-badge);
     background: var(--error-bg);
-    border: 1px solid var(--error-border);
+    box-shadow: inset 0 0 0 1px var(--error-border);
     color: var(--error);
-    font-size: 13px;
+    font-size: var(--text-body-sm);
+    text-align: left;
   }
 
   &__layers {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-12);
+    align-items: flex-start;
   }
 
   &__layer-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    align-items: flex-start;
+    gap: var(--space-8);
     max-height: 200px;
     overflow-y: auto;
-    padding: 8px;
-    border-radius: 8px;
-    background: var(--surface-light);
+    width: 100%;
+    padding: var(--space-12);
+    border-radius: var(--radius-card);
+    background: var(--surface-subtle);
+    box-shadow: var(--elevation-inset);
   }
 
   &__actions {
     display: flex;
-    gap: 10px;
+    gap: var(--space-8);
 
     .cpm-settings__btn {
       flex: 1;
-      height: 44px;
-      font-size: 14px;
-      font-weight: 500;
+      min-height: var(--control-height);
 
-      &--reset {
-        flex: 0 0 auto;
-        padding: 0 24px;
-      }
-
-      &--save {
-        flex: 0 0 auto;
-        padding: 0 24px;
-      }
-
+      &--reset,
       &--upload {
         flex: 0 0 auto;
-        padding: 0 24px;
       }
     }
   }
 
   &__hint {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--login-text-muted);
     text-align: center;
   }
 
   &__txt-block {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--login-border);
+    margin-top: var(--space-8);
     display: flex;
     flex-direction: column;
-    gap: 12px;
-  }
-
-  &__txt-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--login-text-primary);
-    margin: 0;
+    gap: var(--space-12);
   }
 
   &__txt-actions {
     display: flex;
-    gap: 10px;
+    gap: var(--space-8);
 
     .cpm-settings__btn {
       flex: 1;
-      height: 44px;
-      font-size: 14px;
-      font-weight: 500;
+      min-height: var(--control-height);
 
       &--upload {
         flex: 0 0 auto;
-        padding: 0 24px;
       }
     }
   }
 
   &__txt-filename {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--login-text-secondary);
   }
 
   &__txt-hint {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--login-text-muted);
   }
 
   &__content-list {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--login-border);
-  }
-
-  &__content-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--login-text-primary);
-    margin: 0 0 12px 0;
+    margin-top: var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
   }
 
   &__content-items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-8);
   }
 
   &__content-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: var(--space-12);
+    padding: var(--space-12);
     background: var(--surface-subtle);
-    border: 1px solid var(--login-border);
-    border-radius: 8px;
+    box-shadow: var(--elevation-inset);
+    border-radius: var(--radius-card);
   }
 
   &__content-url {
     flex: 1;
-    font-size: 12px;
+    font-size: var(--text-caption);
     color: var(--login-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
   }
 
   &__content-actions {
     display: flex;
-    gap: 6px;
+    gap: var(--space-4);
     flex-shrink: 0;
   }
 
   &__copy-btn,
   &__delete-btn {
-    height: 32px;
-    padding: 0 12px;
-    font-size: 12px;
+    padding: var(--space-4) var(--control-padding-x);
+    font-size: var(--text-caption);
   }
 }
 </style>

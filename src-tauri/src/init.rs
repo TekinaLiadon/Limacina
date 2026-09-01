@@ -5,7 +5,8 @@ use tokio::fs;
 use crate::log_err;
 use crate::state::dto::ProjectConfig;
 use crate::state::launcher_config::LauncherConfig;
-use crate::utils::env_info::get_launcher_name;
+use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
+use crate::utils::http::http_client;
 
 pub struct InitPaths {
     pub base: PathBuf,
@@ -54,7 +55,12 @@ pub fn init_launcher(parent_path: &str) -> Result<LauncherConfig> {
     Ok(config)
 }
 
-pub async fn init_project_config(launcher_path: &str, project_name: &str) -> Result<ProjectConfig> {
+
+pub async fn init_project_config(
+    launcher_path: &str,
+    project_name: &str,
+    server_url: Option<&str>,
+) -> Result<ProjectConfig> {
     let normalized = launcher_path.replace('/', std::path::MAIN_SEPARATOR_STR);
     let config_dir = PathBuf::from(&normalized).join("project").join("config");
     fs::create_dir_all(&config_dir).await?;
@@ -68,47 +74,40 @@ pub async fn init_project_config(launcher_path: &str, project_name: &str) -> Res
         }
     }
 
-    let server_url = env!("LAUNCHER_SERVER_URL");
-    let config = match reqwest::get(format!("{}/launcher/config", server_url)).await {
-        Ok(response) if response.status().is_success() => {
-            let config: ProjectConfig = response.json().await.context("Не удалось распарсить конфиг с сервера")?;
-            config
-        }
-        Ok(response) => {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
-            default_config(project_name)
-        }
-        Err(e) => {
-            log_err!("Не удалось получить конфиг с сервера: {}", e);
-            default_config(project_name)
-        }
+    let base_url = match server_url {
+        Some(url) => normalize_server_url(url),
+        None => default_server_url(),
     };
+    let response = http_client()
+        .get(format!("{}/launcher/config", base_url))
+        .send()
+        .await
+        .context("Не удалось подключиться к серверу конфига проекта")?;
 
-    let mut config = config;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
+        anyhow::bail!("Сервер {} вернул {} при запросе конфига проекта", base_url, status);
+    }
+
+    let mut config: ProjectConfig = response
+        .json()
+        .await
+        .context("Не удалось распарсить конфиг с сервера")?;
+
+    if config.project_name.trim().is_empty() {
+        anyhow::bail!("Сервер не вернул название проекта");
+    }
+
     if !project_name.is_empty() {
         config.project_name = project_name.to_string();
     }
     config.initialized = false;
+    config.server_url = server_url.map(normalize_server_url);
 
     let toml_path = config_dir.join(format!("{}.toml", config.project_name));
     let toml_string = toml::to_string_pretty(&config)?;
     fs::write(&toml_path, toml_string).await?;
     Ok(config)
-}
-
-fn default_config(project_name: &str) -> ProjectConfig {
-    ProjectConfig {
-        project_name: project_name.to_string(),
-        mc_version: "1.21.1".to_string(),
-        mod_loader: crate::state::dto::ModLoader::NeoForge,
-        loader_version: None,
-        java_path: None,
-        jvm_args: vec![],
-        min_memory: "-Xms512M".to_string(),
-        max_memory: "-Xmx4G".to_string(),
-        online: true,
-        initialized: false,
-    }
 }

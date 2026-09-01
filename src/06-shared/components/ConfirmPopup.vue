@@ -19,11 +19,11 @@ const emit = defineEmits<{
         <div class="confirm-popup">
           <p class="confirm-popup__message">{{ message }}</p>
           <div class="confirm-popup__actions">
-            <Button class="btn-yellow confirm-popup__btn" @click="emit('confirm')">
+            <Button class="btn-primary confirm-popup__btn" @click="emit('confirm')">
               Да
             </Button>
             <Button
-              class="btn-yellow confirm-popup__btn confirm-popup__btn--cancel"
+              class="btn-quiet confirm-popup__btn"
               @click="emit('cancel')"
             >
               Нет
@@ -49,42 +49,29 @@ const emit = defineEmits<{
 
 .confirm-popup {
   background: var(--login-bg-form);
-  border: 1px solid var(--login-border);
-  border-radius: 16px;
-  padding: 28px;
-  box-shadow: 0 8px 32px var(--login-shadow-strong);
+  border-radius: var(--radius-modal);
+  padding: var(--card-padding);
+  box-shadow: var(--elevation-modal);
   max-width: 360px;
   width: 100%;
 
   &__message {
-    font-size: 16px;
-    font-weight: 500;
-    color: var(--login-text-primary);
-    margin: 0 0 24px 0;
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+    font-weight: var(--weight-regular);
+    color: var(--login-text-secondary);
+    margin: 0 0 var(--space-24) 0;
     text-align: center;
-    line-height: 140%;
   }
 
   &__actions {
     display: flex;
-    gap: 10px;
+    gap: var(--space-8);
   }
 
   &__btn {
     flex: 1;
-    height: 44px;
-    font-size: 14px;
-    font-weight: 600;
-
-    &--cancel {
-      background: transparent;
-      border: 1px solid var(--login-border);
-      color: var(--login-text-primary);
-
-      &:hover {
-        background: var(--surface-light);
-      }
-    }
+    min-height: var(--control-height);
   }
 }
 

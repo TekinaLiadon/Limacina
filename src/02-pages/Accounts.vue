@@ -70,9 +70,9 @@ const {
 <style lang="scss">
 .accounts-page {
   width: 100%;
-  max-width: 480px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 40px;
+  padding: var(--page-padding-y) var(--page-padding-x);
   display: flex;
   flex-direction: column;
   height: 100%;

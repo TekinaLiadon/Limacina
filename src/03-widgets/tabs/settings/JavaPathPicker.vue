@@ -12,13 +12,13 @@ const emit = defineEmits<{
 
 <template>
   <div class="java-path-picker">
-    <span class="java-path-picker__label">Путь к Java</span>
+    <span class="java-path-picker__label eyebrow">Путь к Java</span>
     <div class="java-path-picker__row">
       <Input
         :model-value="javaPath"
         :options="{ placeholder: 'Выберите папку', disabled: true }"
       />
-      <Button class="btn-yellow java-path-picker__browse-btn" @click="emit('browse')">
+      <Button class="btn-secondary java-path-picker__browse-btn" @click="emit('browse')">
         Обзор
       </Button>
     </div>
@@ -29,18 +29,12 @@ const emit = defineEmits<{
 .java-path-picker {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-
-  &__label {
-    font-size: 14px;
-    color: var(--yellow);
-    font-weight: 400;
-  }
+  gap: var(--space-8);
 
   &__row {
     display: flex;
-    gap: 10px;
-    align-items: flex-end;
+    gap: var(--space-8);
+    align-items: center;
 
     .input__core {
       flex: 1;
@@ -48,9 +42,7 @@ const emit = defineEmits<{
   }
 
   &__browse-btn {
-    height: 40px;
-    padding: 0 20px;
-    font-size: 13px;
+    min-height: var(--control-height);
     white-space: nowrap;
     flex-shrink: 0;
   }

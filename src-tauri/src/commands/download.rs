@@ -1,4 +1,3 @@
-use tauri::AppHandle;
 use tokio::sync::Mutex;
 
 use crate::commands::dto::{create_mod_loader, resolve_latest_loader_version};
@@ -9,22 +8,33 @@ use crate::launcher_server::downloader::download_mods;
 use crate::minecraft::structs::MinecraftLoader;
 use crate::state::dto::GlobalState;
 use crate::state::dto::ModLoader as ConfigModLoader;
-use crate::{minecraft::vanilla::vanilla::Vanilla, utils::tauri_err::CommandResult};
+use crate::utils::step_events::StepHandle;
+use crate::{minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
 
 #[tauri::command]
 pub async fn download_minecraft(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
-    let (project_config, mod_loader) = {
-        let mut state = state.lock().await;
-        resolve_latest_loader_version(&mut state.project_config).await?;
-        state.project_config.save_config().await?;
-        (state.project_config.clone(), state.project_config.mod_loader.clone())
+    let mut project_config = {
+        let state = state.lock().await;
+        state.project_config.clone()
     };
+
+    resolve_latest_loader_version(&mut project_config).await?;
+    project_config.save_config().await?;
+
+    {
+        let mut state = state.lock().await;
+        state.project_config = project_config.clone();
+    }
+
+    let mod_loader = project_config.mod_loader.clone();
 
     let jar_path = crate::utils::env_info::launcher_patch(Some(&project_config.project_name))?
         .join(format!("{}.jar", &project_config.mc_version));
     if jar_path.exists() {
+        let step = StepHandle::start("minecraft", "Установка Minecraft");
+        step.finish(true);
         return Ok("Minecraft уже установлен".to_string());
     }
 
@@ -38,17 +48,11 @@ pub async fn download_minecraft(
     let manifest = loader.versions(&project_config).await?;
     loader.setup(&project_config, &manifest).await?;
 
-    {
-        let mut state = state.lock().await;
-        state.loader = Some(loader);
-    }
-
     Ok("Модифицированный майнкрафт установлен успешно".to_string())
 }
 
 #[tauri::command]
 pub async fn download_server_file(
-    app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
     let project_name = state
@@ -57,14 +61,20 @@ pub async fn download_server_file(
         .project_config
         .project_name
         .clone();
-    download_all_files(app, project_name, false, &state).await?;
+    download_all_files(project_name, false, &state).await?;
     Ok("Ok".to_string())
 }
 
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<String> {
+    let project_config = {
+        let state = state.lock().await;
+        state.project_config.clone()
+    };
+
+    let java_path = install_java(&project_config).await?;
+
     let mut state = state.lock().await;
-    let java_path = install_java(&state.project_config).await?;
     state.project_config.java_path = Some(java_path.to_string_lossy().into_owned());
     state.project_config.save_config().await?;
     Ok("Ok".to_string())
@@ -72,7 +82,6 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
 
 #[tauri::command]
 pub async fn download_server_mods(
-    app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
     let project_name = state
@@ -81,7 +90,7 @@ pub async fn download_server_mods(
         .project_config
         .project_name
         .clone();
-    download_mods(app, project_name, &state).await.map_err(Into::into)
+    download_mods(project_name, &state).await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -96,9 +105,9 @@ pub async fn download_alternative_java(
     java_version: Option<String>,
     replace_default: bool,
 ) -> CommandResult<String> {
-    let (mc_version, _) = {
-        let s = state.lock().await;
-        (s.project_config.mc_version.clone(), s.project_config.java_path.clone())
+    let mc_version = {
+        let state = state.lock().await;
+        state.project_config.mc_version.clone()
     };
     let java_path = download_alt_java(&distribution, java_version.as_deref(), &mc_version).await?;
     if replace_default {

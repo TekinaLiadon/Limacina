@@ -1,4 +1,65 @@
 :root {
+  --radius-pill: 999px;
+  --radius-circle: 9999px;
+
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-48: 48px;
+
+  --card-padding: var(--space-24);
+  --element-gap: var(--space-16);
+  --section-gap: var(--space-32);
+
+  --layout-padding: var(--space-24);
+  --layout-gap: var(--space-24);
+
+  --page-padding-y: var(--space-40);
+  --page-padding-x: var(--space-32);
+  --page-max-width: 480px;
+
+  --sidebar-width: 220px;
+  --panel-padding-y: var(--space-12);
+  --panel-padding-x: var(--space-12);
+
+  --title-gap: var(--space-32);
+  --tabs-gap: var(--space-24);
+
+  --control-height-sm: 32px;
+  --control-height: 40px;
+  --control-height-lg: 48px;
+  --control-padding-x: var(--space-12);
+
+  --text-caption: 12px;
+  --text-body-sm: 14px;
+  --text-body: 16px;
+  --text-subheading: 18px;
+  --text-heading-sm: 24px;
+  --text-heading: 28px;
+  --text-heading-lg: 44px;
+
+  --leading-caption: 1.33;
+  --leading-body-sm: 1.43;
+  --leading-body: 1.5;
+  --leading-heading: 1.14;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Onest", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  --font-eyebrow: var(--font-mono);
+  --weight-display: 500;
+  --tracking-body: -0.01em;
+  --tracking-heading: normal;
+  --tracking-eyebrow: 0.1em;
+
   --debug-bg: #0d1117;
   --debug-line-num: #484f58;
   --debug-text: #c9d1d9;
@@ -11,8 +72,4 @@
   --debug-btn-hover-bg: #30363d;
   --debug-btn-hover-border: #484f58;
   --debug-btn-active-bg: #282e33;
-
-  --viewer-bg: #1a1d2e;
-  --viewer-btn-bg: rgba(255, 255, 255, 0.15);
-  --viewer-accent: #f0c040;
 }

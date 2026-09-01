@@ -12,13 +12,13 @@ const emit = defineEmits<{
 
 <template>
   <div class="launcher-path">
-    <span class="launcher-path__label">Путь к лаунчеру</span>
+    <span class="launcher-path__label eyebrow">Путь к лаунчеру</span>
     <div class="launcher-path__row">
       <Input
         :model-value="launcherPath"
         :options="{ placeholder: 'Путь не установлен', disabled: true }"
       />
-      <Button class="btn-yellow launcher-path__browse-btn" @click="emit('browse')">
+      <Button class="btn-secondary launcher-path__browse-btn" @click="emit('browse')">
         Обзор
       </Button>
     </div>
@@ -29,18 +29,12 @@ const emit = defineEmits<{
 .launcher-path {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-
-  &__label {
-    font-size: 14px;
-    color: var(--yellow);
-    font-weight: 400;
-  }
+  gap: var(--space-8);
 
   &__row {
     display: flex;
-    gap: 10px;
-    align-items: flex-end;
+    gap: var(--space-8);
+    align-items: center;
 
     .input__core {
       flex: 1;
@@ -48,9 +42,7 @@ const emit = defineEmits<{
   }
 
   &__browse-btn {
-    height: 40px;
-    padding: 0 20px;
-    font-size: 13px;
+    min-height: var(--control-height);
     white-space: nowrap;
     flex-shrink: 0;
   }

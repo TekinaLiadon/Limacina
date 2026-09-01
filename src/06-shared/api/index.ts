@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, AuthSaved, ConsoleLog, UserContentItem, SessionInfo, JavaDistribution } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, AuthSaved, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution } from '@/05-entities/core/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -10,8 +10,12 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
   return invoke<UpdateInfo | null>('check_update')
 }
 
-export async function applyUpdateCmd(): Promise<void> {
-  return invoke('apply_update_cmd')
+export async function getLauncherVersions(): Promise<UpdateVersions> {
+  return invoke<UpdateVersions>('get_launcher_versions')
+}
+
+export async function applyUpdateCmd(version: string | null = null): Promise<void> {
+  return invoke('apply_update_cmd', { version })
 }
 
 export async function loadSettingsProject(projectName: string): Promise<ProjectConfig> {
@@ -45,6 +49,10 @@ export async function saveTheme(theme: string): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('save_theme', { theme })
 }
 
+export async function saveAnimationsEnabled(animationsEnabled: boolean): Promise<LauncherConfig> {
+  return invoke<LauncherConfig>('save_animations_enabled', { animationsEnabled })
+}
+
 export async function initializeLauncher(parentPath: string): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('initialize_launcher', { parentPath })
 }
@@ -55,6 +63,39 @@ export async function initializeProject(projectName: string): Promise<ProjectCon
 
 export async function setInitialized(): Promise<void> {
   return invoke('set_initialized')
+}
+
+export async function createServerProfile(serverUrl: string): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>('create_server_profile', { serverUrl })
+}
+
+export async function createOfflineProfile(
+  name: string,
+  mcVersion: string,
+  modLoader: ModLoaderKind,
+  loaderVersion: string | null
+): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>('create_offline_profile', {
+    name,
+    mcVersion,
+    modLoader,
+    loaderVersion,
+  })
+}
+
+export async function saveCurrentProject(projectName: string): Promise<void> {
+  return invoke('save_current_project', { projectName })
+}
+
+export async function getMinecraftVersions(includeSnapshots: boolean): Promise<string[]> {
+  return invoke<string[]>('get_minecraft_versions', { includeSnapshots })
+}
+
+export async function getLoaderVersions(
+  modLoader: ModLoaderKind,
+  mcVersion: string
+): Promise<string[]> {
+  return invoke<string[]>('get_loader_versions', { modLoader, mcVersion })
 }
 
 export async function authLogins(projectName: string): Promise<string[]> {
@@ -74,8 +115,12 @@ export async function authLogin(info: AuthUserData): Promise<void> {
   return invoke('auth_login', { projectName, username, password, rememberMe })
 }
 
-export async function authRefresh(projectName: string, username: string): Promise<string> {
-  return invoke<string>('auth_refresh', { projectName, username })
+export async function authRefresh(projectName: string, username: string): Promise<void> {
+  return invoke<void>('auth_refresh', { projectName, username })
+}
+
+export async function refreshManifests(): Promise<string> {
+  return invoke<string>('refresh_manifests')
 }
 
 export async function authRegister(
@@ -118,8 +163,12 @@ export async function listenGameConsole(
   })
 }
 
-export async function selectAccount(projectName: string, username: string): Promise<SessionInfo> {
-  return invoke<SessionInfo>('select_account', { projectName, username })
+export async function listenLaunchSteps(
+  callback: (event: StepEvent) => void
+): Promise<UnlistenFn> {
+  return listen<StepEvent>('launch-steps', (event) => {
+    callback(event.payload)
+  })
 }
 
 export async function getSessionInfo(): Promise<SessionInfo | null> {
@@ -130,8 +179,8 @@ export async function logoutAccount(): Promise<void> {
   return invoke('logout_account')
 }
 
-export async function uploadSkin(fileData: number[]): Promise<UserContentItem> {
-  return invoke<UserContentItem>('upload_skin', { fileData })
+export async function uploadSkin(fileData: Uint8Array): Promise<UserContentItem> {
+  return invoke<UserContentItem>('upload_skin', fileData)
 }
 
 export async function listSkins(uuid: string): Promise<UserContentItem[]> {

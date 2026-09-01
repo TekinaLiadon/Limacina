@@ -1,4 +1,4 @@
-use ::anyhow::Result;
+use anyhow::Result;
 use serde::de::DeserializeOwned;
 
 use crate::utils::{download_file::download_json, env_info::launcher_patch};
