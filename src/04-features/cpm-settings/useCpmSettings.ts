@@ -1,7 +1,7 @@
 import { ref, computed, onMounted } from 'vue'
 import JSZip from 'jszip'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { selectFile, copyToClipboard } from '@/06-shared'
+import { selectFile, copyToClipboard, reportError } from '@/06-shared'
 import { uploadModel, listModels, deleteModel } from '@/06-shared/api'
 import type { CPMConfig, CPMChild, CPMData, UserContentItem } from '@/05-entities/core/types'
 
@@ -105,7 +105,7 @@ export function useCpmSettings() {
     try {
       uploadedModels.value = await listModels(coreStore.session.uuid)
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить список моделей', e)
     } finally {
       isLoadingModels.value = false
     }

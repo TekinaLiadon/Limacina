@@ -49,7 +49,7 @@ pub async fn get_app_init_data(
     if let Some(ref mut cfg) = config {
         if cfg.project_names.is_empty() {
             let server_url = env!("LAUNCHER_SERVER_URL");
-            let url = format!("{}/launcher/config", server_url);
+            let url = format!("{}/v1/launcher/config", server_url);
             if let Ok(response) = http_client().get(&url).send().await {
                 if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await {
                     if !server_config.project_name.is_empty() {
@@ -132,7 +132,7 @@ pub async fn save_launcher_settings(
     state: State<'_, Mutex<GlobalState>>,
     settings: LauncherSettingsPayload,
 ) -> CommandResult<LauncherConfig> {
-    update_launcher_config(&state, |config| {
+    let config = update_launcher_config(&state, |config| {
         config.discord_activity = settings.discord_activity;
         config.keep_old_configs = settings.keep_old_configs;
         config.download_speed_limit = settings.download_speed_limit;
@@ -142,8 +142,16 @@ pub async fn save_launcher_settings(
         config.start_with_system = settings.start_with_system;
         config.close_after_launch = settings.close_after_launch;
     })
-    .await
-    .map_err(Into::into)
+    .await?;
+
+    crate::utils::bandwidth::set_limit(config.download_speed_limit);
+
+    let discord_enabled = config.discord_activity;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::discord::on_settings_saved(discord_enabled);
+    });
+
+    Ok(config)
 }
 
 #[tauri::command]

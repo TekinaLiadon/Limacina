@@ -28,6 +28,7 @@ export interface AuthUserData extends LoginForm {
 
 export interface UpdateInfo {
   version: string
+  platforms: UpdatePlatform[]
 }
 
 export interface UpdatePlatform {
@@ -72,7 +73,7 @@ export type StepEvent =
   | { type: 'finished'; id: string; skipped: boolean }
   | { type: 'failed'; id: string; message: string }
 
-export type StepStatus = 'active' | 'done' | 'error'
+export type StepStatus = 'pending' | 'active' | 'done' | 'error'
 
 export interface StepProgressItem {
   key: string
@@ -84,9 +85,7 @@ export interface StepProgressItem {
   detail: string
   error: string
   shownAt: number
-}
-
-export interface CoreState {
+}export interface CoreState {
   isLoading: boolean
   hasLauncherConfig: boolean | null
   launcherName: string
@@ -117,6 +116,7 @@ export interface ProjectConfig {
   online: boolean
   initialized: boolean
   serverUrl: string | null
+  autoJoinServer: boolean
 }
 
 export type ModLoaderKind = 'vanilla' | 'fabric' | 'forge' | 'neoforge'
@@ -207,4 +207,17 @@ export interface CPMData {
 export interface JavaDistribution {
   name: string
   apiParameter: string
+}
+
+export interface GameExitInfo {
+  success: boolean
+  code: number | null
+}
+
+export interface IntegrityReport {
+  total: number
+  broken: number
+  repaired: number
+  missing: number
+  failed: string[]
 }

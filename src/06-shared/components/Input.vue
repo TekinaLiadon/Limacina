@@ -155,6 +155,17 @@ onUnmounted((): void => {
       color: var(--login-text-muted);
     }
 
+    &[type='number'] {
+      appearance: textfield;
+      -moz-appearance: textfield;
+
+      &::-webkit-outer-spin-button,
+      &::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+    }
+
     &:hover:not(&--disabled) {
       background-color: var(--surface-hover);
     }

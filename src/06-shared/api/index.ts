@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, AuthSaved, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, AuthSaved, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -45,6 +45,14 @@ export async function saveLauncherSettings(settings: LauncherSettingsPayload): P
   return invoke<LauncherConfig>('save_launcher_settings', { settings })
 }
 
+export async function clearMinecraftConfig(): Promise<string> {
+  return invoke<string>('clear_minecraft_config')
+}
+
+export async function exitLauncher(): Promise<void> {
+  return invoke('exit_launcher')
+}
+
 export async function saveTheme(theme: string): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('save_theme', { theme })
 }
@@ -61,8 +69,8 @@ export async function initializeProject(projectName: string): Promise<ProjectCon
   return invoke<ProjectConfig>('initialize_project', { projectName })
 }
 
-export async function setInitialized(): Promise<void> {
-  return invoke('set_initialized')
+export async function setInitialized(): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>('set_initialized')
 }
 
 export async function createServerProfile(serverUrl: string): Promise<ProjectConfig> {
@@ -131,6 +139,14 @@ export async function authRegister(
   return invoke('auth_register', { projectName, username, password })
 }
 
+export async function changePassword(
+  projectName: string,
+  oldPassword: string,
+  newPassword: string
+): Promise<void> {
+  return invoke('change_password', { projectName, oldPassword, newPassword })
+}
+
 export async function downloadJava(): Promise<void> {
   return invoke('download_java')
 }
@@ -155,6 +171,10 @@ export async function getStartupLogs(): Promise<ConsoleLog[]> {
   return invoke<ConsoleLog[]>('get_startup_logs')
 }
 
+export async function sendConsoleLog(line: string, isError: boolean): Promise<void> {
+  return invoke('send_frontend_log', { line, isError })
+}
+
 export async function listenGameConsole(
   callback: (log: ConsoleLog) => void
 ): Promise<UnlistenFn> {
@@ -167,6 +187,26 @@ export async function listenLaunchSteps(
   callback: (event: StepEvent) => void
 ): Promise<UnlistenFn> {
   return listen<StepEvent>('launch-steps', (event) => {
+    callback(event.payload)
+  })
+}
+
+export async function checkFilesIntegrity(): Promise<IntegrityReport> {
+  return invoke<IntegrityReport>('check_files_integrity')
+}
+
+export async function listenIntegritySteps(
+  callback: (event: StepEvent) => void
+): Promise<UnlistenFn> {
+  return listen<StepEvent>('integrity-steps', (event) => {
+    callback(event.payload)
+  })
+}
+
+export async function listenGameExit(
+  callback: (info: GameExitInfo) => void
+): Promise<UnlistenFn> {
+  return listen<GameExitInfo>('game-exit', (event) => {
     callback(event.payload)
   })
 }
@@ -189,6 +229,11 @@ export async function listSkins(uuid: string): Promise<UserContentItem[]> {
 
 export async function deleteSkin(id: number): Promise<void> {
   return invoke('delete_skin', { id })
+}
+
+export async function getProfileSkin(url: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('get_profile_skin', { url })
+  return new Uint8Array(buffer)
 }
 
 export async function uploadModel(fileContent: string): Promise<UserContentItem> {

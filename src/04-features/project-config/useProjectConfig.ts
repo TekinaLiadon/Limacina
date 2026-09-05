@@ -1,6 +1,7 @@
 import { onMounted } from 'vue'
 import { useCoreStore } from '@/05-entities'
 import { loadSettingsProject } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 
 export function useProjectConfig() {
   const coreStore = useCoreStore()
@@ -13,7 +14,7 @@ export function useProjectConfig() {
       const config = await loadSettingsProject(coreStore.currentProject)
       coreStore.projectConfig = config
     } catch (e: unknown) {
-      console.error('Не удалось загрузить конфиг проекта:', e)
+      reportError('Не удалось загрузить конфиг проекта', e)
     }
   }
 

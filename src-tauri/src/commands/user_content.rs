@@ -1,4 +1,5 @@
-use anyhow::Context;
+use anyhow::{bail, Context, Result};
+use md5::{Digest, Md5};
 use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -9,6 +10,8 @@ use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::log_info;
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
+use crate::utils::download_file::download_file;
+use crate::utils::env_info::launcher_patch;
 use crate::utils::tauri_err::CommandResult;
 
 #[derive(Serialize)]
@@ -119,6 +122,60 @@ pub async fn delete_skin(
 ) -> CommandResult<()> {
     user_content::delete_skin(&state, id).await?;
     Ok(())
+}
+
+fn skin_cache_name(uuid: &str, url: &str) -> String {
+    let hash = Md5::digest(url.as_bytes());
+    let hex: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
+    format!("{}_{}.png", uuid, hex)
+}
+
+async fn get_profile_skin_inner(
+    state: &State<'_, Mutex<GlobalState>>,
+    url: &str,
+) -> Result<Vec<u8>> {
+    let (project_name, uuid) = {
+        let guard = state.lock().await;
+        let uuid = guard
+            .session
+            .as_ref()
+            .map(|s| s.uuid.clone())
+            .context("Нет активной сессии. Войдите в аккаунт.")?;
+        (guard.project_config.project_name.clone(), uuid)
+    };
+
+    if project_name.trim().is_empty() {
+        bail!("Проект не выбран");
+    }
+
+    let cache_dir = launcher_patch(Some(&project_name))?.join("profile_skins");
+    let file_name = skin_cache_name(&uuid, url);
+    let cache_path = cache_dir.join(&file_name);
+    let prefix = format!("{}_", uuid);
+
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with(&prefix) && name != file_name {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    download_file(url, &cache_path).await?;
+
+    std::fs::read(&cache_path).with_context(|| format!("Не удалось прочитать {:?}", cache_path))
+}
+
+#[tauri::command]
+pub async fn get_profile_skin(
+    state: State<'_, Mutex<GlobalState>>,
+    url: String,
+) -> CommandResult<tauri::ipc::Response> {
+    let bytes = get_profile_skin_inner(&state, &url).await?;
+    log_info!("Скин профиля получен из кэша: {}", url);
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]

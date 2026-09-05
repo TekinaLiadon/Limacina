@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Button } from '@/06-shared'
 import { useSkinSettings } from '@/04-features'
+import type { SkinModelMode } from '@/03-widgets/types'
 import SkinViewer from './SkinViewer.vue'
+import Viewer3D from './Viewer3D.vue'
 
 const {
   skinUrl,
   errorMessage,
   isUploading,
+  isSkinLoading,
   uploadedSkins,
   selectSkin,
   handleUpload,
@@ -17,13 +20,40 @@ const {
 } = useSkinSettings()
 
 const hasSkin = computed((): boolean => skinUrl.value !== '')
+
+const modelMode = ref<SkinModelMode>('classic')
+
+const modelModes: Array<{ value: SkinModelMode; label: string }> = [
+  { value: 'classic', label: 'Классик' },
+  { value: 'slim', label: 'Слим' },
+]
 </script>
 
 <template>
   <div class="skin-settings">
-    <div v-if="hasSkin" class="skin-settings__preview">
-      <SkinViewer :skin-url="skinUrl" />
+    <div v-if="isSkinLoading" class="skin-settings__loading">
+      <span class="skin-settings__loading-spinner" aria-hidden="true" />
+      <span class="skin-settings__loading-text">Загрузка скина...</span>
     </div>
+
+    <template v-else-if="hasSkin">
+      <div class="skin-settings__model-mode" role="group" aria-label="Модель скина">
+        <button
+          v-for="mode in modelModes"
+          :key="mode.value"
+          type="button"
+          class="skin-settings__mode-btn"
+          :class="{ 'skin-settings__mode-btn--active': modelMode === mode.value }"
+          @click="modelMode = mode.value"
+        >
+          {{ mode.label }}
+        </button>
+      </div>
+
+      <Viewer3D>
+        <SkinViewer :skin-url="skinUrl" :slim="modelMode === 'slim'" />
+      </Viewer3D>
+    </template>
 
     <div v-if="errorMessage" class="skin-settings__error">
       {{ errorMessage }}
@@ -59,7 +89,7 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
       <div class="skin-settings__content-title section-label">Загруженные скины</div>
       <div class="skin-settings__content-items">
         <div
-          v-for="item in uploadedSkins"
+          v-for="(item, index) in uploadedSkins"
           :key="item.id ?? item.url"
           class="skin-settings__content-item"
         >
@@ -74,6 +104,8 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
             <Button
               v-if="item.id != null"
               class="btn-danger skin-settings__delete-btn"
+              :is-disabled="index === 0"
+              :title="index === 0 ? 'Активный скин нельзя удалить' : undefined"
               @click="handleDelete(item.id!)"
             >
               Удалить
@@ -91,11 +123,30 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
   flex-direction: column;
   gap: var(--element-gap);
 
-  &__preview {
-    width: 100%;
+  &__loading {
+    height: 360px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-12);
     border-radius: var(--radius-card);
-    overflow: hidden;
+    background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
+  }
+
+  &__loading-spinner {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-circle);
+    border: 2px solid var(--surface-active);
+    border-top-color: var(--login-accent);
+    animation: skin-settings-spin 0.8s linear infinite;
+  }
+
+  &__loading-text {
+    font-size: var(--text-caption);
+    color: var(--login-text-muted);
   }
 
   &__error {
@@ -106,6 +157,38 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
     color: var(--error);
     font-size: var(--text-body-sm);
     text-align: left;
+  }
+
+  &__model-mode {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-4);
+  }
+
+  &__mode-btn {
+    min-width: 96px;
+    min-height: var(--control-height-sm);
+    padding: 0 var(--control-padding-x);
+    border: none;
+    border-radius: var(--radius-button);
+    background: var(--surface-subtle);
+    box-shadow: var(--elevation-inset);
+    color: var(--login-text-secondary);
+    font-family: inherit;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+
+    &:hover {
+      background: var(--surface-hover);
+      color: var(--login-text-primary);
+    }
+
+    &--active {
+      background: var(--accent-active-bg);
+      color: var(--accent-text);
+    }
   }
 
   &__actions {
@@ -173,6 +256,12 @@ const hasSkin = computed((): boolean => skinUrl.value !== '')
   &__delete-btn {
     padding: var(--space-4) var(--control-padding-x);
     font-size: var(--text-caption);
+  }
+}
+
+@keyframes skin-settings-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

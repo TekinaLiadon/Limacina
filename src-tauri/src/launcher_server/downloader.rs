@@ -9,13 +9,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::state::dto::GlobalState;
+use crate::utils::bandwidth;
 use crate::utils::download_file::{file_md5};
 use crate::utils::env_info::is_safe_relative_path;
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
 
-fn build_auth_client(token: &str) -> Result<Client> {
+pub(crate) fn build_auth_client(token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -46,7 +47,7 @@ async fn download_file(
     };
 
     let response = client
-        .post(format!("{}/files/files", server_url))
+        .post(format!("{}/v1/launcher/files/download", server_url))
         .json(&body)
         .send()
         .await
@@ -59,6 +60,16 @@ async fn download_file(
         anyhow::bail!("Сервер вернул {} при скачивании {}: {} (путь: {:?})", status, url, body, file_path);
     }
 
+    write_streamed(response, file_path, url).await?;
+    log_info!("[download] Готово: {}", url);
+    Ok(())
+}
+
+async fn write_streamed(
+    response: reqwest::Response,
+    file_path: &Path,
+    url: &str,
+) -> Result<()> {
     if let Some(parent) = file_path.parent() {
         tokio::fs::create_dir_all(parent).await
             .with_context(|| format!("Не удалось создать директорию {:?}", parent))?;
@@ -77,17 +88,91 @@ async fn download_file(
     while let Some(item) = stream.next().await {
         let chunk = item
             .with_context(|| format!("Ошибка чтения потока при скачивании {}", url))?;
+        bandwidth::acquire(chunk.len() as u64).await;
         total_bytes += chunk.len() as u64;
         tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
             .with_context(|| format!("Ошибка записи в файл {:?}", tmp_path))?;
     }
     drop(file);
+    log_info!("[download] Скачано {} байт: {}", total_bytes, url);
 
     tokio::fs::rename(&tmp_path, file_path).await
         .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp_path, file_path))?;
-
-    log_info!("[download] Готово: {} ({} байт)", url, total_bytes);
     Ok(())
+}
+
+pub(crate) async fn fetch_file_list(
+    client: &Client,
+    server_url: &str,
+    project_name: &str,
+) -> Result<HashMap<String, String>> {
+    let list_step = StepHandle::start("files.list", "Получение списка файлов");
+    log_info!("[files] Запрос списка файлов: {}/v1/launcher/files/list", server_url);
+    let response = step_try!(list_step, client
+        .get(format!("{}/v1/launcher/files/list", server_url))
+        .send()
+        .await
+        .with_context(|| format!("Не удалось отправить запрос на {}/v1/launcher/files/list", server_url)));
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        log_err!("[files] Сервер вернул {}: {}", status, body);
+        list_step.fail(format!("Сервер файлов вернул {}", status));
+        anyhow::bail!("Сервер файлов вернул {} (проект: {}): {}", status, project_name, body);
+    }
+
+    let file_list: HashMap<String, String> = step_try!(list_step, response.json().await
+        .with_context(|| format!("Не удалось распарсить JSON списка файлов (проект: {})", project_name)));
+    list_step.finish(false);
+    Ok(file_list)
+}
+
+pub(crate) async fn fetch_mods_list(
+    client: &Client,
+    server_url: &str,
+    project_name: &str,
+) -> Result<HashMap<String, String>> {
+    let list_step = StepHandle::start("mods.list", "Получение списка модов");
+    log_info!("[mods] Запрос списка модов: {}/v1/launcher/files/mods", server_url);
+    let response = step_try!(list_step, client
+        .get(format!("{}/v1/launcher/files/mods", server_url))
+        .send()
+        .await
+        .with_context(|| format!("Не удалось отправить запрос на {}/v1/launcher/files/mods", server_url)));
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        log_err!("[mods] Сервер вернул ошибку {}: {}", status, body);
+        list_step.fail(format!("Сервер модов вернул {}", status));
+        anyhow::bail!("Сервер модов вернул {} (проект: {}): {}", status, project_name, body);
+    }
+
+    let response_text = step_try!(list_step, response.text().await
+        .with_context(|| format!("Не удалось прочитать ответ от {}/v1/launcher/files/mods", server_url)));
+    log_info!("[mods] Ответ сервера: {}", response_text);
+
+    let mods: HashMap<String, String> = step_try!(list_step, serde_json::from_str(&response_text)
+        .with_context(|| format!("Не удалось распарсить JSON списка модов (проект: {})", project_name)));
+    list_step.finish(false);
+    Ok(mods)
+}
+
+pub(crate) fn download_launcher_server_file(
+    client: Client,
+    server_url: String,
+) -> impl Fn(String, PathBuf) -> futures::future::BoxFuture<'static, Result<(), anyhow::Error>>
+       + Send
+       + Sync
+       + 'static {
+    move |url: String, dest: PathBuf| {
+        let client = client.clone();
+        let server_url = server_url.clone();
+        Box::pin(async move {
+            download_file(&client, &dest, &url, &server_url).await
+        })
+    }
 }
 
 pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<String> {
@@ -115,25 +200,7 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
 
     let client = build_auth_client(&token)?;
 
-    let list_step = StepHandle::start("files.list", "Получение списка файлов");
-    log_info!("[files] Запрос списка файлов: {}/files/list", server_url);
-    let response = step_try!(list_step, client
-        .get(format!("{}/files/list", server_url))
-        .send()
-        .await
-        .with_context(|| format!("Не удалось отправить запрос на {}/files/list", server_url)));
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        log_err!("[files] Сервер вернул {}: {}", status, body);
-        list_step.fail(format!("Сервер файлов вернул {}", status));
-        anyhow::bail!("Сервер файлов вернул {} (проект: {}): {}", status, project_name, body);
-    }
-
-    let file_list: HashMap<String, String> = step_try!(list_step, response.json().await
-        .with_context(|| format!("Не удалось распарсить JSON списка файлов (проект: {})", project_name)));
-    list_step.finish(false);
+    let file_list = fetch_file_list(&client, &server_url, &project_name).await?;
 
     let core = crate::utils::env_info::launcher_patch(Some(&project_name))?;
 
@@ -250,29 +317,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
 
     let client = build_auth_client(&token)?;
 
-    let list_step = StepHandle::start("mods.list", "Получение списка модов");
-    log_info!("[mods] Запрос списка модов: {}/files/mods", server_url);
-    let response = step_try!(list_step, client
-        .get(format!("{}/files/mods", server_url))
-        .send()
-        .await
-        .with_context(|| format!("Не удалось отправить запрос на {}/files/mods", server_url)));
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        log_err!("[mods] Сервер вернул ошибку {}: {}", status, body);
-        list_step.fail(format!("Сервер модов вернул {}", status));
-        anyhow::bail!("Сервер модов вернул {} (проект: {}): {}", status, project_name, body);
-    }
-
-    let response_text = step_try!(list_step, response.text().await
-        .with_context(|| format!("Не удалось прочитать ответ от {}/files/mods", server_url)));
-    log_info!("[mods] Ответ сервера: {}", response_text);
-
-    let mods: HashMap<String, String> = step_try!(list_step, serde_json::from_str(&response_text)
-        .with_context(|| format!("Не удалось распарсить JSON списка модов (проект: {})", project_name)));
-    list_step.finish(false);
+    let mods = fetch_mods_list(&client, &server_url, &project_name).await?;
 
     log_info!("[mods] Получено модов: {}", mods.len());
     for (name, hash) in &mods {

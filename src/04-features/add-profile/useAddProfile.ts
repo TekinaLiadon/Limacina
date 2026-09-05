@@ -8,6 +8,7 @@ import {
   logoutAccount,
 } from '@/06-shared/api'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
+import { reportError } from '@/06-shared'
 import type { DropdownOption } from '@/06-shared/types'
 import type {
   ModLoaderKind,
@@ -146,7 +147,7 @@ export function useAddProfile() {
     try {
       await logoutAccount()
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось выйти из аккаунта', e)
     }
   }
 

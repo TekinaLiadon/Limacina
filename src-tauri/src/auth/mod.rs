@@ -57,6 +57,12 @@ struct AuthRefreshRequest {
     refresh_token: String,
 }
 
+#[derive(serde::Serialize)]
+struct AuthChangePasswordRequest {
+    old_password: String,
+    new_password: String,
+}
+
 
 pub const OFFLINE_ACCESS_TOKEN: &str = "0";
 
@@ -75,7 +81,7 @@ pub fn offline(username: &str) -> AuthData {
 }
 
 pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
-    let url = format!("{}/auth/registration", server_url);
+    let url = format!("{}/v1/common/auth/registration", server_url);
 
     let client = crate::utils::http::http_client();
     let body = AuthLoginRequest {
@@ -102,13 +108,52 @@ pub async fn register(server_url: &str, username: &str, password: &str) -> Resul
     let auth_data: AuthData = response
         .json()
         .await
-        .context("Не удалось распарсить ответ регистрации")?;
+        .context("Не удалось распарсить ответ авторизации")?;
+
+    Ok(auth_data)
+}
+
+pub async fn change_password(
+    server_url: &str,
+    access_token: &str,
+    old_password: &str,
+    new_password: &str,
+) -> Result<AuthData> {
+    let url = format!("{}/v1/common/auth/password", server_url);
+
+    let client = crate::utils::http::http_client();
+    let body = AuthChangePasswordRequest {
+        old_password: old_password.to_string(),
+        new_password: new_password.to_string(),
+    };
+
+    let response = client
+        .patch(&url)
+        .bearer_auth(access_token)
+        .json(&body)
+        .send()
+        .await
+        .context("Не удалось подключиться к серверу авторизации")?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        let message = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
+            .unwrap_or(body);
+        anyhow::bail!("{}", message);
+    }
+
+    let auth_data: AuthData = response
+        .json()
+        .await
+        .context("Не удалось распарсить ответ смены пароля")?;
 
     Ok(auth_data)
 }
 
 pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
-    let url = format!("{}/auth/login", server_url);
+    let url = format!("{}/v1/common/auth/login", server_url);
 
     let client = crate::utils::http::http_client();
     let body = AuthLoginRequest {
@@ -141,7 +186,7 @@ pub async fn login(server_url: &str, username: &str, password: &str) -> Result<A
 }
 
 pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {
-    let url = format!("{}/auth/refresh", server_url);
+    let url = format!("{}/v1/common/auth/refresh", server_url);
 
     let client = crate::utils::http::http_client();
     let body = AuthRefreshRequest {

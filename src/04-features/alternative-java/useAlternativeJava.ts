@@ -1,10 +1,13 @@
 import { ref } from 'vue'
 import { getJavaDistributions, downloadAlternativeJava } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import { useNotificationStore } from '@/05-entities'
+import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
 import type { JavaDistribution } from '@/05-entities/core/types'
 
 export function useAlternativeJava() {
   const notification = useNotificationStore()
+  const { sendSystemNotification } = useSystemNotifications()
   const distributions = ref<JavaDistribution[]>([])
   const selectedDistribution = ref<string>('')
   const javaVersion = ref<string>('')
@@ -28,7 +31,7 @@ export function useAlternativeJava() {
         selectedDistribution.value = distributions.value[0].name
       }
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить список Java-дистрибутивов', e)
     }
   }
 
@@ -56,6 +59,7 @@ export function useAlternativeJava() {
         javaVersion.value || null,
         replaceDefault.value
       )
+      void sendSystemNotification('Java установлена', `Дистрибутив ${dist.name} готов к использованию`)
       isPopupOpen.value = false
       return replaceDefault.value
     } catch (e: unknown) {

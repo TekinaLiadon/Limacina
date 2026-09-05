@@ -70,7 +70,7 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
 
 pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Result<UserContentItem> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/user-content/skins", server_url);
+    let url = format!("{}/v1/common/content/skins", server_url);
 
     let part = reqwest::multipart::Part::bytes(file_data)
         .file_name("skin.png")
@@ -103,7 +103,7 @@ pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Resu
 
 pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/user-content/skins/{}", server_url, uuid);
+    let url = format!("{}/v1/common/content/skins/{}", server_url, uuid);
 
     let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
     Ok(items)
@@ -111,7 +111,7 @@ pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<
 
 pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/user-content/skins/{}", server_url, id);
+    let url = format!("{}/v1/common/content/skins/{}", server_url, id);
 
     api_delete(&url, &token).await?;
     log_info!("Скин удалён: id={}", id);
@@ -124,7 +124,7 @@ pub async fn upload_model(
     file_content: String,
 ) -> Result<UserContentItem> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/user-content/models", server_url);
+    let url = format!("{}/v1/common/content/models", server_url);
 
     let part = reqwest::multipart::Part::bytes(file_content.into_bytes())
         .file_name("model.txt")
@@ -160,7 +160,7 @@ pub async fn list_models(
     uuid: String,
 ) -> Result<Vec<UserContentItem>> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/user-content/models/{}", server_url, uuid);
+    let url = format!("{}/v1/common/content/models/{}", server_url, uuid);
 
     let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
     Ok(items)
@@ -168,7 +168,7 @@ pub async fn list_models(
 
 pub async fn delete_model(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/user-content/models/{}", server_url, id);
+    let url = format!("{}/v1/common/content/models/{}", server_url, id);
 
     api_delete(&url, &token).await?;
     log_info!("Модель удалёна: id={}", id);

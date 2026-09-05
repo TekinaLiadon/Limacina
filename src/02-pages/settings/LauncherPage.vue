@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import { useLauncherSettings } from "@/04-features";
-import { LauncherPath, ThemeSelector, LauncherUpdate } from "@/03-widgets";
+import { LauncherPath, ThemeSelector, LauncherUpdate, LauncherBehavior } from "@/03-widgets";
 import { Button } from "@/06-shared";
 
-const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncherSettings()
+const {
+  launcherPath,
+  discordActivity,
+  autoUpdate,
+  keepOldConfigs,
+  startWithSystem,
+  closeAfterLaunch,
+  systemNotifications,
+  debugMode,
+  downloadSpeedLimitInput,
+  isSaving,
+  selectLauncherFolder,
+  handleSave,
+} = useLauncherSettings()
 </script>
 
 <template>
@@ -11,6 +24,28 @@ const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncher
     <div class="launcher-settings__section">
       <div class="section-label">Расположение</div>
       <LauncherPath :launcher-path="launcherPath" @browse="selectLauncherFolder" />
+    </div>
+
+    <div class="launcher-settings__section">
+      <div class="section-label">Поведение</div>
+      <LauncherBehavior
+        :discord-activity="discordActivity"
+        :auto-update="autoUpdate"
+        :keep-old-configs="keepOldConfigs"
+        :start-with-system="startWithSystem"
+        :close-after-launch="closeAfterLaunch"
+        :system-notifications="systemNotifications"
+        :debug-mode="debugMode"
+        :download-speed-limit="downloadSpeedLimitInput"
+        @update:discord-activity="discordActivity = $event"
+        @update:auto-update="autoUpdate = $event"
+        @update:keep-old-configs="keepOldConfigs = $event"
+        @update:start-with-system="startWithSystem = $event"
+        @update:close-after-launch="closeAfterLaunch = $event"
+        @update:system-notifications="systemNotifications = $event"
+        @update:debug-mode="debugMode = $event"
+        @update:download-speed-limit="downloadSpeedLimitInput = $event"
+      />
     </div>
 
     <Button
@@ -22,14 +57,11 @@ const { launcherPath, isSaving, selectLauncherFolder, handleSave } = useLauncher
       Сохранить
     </Button>
 
+    <LauncherUpdate />
+
     <div class="launcher-settings__section">
       <div class="section-label">Внешний вид</div>
       <ThemeSelector />
-    </div>
-
-    <div class="launcher-settings__section">
-      <div class="section-label">Обновление</div>
-      <LauncherUpdate />
     </div>
   </div>
 </template>

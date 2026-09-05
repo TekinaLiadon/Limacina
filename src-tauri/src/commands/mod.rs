@@ -2,6 +2,7 @@ pub mod auth;
 pub mod download;
 pub mod dto;
 pub mod init;
+pub mod integrity;
 pub mod launcher_config;
 pub mod profile;
 pub mod settings_project;

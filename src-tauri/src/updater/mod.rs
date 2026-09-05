@@ -4,10 +4,10 @@ pub use version::{check_for_update, get_launcher_versions, UpdateInfo, UpdateVer
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
-use zip::ZipArchive;
 
 
 use crate::utils::env_info::{get_arch, get_current_os};
+use crate::utils::zip::extract_zip;
 use crate::{log_err, log_info};
 
 pub async fn download_update(version: &str) -> Result<PathBuf> {
@@ -58,9 +58,6 @@ pub fn apply_update(archive_path: &Path) -> Result<()> {
 
     log_info!("Текущий бинарник: {:?}", current_exe);
 
-    let file = std::fs::File::open(archive_path).context("Не удалось открыть архив обновления")?;
-    let mut archive = ZipArchive::new(file).context("Не удалось прочитать ZIP архив")?;
-
     let temp_extract_dir = std::env::temp_dir().join("limacina_update_extract");
     if temp_extract_dir.exists() {
         std::fs::remove_dir_all(&temp_extract_dir)
@@ -68,9 +65,7 @@ pub fn apply_update(archive_path: &Path) -> Result<()> {
     }
     std::fs::create_dir_all(&temp_extract_dir)
         .context("Не удалось создать директорию для извлечения")?;
-    archive
-        .extract(&temp_extract_dir)
-        .context("Не удалось извлечь архив обновления")?;
+    extract_zip(archive_path, &temp_extract_dir).context("Не удалось извлечь архив обновления")?;
 
     let new_binary = find_binary_in_dir(&temp_extract_dir)?;
     log_info!("Новый бинарник: {:?}", new_binary);

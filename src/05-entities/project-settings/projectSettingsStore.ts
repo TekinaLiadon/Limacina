@@ -12,6 +12,7 @@ export interface ProjectSettingsForm {
   online: boolean
   initialized: boolean
   serverUrl: string | null
+  autoJoinServer: boolean
 }
 
 export interface ProjectSettingsState {
@@ -34,6 +35,7 @@ function defaultForm(): ProjectSettingsForm {
     online: true,
     initialized: false,
     serverUrl: null,
+    autoJoinServer: false,
   }
 }
 

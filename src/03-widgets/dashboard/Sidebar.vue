@@ -1,21 +1,28 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { IconButton } from '@/06-shared'
 import type { TabItem, TabKey } from '@/03-widgets/types'
 
-defineProps<{
+const props = defineProps<{
   activeTab: TabKey
+  showDebug?: boolean
 }>()
 
 const emit = defineEmits<{
   navigate: [key: TabKey]
 }>()
 
-const items: TabItem[] = [
-  { key: 'accounts', icon: 'home', label: 'Аккаунты' },
-  { key: 'add-profile', icon: 'referals', label: 'Новый профиль' },
-  { key: 'settings', icon: 'settings', label: 'Настройки' },
-  { key: 'debug', icon: 'settings', label: 'Дебаг' },
-]
+const items = computed<TabItem[]>((): TabItem[] => {
+  const base: TabItem[] = [
+    { key: 'accounts', icon: 'home', label: 'Аккаунты' },
+    { key: 'add-profile', icon: 'referals', label: 'Новый профиль' },
+    { key: 'settings', icon: 'settings', label: 'Настройки' },
+  ]
+  if (props.showDebug) {
+    base.push({ key: 'debug', icon: 'settings', label: 'Дебаг' })
+  }
+  return base
+})
 </script>
 
 <template>

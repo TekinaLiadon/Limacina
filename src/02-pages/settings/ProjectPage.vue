@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useProjectSettings, useAlternativeJava } from '@/04-features'
+import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
-import { ProjectInfoFields, JavaPathPicker, AlternativeJavaButton, MemorySlider } from '@/03-widgets'
+import { ProjectInfoFields, JavaPathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck } from '@/03-widgets'
 import { Button } from '@/06-shared'
 
 const coreStore = useCoreStore()
@@ -11,9 +11,11 @@ const {
   config,
   maxMemoryLimit,
   isSaving,
+  isClearingConfig,
   isRefreshingManifests,
   selectJavaFolder,
   handleSave,
+  handleClearMinecraftConfig,
   handleRefreshManifests,
   loadConfig,
 } = useProjectSettings()
@@ -29,6 +31,16 @@ const {
   closePopup,
   startDownload,
 } = useAlternativeJava()
+
+const {
+  steps: integritySteps,
+  progress: integrityProgress,
+  isChecking: isIntegrityChecking,
+  report: integrityReport,
+  errorMessage: integrityError,
+  handleCheck: handleIntegrityCheck,
+  closeResult: closeIntegrityResult,
+} = useIntegrityCheck()
 
 const memoryRange = computed({
   get: () => config.value.memoryRange,
@@ -78,6 +90,20 @@ const handleDownload = async (): Promise<void> => {
         @close-popup="closePopup"
       />
       <MemorySlider v-model="memoryRange" :max="maxMemoryLimit" />
+    </div>
+
+    <div class="project-settings__section">
+      <div class="section-label">Конфиги игры</div>
+      <ConfigCleanup :is-clearing="isClearingConfig" @clear="handleClearMinecraftConfig" />
+      <IntegrityCheck
+        :is-checking="isIntegrityChecking"
+        :steps="integritySteps"
+        :progress="integrityProgress"
+        :report="integrityReport"
+        :error-message="integrityError"
+        @check="handleIntegrityCheck"
+        @close="closeIntegrityResult"
+      />
     </div>
 
     <Button

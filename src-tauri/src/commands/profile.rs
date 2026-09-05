@@ -81,9 +81,9 @@ async fn add_server_profile(
     }
     let base_url = normalize_server_url(server_url);
 
-    log_info!("[profile] Запрос конфига сервера: {}/launcher/config", base_url);
+    log_info!("[profile] Запрос конфига сервера: {}/v1/launcher/config", base_url);
     let response = http_client()
-        .get(format!("{}/launcher/config", base_url))
+        .get(format!("{}/v1/launcher/config", base_url))
         .send()
         .await
         .with_context(|| format!("Не удалось подключиться к {}", base_url))?;

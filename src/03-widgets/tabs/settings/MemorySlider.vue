@@ -12,11 +12,17 @@ const emit = defineEmits<{
 
 const min = 512
 const step = 512
+const fallbackMax = 8192
+
+const clampToRange = (v: number, minVal: number, maxVal: number, fallback: number): number => {
+  if (!Number.isFinite(v)) return fallback
+  return Math.min(Math.max(v, minVal), maxVal)
+}
 
 const minVal = computed({
   get: () => props.modelValue[0],
   set: (v: number) => {
-    const clamped = Math.min(v, props.modelValue[1] - step)
+    const clamped = clampToRange(v, min, minValMax(), fallbackMin)
     emit('update:modelValue', [clamped, props.modelValue[1]])
   },
 })
@@ -24,7 +30,7 @@ const minVal = computed({
 const maxVal = computed({
   get: () => props.modelValue[1],
   set: (v: number) => {
-    const clamped = Math.max(v, props.modelValue[0] + step)
+    const clamped = clampToRange(v, props.modelValue[0] + step, props.max, fallbackMax)
     emit('update:modelValue', [props.modelValue[0], clamped])
   },
 })
@@ -37,12 +43,22 @@ const formatValue = (val: number): string => {
 }
 
 const minPercent = computed((): number => {
-  return ((minVal.value - min) / (props.max - min)) * 100
+  return ((minVal.value - min) / (maxLimit.value - min)) * 100
 })
 
 const maxPercent = computed((): number => {
-  return ((maxVal.value - min) / (props.max - min)) * 100
+  return ((maxVal.value - min) / (maxLimit.value - min)) * 100
 })
+
+const maxLimit = computed((): number => {
+  return Math.max(props.max, min + step * 2)
+})
+
+const minValMax = (): number => {
+  return Math.max(props.modelValue[1] - step, min + step)
+}
+
+const fallbackMin = 512
 
 const onMinInput = (e: Event): void => {
   const target = e.target as HTMLInputElement
@@ -75,7 +91,7 @@ const onMaxInput = (e: Event): void => {
         type="range"
         class="dual-range__input dual-range__input--min"
         :min="min"
-        :max="max"
+        :max="maxLimit"
         :step="step"
         :value="minVal"
         @input="onMinInput"
@@ -84,7 +100,7 @@ const onMaxInput = (e: Event): void => {
         type="range"
         class="dual-range__input dual-range__input--max"
         :min="min"
-        :max="max"
+        :max="maxLimit"
         :step="step"
         :value="maxVal"
         @input="onMaxInput"

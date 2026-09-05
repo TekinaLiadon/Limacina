@@ -16,6 +16,7 @@ export interface AccountsState {
   showAuthForm: boolean
   activeSubTab: AuthSubTab
   isLaunching: boolean
+  launchGeneration: number
 
   launchSteps: StepProgressItem[]
   activeProgress: number
@@ -45,6 +46,7 @@ export const useAccountsStore = defineStore('accounts', {
     showAuthForm: false,
     activeSubTab: 'login' as AuthSubTab,
     isLaunching: false,
+    launchGeneration: 0,
 
     launchSteps: [],
     activeProgress: 0,

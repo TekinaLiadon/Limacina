@@ -45,10 +45,17 @@ pub async fn new_launch_config(
     state_project: &ProjectConfig,
 ) -> Result<LaunchConfig> {
     let base_dir = launcher_patch(Some(&state_project.project_name))?;
-    let jvm_sub_arg = vec![
+    let mut jvm_sub_arg = vec![
         state_project.min_memory.clone(),
         state_project.max_memory.clone(),
     ];
+    jvm_sub_arg.extend(
+        state_project
+            .jvm_args
+            .iter()
+            .filter(|arg| !arg.is_empty())
+            .cloned(),
+    );
 
     Ok(LaunchConfig {
         username: username.to_string(),

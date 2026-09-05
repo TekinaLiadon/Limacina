@@ -1,5 +1,6 @@
 import { computed, ref, type ComputedRef } from 'vue'
 import { getStartupLogs, listenGameConsole } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import type { ConsoleLog } from '@/05-entities/core/types'
 
 const logs = ref<ConsoleLog[]>([])
@@ -57,7 +58,7 @@ export function useConsoleStream(): {
       setInterval(flushBuffer, FLUSH_INTERVAL)
     } catch (e: unknown) {
       streamingStarted = false
-      console.error('Не удалось запустить стриминг консоли:', e)
+      reportError('Не удалось запустить стриминг консоли', e)
     }
   }
 

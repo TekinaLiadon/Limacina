@@ -1,15 +1,25 @@
 import {onBeforeMount, ref} from 'vue'
-import {useCoreStore, useSettingsStore, normalizeTheme} from '@/05-entities'
+import {useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme} from '@/05-entities'
 import {getAppInitData, checkUpdate, applyUpdateCmd, loadSettingsProject} from '@/06-shared/api'
+import {reportError} from '@/06-shared'
 import {useRouter} from 'vue-router'
-import type {LauncherConfig} from '@/05-entities/core/types'
+import type {LauncherConfig, UpdateInfo} from '@/05-entities/core/types'
 import {preloadThemeFonts} from '@/04-features/theme/preloadThemeFonts'
+
+const STARTUP_ERROR_DURATION = 5000
 
 export function useAppInit() {
     const coreStore = useCoreStore()
     const settingsStore = useSettingsStore()
+    const notification = useNotificationStore()
     const router = useRouter()
     const preloaderText = ref<string>('')
+
+    const showStartupError = (message: string, e: unknown): void => {
+        reportError(message, e)
+        const detail = e instanceof Error ? e.message : String(e)
+        notification.show(detail ? `${message}: ${detail}` : message, STARTUP_ERROR_DURATION)
+    }
 
     const applyProjects = (config: LauncherConfig): void => {
         coreStore.projects = [...config.projectNames]
@@ -24,7 +34,7 @@ export function useAppInit() {
     const init = async (): Promise<void> => {
         const startTime: number = Date.now()
         void preloadThemeFonts().catch((e: unknown): void => {
-            console.error('Не удалось предзагрузить шрифты:', e)
+            reportError('Не удалось предзагрузить шрифты', e)
         })
         try {
             const initData = await getAppInitData()
@@ -46,13 +56,19 @@ export function useAppInit() {
             const autoUpdate = initData.launcherConfig?.autoUpdate ?? true
             if (autoUpdate) {
                 preloaderText.value = 'Проверка обновлений...'
-                const updateInfo = await checkUpdate()
+                let updateInfo: UpdateInfo | null = null
+                try {
+                    updateInfo = await checkUpdate()
+                } catch (e: unknown) {
+                    showStartupError('Не удалось проверить обновления', e)
+                }
+
                 if (updateInfo) {
                     preloaderText.value = `Скачивание обновления до v${updateInfo.version}...`
                     try {
                         await applyUpdateCmd()
                     } catch (e: unknown) {
-                        console.error('Ошибка применения обновления:', e)
+                        showStartupError('Не удалось обновить лаунчер', e)
                     }
 
                     preloaderText.value = 'Обновление завершено, загрузка...'
@@ -79,11 +95,11 @@ export function useAppInit() {
                 try {
                     coreStore.projectConfig = await loadSettingsProject(coreStore.currentProject)
                 } catch (e: unknown) {
-                    console.error('Не удалось загрузить конфиг проекта:', e)
+                    showStartupError('Не удалось загрузить конфиг проекта', e)
                 }
             }
         } catch (e: unknown) {
-            console.error('Ошибка инициализации:', e)
+            showStartupError('Ошибка инициализации', e)
         } finally {
             const elapsed: number = Date.now() - startTime
             const remaining: number = Math.max(0, 1000 - elapsed)

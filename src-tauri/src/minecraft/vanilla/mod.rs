@@ -2,6 +2,7 @@ pub mod config;
 pub mod download;
 pub mod structs;
 pub mod manifest;
+pub mod rules;
 
 use anyhow::Result;
 use async_trait::async_trait;

@@ -1,10 +1,11 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::auth::{self, storage, AuthData};
 use crate::commands::launcher_config::update_launcher_config;
 use crate::log_err;
+use crate::log_info;
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::tauri_err::CommandResult;
@@ -259,6 +260,78 @@ pub async fn auth_logins(
         .map(|lc| lc.get_logins(&project_name))
         .unwrap_or_default();
     Ok(logins)
+}
+
+async fn change_password_flow(
+    state: &State<'_, Mutex<GlobalState>>,
+    project_name: &str,
+    old_password: &str,
+    new_password: &str,
+) -> Result<()> {
+    if new_password.trim().len() < 6 {
+        bail!("Новый пароль короче 6 символов");
+    }
+    if old_password == new_password {
+        bail!("Новый пароль совпадает с текущим");
+    }
+
+    let (username, access_token) = {
+        let state = state.lock().await;
+        let session = state
+            .session
+            .as_ref()
+            .context("Нет активной сессии. Войдите в аккаунт.")?;
+        if session.access_token == crate::auth::OFFLINE_ACCESS_TOKEN {
+            bail!("Смена пароля недоступна для одиночного профиля");
+        }
+        if project_name != state.project_config.project_name {
+            bail!("Проект «{}» не выбран", project_name);
+        }
+        (session.username.clone(), session.access_token.clone())
+    };
+
+    let project = load_config_or_default(project_name).await;
+    if !project.online {
+        bail!("Смена пароля недоступна для одиночного профиля");
+    }
+    let server_url = project.resolved_server_url();
+
+    let data = auth::change_password(&server_url, &access_token, old_password, new_password)
+        .await
+        .context("Не удалось сменить пароль")?;
+
+    {
+        let mut state = state.lock().await;
+        state.session = Some(SessionTokens {
+            access_token: data.tokens.access_token.clone(),
+            uuid: data.uuid(),
+            username: data.username(&username),
+        });
+    }
+
+    storage::save_credential(project_name, &username, "password", new_password).await?;
+    storage::save_credential(
+        project_name,
+        &username,
+        "refresh_token",
+        &data.tokens.refresh_token,
+    )
+    .await?;
+
+    log_info!("Пароль изменён: {}", username);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn change_password(
+    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
+    old_password: String,
+    new_password: String,
+) -> CommandResult<()> {
+    change_password_flow(&state, &project_name, &old_password, &new_password).await?;
+    Ok(())
 }
 
 #[tauri::command]

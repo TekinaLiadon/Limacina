@@ -5,8 +5,9 @@ use tauri::AppHandle;
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
+use crate::discord;
 use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
-use crate::minecraft::mod_loader::utils::spawn_game_process;
+use crate::minecraft::mod_loader::utils::{auto_join_args, first_server_address, spawn_game_process};
 use crate::state::dto::{GlobalState, ModLoader};
 use crate::utils::step_events::StepHandle;
 use crate::{log_info, minecraft::vanilla::Vanilla, step_try, utils::tauri_err::CommandResult};
@@ -20,7 +21,7 @@ pub async fn start_minecraft(
 ) -> CommandResult<String> {
     let config_step = StepHandle::start("launch.config", "Подготовка конфигурации");
 
-    let (username, uuid, access_token, project, authlib_server_url, project_config) = {
+    let (username, uuid, access_token, project, mc_version, authlib_server_url, project_config, discord_enabled) = {
         let state = state.lock().await;
         let session = step_try!(config_step, state
             .session
@@ -37,6 +38,12 @@ pub async fn start_minecraft(
             None
         };
 
+        let discord_enabled = state
+            .launcher_config
+            .as_ref()
+            .map(|c| c.discord_activity)
+            .unwrap_or(true);
+
         log_info!("[start] Запуск для проекта={}, версия={}, лоадер={:?}, пользователь={}, онлайн={}", project, mc_version, mod_loader, session.username, state.project_config.online);
 
         (
@@ -44,8 +51,10 @@ pub async fn start_minecraft(
             session.uuid.clone(),
             session.access_token.clone(),
             project,
+            mc_version,
             authlib_server_url,
             state.project_config.clone(),
+            discord_enabled,
         )
     };
 
@@ -54,7 +63,7 @@ pub async fn start_minecraft(
     let vanilla_config = step_try!(config_step, Vanilla.config(&project_config, &config).await
         .with_context(|| format!("Не удалось получить Vanilla конфиг (проект: {})", project)));
 
-    let game_config = if matches!(project_config.mod_loader, ModLoader::Vanilla) {
+    let mut game_config = if matches!(project_config.mod_loader, ModLoader::Vanilla) {
         vanilla_config
     } else {
         let loader = step_try!(config_step, create_mod_loader(&project_config.mod_loader));
@@ -65,6 +74,20 @@ pub async fn start_minecraft(
             .await
             .with_context(|| format!("Не удалось собрать конфиг игры (проект: {})", project)))
     };
+
+    if project_config.auto_join_server {
+        let address = step_try!(config_step, first_server_address(&game_config.game_dir)
+            .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project))
+            .and_then(|address| address.ok_or_else(|| {
+                anyhow!("Автозаход включён, но в servers.dat нет серверов (проект: {})", project)
+            })));
+        let join_args = auto_join_args(&address, &project_config.mc_version);
+        if !join_args.is_empty() {
+            log_info!("[start] Автозаход на сервер: {}", address);
+            game_config.game_args.extend(join_args);
+        }
+    }
+
     config_step.finish(false);
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
@@ -79,5 +102,16 @@ pub async fn start_minecraft(
         .with_context(|| format!("Проект: {}", project)));
     window_step.finish(false);
 
+    tauri::async_runtime::spawn_blocking(move || {
+        discord::set_game_activity(discord_enabled, &mc_version, &project);
+    });
+
     Ok("Майнкрафт успешно запущен".to_string())
+}
+
+#[tauri::command]
+pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
+    log_info!("Закрытие лаунчера после запуска игры");
+    app.exit(0);
+    Ok(())
 }

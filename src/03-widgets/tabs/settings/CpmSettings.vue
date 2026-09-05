@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { Button, Checkbox } from '@/06-shared'
 import { useCpmSettings } from '@/04-features'
 import CpmViewer from './CpmViewer.vue'
+import Viewer3D from './Viewer3D.vue'
 
 const {
   cpmData,
@@ -28,9 +29,9 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
 
 <template>
   <div class="cpm-settings">
-    <div v-if="hasModel" class="cpm-settings__preview">
+    <Viewer3D v-if="hasModel" :min-zoom="8" :max-zoom="60">
       <CpmViewer :cpm-data="cpmData" :active-layers="activeLayerNames" />
-    </div>
+    </Viewer3D>
 
     <div v-if="errorMessage" class="cpm-settings__error">
       {{ errorMessage }}
@@ -128,13 +129,6 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
-
-  &__preview {
-    width: 100%;
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    box-shadow: var(--elevation-inset);
-  }
 
   &__error {
     padding: var(--space-12);

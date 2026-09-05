@@ -37,6 +37,11 @@ const router = createRouter({
           component: () => import('@/02-pages/settings/SkinPage.vue'),
         },
         {
+          path: 'account',
+          name: 'SettingsAccount',
+          component: () => import('@/02-pages/settings/AccountPage.vue'),
+        },
+        {
           path: 'model',
           name: 'SettingsModel',
           component: () => import('@/02-pages/settings/ModelPage.vue'),

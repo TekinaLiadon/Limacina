@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button, Checkbox, Dropdown } from '@/06-shared'
+import { Button, Dropdown } from '@/06-shared'
 import type { DropdownOption } from '@/06-shared/types'
-import { useLauncherSettings, useLauncherUpdate } from '@/04-features'
-
-const { settings, setAutoUpdate } = useLauncherSettings()
+import { useLauncherUpdate } from '@/04-features'
 
 const {
   versions,
@@ -27,12 +25,6 @@ const versionOptions = computed((): DropdownOption[] =>
 
 <template>
   <div class="launcher-update">
-    <Checkbox
-      :model-value="settings.autoUpdate"
-      label="Обновлять лаунчер автоматически"
-      @update:model-value="setAutoUpdate"
-    />
-
     <span class="launcher-update__label eyebrow">Версия лаунчера</span>
 
     <div class="launcher-update__row">

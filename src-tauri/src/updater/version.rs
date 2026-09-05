@@ -11,10 +11,10 @@ pub struct Platform {
     pub arch: String,
 }
 
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct UpdateInfo {
     pub version: String,
-    pub platforms: Option<Vec<Platform>>,
+    pub platforms: Vec<Platform>,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -68,43 +68,28 @@ pub async fn get_launcher_versions() -> Result<UpdateVersions> {
 }
 
 pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo>> {
-    let server_url = env!("LAUNCHER_SERVER_URL");
-    let url = format!("{}/launcher/version", server_url);
+    let data = get_launcher_versions().await?;
 
-    let client = crate::utils::http::http_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу обновлений")?;
-
-    if !resp.status().is_success() {
+    if compare_versions(&data.version, current_version) != Ordering::Greater {
         return Ok(None);
     }
 
-    let info: UpdateInfo = resp
-        .json()
-        .await
-        .context("Не удалось распарсить информацию об обновлении")?;
-
-    if compare_versions(&info.version, current_version) != Ordering::Greater {
+    let os = get_current_os();
+    let arch = get_arch();
+    let supported = data
+        .platforms
+        .iter()
+        .any(|p| p.os == os && arch_matches(&p.arch, arch));
+    if !supported {
+        crate::log_info!(
+            "Обновление v{} доступно, но не поддерживает platform {}:{}",
+            data.version, os, arch
+        );
         return Ok(None);
     }
 
-    if let Some(ref platforms) = info.platforms {
-        let os = get_current_os();
-        let arch = get_arch();
-        let supported = platforms
-            .iter()
-            .any(|p| p.os == os && arch_matches(&p.arch, arch));
-        if !supported {
-            crate::log_info!(
-                "Обновление v{} доступно, но не поддерживает platform {}:{}",
-                info.version, os, arch
-            );
-            return Ok(None);
-        }
-    }
-
-    Ok(Some(info))
+    Ok(Some(UpdateInfo {
+        version: data.version,
+        platforms: data.platforms,
+    }))
 }

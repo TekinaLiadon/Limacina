@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
 
 const props = withDefaults(defineProps<{
@@ -17,6 +17,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
+const rootRef = ref<HTMLDivElement | null>(null)
 const shown = ref(false)
 const maxHeight = computed((): string => `${props.maxVisible * 40 + 12}px`)
 
@@ -30,10 +31,24 @@ function selectOption(value: string): void {
   shown.value = false
 }
 
+function handleClickOutside(e: MouseEvent): void {
+  if (rootRef.value && !rootRef.value.contains(e.target as Node)) {
+    shown.value = false
+  }
+}
+
+onMounted((): void => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount((): void => {
+  document.removeEventListener('click', handleClickOutside)
+})
+
 </script>
 
 <template>
-  <div class="dropdown" :class="{ shown, disabled }">
+  <div ref="rootRef" class="dropdown" :class="{ shown, disabled }">
     <div class="dropdown__value"
          @click="!disabled && (shown = !shown)"
          :style="`width: ${width}`"
