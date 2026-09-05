@@ -11,10 +11,12 @@ use tokio::fs;
 use crate::{
     log_err,
     log_info,
-    minecraft::vanilla::structs::{AssetIndexContent, Rule, VersionDetailsManifest},
+    minecraft::vanilla::rules::is_rule_allowed,
+    minecraft::vanilla::structs::{AssetIndexContent, VersionDetailsManifest},
     utils::{
         download_file::{download_file, verify_sha1},
         env_info::{get_current_os, launcher_patch},
+        integrity::{HashKind, IntegrityTarget, TargetDownload},
         semaphore::{semaphore_core, SemaphoreInfo},
         step_events::StepHandle,
     },
@@ -33,7 +35,7 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
     let mut verify_targets: Vec<(PathBuf, String)> = Vec::new();
 
     for lib in &manifest.libraries {
-        if !check_rules(&lib.rules) {
+        if !is_rule_allowed(lib.rules.as_deref()) {
             continue;
         }
 
@@ -158,41 +160,6 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
     }
     step.finish(total_to_download == 0 && errors.is_empty());
     Ok(())
-}
-
-fn check_rules(rules: &Option<Vec<Rule>>) -> bool {
-    match rules {
-        None => true,
-        Some(rules) => {
-            let current_os = get_current_os();
-            let mut allowed = false;
-            let mut has_os_specific_rule = false;
-
-            for rule in rules {
-                let os_matches = match &rule.os {
-                    None => true,
-                    Some(os_rule) => {
-                        has_os_specific_rule = true;
-                        match &os_rule.name {
-                            None => true,
-                            Some(name) => name == current_os,
-                        }
-                    }
-                };
-
-                if os_matches {
-                    allowed = rule.action == "allow";
-                }
-            }
-
-            if !has_os_specific_rule && rules.iter().any(|r| r.action == "allow" && r.os.is_none())
-            {
-                return true;
-            }
-
-            allowed
-        }
-    }
 }
 
 fn is_native_library_for_current_os(lib_name: &str) -> bool {
@@ -435,7 +402,8 @@ pub async fn download_assets(project_name: &str, asset_index: AssetIndexContent)
         for (path, expected) in &hashes {
             if let Ok(content) = std::fs::read(path) {
                 use sha1::Digest;
-                let actual = format!("{:x}", sha1::Sha1::digest(&content));
+                let digest = sha1::Sha1::digest(&content);
+                let actual: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
                 if actual != *expected {
                     let _ = std::fs::remove_file(path);
                     mismatches.push(path.to_string_lossy().into_owned());
@@ -465,4 +433,102 @@ pub async fn download_assets(project_name: &str, asset_index: AssetIndexContent)
     }
     step.finish(false);
     Ok(())
+}
+
+pub fn collect_client_jar_target(
+    project_name: &str,
+    manifest: &VersionDetailsManifest,
+) -> Result<IntegrityTarget> {
+    let _ = launcher_patch(Some(project_name))?;
+    Ok(IntegrityTarget {
+        rel_path: PathBuf::from(format!("{}.jar", manifest.id)),
+        hash: manifest.downloads.client.sha1.clone(),
+        hash_kind: HashKind::Sha1,
+        download: TargetDownload::Url(manifest.downloads.client.url.clone()),
+    })
+}
+
+pub fn collect_library_targets(
+    manifest: &VersionDetailsManifest,
+) -> Vec<IntegrityTarget> {
+    let current_os = get_current_os();
+    let mut targets = Vec::new();
+
+    for lib in &manifest.libraries {
+        if !is_rule_allowed(lib.rules.as_deref()) {
+            continue;
+        }
+
+        if let Some(downloads) = &lib.downloads {
+            if let Some(artifact) = &downloads.artifact {
+                if !artifact.url.is_empty() && !artifact.sha1.is_empty()
+                    && !is_native_library_for_current_os(&lib.name) {
+                        targets.push(IntegrityTarget {
+                            rel_path: PathBuf::from(format!("libraries/{}", artifact.path)),
+                            hash: artifact.sha1.clone(),
+                            hash_kind: HashKind::Sha1,
+                            download: TargetDownload::Url(artifact.url.clone()),
+                        });
+                    }
+            }
+        }
+
+        if let Some(natives_map) = &lib.natives {
+            if let Some(classifier_template) = natives_map.get(current_os) {
+                let arch = if cfg!(target_arch = "x86_64") { "64" } else { "32" };
+                let classifier = classifier_template.replace("${arch}", arch);
+                if let Some(downloads) = &lib.downloads {
+                    if let Some(classifiers) = &downloads.classifiers {
+                        if let Some(native_artifact) = classifiers.get(&classifier) {
+                            if !native_artifact.sha1.is_empty() {
+                                targets.push(IntegrityTarget {
+                                    rel_path: PathBuf::from(format!(
+                                        "libraries/{}",
+                                        native_artifact.path
+                                    )),
+                                    hash: native_artifact.sha1.clone(),
+                                    hash_kind: HashKind::Sha1,
+                                    download: TargetDownload::Url(native_artifact.url.clone()),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    targets
+}
+
+pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> IntegrityTarget {
+    IntegrityTarget {
+        rel_path: PathBuf::from(format!(
+            "assets/indexes/{}.json",
+            manifest.asset_index.id
+        )),
+        hash: manifest.asset_index.sha1.clone(),
+        hash_kind: HashKind::Sha1,
+        download: TargetDownload::Url(manifest.asset_index.url.clone()),
+    }
+}
+
+pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTarget> {
+    let mut targets = Vec::new();
+    for asset in asset_index.objects.values() {
+        let hash_prefix = asset.hash[..2].to_string();
+        targets.push(IntegrityTarget {
+            rel_path: PathBuf::from(format!(
+                "assets/objects/{}/{}",
+                hash_prefix, asset.hash
+            )),
+            hash: asset.hash.clone(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(format!(
+                "https://resources.download.minecraft.net/{}/{}",
+                hash_prefix, asset.hash
+            )),
+        });
+    }
+    targets
 }

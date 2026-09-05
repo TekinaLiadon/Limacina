@@ -32,11 +32,11 @@ pub struct LauncherConfig {
     pub auto_update: bool,
     #[serde(default = "default_true")]
     pub system_notifications: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub debug_mode: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub start_with_system: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub close_after_launch: bool,
 
     #[serde(default = "default_theme")]
@@ -69,9 +69,9 @@ impl Default for LauncherConfig {
             download_speed_limit: None,
             auto_update: true,
             system_notifications: true,
-            debug_mode: true,
-            start_with_system: true,
-            close_after_launch: true,
+            debug_mode: false,
+            start_with_system: false,
+            close_after_launch: false,
             theme: default_theme(),
             animations_enabled: true,
             project_names: Vec::new(),
@@ -210,5 +210,16 @@ mod tests {
         config.add_project("Cordelia");
 
         assert_eq!(config.project_names, vec!["Cordelia"]);
+    }
+
+    #[test]
+    fn behavior_flags_default_to_disabled() {
+        let json = r#"{ "launcherPath": "/home/user/Limacina" }"#;
+        let parsed: LauncherConfig = serde_json::from_str(json).expect("разбор JSON");
+
+        assert!(!parsed.debug_mode);
+        assert!(!parsed.start_with_system);
+        assert!(!parsed.close_after_launch);
+        assert!(parsed.keep_old_configs);
     }
 }

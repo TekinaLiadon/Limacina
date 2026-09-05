@@ -1,6 +1,7 @@
 import { ref, watch, type Ref } from 'vue'
 import { useSettingsStore, parseThemeId } from '@/05-entities'
 import { saveTheme } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 
 const SWITCH_DURATION = 1500
 
@@ -30,7 +31,7 @@ export function useTheme(): {
     if (!oldTheme || newTheme === oldTheme) return
 
     saveTheme(newTheme).catch((e: unknown) => {
-      console.error('Ошибка сохранения темы:', e)
+      reportError('Ошибка сохранения темы', e)
     })
 
     const newMode = parseThemeId(newTheme).mode

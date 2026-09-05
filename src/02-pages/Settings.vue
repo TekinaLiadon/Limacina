@@ -5,7 +5,7 @@ import { Button } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 import { useProjectSettings } from '@/04-features'
 
-type SettingsSubTab = 'project' | 'launcher' | 'skin' | 'model'
+type SettingsSubTab = 'project' | 'launcher' | 'skin' | 'model' | 'account'
 
 interface Tab {
   key: SettingsSubTab
@@ -23,6 +23,7 @@ const coreStore = useCoreStore()
 const tabs: Tab[] = [
   { key: 'launcher', label: 'Лаунчер', name: 'SettingsLauncher' },
   { key: 'project', label: 'Проект', name: 'SettingsProject', needsInit: true },
+  { key: 'account', label: 'Аккаунт', name: 'SettingsAccount', needsInit: true, needsAuth: true, needsOnline: true },
   { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true, needsOnline: true },
   { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true, needsOnline: true },
 ]
@@ -37,7 +38,7 @@ const activeSubTab = computed((): SettingsSubTab => {
 })
 
 const isProjectDisabled = computed((): boolean => {
-  return !isLoaded.value || !config.value.initialized
+  return !isLoaded.value || !(coreStore.projectConfig?.initialized ?? config.value.initialized)
 })
 
 const isOfflineProject = computed((): boolean => isLoaded.value && !config.value.online)
@@ -77,6 +78,8 @@ const isTabDisabled = (tab: Tab): boolean => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/breakpoints';
+
 .settings-page {
   width: 100%;
   max-width: var(--page-max-width);
@@ -103,10 +106,13 @@ const isTabDisabled = (tab: Tab): boolean => {
   }
 
   &__tab {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     border-radius: var(--radius-pill);
     background: transparent;
     color: var(--login-text-muted);
+    white-space: normal;
+    overflow-wrap: anywhere;
 
     &:hover:not(.disabled) {
       color: var(--login-text-primary);
@@ -129,6 +135,23 @@ const isTabDisabled = (tab: Tab): boolean => {
     display: flex;
     flex-direction: column;
     gap: var(--element-gap);
+  }
+
+  @include breakpoints.media-under-lg {
+    &__tabs {
+      gap: var(--space-4);
+    }
+
+    &__tab {
+      padding: var(--space-4) var(--space-8);
+      font-size: var(--text-caption);
+    }
+  }
+
+  @include breakpoints.media-under-sm {
+    &__tabs {
+      padding: var(--space-4);
+    }
   }
 }
 </style>

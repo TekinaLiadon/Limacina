@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Input } from '@/06-shared'
+import { Checkbox, Input } from '@/06-shared'
 
 defineProps<{
   config: {
@@ -7,6 +7,7 @@ defineProps<{
     modLoader: string
     loaderVersion: string
     jvmArgs: string
+    autoJoinServer: boolean
   }
 }>()
 
@@ -25,6 +26,12 @@ const fields = [
       :key="field.key"
       :model-value="config[field.key]"
       :options="{ label: field.label, placeholder: field.placeholder, disabled: field?.disabled }"
+      @update:model-value="config[field.key] = $event"
+    />
+    <Checkbox
+      :model-value="config.autoJoinServer"
+      label="Автозаход на сервер при запуске"
+      @update:model-value="config.autoJoinServer = $event"
     />
   </div>
 </template>

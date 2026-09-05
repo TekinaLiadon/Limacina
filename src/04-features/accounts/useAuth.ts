@@ -1,6 +1,7 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { authLogins, authSaved, authLogin, authRegister, getSessionInfo } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import type { AuthUserData } from '@/05-entities/core/types'
 
 export function useAuth() {
@@ -59,7 +60,7 @@ export function useAuth() {
     try {
       store.logins = await authLogins(coreStore.currentProject)
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить аккаунты', e)
     }
   }
 
@@ -75,7 +76,7 @@ export function useAuth() {
       store.loginFormData.password = saved.password
       store.loginFormData.rememberMe = !isOffline.value
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить сохранённые учётные данные', e)
     }
   }
 
@@ -104,7 +105,7 @@ export function useAuth() {
       store.showAuthForm = false
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Ошибка авторизации', e)
       errorMessage.value = String(e)
     } finally {
       isLoading.value = false

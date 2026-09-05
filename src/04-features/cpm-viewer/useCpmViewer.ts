@@ -2,6 +2,7 @@ import { watch, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
 import { useThreeScene } from '@/06-shared'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities/core/types'
+import type { ViewerControls } from '@/03-widgets/types'
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -170,12 +171,20 @@ export function useCpmViewer(
     container: Ref<HTMLDivElement | null>,
     cpmData: Ref<CPMData | null>,
     activeLayers: Ref<string[]>,
-    zoomLevel: Ref<number>,
-    rotationY: Ref<number>,
+    controls: ViewerControls,
 ) {
-  const { scene, camera } = useThreeScene(container, { enableZoom: false, autoRotate: false })
+  const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
   const modelGroup = shallowRef<THREE.Group | null>(null)
   let loadGeneration = 0
+
+  function applyCamera(): void {
+    if (!camera.value) return
+
+    const dist = controls.zoomLevel.value
+    const elevation = THREE.MathUtils.degToRad(controls.rotationX.value)
+    camera.value.position.set(0, dist * Math.sin(elevation), dist * Math.cos(elevation))
+    camera.value.lookAt(0, 0, 0)
+  }
 
   function fitModelToView(): void {
     if (!modelGroup.value || !camera.value) return
@@ -186,9 +195,9 @@ export function useCpmViewer(
     const fov = camera.value.fov * (Math.PI / 180)
     const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.2
 
-    camera.value.position.set(0, 5, distance)
-    camera.value.lookAt(0, 5, 0)
-    zoomLevel.value = distance
+    controls.zoomLevel.value = distance
+    controls.fitDistance.value = distance
+    applyCamera()
   }
 
   function loadModel(data: CPMData): void {
@@ -250,14 +259,20 @@ export function useCpmViewer(
     updateVisibility()
   }, { deep: true })
 
-  watch(zoomLevel, (dist) => {
-    if (camera.value) {
-      camera.value.position.set(0, 5, dist)
-      camera.value.lookAt(0, 5, 0)
-    }
+  watch(controls.autoRotate, (enabled: boolean) => {
+    const orbit = getOrbitControls()
+    if (orbit) orbit.autoRotate = enabled
   })
 
-  watch(rotationY, (angle) => {
+  watch(controls.zoomLevel, () => {
+    applyCamera()
+  })
+
+  watch(controls.rotationX, () => {
+    applyCamera()
+  })
+
+  watch(controls.rotationY, (angle: number) => {
     if (modelGroup.value) {
       modelGroup.value.rotation.y = THREE.MathUtils.degToRad(angle)
     }

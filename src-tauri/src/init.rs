@@ -79,7 +79,7 @@ pub async fn init_project_config(
         None => default_server_url(),
     };
     let response = http_client()
-        .get(format!("{}/launcher/config", base_url))
+        .get(format!("{}/v1/launcher/config", base_url))
         .send()
         .await
         .context("Не удалось подключиться к серверу конфига проекта")?;

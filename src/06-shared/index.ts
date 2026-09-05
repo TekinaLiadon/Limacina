@@ -11,6 +11,7 @@ export { default as Checkbox } from './components/Checkbox.vue'
 export * from './api'
 
 export type { InputOptions, DropdownOption, IconProps, IconButtonProps, PopupOptions, SliderOptions } from './types'
-export { copyToClipboard } from './utils/utils'
+export { copyToClipboard, joinPath, stripPathSuffix } from './utils/utils'
+export { reportError } from './utils/reportError'
 export { selectFile } from './utils/useFileUpload'
 export { useThreeScene } from './utils/useThreeScene'

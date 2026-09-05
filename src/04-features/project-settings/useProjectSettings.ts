@@ -1,7 +1,8 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, useProjectSettingsStore } from '@/05-entities'
 import type { ProjectSettingsForm } from '@/05-entities'
-import { loadSettingsProject, saveSettingsProject, refreshManifests } from '@/06-shared/api'
+import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecraftConfig } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { ProjectConfig } from '@/05-entities/core/types'
 
@@ -10,9 +11,11 @@ export function useProjectSettings(): {
   isLoaded: ComputedRef<boolean>
   maxMemoryLimit: ComputedRef<number>
   isSaving: ComputedRef<boolean>
+  isClearingConfig: Ref<boolean>
   isRefreshingManifests: Ref<boolean>
   selectJavaFolder: () => Promise<void>
   handleSave: () => Promise<void>
+  handleClearMinecraftConfig: () => Promise<void>
   handleRefreshManifests: () => Promise<void>
   loadConfig: (project: string, force?: boolean) => Promise<void>
 } {
@@ -28,10 +31,15 @@ export function useProjectSettings(): {
     return Math.max(512, coreStore.totalMemoryMb - 2048)
   })
 
-  const parseMemory = (val: string): number => {
+  const DEFAULT_MIN_MEMORY = 512
+  const DEFAULT_MAX_MEMORY = 4096
+
+  const parseMemory = (val: string | null | undefined, fallback: number): number => {
+    if (!val) return fallback
     const num = parseInt(val.replace(/[^0-9]/g, ''), 10)
-    if (val.toUpperCase().includes('G')) return num * 1024
-    return num
+    if (Number.isNaN(num)) return fallback
+    const mb = val.toUpperCase().includes('G') ? num * 1024 : num
+    return Number.isFinite(mb) ? mb : fallback
   }
 
   const selectJavaFolder = async (): Promise<void> => {
@@ -53,13 +61,14 @@ export function useProjectSettings(): {
         loaderVersion: loaded.loaderVersion ?? '',
         javaPath: loaded.javaPath ?? '',
         jvmArgs: (loaded.jvmArgs ?? []).join(', '),
-        memoryRange: [parseMemory(loaded.minMemory), parseMemory(loaded.maxMemory)],
+        memoryRange: [parseMemory(loaded.minMemory, DEFAULT_MIN_MEMORY), parseMemory(loaded.maxMemory, DEFAULT_MAX_MEMORY)],
         online: loaded.online,
         initialized: loaded.initialized,
         serverUrl: loaded.serverUrl,
+        autoJoinServer: loaded.autoJoinServer,
       })
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить настройки проекта', e)
     } finally {
       store.finishLoading()
     }
@@ -83,8 +92,9 @@ export function useProjectSettings(): {
         minMemory: `-Xms${config.value.memoryRange[0]}M`,
         maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
         online: config.value.online,
-        initialized: config.value.initialized,
+        initialized: coreStore.projectConfig?.initialized ?? config.value.initialized,
         serverUrl: config.value.serverUrl,
+        autoJoinServer: config.value.autoJoinServer,
       }
       await saveSettingsProject(projectConfig)
       notification.show('Настройки сохранены')
@@ -96,6 +106,25 @@ export function useProjectSettings(): {
   }
 
   const isRefreshingManifests = ref<boolean>(false)
+
+  const isClearingConfig = ref<boolean>(false)
+
+  const handleClearMinecraftConfig = async (): Promise<void> => {
+    const confirmed = await notification.confirm(
+      'Удалить папку конфигов игры? При включённом сохранении старых конфигов она будет переименована вместо удаления'
+    )
+    if (!confirmed) return
+
+    isClearingConfig.value = true
+    try {
+      const message = await clearMinecraftConfig()
+      notification.show(message)
+    } catch (e: unknown) {
+      notification.show(String(e))
+    } finally {
+      isClearingConfig.value = false
+    }
+  }
 
   const handleRefreshManifests = async (): Promise<void> => {
     if (isRefreshingManifests.value) return
@@ -115,9 +144,11 @@ export function useProjectSettings(): {
     isLoaded,
     maxMemoryLimit,
     isSaving,
+    isClearingConfig,
     isRefreshingManifests,
     selectJavaFolder,
     handleSave,
+    handleClearMinecraftConfig,
     handleRefreshManifests,
     loadConfig,
   }

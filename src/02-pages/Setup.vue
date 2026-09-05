@@ -4,7 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { initializeLauncher } from '@/06-shared/api'
-import { Button, Input } from '@/06-shared'
+import { Button, Input, joinPath } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 
 const router = useRouter()
@@ -20,9 +20,7 @@ watch(defaultParentPath, (val: string | null) => {
 
 const fullDisplayPath = computed((): string => {
   if (!selectedPath.value || !launcherName.value) return ''
-
-  const sep: string = selectedPath.value.includes('\\') ? '\\' : '/'
-  return `${selectedPath.value}${sep}${launcherName.value}`
+  return joinPath(selectedPath.value, launcherName.value)
 })
 
 const selectFolder = async (): Promise<void> => {

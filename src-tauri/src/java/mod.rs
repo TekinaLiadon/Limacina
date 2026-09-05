@@ -3,7 +3,6 @@ pub mod alternative_java;
 use anyhow::{bail,Result};
 use std::{
     cmp::Ordering,
-    fs::File,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
@@ -91,19 +90,18 @@ pub(crate) async fn working_archive(java_path: &PathBuf, archive_path: &PathBuf,
 }
 
 pub(crate) fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
-    let file = File::open(archive_path)?;
-
     #[cfg(target_os = "windows")]
     {
-        let mut archive = zip::ZipArchive::new(file)?;
-        archive.extract(target_dir)?;
+        crate::utils::zip::extract_zip(archive_path, target_dir)?;
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         use flate2::read::GzDecoder;
+        use std::fs::File;
         use tar::Archive;
 
+        let file = File::open(archive_path)?;
         let tar = GzDecoder::new(file);
         let mut archive = Archive::new(tar);
         archive.unpack(target_dir)?;

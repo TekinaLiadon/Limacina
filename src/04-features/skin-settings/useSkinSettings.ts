@@ -1,7 +1,7 @@
 import { ref, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { selectFile, copyToClipboard } from '@/06-shared'
-import { uploadSkin, listSkins, deleteSkin } from '@/06-shared/api'
+import { selectFile, copyToClipboard, reportError } from '@/06-shared'
+import { uploadSkin, listSkins, deleteSkin, getProfileSkin } from '@/06-shared/api'
 import type { UserContentItem } from '@/05-entities/core/types'
 
 export function useSkinSettings() {
@@ -13,6 +13,7 @@ export function useSkinSettings() {
   const isUploading = ref<boolean>(false)
   const uploadedSkins = ref<UserContentItem[]>([])
   const isLoadingSkins = ref<boolean>(false)
+  const isSkinLoading = ref<boolean>(false)
 
   const loadSkins = async (): Promise<void> => {
     if (!coreStore.session?.uuid) return
@@ -21,9 +22,38 @@ export function useSkinSettings() {
     try {
       uploadedSkins.value = await listSkins(coreStore.session.uuid)
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить список скинов', e)
     } finally {
       isLoadingSkins.value = false
+    }
+  }
+
+  const resetSkinUrl = (): void => {
+    if (skinUrl.value.startsWith('blob:')) URL.revokeObjectURL(skinUrl.value)
+    skinUrl.value = ''
+  }
+
+  const loadCurrentSkin = async (): Promise<void> => {
+    const current = uploadedSkins.value[0]
+    if (!current || skinUrl.value !== '' || skinFileBytes.value.length > 0) return
+
+    try {
+      const bytes = await getProfileSkin(current.url)
+      const blob = new Blob([bytes], { type: 'image/png' })
+      const dataUrl = URL.createObjectURL(blob)
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve()
+        img.onerror = () => {
+          URL.revokeObjectURL(dataUrl)
+          reject(new Error('Не удалось декодировать изображение'))
+        }
+        img.src = dataUrl
+      })
+      resetSkinUrl()
+      skinUrl.value = dataUrl
+    } catch (e: unknown) {
+      reportError('Не удалось загрузить текущий скин', e)
     }
   }
 
@@ -44,6 +74,7 @@ export function useSkinSettings() {
         const dataUrl = URL.createObjectURL(blob)
         const img = new Image()
         img.onload = () => {
+          resetSkinUrl()
           skinUrl.value = dataUrl
         }
         img.onerror = () => {
@@ -91,14 +122,22 @@ export function useSkinSettings() {
   }
 
   const resetSkin = (): void => {
-    if (skinUrl.value.startsWith('blob:')) URL.revokeObjectURL(skinUrl.value)
-
-    skinUrl.value = ''
+    resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
     errorMessage.value = ''
   }
 
-  onMounted(loadSkins)
+  onMounted(async (): Promise<void> => {
+    if (!coreStore.session?.uuid) return
+
+    isSkinLoading.value = true
+    try {
+      await loadSkins()
+      await loadCurrentSkin()
+    } finally {
+      isSkinLoading.value = false
+    }
+  })
 
   return {
     skinUrl,
@@ -107,6 +146,7 @@ export function useSkinSettings() {
     isUploading,
     uploadedSkins,
     isLoadingSkins,
+    isSkinLoading,
     selectSkin,
     handleUpload,
     handleDelete,

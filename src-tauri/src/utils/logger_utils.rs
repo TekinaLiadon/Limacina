@@ -66,6 +66,11 @@ pub fn get_startup_logs() -> Vec<ConsolePayload> {
     drain_startup_logs()
 }
 
+#[tauri::command]
+pub fn send_frontend_log(line: String, is_error: bool) {
+    send_log(line, is_error);
+}
+
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {

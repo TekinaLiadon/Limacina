@@ -23,7 +23,19 @@ export function useAccountsPage() {
     executeSteps,
   } = useGameLaunch()
 
-  let launchCancelled = false
+  const handleLaunch = async (): Promise<void> => {
+    const launchGeneration = ++store.launchGeneration
+    store.isLaunching = true
+    try {
+      await executeSteps(() => launchGeneration !== store.launchGeneration)
+    } catch (e: unknown) {
+      coreStore.loginError = String(e)
+    } finally {
+      if (launchGeneration === store.launchGeneration) {
+        store.isLaunching = false
+      }
+    }
+  }
 
   const hasAccounts = computed((): boolean => logins.value.length > 0)
   const showAccountList = computed((): boolean => hasAccounts.value && !coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
@@ -34,23 +46,13 @@ export function useAccountsPage() {
 
   const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
 
-  const handleLaunch = async (): Promise<void> => {
-    launchCancelled = false
-    store.isLaunching = true
-    try {
-      await executeSteps(() => launchCancelled)
-    } catch (e: unknown) {
-      coreStore.loginError = String(e)
-    }
-  }
-
   const showLoginForm = (): void => {
     store.showAuthForm = true
     store.activeSubTab = 'login'
   }
 
   const goToAccounts = (): void => {
-    launchCancelled = true
+    store.launchGeneration++
     store.isLaunching = false
     coreStore.isLoggedIn = false
     coreStore.session = null

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use futures::StreamExt;
 use md5::Md5;
 use quick_xml::de::from_str;
 use serde::de::DeserializeOwned;
@@ -7,6 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
+use super::bandwidth;
 use super::http::http_client;
 
 
@@ -43,9 +45,24 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
     }
 
     let response = client.get(url).send().await?.error_for_status()?;
-    let content = response.bytes().await?;
 
-    write_atomic(dest, &content).await?;
+    let tmp = part_path(dest);
+    let mut file = tokio::fs::File::create(&tmp)
+        .await
+        .with_context(|| format!("Не удалось создать файл во {:?}", tmp))?;
+    let mut stream = response.bytes_stream();
+    while let Some(item) = stream.next().await {
+        let chunk = item.with_context(|| format!("Ошибка чтения потока при скачивании {}", url))?;
+        bandwidth::acquire(chunk.len() as u64).await;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+            .await
+            .with_context(|| format!("Ошибка записи в файл {:?}", tmp))?;
+    }
+    drop(file);
+
+    tokio::fs::rename(&tmp, dest)
+        .await
+        .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, dest))?;
 
     Ok(())
 }

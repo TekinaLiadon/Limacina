@@ -6,6 +6,22 @@ use tauri::Emitter;
 use crate::utils::logger_utils::global_app_handle;
 
 const STEP_EVENT: &str = "launch-steps";
+const INTEGRITY_EVENT: &str = "integrity-steps";
+
+#[derive(Clone, Copy)]
+pub enum StepChannel {
+    Launch,
+    Integrity,
+}
+
+impl StepChannel {
+    fn event_name(&self) -> &'static str {
+        match self {
+            StepChannel::Launch => STEP_EVENT,
+            StepChannel::Integrity => INTEGRITY_EVENT,
+        }
+    }
+}
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -17,9 +33,9 @@ pub enum StepEvent {
     Failed { id: String, message: String },
 }
 
-fn emit_step_event(event: &StepEvent) {
+fn emit_step_event(channel: StepChannel, event: &StepEvent) {
     if let Some(app) = global_app_handle() {
-        let _ = app.emit(STEP_EVENT, event);
+        let _ = app.emit(channel.event_name(), event);
     }
 }
 
@@ -27,6 +43,7 @@ fn emit_step_event(event: &StepEvent) {
 pub struct StepHandle {
     id: &'static str,
     state: Arc<StepState>,
+    channel: StepChannel,
 }
 
 struct StepState {
@@ -36,58 +53,81 @@ struct StepState {
 
 impl StepHandle {
     pub fn start(id: &'static str, label: impl Into<String>) -> Self {
-        emit_step_event(&StepEvent::Started {
-            id: id.to_string(),
-            label: label.into(),
-        });
+        Self::start_channel(StepChannel::Launch, id, label)
+    }
+
+    pub fn start_channel(channel: StepChannel, id: &'static str, label: impl Into<String>) -> Self {
+        emit_step_event(
+            channel,
+            &StepEvent::Started {
+                id: id.to_string(),
+                label: label.into(),
+            },
+        );
         Self {
             id,
             state: Arc::new(StepState {
                 current: AtomicU64::new(0),
                 total: AtomicU64::new(0),
             }),
+            channel,
         }
     }
 
     pub fn detail(&self, text: &str) {
-        emit_step_event(&StepEvent::Detail {
-            id: self.id.to_string(),
-            text: text.to_string(),
-        });
+        emit_step_event(
+            self.channel,
+            &StepEvent::Detail {
+                id: self.id.to_string(),
+                text: text.to_string(),
+            },
+        );
     }
 
     pub fn set_total(&self, total: u64) {
         self.state.current.store(0, Ordering::Relaxed);
         self.state.total.store(total, Ordering::Relaxed);
-        emit_step_event(&StepEvent::Progress {
-            id: self.id.to_string(),
-            current: 0,
-            total,
-        });
+        emit_step_event(
+            self.channel,
+            &StepEvent::Progress {
+                id: self.id.to_string(),
+                current: 0,
+                total,
+            },
+        );
     }
 
     pub fn inc(&self) {
         let current = self.state.current.fetch_add(1, Ordering::Relaxed) + 1;
         let total = self.state.total.load(Ordering::Relaxed);
-        emit_step_event(&StepEvent::Progress {
-            id: self.id.to_string(),
-            current,
-            total,
-        });
+        emit_step_event(
+            self.channel,
+            &StepEvent::Progress {
+                id: self.id.to_string(),
+                current,
+                total,
+            },
+        );
     }
 
     pub fn finish(self, skipped: bool) {
-        emit_step_event(&StepEvent::Finished {
-            id: self.id.to_string(),
-            skipped,
-        });
+        emit_step_event(
+            self.channel,
+            &StepEvent::Finished {
+                id: self.id.to_string(),
+                skipped,
+            },
+        );
     }
 
     pub fn fail(self, message: impl Into<String>) {
-        emit_step_event(&StepEvent::Failed {
-            id: self.id.to_string(),
-            message: message.into(),
-        });
+        emit_step_event(
+            self.channel,
+            &StepEvent::Failed {
+                id: self.id.to_string(),
+                message: message.into(),
+            },
+        );
     }
 }
 

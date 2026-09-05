@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import anime from 'animejs'
 import type { StepProgressItem } from '@/05-entities/core/types'
 
@@ -20,8 +20,17 @@ watch(() => props.steps.map(s => `${s.status}:${s.current}:${s.detail}`).join(',
   }
 })
 
+const visibleSteps = computed((): StepProgressItem[] => {
+  const hasError = props.steps.some((s) => s.status === 'error')
+  if (hasError) return props.steps
+  const firstActive = props.steps.findIndex((s) => s.status === 'active')
+  if (firstActive === -1) return props.steps
+  return props.steps.slice(firstActive)
+})
+
 const getIndicatorClass = (status: StepProgressItem['status']): string => {
   const map: Record<StepProgressItem['status'], string> = {
+    pending: 'step-progress__indicator--pending',
     active: 'step-progress__indicator--active',
     done: 'step-progress__indicator--done',
     error: 'step-progress__indicator--error',
@@ -31,6 +40,7 @@ const getIndicatorClass = (status: StepProgressItem['status']): string => {
 
 const getIcon = (status: StepProgressItem['status']): string => {
   const map: Record<StepProgressItem['status'], string> = {
+    pending: '○',
     active: '●',
     done: '✓',
     error: '✕',
@@ -53,24 +63,26 @@ const subLabel = (step: StepProgressItem): string => {
 
 <template>
   <div class="step-progress">
-    <div
-      v-for="step in steps"
-      :key="step.key"
-      :ref="el => { if (step.status === 'active') activeRef = el as HTMLDivElement }"
-      class="step-progress__item"
-      :class="`step-progress__item--${step.status}`"
-    >
-      <div class="step-progress__indicator" :class="getIndicatorClass(step.status)">
-        {{ getIcon(step.status) }}
+    <TransitionGroup name="step-progress-fade">
+      <div
+        v-for="step in visibleSteps"
+        :key="step.key"
+        :ref="el => { if (step.status === 'active') activeRef = el as HTMLDivElement }"
+        class="step-progress__item"
+        :class="`step-progress__item--${step.status}`"
+      >
+        <div class="step-progress__indicator" :class="getIndicatorClass(step.status)">
+          {{ getIcon(step.status) }}
+        </div>
+        <div class="step-progress__content">
+          <span class="step-progress__label">
+            {{ step.label }}
+            <span v-if="hasCounter(step)" class="step-progress__counter">{{ counterText(step) }}</span>
+          </span>
+          <span v-if="subLabel(step)" class="step-progress__sublabel">{{ subLabel(step) }}</span>
+        </div>
       </div>
-      <div class="step-progress__content">
-        <span class="step-progress__label">
-          {{ step.label }}
-          <span v-if="hasCounter(step)" class="step-progress__counter">{{ counterText(step) }}</span>
-        </span>
-        <span v-if="subLabel(step)" class="step-progress__sublabel">{{ subLabel(step) }}</span>
-      </div>
-    </div>
+    </TransitionGroup>
   </div>
 </template>
 
@@ -79,6 +91,7 @@ const subLabel = (step: StepProgressItem): string => {
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
+  position: relative;
 
   &__item {
     display: flex;
@@ -93,7 +106,6 @@ const subLabel = (step: StepProgressItem): string => {
       opacity: 1;
     }
   }
-
   &__indicator {
     width: 24px;
     height: 24px;
@@ -110,6 +122,11 @@ const subLabel = (step: StepProgressItem): string => {
       background: var(--login-accent);
       color: var(--text-on-accent);
       box-shadow: 0 0 0 4px var(--accent-active-bg);
+    }
+
+    &--pending {
+      box-shadow: var(--elevation-inset);
+      color: var(--login-text-muted);
     }
 
     &--done {
@@ -164,5 +181,24 @@ const subLabel = (step: StepProgressItem): string => {
   &__item--done &__counter {
     display: none;
   }
+}
+
+.step-progress-fade-move,
+.step-progress-fade-enter-active,
+.step-progress-fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.step-progress-fade-enter-from,
+.step-progress-fade-leave-to {
+  opacity: 0;
+}
+
+.step-progress-fade-leave-active {
+  position: absolute;
+}
+
+.step-progress-fade-enter-from {
+  transform: translateY(var(--space-8));
 }
 </style>

@@ -1,6 +1,6 @@
 export interface InputOptions {
   placeholder?: string
-  type?: 'text' | 'password'
+  type?: 'text' | 'password' | 'number'
   label?: string
   list?: string[]
   readonly?: boolean

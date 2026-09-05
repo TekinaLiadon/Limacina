@@ -1,5 +1,6 @@
 import { useAccountsStore } from '@/05-entities'
 import { listenLaunchSteps } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
 
 const MIN_DISPLAY_MS = 1000
@@ -11,6 +12,7 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 
 export function useLaunchStepsStream(): {
   startLaunchStepsStream: () => Promise<void>
+  prefillLaunchSteps: (plan: { key: string; label: string }[]) => void
   resetLaunchSteps: () => void
 } {
   const store = useAccountsStore()
@@ -41,17 +43,24 @@ export function useLaunchStepsStream(): {
       case 'started': {
         const active = store.launchSteps.find((step) => step.status === 'active')
         if (active) active.status = 'done'
-        store.launchSteps.push({
-          key: event.id,
-          label: event.label,
-          status: 'active',
-          skipped: false,
-          current: 0,
-          total: 0,
-          detail: '',
-          error: '',
-          shownAt: Date.now(),
-        })
+        const step = findStep(event.id)
+        if (step) {
+          step.status = 'active'
+          step.label = event.label
+          step.shownAt = Date.now()
+        } else {
+          store.launchSteps.push({
+            key: event.id,
+            label: event.label,
+            status: 'active',
+            skipped: false,
+            current: 0,
+            total: 0,
+            detail: '',
+            error: '',
+            shownAt: Date.now(),
+          })
+        }
         break
       }
       case 'progress': {
@@ -114,6 +123,26 @@ export function useLaunchStepsStream(): {
     recomputeProgress()
   }
 
+  const prefillLaunchSteps = (plan: { key: string; label: string }[]): void => {
+    eventQueue = []
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    store.launchSteps = plan.map((item) => ({
+      key: item.key,
+      label: item.label,
+      status: 'pending',
+      skipped: false,
+      current: 0,
+      total: 0,
+      detail: '',
+      error: '',
+      shownAt: 0,
+    }))
+    store.activeProgress = 0
+  }
+
   const resetLaunchSteps = (): void => {
     eventQueue = []
     if (flushTimer !== null) {
@@ -135,12 +164,13 @@ export function useLaunchStepsStream(): {
       })
     } catch (e: unknown) {
       streamStarted = false
-      console.error('Не удалось запустить поток шагов запуска:', e)
+      reportError('Не удалось запустить поток шагов запуска', e)
     }
   }
 
   return {
     startLaunchStepsStream,
+    prefillLaunchSteps,
     resetLaunchSteps,
   }
 }

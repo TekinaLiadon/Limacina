@@ -1,6 +1,7 @@
 import { watch, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
 import { useThreeScene } from '@/06-shared'
+import type { ViewerControls } from '@/03-widgets/types'
 
 interface BodyPart {
   w: number
@@ -10,42 +11,54 @@ interface BodyPart {
   faces: Array<[number, number]>
 }
 
-const PARTS: BodyPart[] = [
-  {
-    w: 8, h: 8, d: 8, pos: [0, 10, 0],
-    faces: [[16, 8], [0, 8], [8, 0], [16, 0], [8, 8], [24, 8]],
-  },
-  {
-    w: 8, h: 12, d: 4, pos: [0, 0, 0],
-    faces: [[16, 20], [28, 20], [20, 16], [28, 16], [20, 20], [32, 20]],
-  },
-  {
-    w: 4, h: 12, d: 4, pos: [-6, 0, 0],
-    faces: [[40, 20], [48, 20], [44, 16], [48, 16], [44, 20], [52, 20]],
-  },
-  {
-    w: 4, h: 12, d: 4, pos: [6, 0, 0],
-    faces: [[32, 52], [40, 52], [36, 48], [40, 48], [36, 52], [44, 52]],
-  },
-  {
-    w: 4, h: 12, d: 4, pos: [-2, -12, 0],
-    faces: [[8, 20], [0, 20], [4, 16], [8, 16], [4, 20], [12, 20]],
-  },
-  {
-    w: 4, h: 12, d: 4, pos: [2, -12, 0],
-    faces: [[24, 52], [16, 52], [20, 48], [24, 48], [20, 52], [28, 52]],
-  },
-]
+function createParts(slim: boolean): BodyPart[] {
+  const armW = slim ? 3 : 4
+  const armX = slim ? 5.5 : 6
+  const rightArmFaces: Array<[number, number]> = slim
+    ? [[40, 20], [46, 20], [44, 16], [47, 16], [43, 20], [49, 20]]
+    : [[40, 20], [48, 20], [44, 16], [48, 16], [44, 20], [52, 20]]
+  const leftArmFaces: Array<[number, number]> = slim
+    ? [[32, 52], [38, 52], [36, 48], [39, 48], [35, 52], [41, 52]]
+    : [[32, 52], [40, 52], [36, 48], [40, 48], [36, 52], [44, 52]]
 
-function buildPlayerModel(texture: THREE.Texture): THREE.Group {
+  return [
+    {
+      w: 8, h: 8, d: 8, pos: [0, 10, 0],
+      faces: [[16, 8], [0, 8], [8, 0], [16, 0], [8, 8], [24, 8]],
+    },
+    {
+      w: 8, h: 12, d: 4, pos: [0, 0, 0],
+      faces: [[16, 20], [28, 20], [20, 16], [28, 16], [20, 20], [32, 20]],
+    },
+    {
+      w: armW, h: 12, d: 4, pos: [-armX, 0, 0],
+      faces: rightArmFaces,
+    },
+    {
+      w: armW, h: 12, d: 4, pos: [armX, 0, 0],
+      faces: leftArmFaces,
+    },
+    {
+      w: 4, h: 12, d: 4, pos: [-2, -12, 0],
+      faces: [[8, 20], [0, 20], [4, 16], [8, 16], [4, 20], [12, 20]],
+    },
+    {
+      w: 4, h: 12, d: 4, pos: [2, -12, 0],
+      faces: [[24, 52], [16, 52], [20, 48], [24, 48], [20, 52], [28, 52]],
+    },
+  ]
+}
+
+function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
   const group = new THREE.Group()
   const img = texture.image as HTMLImageElement
   const texW = img.width
   const texH = img.height
   const s = texW / 64
   const isOldFormat = texH === 32 * s
+  const parts = createParts(slim)
 
-  PARTS.forEach((part, index) => {
+  parts.forEach((part, index) => {
     const geo = new THREE.BoxGeometry(part.w, part.h, part.d)
     const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
 
@@ -64,9 +77,9 @@ function buildPlayerModel(texture: THREE.Texture): THREE.Group {
 
       if (isOldFormat) {
         if (index === 3) {
-          [u, v] = PARTS[2].faces[i]
+          [u, v] = parts[2].faces[i]
         } else if (index === 5) {
-          [u, v] = PARTS[4].faces[i]
+          [u, v] = parts[4].faces[i]
         }
       }
 
@@ -105,12 +118,22 @@ function buildPlayerModel(texture: THREE.Texture): THREE.Group {
 export function useSkinViewer(
     container: Ref<HTMLDivElement | null>,
     skinUrl: Ref<string>,
-    zoomLevel: Ref<number>,
-    rotationY: Ref<number>,
+    controls: ViewerControls,
+    slim: Ref<boolean>,
 ) {
-  const { scene, camera } = useThreeScene(container, { autoRotate: false })
+  const { scene, camera, getOrbitControls } = useThreeScene(container, { autoRotate: false })
   const playerGroup = shallowRef<THREE.Group | null>(null)
   let loadGeneration = 0
+  let currentTexture: THREE.Texture | null = null
+
+  function applyCamera(): void {
+    if (!camera.value) return
+
+    const dist = controls.zoomLevel.value
+    const elevation = THREE.MathUtils.degToRad(controls.rotationX.value)
+    camera.value.position.set(0, dist * Math.sin(elevation), dist * Math.cos(elevation))
+    camera.value.lookAt(0, 0, 0)
+  }
 
   function fitModelToView(): void {
     if (!playerGroup.value || !camera.value) return
@@ -121,32 +144,60 @@ export function useSkinViewer(
     const fov = camera.value.fov * (Math.PI / 180)
     const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.2
 
-    camera.value.position.set(0, 5, distance)
-    camera.value.lookAt(0, 5, 0)
-    zoomLevel.value = distance
+    controls.zoomLevel.value = distance
+    controls.fitDistance.value = distance
+    applyCamera()
+  }
+
+  function disposeGroup(group: THREE.Group): void {
+    group.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.geometry.dispose()
+        const material = object.material
+        if (Array.isArray(material)) material.forEach((m) => m.dispose())
+        else material.dispose()
+      }
+    })
+  }
+
+  function removeCurrentModel(): void {
+    if (!playerGroup.value || !scene.value) return
+
+    scene.value.remove(playerGroup.value)
+    disposeGroup(playerGroup.value)
+    playerGroup.value = null
+  }
+
+  function rebuildModel(): void {
+    if (!scene.value || !currentTexture) return
+
+    removeCurrentModel()
+    const player = buildPlayerModel(currentTexture, slim.value)
+    scene.value.add(player)
+    playerGroup.value = player
+    fitModelToView()
   }
 
   function loadSkin(url: string): void {
     if (!scene.value) return
 
-    if (playerGroup.value) {
-      scene.value.remove(playerGroup.value)
-      playerGroup.value = null
-    }
-
     const generation = ++loadGeneration
 
     const loader = new THREE.TextureLoader()
     loader.load(url, (texture) => {
-      if (generation !== loadGeneration) return
+      if (generation !== loadGeneration || !scene.value) return
 
       texture.magFilter = THREE.NearestFilter
       texture.minFilter = THREE.NearestFilter
       texture.generateMipmaps = false
       texture.colorSpace = THREE.SRGBColorSpace
 
-      const player = buildPlayerModel(texture)
-      scene.value!.add(player)
+      removeCurrentModel()
+      if (currentTexture) currentTexture.dispose()
+      currentTexture = texture
+
+      const player = buildPlayerModel(texture, slim.value)
+      scene.value.add(player)
       playerGroup.value = player
       fitModelToView()
     })
@@ -160,14 +211,24 @@ export function useSkinViewer(
     if (s && skinUrl.value) loadSkin(skinUrl.value)
   })
 
-  watch(zoomLevel, (dist) => {
-    if (camera.value) {
-      camera.value.position.set(0, 5, dist)
-      camera.value.lookAt(0, 5, 0)
-    }
+  watch(slim, () => {
+    rebuildModel()
   })
 
-  watch(rotationY, (angle) => {
+  watch(controls.autoRotate, (enabled: boolean) => {
+    const orbit = getOrbitControls()
+    if (orbit) orbit.autoRotate = enabled
+  })
+
+  watch(controls.zoomLevel, () => {
+    applyCamera()
+  })
+
+  watch(controls.rotationX, () => {
+    applyCamera()
+  })
+
+  watch(controls.rotationY, (angle: number) => {
     if (playerGroup.value) {
       playerGroup.value.rotation.y = THREE.MathUtils.degToRad(angle)
     }

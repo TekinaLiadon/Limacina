@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Preloader from '@/01-app/preloader/Preloader.vue'
 import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream } from '@/04-features'
+import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications } from '@/04-features'
 import { Sidebar } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
@@ -21,20 +21,29 @@ const { startConsoleStream } = useConsoleStream()
 void startConsoleStream()
 const { startLaunchStepsStream } = useLaunchStepsStream()
 void startLaunchStepsStream()
+const { startSystemNotifications } = useSystemNotifications()
+void startSystemNotifications()
 
 interface Tab {
   key: TabKey
   name: string
 }
 
-const tabs: Tab[] = [
-  { key: 'accounts', name: 'Accounts' },
-  { key: 'add-profile', name: 'AddProfile' },
-  { key: 'settings', name: 'SettingsLauncher' },
-  { key: 'debug', name: 'Debug' },
-]
+const isDebugTabVisible = computed((): boolean => coreStore.launcherConfig?.debugMode ?? false)
 
-const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel']
+const tabs = computed((): Tab[] => {
+  const items: Tab[] = [
+    { key: 'accounts', name: 'Accounts' },
+    { key: 'add-profile', name: 'AddProfile' },
+    { key: 'settings', name: 'SettingsLauncher' },
+  ]
+  if (isDebugTabVisible.value) {
+    items.push({ key: 'debug', name: 'Debug' })
+  }
+  return items
+})
+
+const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel', 'SettingsAccount']
 
 const showLayout = computed((): boolean => route.name !== 'Setup')
 
@@ -42,14 +51,20 @@ const currentTab = computed((): TabKey => {
   const name = route.name as string
   if (settingsRouteNames.includes(name)) return 'settings'
 
-  const tab = tabs.find((t) => t.name === name)
+  const tab = tabs.value.find((t) => t.name === name)
   return tab?.key ?? 'accounts'
 })
 
 const navigateTo = (key: TabKey): void => {
-  const tab = tabs.find((t) => t.key === key)
+  const tab = tabs.value.find((t) => t.key === key)
   if (tab) router.push({ name: tab.name })
 }
+
+watch(isDebugTabVisible, (visible: boolean): void => {
+  if (!visible && route.name === 'Debug') {
+    router.push({ name: 'Accounts' })
+  }
+})
 </script>
 
 <template>
@@ -120,7 +135,7 @@ const navigateTo = (key: TabKey): void => {
           </div>
 
           <div class="app__body">
-            <Sidebar :active-tab="currentTab" @navigate="navigateTo" />
+            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" @navigate="navigateTo" />
 
             <div class="app__content">
               <div class="app__content-inner">

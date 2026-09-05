@@ -30,6 +30,9 @@ pub struct ProjectConfig {
 
     #[serde(default)]
     pub server_url: Option<String>,
+
+    #[serde(default)]
+    pub auto_join_server: bool,
 }
 
 fn default_true() -> bool {
@@ -50,6 +53,7 @@ impl Default for ProjectConfig {
             online: true,
             initialized: false,
             server_url: None,
+            auto_join_server: false,
         }
     }
 }
@@ -122,6 +126,21 @@ mod tests {
         assert!(!parsed.online);
         assert_eq!(parsed.server_url, None);
         assert_eq!(parsed.mod_loader, ModLoader::Fabric);
+    }
+
+    #[test]
+    fn project_config_toml_round_trip_with_auto_join_server() {
+        let config = ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            mc_version: "1.21.1".to_string(),
+            auto_join_server: true,
+            ..ProjectConfig::default()
+        };
+
+        let toml_string = toml::to_string_pretty(&config).expect("сериализация в TOML");
+        assert!(toml_string.contains("autoJoinServer = true"));
+        let parsed: ProjectConfig = toml::from_str(&toml_string).expect("разбор TOML");
+        assert!(parsed.auto_join_server);
     }
 
     #[test]

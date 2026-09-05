@@ -40,11 +40,19 @@ pub async fn start_installer(
     state_project: &ProjectConfig,
 ) -> Result<Manifest> {
     let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
-    let output = Command::new(java_cmd)
+    let mut command = Command::new(java_cmd);
+    command
         .arg("-jar")
         .arg(url)
         .arg("--installClient")
-        .arg(vanilla_url)
+        .arg(vanilla_url);
+
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(0x08000000);
+    }
+
+    let output = command
         .output()
         .await
         .context("Не удалось запустить Forge installer: ")?;

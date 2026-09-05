@@ -1,6 +1,7 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { authLogins, authRefresh, getSessionInfo } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 
 export function useAccounts() {
   const coreStore = useCoreStore()
@@ -27,7 +28,7 @@ export function useAccounts() {
     try {
       store.logins = await authLogins(coreStore.currentProject)
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось загрузить аккаунты', e)
     }
   }
 
@@ -40,7 +41,7 @@ export function useAccounts() {
         store.selectedUsername = session.username
       }
     } catch (e: unknown) {
-      console.error(e)
+      reportError('Не удалось проверить сессию', e)
     }
   }
 

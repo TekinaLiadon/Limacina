@@ -20,9 +20,9 @@ const virtualizer = useVirtualizer(
 )
 
 const scrollToBottom = (): void => {
-  if (logs.value.length === 0) return
-  if (!parentRef.value) return
-  parentRef.value.scrollTop = parentRef.value.scrollHeight
+  const lastIndex = logs.value.length - 1
+  if (lastIndex < 0) return
+  virtualizer.value.scrollToIndex(lastIndex, { align: 'end' })
 }
 
 const toggleAutoScroll = (): void => {
@@ -34,16 +34,13 @@ const toggleAutoScroll = (): void => {
 
 onMounted(async (): Promise<void> => {
   await nextTick()
-  if (logs.value.length > 0) {
-    virtualizer.value.scrollToIndex(logs.value.length - 1, { align: 'end' })
-  }
+  scrollToBottom()
 })
 
 watch(() => logs.value.length, async (): Promise<void> => {
-  if (isAutoScroll.value) {
-    await nextTick()
-    scrollToBottom()
-  }
+  if (!isAutoScroll.value) return
+  await nextTick()
+  scrollToBottom()
 })
 </script>
 

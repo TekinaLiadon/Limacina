@@ -21,6 +21,7 @@ export type {
   ProfileKind,
   ServerProfileForm,
   OfflineProfileForm,
+  IntegrityReport,
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'

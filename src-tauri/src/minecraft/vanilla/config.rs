@@ -7,9 +7,10 @@ use crate::{
     minecraft::{
         structs::LaunchConfig,
         mod_loader::utils::maven_to_path,
-        vanilla::structs::{ArgumentValue, Library, Rule, StringOrVec, VersionDetailsManifest},
+        vanilla::rules::is_rule_allowed,
+        vanilla::structs::{ArgumentValue, Library, StringOrVec, VersionDetailsManifest},
     },
-    utils::{env_info::get_current_os, get_classpath_separator},
+    utils::get_classpath_separator,
 };
 
 pub struct ArgumentsMap {
@@ -72,7 +73,7 @@ impl ArgumentsMap {
         match arg {
             ArgumentValue::Simple(s) => vec![self.get_value_by_key(s)],
             ArgumentValue::Conditional { value, rules } => {
-                if is_rule_allowed(rules) {
+                if is_rule_allowed(Some(rules)) {
                     match value {
                         StringOrVec::Single(s) => vec![self.get_value_by_key(s)],
                         StringOrVec::Multiple(vec) => {
@@ -91,10 +92,8 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
     let mut paths: Vec<String> = Vec::new();
 
     for lib in libraries {
-        if let Some(rules) = &lib.rules {
-            if !is_rule_allowed(rules) {
-                continue;
-            }
+        if !is_rule_allowed(lib.rules.as_deref()) {
+            continue;
         }
 
         let lib_path = if let Some(downloads) = &lib.downloads {
@@ -116,31 +115,6 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
     }
 
     Ok(paths)
-}
-
-fn is_rule_allowed(rules: &[Rule]) -> bool {
-    let current_os = get_current_os();
-    let mut allowed = false;
-
-    for rule in rules {
-        let os_matches = match &rule.os {
-            Some(os) => os.name.as_ref().is_none_or(|n| n == current_os),
-            None => true,
-        };
-
-        let features_match = match &rule.features {
-            Some(_) => {
-                false
-            }
-            None => true,
-        };
-
-        if os_matches && features_match {
-            allowed = rule.action == "allow";
-        }
-    }
-
-    allowed
 }
 
 pub fn get_jvm_args(

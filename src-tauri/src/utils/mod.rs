@@ -1,11 +1,14 @@
 pub mod logger_utils;
 pub mod semaphore;
 pub mod step_events;
+pub mod bandwidth;
 pub mod download_file;
 pub mod env_info;
 pub mod http;
+pub mod integrity;
 pub mod java;
 pub mod tauri_err;
+pub mod zip;
 
 use std::cmp::Ordering;
 

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::{
-    log_err, log_info,
+    log_err,
     utils::env_info::{get_launcher_name, launcher_patch},
 };
 
@@ -159,8 +159,6 @@ fn save_credential_sync(project: &str, username: &str, key_suffix: &str, value: 
     let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    log_info!("Keyring save: {}", key_suffix);
-
     let keyring_result = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
@@ -170,19 +168,16 @@ fn save_credential_sync(project: &str, username: &str, key_suffix: &str, value: 
         Ok(())
     })();
 
-    match &keyring_result {
-        Ok(()) => log_info!("Keyring save {}: OK", key_suffix),
-        Err(e) => {
-            log_err!("Keyring save {}: ОШИБКА — {:?}", key_suffix, e);
-            if !FALLBACK_ALLOWED_SUFFIXES.contains(&key_suffix) {
-                log_err!(
-                    "Keyring недоступен, «{}» в fallback-хранилище не сохраняется",
-                    key_suffix
-                );
-                return Ok(());
-            }
-            save_fallback(project, username, key_suffix, value)?;
-        },
+    if let Err(e) = &keyring_result {
+        log_err!("Keyring save {}: ОШИБКА — {:?}", key_suffix, e);
+        if !FALLBACK_ALLOWED_SUFFIXES.contains(&key_suffix) {
+            log_err!(
+                "Keyring недоступен, «{}» в fallback-хранилище не сохраняется",
+                key_suffix
+            );
+            return Ok(());
+        }
+        save_fallback(project, username, key_suffix, value)?;
     }
 
     Ok(())
@@ -205,8 +200,6 @@ fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resul
     let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    log_info!("Keyring load: {}", key_suffix);
-
     let keyring_result = (|| -> Result<String> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
@@ -216,13 +209,9 @@ fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resul
     })();
 
     match keyring_result {
-        Ok(val) => {
-            log_info!("Keyring load {}: OK", key_suffix);
-            Ok(val)
-        }
+        Ok(val) => Ok(val),
         Err(e) => {
             log_err!("Keyring load {}: ОШИБКА — {:?}", key_suffix, e);
-            log_info!("Keyring load {}: пробуем fallback", key_suffix);
             load_fallback(project, username, key_suffix)
         }
     }
@@ -251,9 +240,8 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
         Ok(())
     })();
 
-    match &keyring_result {
-        Ok(()) => log_info!("Keyring delete {}: OK", key_suffix),
-        Err(e) => log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e),
+    if let Err(e) = &keyring_result {
+        log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e);
     }
 
     let _ = delete_fallback(project, username, key_suffix);
