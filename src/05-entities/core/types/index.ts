@@ -1,3 +1,11 @@
+export interface SavedLogin {
+  username: string
+}
+
+export interface AuthProjectConfig {
+  logins: SavedLogin[]
+}
+
 export interface LauncherConfig {
   launcherPath: string
   discordActivity: boolean
@@ -12,6 +20,7 @@ export interface LauncherConfig {
   animationsEnabled: boolean
   projectNames: string[]
   currentProject: string | null
+  projects: Record<string, AuthProjectConfig>
 }
 
 export interface AppInitData {
@@ -140,8 +149,6 @@ export interface LoginForm {
   password: string
   rememberMe: boolean
 }
-
-export type AuthSaved = Pick<LoginForm, 'username' | 'password'>
 
 export interface RegisterForm {
   login: string

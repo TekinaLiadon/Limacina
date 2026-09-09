@@ -1,6 +1,6 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
-import { authLogins, authSaved, authLogin, authRegister, getSessionInfo } from '@/06-shared/api'
+import { authLogins, authLogin, authRegister, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import type { AuthUserData } from '@/05-entities/core/types'
 
@@ -68,13 +68,11 @@ export function useAuth() {
     if (coreStore.isLoggedIn) return
 
     try {
-      store.logins = await authLogins(coreStore.currentProject)
-      const saved = await authSaved(coreStore.currentProject)
-      if (!saved) return
-
-      store.loginFormData.username = saved.username
-      store.loginFormData.password = saved.password
-      store.loginFormData.rememberMe = !isOffline.value
+      const logins = await authLogins(coreStore.currentProject)
+      store.logins = logins
+      if (logins.length > 0 && !store.loginFormData.username) {
+        store.loginFormData.username = logins[0]
+      }
     } catch (e: unknown) {
       reportError('Не удалось загрузить сохранённые учётные данные', e)
     }

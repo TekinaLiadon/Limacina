@@ -9,7 +9,7 @@ mod state;
 mod updater;
 mod utils;
 
-use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, auth_saved, change_password, delete_account};
+use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account};
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
@@ -116,7 +116,6 @@ pub fn run() {
             auth_login,
             auth_register,
             auth_refresh,
-            auth_saved,
             auth_logins,
             change_password,
             delete_account,

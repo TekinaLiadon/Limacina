@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, AuthSaved, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -112,10 +112,6 @@ export async function authLogins(projectName: string): Promise<string[]> {
 
 export async function deleteAccount(projectName: string, username: string): Promise<void> {
   return invoke('delete_account', { projectName, username })
-}
-
-export async function authSaved(projectName: string): Promise<AuthSaved | null> {
-  return invoke<AuthSaved | null>('auth_saved', { projectName })
 }
 
 export async function authLogin(info: AuthUserData): Promise<void> {
