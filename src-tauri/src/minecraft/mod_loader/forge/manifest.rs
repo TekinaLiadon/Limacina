@@ -86,7 +86,7 @@ pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
         let url = if !lib.downloads.artifact.url.is_empty() {
             lib.downloads.artifact.url.clone()
         } else {
-            maven_to_url(&lib.name, "https://maven.minecraftforge.net")
+            maven_to_url(&lib.name, "https://maven.minecraftforge.net")?
         };
         let new_lib = LibraryMod {
             name: lib.name.clone(),

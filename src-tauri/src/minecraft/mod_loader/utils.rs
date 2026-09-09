@@ -40,9 +40,12 @@ pub fn generate_offline_uuid(nickname: &str) -> String {
 
 pub fn maven_to_path(name: &str) -> Result<PathBuf> {
     let parts: Vec<&str> = name.split(':').collect();
-    let group_id = parts[0];
-    let artifact_id = parts[1];
-    let version = parts[2];
+    let [group_id, artifact_id, version] = parts[..] else {
+        anyhow::bail!("Некорректная Maven-координата: {}", name);
+    };
+    if group_id.is_empty() || artifact_id.is_empty() || version.is_empty() {
+        anyhow::bail!("Некорректная Maven-координата: {}", name);
+    }
 
     let group_path = group_id.replace('.', "/");
     let file_name = format!("{}-{}.jar", artifact_id, version);
@@ -57,16 +60,21 @@ pub fn maven_to_path(name: &str) -> Result<PathBuf> {
     Ok(local_path)
 }
 
-pub fn maven_to_url(coord: &str, url: &str) -> String {
+pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
     let parts: Vec<&str> = coord.split(':').collect();
-    let group = parts[0].replace('.', "/");
-    let artifact = parts[1];
-    let version = parts[2];
+    let [group_id, artifact_id, version] = parts[..] else {
+        anyhow::bail!("Некорректная Maven-координата: {}", coord);
+    };
+    if group_id.is_empty() || artifact_id.is_empty() || version.is_empty() {
+        anyhow::bail!("Некорректная Maven-координата: {}", coord);
+    }
 
-    format!(
+    let group = group_id.replace('.', "/");
+
+    Ok(format!(
         "{}/{}/{}/{}/{}-{}.jar",
-        url, group, artifact, version, artifact, version
-    )
+        url, group, artifact_id, version, artifact_id, version
+    ))
 }
 
 pub fn filter_classpath(classpath: Vec<String>) -> Vec<String> {
@@ -566,5 +574,49 @@ mod servers_dat_tests {
         assert_eq!(first_server_address(&dir).expect("нет файла"), None);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod maven_coords_tests {
+    use super::{maven_to_path, maven_to_url};
+
+    #[test]
+    fn path_for_valid_coordinate() {
+        let path = maven_to_path("net.fabricmc:fabric-loader:0.16.9").expect("валидная координата");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar")
+        );
+    }
+
+    #[test]
+    fn url_for_valid_coordinate() {
+        let url = maven_to_url("net.fabricmc:fabric-loader:0.16.9", "https://maven.fabricmc.net")
+            .expect("валидная координата");
+        assert_eq!(
+            url,
+            "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"
+        );
+    }
+
+    #[test]
+    fn path_rejects_malformed_coordinates() {
+        assert!(maven_to_path("fabric-loader").is_err());
+        assert!(maven_to_path("net.fabricmc:fabric-loader").is_err());
+        assert!(maven_to_path("net.fabricmc:fabric-loader:0.16.9:extra").is_err());
+        assert!(maven_to_path("").is_err());
+        assert!(maven_to_path(":fabric-loader:0.16.9").is_err());
+        assert!(maven_to_path("net.fabricmc::0.16.9").is_err());
+        assert!(maven_to_path("net.fabricmc:fabric-loader:").is_err());
+    }
+
+    #[test]
+    fn url_rejects_malformed_coordinates() {
+        assert!(maven_to_url("fabric-loader", "https://maven.fabricmc.net").is_err());
+        assert!(maven_to_url("net.fabricmc:fabric-loader", "https://maven.fabricmc.net").is_err());
+        assert!(maven_to_url(":fabric-loader:0.16.9", "https://maven.fabricmc.net").is_err());
+        assert!(maven_to_url("net.fabricmc::0.16.9", "https://maven.fabricmc.net").is_err());
+        assert!(maven_to_url("net.fabricmc:fabric-loader:", "https://maven.fabricmc.net").is_err());
     }
 }

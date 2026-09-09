@@ -33,7 +33,7 @@ impl ModLoader for Fabric {
         let manifest_fabric =
             get_manifest_index::<Vec<FabricManifest>>(MOD_LOADER_NAME, &url_manifest, version)
                 .await?;
-        let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric);
+        let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric)?;
         Ok(manifest)
     }
     async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {

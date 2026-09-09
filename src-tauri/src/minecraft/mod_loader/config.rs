@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use crate::{
-    log_err,
     minecraft::{structs::LibraryMod, mod_loader::utils::maven_to_path},
     utils::env_info::launcher_patch,
 };
@@ -29,12 +28,12 @@ fn build_mod_classpath(libraries: &[LibraryMod], libraries_dir: &Path) -> Result
     let mut paths: Vec<String> = Vec::new();
 
     for lib in libraries {
-        let lib_path = libraries_dir.join(maven_to_path(&lib.name).unwrap());
+        let lib_path = libraries_dir.join(maven_to_path(&lib.name)?);
 
         if lib_path.exists() {
             paths.push(lib_path.to_string_lossy().to_string());
         } else {
-            log_err!("Библиотека не найдена: {:?}", lib_path);
+            anyhow::bail!("Библиотека не найдена: {:?}", lib_path);
         }
     }
 
