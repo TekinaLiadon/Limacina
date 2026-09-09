@@ -26,13 +26,7 @@ pub async fn initialize_project(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    let launcher_path = state
-        .lock()
-        .await
-        .launcher_config
-        .as_ref()
-        .map(|c| c.launcher_path.clone())
-        .unwrap_or_default();
+    let launcher_path = LauncherConfig::resolved_launcher_path().to_string_lossy().to_string();
 
     let config = init::init_project_config(&launcher_path, &project_name, None).await?;
 

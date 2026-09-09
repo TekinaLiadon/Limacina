@@ -24,20 +24,19 @@ pub async fn load_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    let mut state = state.lock().await;
-
     if let Ok(config) = load_config(&project_name).await {
+        let mut state = state.lock().await;
         state.project_config = config.clone();
         return Ok(config);
     }
 
-    let launcher_path = state
-        .launcher_config
-        .as_ref()
-        .map(|c| c.launcher_path.clone())
-        .unwrap_or_default();
+    let launcher_path = crate::state::launcher_config::LauncherConfig::resolved_launcher_path()
+        .to_string_lossy()
+        .to_string();
 
     let config = init_project_config(&launcher_path, &project_name, None).await?;
+
+    let mut state = state.lock().await;
     state.project_config = config.clone();
     Ok(config)
 }

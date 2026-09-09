@@ -1,4 +1,4 @@
-use crate::{log_info, log_err};
+use crate::log_info;
 use anyhow::{Context, Result};
 use std::env::consts;
 use std::path::{Component, PathBuf};
@@ -57,23 +57,7 @@ pub fn is_safe_relative_path(key: &str) -> bool {
 }
 
 pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
-    let base_path = match crate::state::launcher_config::LauncherConfig::load() {
-        Ok(Some(lc)) => {
-            PathBuf::from(lc.launcher_path.replace('/', std::path::MAIN_SEPARATOR_STR))
-        }
-        Ok(None) => {
-            log_info!("launcher_patch: конфиг не найден, fallback на home_dir");
-            get_home_dir()
-                .map(|h| h.join(get_launcher_name()))
-                .unwrap_or_default()
-        }
-        Err(e) => {
-            log_err!("launcher_patch: ошибка чтения конфига: {}, fallback", e);
-            get_home_dir()
-                .map(|h| h.join(get_launcher_name()))
-                .unwrap_or_default()
-        }
-    };
+    let base_path = crate::state::launcher_config::LauncherConfig::resolved_launcher_path();
 
     let result = match project {
         Some(dir) => base_path.join("project").join(dir),

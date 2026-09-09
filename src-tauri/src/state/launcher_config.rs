@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SavedLogin {
@@ -15,6 +17,12 @@ pub struct AuthProjectConfig {
 
 fn default_theme() -> String {
     "default-dark".to_string()
+}
+
+static RESOLVED_LAUNCHER_PATH: OnceLock<RwLock<PathBuf>> = OnceLock::new();
+
+fn normalize_path(raw: &str) -> PathBuf {
+    PathBuf::from(raw.replace('/', std::path::MAIN_SEPARATOR_STR))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -99,6 +107,39 @@ impl LauncherConfig {
         Ok(primary)
     }
 
+    fn fallback_path() -> PathBuf {
+        crate::utils::env_info::get_home_dir()
+            .map(|h| h.join(crate::utils::env_info::get_launcher_name()))
+            .unwrap_or_default()
+    }
+
+    pub fn resolved_launcher_path() -> PathBuf {
+        RESOLVED_LAUNCHER_PATH
+            .get_or_init(|| {
+                let path = Self::load()
+                    .ok()
+                    .flatten()
+                    .filter(|c| !c.launcher_path.trim().is_empty())
+                    .map(|c| normalize_path(&c.launcher_path))
+                    .unwrap_or_else(Self::fallback_path);
+                RwLock::new(path)
+            })
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn update_resolved_path(&self) {
+        if self.launcher_path.trim().is_empty() {
+            return;
+        }
+        if let Some(cache) = RESOLVED_LAUNCHER_PATH.get() {
+            if let Ok(mut guard) = cache.write() {
+                *guard = normalize_path(&self.launcher_path);
+            }
+        }
+    }
+
     pub fn load() -> Result<Option<Self>> {
         let path = Self::config_file_path()?;
         if !path.exists() {
@@ -120,7 +161,8 @@ impl LauncherConfig {
 
         let content =
             serde_json::to_string_pretty(self).context("Не удалось сериализовать конфиг")?;
-        fs::write(&path, content).with_context(|| format!("Не удалось записать {:?}", path))?;
+        write_config_atomic(&path, content.as_bytes())?;
+        self.update_resolved_path();
         Ok(())
     }
 
@@ -169,6 +211,14 @@ impl LauncherConfig {
         }
         self.current_project = Some(project.to_string());
     }
+}
+
+fn write_config_atomic(path: &Path, content: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("json.part");
+    fs::write(&tmp, content)
+        .with_context(|| format!("Не удалось записать файл во {:?}", tmp))?;
+    fs::rename(&tmp, path).with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, path))?;
+    Ok(())
 }
 
 #[cfg(test)]
