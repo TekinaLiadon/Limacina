@@ -18,7 +18,7 @@ use uuid::{Builder, Variant, Version};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-use crate::utils::logger_utils::{send_log, ConsolePayload};
+use crate::utils::logger_utils::send_log;
 use crate::utils::{compare_versions, get_classpath_separator};
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
 
@@ -304,6 +304,14 @@ impl GameProcess {
             .collect::<Vec<String>>()
             .join("\n")
     }
+
+    pub fn has_exited(&self) -> bool {
+        self.exited.load(AtomicOrdering::Relaxed)
+    }
+
+    pub fn window_opened(&self) -> bool {
+        self.window_opened.load(AtomicOrdering::Relaxed)
+    }
 }
 
 fn is_window_open_marker(line: &str) -> bool {
@@ -322,7 +330,6 @@ fn track_output(last_output: &StdMutex<VecDeque<String>>, line: &str) {
 
 
 fn spawn_output_reader(
-    app: AppHandle,
     stream: impl Read + Send + 'static,
     last_output: Arc<StdMutex<VecDeque<String>>>,
     window_opened: Arc<AtomicBool>,
@@ -332,13 +339,6 @@ fn spawn_output_reader(
         let reader = BufReader::new(stream);
         for line in reader.lines().map_while(Result::ok) {
             send_log(format!("[MC] {}", line), is_error);
-            let _ = app.emit(
-                "game-console",
-                ConsolePayload {
-                    line: line.clone(),
-                    is_error,
-                },
-            );
             track_output(&last_output, &line);
             if !window_opened.load(AtomicOrdering::Relaxed) && is_window_open_marker(&line) {
                 log_info!("Обнаружено открытие окна игры");
@@ -417,7 +417,6 @@ pub fn spawn_game_process(
     };
 
     spawn_output_reader(
-        app.clone(),
         stdout,
         Arc::clone(&process.last_output),
         Arc::clone(&process.window_opened),
@@ -425,7 +424,6 @@ pub fn spawn_game_process(
     );
 
     spawn_output_reader(
-        app.clone(),
         stderr,
         Arc::clone(&process.last_output),
         Arc::clone(&process.window_opened),

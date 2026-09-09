@@ -73,6 +73,7 @@ pub struct SessionTokens {
     pub access_token: String,
     pub uuid: String,
     pub username: String,
+    pub project_name: String,
 }
 
 #[derive(Default)]

@@ -27,16 +27,34 @@ pub(crate) async fn update_launcher_config(
     state: &State<'_, Mutex<GlobalState>>,
     mutate: impl FnOnce(&mut LauncherConfig),
 ) -> anyhow::Result<LauncherConfig> {
-    let mut guard = state.lock().await;
-    let mut config = match guard.launcher_config.clone() {
-        Some(config) => config,
-        None => LauncherConfig::load().ok().flatten().unwrap_or_default(),
+    let (config, content, path) = {
+        let mut guard = state.lock().await;
+        let mut config = match guard.launcher_config.clone() {
+            Some(config) => config,
+            None => LauncherConfig::load().ok().flatten().unwrap_or_default(),
+        };
+
+        mutate(&mut config);
+
+        let content = config
+            .serialize_for_save()
+            .map_err(|e| anyhow::anyhow!("Не удалось сериализовать конфиг: {}", e))?;
+        let path = LauncherConfig::config_file_path_public()
+            .map_err(|e| anyhow::anyhow!("Не удалось определить путь конфига: {}", e))?;
+
+        guard.launcher_config = Some(config.clone());
+        (config, content, path)
     };
 
-    mutate(&mut config);
-    config.save()?;
+    let content_clone = content.clone();
+    let path_clone = path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        LauncherConfig::write_serialized(&path_clone, &content_clone)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Не удалось выполнить запись конфига: {}", e))??;
 
-    guard.launcher_config = Some(config.clone());
+    config.on_saved_update_path();
     Ok(config)
 }
 

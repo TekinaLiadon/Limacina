@@ -156,15 +156,29 @@ impl LauncherConfig {
         Ok(Some(config))
     }
 
-    pub fn save(&self) -> Result<()> {
-        let path = Self::config_file_path()?;
+    pub(crate) fn config_file_path_public() -> Result<PathBuf> {
+        Self::config_file_path()
+    }
+
+    pub(crate) fn serialize_for_save(&self) -> Result<String> {
+        serde_json::to_string_pretty(self).context("Не удалось сериализовать конфиг")
+    }
+
+    pub(crate) fn write_serialized(path: &Path, content: &str) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+        write_config_atomic(path, content.as_bytes())
+    }
 
-        let content =
-            serde_json::to_string_pretty(self).context("Не удалось сериализовать конфиг")?;
-        write_config_atomic(&path, content.as_bytes())?;
+    pub(crate) fn on_saved_update_path(&self) {
+        self.update_resolved_path();
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let path = Self::config_file_path()?;
+        let content = self.serialize_for_save()?;
+        Self::write_serialized(&path, &content)?;
         self.update_resolved_path();
         Ok(())
     }

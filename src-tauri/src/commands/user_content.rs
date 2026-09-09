@@ -45,6 +45,7 @@ pub async fn select_account(
             access_token: auth_data.tokens.access_token.clone(),
             uuid: uuid.clone(),
             username: username_str.clone(),
+            project_name: project_name.clone(),
         });
     }
 
@@ -153,19 +154,35 @@ async fn get_profile_skin_inner(
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
-    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with(&prefix) && name != file_name {
-                    let _ = std::fs::remove_file(entry.path());
+    tokio::task::spawn_blocking({
+        let cache_dir = cache_dir.clone();
+        let file_name = file_name.clone();
+        let prefix = prefix.clone();
+        move || {
+            if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&prefix) && name != file_name {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
                 }
             }
         }
-    }
+    })
+    .await
+    .context("Не удалось выполнить очистку кэша скинов")?;
 
     download_file(url, &cache_path).await?;
 
-    std::fs::read(&cache_path).with_context(|| format!("Не удалось прочитать {:?}", cache_path))
+    let cache_path_clone = cache_path.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        std::fs::read(&cache_path_clone)
+            .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))
+    })
+    .await
+    .context("Не удалось выполнить чтение кэша скина")??;
+    Ok(bytes)
 }
 
 #[tauri::command]

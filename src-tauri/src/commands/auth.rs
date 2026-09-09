@@ -14,6 +14,7 @@ async fn store_session(
     state: &State<'_, Mutex<GlobalState>>,
     data: &AuthData,
     fallback_username: &str,
+    project_name: &str,
 ) -> (String, String) {
     let uuid = data.uuid();
     let username = data.username(fallback_username);
@@ -23,6 +24,7 @@ async fn store_session(
         access_token: data.tokens.access_token.clone(),
         uuid: uuid.clone(),
         username: username.clone(),
+        project_name: project_name.to_string(),
     });
 
     (uuid, username)
@@ -139,14 +141,14 @@ async fn login_account(
             bail!("Введите ник");
         }
         let data = auth::offline(username);
-        store_session(state, &data, username).await;
+        store_session(state, &data, username, project_name).await;
         remember_login(state, project_name, username, true).await?;
         return Ok(());
     }
 
     let data = restore_session(project_name, username, Some(password)).await?;
 
-    let (uuid, _) = store_session(state, &data, username).await;
+    let (uuid, _) = store_session(state, &data, username, project_name).await;
     remember_login(state, project_name, username, remember_me).await?;
 
     if remember_me {
@@ -179,12 +181,12 @@ pub async fn auth_refresh(
 
     if !project.online {
         let data = auth::offline(&username);
-        store_session(&state, &data, &username).await;
+        store_session(&state, &data, &username, &project_name).await;
         return Ok(());
     }
 
     let auth_data = restore_session(&project_name, &username, None).await?;
-    let (uuid, _) = store_session(&state, &auth_data, &username).await;
+    let (uuid, _) = store_session(&state, &auth_data, &username, &project_name).await;
 
     if !uuid.is_empty() {
         let _ = storage::save_credential(&project_name, &username, "uuid", &uuid).await;
@@ -258,6 +260,7 @@ async fn change_password_flow(
             access_token: data.tokens.access_token.clone(),
             uuid: data.uuid(),
             username: data.username(&username),
+            project_name: project_name.to_string(),
         });
     }
 

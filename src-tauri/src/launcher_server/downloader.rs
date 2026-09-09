@@ -84,16 +84,31 @@ async fn write_streamed(
         .with_context(|| format!("Не удалось создать файл {:?}", tmp_path))?;
     let mut stream = response.bytes_stream();
     let mut total_bytes: u64 = 0;
+    let mut stream_result: Result<()> = Ok(());
 
     while let Some(item) = stream.next().await {
-        let chunk = item
-            .with_context(|| format!("Ошибка чтения потока при скачивании {}", url))?;
+        let chunk = match item {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                stream_result = Err(anyhow::Error::new(e)
+                    .context(format!("Ошибка чтения потока при скачивании {}", url)));
+                break;
+            }
+        };
         bandwidth::acquire(chunk.len() as u64).await;
         total_bytes += chunk.len() as u64;
-        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
-            .with_context(|| format!("Ошибка записи в файл {:?}", tmp_path))?;
+        if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await {
+            stream_result = Err(e).with_context(|| format!("Ошибка записи в файл {:?}", tmp_path));
+            break;
+        }
     }
     drop(file);
+
+    if let Err(e) = stream_result {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(e);
+    }
+
     log_info!("[download] Скачано {} байт: {}", total_bytes, url);
 
     tokio::fs::rename(&tmp_path, file_path).await

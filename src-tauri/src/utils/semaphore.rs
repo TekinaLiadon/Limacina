@@ -39,7 +39,12 @@ where
         let on_done = on_done.clone();
 
         download_futures.push(async move {
-            let _permit = sem.acquire_owned().await.expect("Семафор закрыт");
+            let _permit = match sem.acquire_owned().await {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return Err(anyhow::anyhow!("Семафор скачивания закрыт"));
+                }
+            };
             let start_time = Instant::now();
             let mut final_result = Err(anyhow::anyhow!(
                 "Не удалось скачать файл после {} попыток",

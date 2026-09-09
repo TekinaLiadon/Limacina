@@ -29,6 +29,11 @@ pub async fn start_minecraft(
             .ok_or(anyhow!("Необходима авторизация для запуска. Сессия не найдена в состоянии.")));
 
         let project = state.project_config.project_name.clone();
+        step_try!(config_step, if session.project_name != project {
+            Err(anyhow!("Сессия принадлежит проекту «{}», а запускается «{}». Перезайдите в аккаунт.", session.project_name, project))
+        } else {
+            Ok(())
+        });
         let mc_version = state.project_config.mc_version.clone();
         let mod_loader = state.project_config.mod_loader.clone();
 
@@ -100,11 +105,16 @@ pub async fn start_minecraft(
         .wait_for_window(GAME_WINDOW_TIMEOUT)
         .await
         .with_context(|| format!("Проект: {}", project)));
+    if !process.window_opened() {
+        window_step.detail("Окно игры не обнаружено за 120 сек — оно может открыться позже");
+    }
     window_step.finish(false);
 
-    tauri::async_runtime::spawn_blocking(move || {
-        discord::set_game_activity(discord_enabled, &mc_version, &project);
-    });
+    if !process.has_exited() {
+        tauri::async_runtime::spawn_blocking(move || {
+            discord::set_game_activity(discord_enabled, &mc_version, &project);
+        });
+    }
 
     Ok("Майнкрафт успешно запущен".to_string())
 }
