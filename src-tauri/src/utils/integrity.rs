@@ -5,18 +5,22 @@ use std::path::{Path, PathBuf};
 
 use crate::log_err;
 use crate::log_info;
-use crate::utils::download_file::{file_md5, file_sha1};
+use crate::utils::download_file::{file_md5, file_sha1, download_file};
+use crate::utils::install_manifest::{
+    load_install_manifest, merge_installed, save_install_manifest,
+};
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::{StepChannel, StepHandle};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HashKind {
     Sha1,
+    #[allow(dead_code)]
     Md5,
 }
 
 impl HashKind {
-    async fn matches(&self, path: &Path, expected: &str) -> Result<bool> {
+    pub async fn matches(&self, path: &Path, expected: &str) -> Result<bool> {
         let actual = match self {
             HashKind::Sha1 => file_sha1(path).await?,
             HashKind::Md5 => file_md5(path).await?,
@@ -202,4 +206,169 @@ where
         missing,
         failed,
     })
+}
+
+pub async fn ensure_files(
+    step: &StepHandle,
+    base_path: &Path,
+    project_name: &str,
+    targets: Vec<IntegrityTarget>,
+) -> Result<IntegrityReport> {
+    if targets.is_empty() {
+        return Ok(IntegrityReport::default());
+    }
+
+    let mut installed = load_install_manifest(project_name).await?;
+    let total = targets.len() as u64;
+    step.set_total(total);
+
+    let mut broken: Vec<IntegrityTarget> = Vec::new();
+
+    for target in &targets {
+        let file_path = base_path.join(&target.rel_path);
+        let expected_hash = if !target.hash.is_empty() {
+            target.hash.clone()
+        } else {
+            installed
+                .files
+                .get(&target.rel_path.to_string_lossy().into_owned())
+                .cloned()
+                .unwrap_or_default()
+        };
+
+        let intact = if !file_path.exists() {
+            false
+        } else if expected_hash.is_empty() {
+            true
+        } else {
+            match target.hash_kind.matches(&file_path, &expected_hash).await {
+                Ok(matches) => matches,
+                Err(e) => {
+                    log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
+                    false
+                }
+            }
+        };
+
+        if !intact {
+            if file_path.exists() {
+                let _ = tokio::fs::remove_file(&file_path).await;
+            }
+            broken.push(target.clone());
+        }
+        step.inc();
+    }
+
+    if broken.is_empty() {
+        step.clone().finish(true);
+        log_info!("[install] Все файлы на месте: {}", total);
+        return Ok(IntegrityReport {
+            total,
+            ..IntegrityReport::default()
+        });
+    }
+
+    let broken_count = broken.len() as u64;
+    step.detail(&format!("Скачивание файлов: {}", broken_count));
+    step.set_total(broken_count);
+
+    let semaphore_info: Vec<SemaphoreInfo> = broken
+        .iter()
+        .map(|t| SemaphoreInfo {
+            url: match &t.download {
+                TargetDownload::Url(url) => url.clone(),
+                TargetDownload::LauncherServer { key } => key.clone(),
+            },
+            dest: t.rel_path.clone(),
+        })
+        .collect();
+
+    let step_counter = step.clone();
+    let futures = semaphore_core(
+        base_path.to_path_buf(),
+        semaphore_info,
+        |url, dest| async move { download_file(&url, &dest).await },
+        Some(move |_: &str| step_counter.inc()),
+    );
+    let results = futures::future::join_all(futures).await;
+
+    let mut repaired: u64 = 0;
+    let mut failed: Vec<String> = Vec::new();
+
+    for (target, result) in broken.into_iter().zip(results) {
+        let file_path = base_path.join(&target.rel_path);
+        let ok = match result {
+            Err(e) => {
+                log_err!("Не удалось скачать {:?}: {:?}", file_path, e);
+                false
+            }
+            Ok(()) => true,
+        };
+
+        if ok {
+            let actual = match target.hash_kind {
+                HashKind::Sha1 => file_sha1(&file_path).await,
+                HashKind::Md5 => file_md5(&file_path).await,
+            };
+            match actual {
+                Ok(hash) => {
+                    merge_installed(
+                        &mut installed,
+                        &target.rel_path.to_string_lossy(),
+                        &hash,
+                    );
+                    repaired += 1;
+                }
+                Err(e) => {
+                    log_err!("Не удалось вычислить хеш {:?}: {}", file_path, e);
+                    failed.push(target.rel_path.to_string_lossy().into_owned());
+                }
+            }
+        } else {
+            failed.push(target.rel_path.to_string_lossy().into_owned());
+        }
+    }
+
+    if failed.is_empty() {
+        save_install_manifest(project_name, &installed).await?;
+        step.clone().finish(false);
+    } else {
+        let _ = save_install_manifest(project_name, &installed).await;
+        step.clone().fail(format!("Не удалось скачать файлов: {}", failed.len()));
+    }
+
+    log_info!(
+        "[install] Проверено: {}, скачано: {}, ошибок: {}",
+        total,
+        repaired,
+        failed.len()
+    );
+
+    Ok(IntegrityReport {
+        total,
+        broken: broken_count,
+        repaired,
+        missing: 0,
+        failed,
+    })
+}
+
+pub async fn record_installed_hash(
+    project_name: &str,
+    hash_kind: HashKind,
+    base_path: &Path,
+    rel_path: &Path,
+) -> Result<()> {
+    let file_path = base_path.join(rel_path);
+    if !file_path.exists() {
+        anyhow::bail!("Файл не существует: {:?}", file_path);
+    }
+    let hash = match hash_kind {
+        HashKind::Sha1 => file_sha1(&file_path).await?,
+        HashKind::Md5 => file_md5(&file_path).await?,
+    };
+    let mut manifest = load_install_manifest(project_name).await?;
+    merge_installed(&mut manifest, &rel_path.to_string_lossy(), &hash);
+    save_install_manifest(project_name, &manifest).await?;
+    Ok(())
 }

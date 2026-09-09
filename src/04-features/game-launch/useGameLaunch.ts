@@ -33,7 +33,8 @@ const MODS_STEPS: StepPlanItem[] = [
 const MINECRAFT_STEPS: StepPlanItem[] = [
   { key: 'mc.manifest', label: 'Загрузка манифеста версий' },
   { key: 'mc.version', label: 'Загрузка манифеста версии' },
-  { key: 'mc.jar', label: 'Скачивание клиента игры' },
+  { key: 'mc.jar', label: 'Клиент игры' },
+  { key: 'mc.libs', label: 'Библиотеки игры' },
   { key: 'mc.natives', label: 'Нативные библиотеки' },
   { key: 'mc.assets.index', label: 'Загрузка индекса ресурсов' },
   { key: 'mc.assets', label: 'Загрузка ресурсов' },

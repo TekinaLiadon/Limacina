@@ -9,6 +9,7 @@ const DOWNLOAD_STEP_IDS: ReadonlySet<string> = new Set([
   'java.download',
   'files.download',
   'mc.jar',
+  'mc.libs',
   'mc.assets',
   'mc.natives',
   'loader',

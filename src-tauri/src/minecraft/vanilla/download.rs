@@ -1,4 +1,3 @@
-use futures::future;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
@@ -6,7 +5,6 @@ use zip::ZipArchive;
 use anyhow::{anyhow, Context, Result};
 use std::fs as std_fs;
 use std::io as std_io;
-use tokio::fs;
 
 use crate::{
     log_err,
@@ -14,25 +12,16 @@ use crate::{
     minecraft::vanilla::rules::is_rule_allowed,
     minecraft::vanilla::structs::{AssetIndexContent, VersionDetailsManifest},
     utils::{
-        download_file::{download_file, verify_sha1},
-        env_info::{get_current_os, launcher_patch},
+        env_info::get_current_os,
         integrity::{HashKind, IntegrityTarget, TargetDownload},
-        semaphore::{semaphore_core, SemaphoreInfo},
-        step_events::StepHandle,
     },
 };
 
-pub async fn download_native(project_name: &str, manifest: &VersionDetailsManifest) -> Result<()> {
-    let base_path: PathBuf = launcher_patch(Some(project_name))?;
-    let natives_dir = base_path.join("natives");
-    fs::create_dir_all(&natives_dir)
-        .await
-        .context("Ошибка создания папки natives: ")?;
+pub fn collect_natives_to_extract(
+    manifest: &VersionDetailsManifest,
+) -> Vec<(PathBuf, Option<Vec<String>>)> {
     let current_os = get_current_os();
-
     let mut natives_to_extract: Vec<(PathBuf, Option<Vec<String>>)> = Vec::new();
-    let mut semaphore_info = Vec::new();
-    let mut verify_targets: Vec<(PathBuf, String)> = Vec::new();
 
     for lib in &manifest.libraries {
         if !is_rule_allowed(lib.rules.as_deref()) {
@@ -40,47 +29,22 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
         }
 
         if !is_native_library_for_current_os(&lib.name) {
-            log_info!(
-                "Пропускаем библиотеку {} (не подходит для текущей ОС)",
-                lib.name
-            );
             continue;
         }
-
 
         if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
                 if !artifact.url.is_empty() {
-                    let lib_path = base_path.join("libraries").join(&artifact.path);
-                    let needs_download = if lib_path.exists() && !artifact.sha1.is_empty() {
-                        match verify_sha1(&lib_path, &artifact.sha1).await {
-                            Ok(()) => false,
-                            Err(e) => {
-                                log_err!("Нативная библиотека не прошла проверку хеша: {}", e);
-                                true
-                            }
-                        }
-                    } else {
-                        !lib_path.exists()
-                    };
-                    if needs_download {
-                        let result = SemaphoreInfo {
-                            url: artifact.url.clone(),
-                            dest: lib_path.clone(),
-                        };
-                        verify_targets.push((lib_path.clone(), artifact.sha1.clone()));
-                        semaphore_info.push(result);
-                    }
-
-                    let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
-                    natives_to_extract.push((lib_path, exclude));
+                    natives_to_extract.push((
+                        PathBuf::from("libraries").join(&artifact.path),
+                        lib.extract.as_ref().and_then(|e| e.exclude.clone()),
+                    ));
                 }
             }
         }
         if is_native_jar(&lib.name) {
             continue;
         }
-
 
         if let Some(natives_map) = &lib.natives {
             if let Some(classifier_template) = natives_map.get(current_os) {
@@ -94,30 +58,10 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
                 if let Some(downloads) = &lib.downloads {
                     if let Some(classifiers) = &downloads.classifiers {
                         if let Some(native_artifact) = classifiers.get(&classifier) {
-                            let native_jar_path =
-                                base_path.join("libraries").join(&native_artifact.path);
-                            let needs_download = if native_jar_path.exists() && !native_artifact.sha1.is_empty() {
-                                match verify_sha1(&native_jar_path, &native_artifact.sha1).await {
-                                    Ok(()) => false,
-                                    Err(e) => {
-                                        log_err!("Нативная библиотека не прошла проверку хеша: {}", e);
-                                        true
-                                    }
-                                }
-                            } else {
-                                !native_jar_path.exists()
-                            };
-                            if needs_download {
-                                let result = SemaphoreInfo {
-                                    url: native_artifact.url.clone(),
-                                    dest: native_jar_path.clone(),
-                                };
-                                verify_targets.push((native_jar_path.clone(), native_artifact.sha1.clone()));
-                                semaphore_info.push(result);
-                            }
-
-                            let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
-                            natives_to_extract.push((native_jar_path, exclude));
+                            natives_to_extract.push((
+                                PathBuf::from("libraries").join(&native_artifact.path),
+                                lib.extract.as_ref().and_then(|e| e.exclude.clone()),
+                            ));
                         }
                     }
                 }
@@ -125,41 +69,19 @@ pub async fn download_native(project_name: &str, manifest: &VersionDetailsManife
         }
     }
 
-    let step = StepHandle::start("mc.natives", "Нативные библиотеки");
-    let total_to_download = semaphore_info.len();
-    step.set_total(total_to_download as u64);
+    natives_to_extract
+}
 
-    let step_counter = step.clone();
-    let download_futures = semaphore_core(base_path, semaphore_info, |url, dest| async move {
-        download_file(&url, &dest).await
-    }, Some(move |_: &str| step_counter.inc()));
-
-    let results = future::join_all(download_futures).await;
-    let mut errors: Vec<String> = results
+pub async fn extract_natives(
+    base_path: &Path,
+    natives_rel_paths: Vec<(PathBuf, Option<Vec<String>>)>,
+) -> Result<()> {
+    let natives_dir = base_path.join("natives");
+    let natives_to_extract = natives_rel_paths
         .into_iter()
-        .filter_map(|res| res.err().map(|e| format!("{:?}", e)))
+        .map(|(rel, exclude)| (base_path.join(rel), exclude))
         .collect();
-
-    for (path, expected) in &verify_targets {
-        if path.exists() {
-            if let Err(e) = verify_sha1(path, expected).await {
-                log_err!("Нативная библиотека не прошла проверку хеша: {}", e);
-                errors.push(path.to_string_lossy().into_owned());
-            }
-        }
-    }
-
-    log_info!("Файлов не удалось скачать: {}", errors.len());
-
-    step.detail("Распаковка");
-
-    extract_native(natives_to_extract, natives_dir).await?;
-
-    if !errors.is_empty() {
-        step.detail(&format!("Ошибок скачивания: {}", errors.len()));
-    }
-    step.finish(total_to_download == 0 && errors.is_empty());
-    Ok(())
+    extract_native(natives_to_extract, natives_dir).await
 }
 
 fn is_native_library_for_current_os(lib_name: &str) -> bool {
@@ -317,135 +239,15 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
     false
 }
 
-pub async fn donwload_index_lib(
-    project_name: &str,
-    manifest: &VersionDetailsManifest,
-) -> Result<AssetIndexContent> {
-    let base_path: PathBuf = launcher_patch(Some(project_name))?;
-    log_info!("\nСкачиваем индекс ресурсов...");
-    let asset_index_path = base_path
-        .join("assets")
-        .join("indexes")
-        .join(format!("{}.json", manifest.asset_index.id));
-
-    download_file(&manifest.asset_index.url, &asset_index_path).await?;
-
-    let asset_index_file = fs::read_to_string(&asset_index_path)
-        .await
-        .context("Ошибка при чтении индекса ресурсов: ")?;
-
-    let asset_index: AssetIndexContent =
-        serde_json::from_str(&asset_index_file).context("Ошибка при разборе индекса ресурсов: ")?;
-
-    Ok(asset_index)
-}
-
-pub async fn download_assets(project_name: &str, asset_index: AssetIndexContent) -> Result<()> {
-    let base_path: PathBuf = launcher_patch(Some(project_name))?;
-    let mut semaphore_info = Vec::new();
-    let mut expected_hashes: Vec<(PathBuf, String)> = Vec::new();
-
-    for (_, asset) in asset_index.objects {
-        let hash_prefix = asset.hash[..2].to_string();
-        let asset_hash = asset.hash.clone();
-        let asset_url = format!(
-            "https://resources.download.minecraft.net/{}/{}",
-            hash_prefix, asset_hash
-        );
-        let asset_file_path = base_path
-            .join("assets")
-            .join("objects")
-            .join(&hash_prefix)
-            .join(&asset_hash);
-
-        if asset_file_path.exists() {
-            continue;
-        }
-
-        let result = SemaphoreInfo {
-            url: asset_url,
-            dest: asset_file_path.clone(),
-        };
-        expected_hashes.push((asset_file_path, asset_hash));
-        semaphore_info.push(result);
-    }
-
-    let step = StepHandle::start("mc.assets", "Загрузка ресурсов");
-    let total_to_download = semaphore_info.len();
-    step.set_total(total_to_download as u64);
-
-    log_info!("Ассетов к скачиванию: {}", total_to_download);
-    if semaphore_info.is_empty() {
-        log_info!("Все ассеты уже скачаны");
-        step.finish(true);
-        return Ok(());
-    }
-
-    let step_counter = step.clone();
-    let download_futures = semaphore_core(base_path, semaphore_info, |url, dest| async move {
-        download_file(&url, &dest).await
-    }, Some(move |_: &str| step_counter.inc()));
-    let results = future::join_all(download_futures).await;
-
-    let mut successful = 0;
-    let mut failed = 0;
-    for result in results {
-        match result {
-            Ok(()) => successful += 1,
-            _ => failed += 1,
-        }
-    }
-
-    let hashes: Vec<(PathBuf, String)> = expected_hashes;
-    let hash_check = tokio::task::spawn_blocking(move || {
-        let mut mismatches: Vec<String> = Vec::new();
-        for (path, expected) in &hashes {
-            if let Ok(content) = std::fs::read(path) {
-                use sha1::Digest;
-                let digest = sha1::Sha1::digest(&content);
-                let actual: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
-                if actual != *expected {
-                    let _ = std::fs::remove_file(path);
-                    mismatches.push(path.to_string_lossy().into_owned());
-                }
-            }
-        }
-        mismatches
-    })
-    .await
-    .context("Ошибка при проверке хешей ассетов")?;
-
-    if !hash_check.is_empty() {
-        for path in &hash_check {
-            log_err!("Ассет не прошёл проверку хеша: {}", path);
-        }
-        failed += hash_check.len();
-    }
-
-    log_info!(
-        "Загрузка ресурсов завершена. Успешно: {}, Ошибок: {}",
-        successful,
-        failed
-    );
-
-    if failed > 0 {
-        step.detail(&format!("Ошибок: {}", failed));
-    }
-    step.finish(false);
-    Ok(())
-}
-
 pub fn collect_client_jar_target(
-    project_name: &str,
     manifest: &VersionDetailsManifest,
-) -> Result<IntegrityTarget> {
-    let _ = launcher_patch(Some(project_name))?;
-    Ok(IntegrityTarget {
+) -> IntegrityTarget {
+    IntegrityTarget {
         rel_path: PathBuf::from(format!("{}.jar", manifest.id)),
         hash: manifest.downloads.client.sha1.clone(),
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(manifest.downloads.client.url.clone()),
-    })
+    }
 }
 
 pub fn collect_library_targets(

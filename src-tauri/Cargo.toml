@@ -31,6 +31,7 @@ zip = { version = "8.6", default-features = false, features = ["deflate-flate2"]
 uuid = { version = "1", features = ["v4", "fast-rng", "macro-diagnostics"] }
 md-5 = "0.11"
 sha1 = "0.11"
+sha2 = "0.11"
 async-trait = "0.1.89"
 toml = "1.1.2"
 fastnbt = "2"

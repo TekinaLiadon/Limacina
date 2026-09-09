@@ -8,7 +8,7 @@ use crate::{
         structs::{GameConfig, ModLoader, VersionMod},
         mod_loader::{
             config::merge_classpath,
-            download::download_libraries,
+            download::library_targets,
             neoforge::{
                 structs::Manifest,
                 installer::{create_installer_manifest, start_installer},
@@ -26,12 +26,14 @@ use crate::{
         download_file::{download_file, download_json},
         env_info::launcher_patch,
         get_classpath_separator,
+        integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
         step_events::StepHandle,
     },
 };
 use anyhow::{anyhow, Result};
 use anyhow::bail;
 use async_trait::async_trait;
+use std::path::PathBuf;
 
 pub struct NeoForge;
 #[async_trait]
@@ -91,6 +93,34 @@ impl ModLoader for NeoForge {
             .ok_or_else(|| anyhow!("Версия не найдена"))?;
 
         let step = StepHandle::start("loader", "Установка NeoForge");
+        let project_name = &state.project_name;
+
+        let neoforge_manifest_path = launcher_patch(None)?
+            .join("manifest")
+            .join(format!("neoforge_{}.json", state.loader_version.as_deref().unwrap_or_default()));
+
+        if neoforge_manifest_path.exists() {
+            let version_manifest = download_json::<Manifest>(None, &neoforge_manifest_path).await?;
+            let library = get_library(version_manifest)?;
+            let mut targets = library_targets(&library)?;
+            targets.push(IntegrityTarget {
+                rel_path: PathBuf::from(format!("{}.jar", &target_version)),
+                hash: String::new(),
+                hash_kind: HashKind::Sha1,
+                download: TargetDownload::Url(version_info.url.clone()),
+            });
+            step_try!(step, ensure_files(&step, &base_url, project_name, targets).await);
+            step_try!(step, record_installed_hash(
+                project_name,
+                HashKind::Sha1,
+                &base_url,
+                &PathBuf::from(format!("{}.jar", &target_version)),
+            )
+            .await);
+            log_info!("NeoForge уже установлен, проверка файлов завершена");
+            step.finish(true);
+            return Ok(());
+        }
 
         step.detail("Скачивание инсталлера");
         step.set_total(1);
@@ -107,7 +137,21 @@ impl ModLoader for NeoForge {
 
         step.detail("Скачивание библиотек");
         log_info!("Скачивание библиотек NeoForge");
-        step_try!(step, download_libraries(&state.project_name, library, &step).await);
+        let mut targets = library_targets(&library)?;
+        targets.push(IntegrityTarget {
+            rel_path: PathBuf::from(format!("{}.jar", &target_version)),
+            hash: String::new(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(version_info.url.clone()),
+        });
+        step_try!(step, ensure_files(&step, &base_url, project_name, targets).await);
+        step_try!(step, record_installed_hash(
+            project_name,
+            HashKind::Sha1,
+            &base_url,
+            &PathBuf::from(format!("{}.jar", &target_version)),
+        )
+        .await);
 
         log_info!("Установка NeoForge завершена");
         step.finish(false);

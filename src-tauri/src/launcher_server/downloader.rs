@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::state::dto::GlobalState;
 use crate::utils::bandwidth;
-use crate::utils::download_file::{file_md5};
+use crate::utils::download_file::file_sha1;
 use crate::utils::env_info::is_safe_relative_path;
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::StepHandle;
@@ -222,7 +222,7 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
         if !file_path.exists() {
             files_to_download.push(key.clone());
         } else if check_hashes {
-            match file_md5(&file_path).await {
+            match file_sha1(&file_path).await {
                 Ok(hash) if hash == *expected_hash => continue,
                 _ => files_to_download.push(key.clone()),
             }
@@ -375,7 +375,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
             log_info!("[mods] Мод отсутствует: {}", file_name);
             files_to_download.push(server_key.clone());
         } else {
-            match file_md5(&file_path).await {
+            match file_sha1(&file_path).await {
                 Ok(hash) if hash == *expected_hash => {
                     log_info!("[mods] Мод актуален: {}", file_name);
                     continue;

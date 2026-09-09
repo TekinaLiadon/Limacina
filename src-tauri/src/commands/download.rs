@@ -8,7 +8,6 @@ use crate::launcher_server::downloader::download_mods;
 use crate::minecraft::structs::MinecraftLoader;
 use crate::state::dto::GlobalState;
 use crate::state::dto::ModLoader as ConfigModLoader;
-use crate::utils::step_events::StepHandle;
 use crate::{minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
 
 #[tauri::command]
@@ -29,14 +28,6 @@ pub async fn download_minecraft(
     }
 
     let mod_loader = project_config.mod_loader.clone();
-
-    let jar_path = crate::utils::env_info::launcher_patch(Some(&project_config.project_name))?
-        .join(format!("{}.jar", &project_config.mc_version));
-    if jar_path.exists() {
-        let step = StepHandle::start("minecraft", "Установка Minecraft");
-        step.finish(true);
-        return Ok("Minecraft уже установлен".to_string());
-    }
 
     Vanilla.setup(&project_config).await?;
 

@@ -133,29 +133,9 @@ pub async fn file_sha1(path: &Path) -> Result<String> {
         .context("Ошибка при вычислении SHA1")?
 }
 
-
 pub async fn file_md5(path: &Path) -> Result<String> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || hash_file_blocking::<Md5>(&path))
         .await
         .context("Ошибка при вычислении MD5")?
-}
-
-
-
-pub async fn verify_sha1(path: &Path, expected: &str) -> Result<()> {
-    if expected.is_empty() {
-        return Ok(());
-    }
-    let actual = file_sha1(path).await?;
-    if actual != expected {
-        let _ = tokio::fs::remove_file(path).await;
-        anyhow::bail!(
-            "Хеш {:?} не совпадает: ожидается {}, получен {}",
-            path,
-            expected,
-            actual
-        );
-    }
-    Ok(())
 }

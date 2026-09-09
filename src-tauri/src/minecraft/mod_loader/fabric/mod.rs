@@ -4,22 +4,26 @@ pub mod manifest;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
+use std::path::PathBuf;
 
 use crate::{
     log_info,
     minecraft::{
-        download::download_jar,
         structs::{GameConfig, ModLoader, VersionMod},
         manifest::get_manifest_index,
         mod_loader::{
             config::merge_classpath,
-            download::download_libraries,
+            download::library_targets,
             fabric::{structs::FabricManifest, manifest::transform_fabric_manifest},
         },
     },
     state::dto::ProjectConfig,
     step_try,
-    utils::{env_info::launcher_patch, step_events::StepHandle},
+    utils::{
+        env_info::launcher_patch,
+        integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
+        step_events::StepHandle,
+    },
 };
 
 const MOD_LOADER_NAME: &str = "fabric";
@@ -67,20 +71,28 @@ impl ModLoader for Fabric {
             .ok_or_else(|| anyhow!("Версия не найдена"))?;
 
         let step = StepHandle::start("loader", "Установка Fabric");
-        let jar_path = launcher_patch(Some(&state.project_name))?
-            .join(format!("{}.jar", &version_info.id));
-        let jar_existed = jar_path.exists();
+        let base_path = launcher_patch(Some(&state.project_name))?;
+        let project_name = &state.project_name;
 
-        step.set_total(1);
-        log_info!("Скачивание основного jar");
-        step_try!(step, download_jar(&state.project_name, &version_info.id, &version_info.url, None).await);
-        step.inc();
+        let mut targets = library_targets(&version_info.library)?;
+        targets.push(IntegrityTarget {
+            rel_path: PathBuf::from(format!("{}.jar", version_info.id)),
+            hash: String::new(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(version_info.url.clone()),
+        });
 
-        log_info!("Скачивание библиотек");
-        let libs_to_download =
-            step_try!(step, download_libraries(&state.project_name, version_info.library.clone(), &step).await);
+        step_try!(step, ensure_files(&step, &base_path, project_name, targets).await);
 
-        step.finish(jar_existed && libs_to_download == 0);
+        step_try!(step, record_installed_hash(
+            project_name,
+            HashKind::Sha1,
+            &base_path,
+            &PathBuf::from(format!("{}.jar", version_info.id)),
+        )
+        .await);
+
+        step.finish(false);
         Ok(())
     }
     async fn config(

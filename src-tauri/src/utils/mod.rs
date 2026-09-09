@@ -5,6 +5,7 @@ pub mod bandwidth;
 pub mod download_file;
 pub mod env_info;
 pub mod http;
+pub mod install_manifest;
 pub mod integrity;
 pub mod java;
 pub mod tauri_err;
