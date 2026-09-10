@@ -143,8 +143,8 @@ const modes: ModeOption[] = [
   }
 
   &__list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--settings-column-width)), 1fr));
     gap: var(--space-8);
   }
 

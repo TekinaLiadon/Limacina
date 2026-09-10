@@ -19,12 +19,27 @@ const emit = defineEmits<{
 
 const rootRef = ref<HTMLDivElement | null>(null)
 const shown = ref(false)
+const openUp = ref(false)
 const maxHeight = computed((): string => `${props.maxVisible * 40 + 12}px`)
 
 const selectedTitle = computed((): string => {
   const selected = props.options.find((option) => option.value === props.modelValue)
   return selected?.title ?? props.modelValue
 })
+
+function computeDirection(): void {
+  if (!rootRef.value) return
+  const rect = rootRef.value.getBoundingClientRect()
+  const optionsHeight = props.maxVisible * 40 + 12
+  const spaceBelow = window.innerHeight - rect.bottom
+  openUp.value = spaceBelow < optionsHeight && rect.top > spaceBelow
+}
+
+function toggle(): void {
+  if (props.disabled) return
+  if (!shown.value) computeDirection()
+  shown.value = !shown.value
+}
 
 function selectOption(value: string): void {
   emit('update:modelValue', value)
@@ -48,9 +63,9 @@ onBeforeUnmount((): void => {
 </script>
 
 <template>
-  <div ref="rootRef" class="dropdown" :class="{ shown, disabled }">
+  <div ref="rootRef" class="dropdown" :class="{ shown, disabled, 'dropdown--up': openUp }">
     <div class="dropdown__value"
-         @click="!disabled && (shown = !shown)"
+         @click="toggle"
          :style="`width: ${width}`"
     >
       {{ selectedTitle }}
@@ -103,10 +118,25 @@ onBeforeUnmount((): void => {
     border-radius: var(--radius-input) var(--radius-input) 0 0;
   }
 
+  &.shown.dropdown--up .dropdown__value {
+    border-radius: 0 0 var(--radius-input) var(--radius-input);
+  }
+
   &.disabled {
     cursor: not-allowed;
     opacity: 0.4;
   }
+}
+
+.dropdown--up .dropdown-options {
+  top: auto;
+  bottom: 100%;
+  border-radius: var(--radius-input) var(--radius-input) 0 0;
+}
+
+.dropdown--up .dropdown-options-enter-from,
+.dropdown--up .dropdown-options-leave-to {
+  transform: translateY(10px);
 }
 
 .dropdown-options {

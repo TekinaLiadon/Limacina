@@ -1,6 +1,7 @@
 export { default as Button } from './components/Button.vue'
 export { default as Input } from './components/Input.vue'
 export { default as Dropdown } from './components/Dropdown.vue'
+export { default as MultiSelect } from './components/MultiSelect.vue'
 export { default as IconButton } from './components/IconButton.vue'
 export { default as Icon } from './components/Icon.vue'
 export { default as ProgressBar } from './components/ProgressBar.vue'

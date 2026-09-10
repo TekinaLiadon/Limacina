@@ -1,4 +1,5 @@
 export const HEADER = 0x53
+export const DIV = Math.floor(32767 / 48)
 
 export class CpmBinaryWriter {
   private buffer: number[] = []
@@ -9,7 +10,7 @@ export class CpmBinaryWriter {
 
   writeShort(v: number): void {
     this.buffer.push((v >>> 8) & 0xFF)
-    this.buffer.push((v >>> 0) & 0xFF)
+    this.buffer.push(v & 0xFF)
   }
 
   writeBytes(data: number[] | Uint8Array): void {
@@ -19,56 +20,53 @@ export class CpmBinaryWriter {
   }
 
   writeVarInt(v: number): void {
-    v = v >>> 0
-    while ((v & ~0x7F) !== 0) {
-      this.writeByte((v & 0x7F) | 0x80)
-      v >>>= 7
+    let value = v >>> 0
+    while ((value & ~0x7F) !== 0) {
+      this.writeByte((value & 0x7F) | 0x80)
+      value >>>= 7
     }
-    this.writeByte(v)
+    this.writeByte(value)
   }
 
   writeSignedVarInt(v: number): void {
     const sign = v < 0 ? 0x40 : 0
-    v = Math.abs(v)
-    let b = (v & 0x3F) | sign
-    v >>>= 6
-    while (v !== 0) {
+    let value = Math.abs(v)
+    let b = (value & 0x3F) | sign
+    value >>>= 6
+    while (value !== 0) {
       this.writeByte(b | 0x80)
-      b = v & 0x7F
-      v >>>= 7
+      b = value & 0x7F
+      value >>>= 7
     }
     this.writeByte(b)
   }
 
   writeVarFloat(f: number): void {
-    const DIV = 32767 / 2000
     this.writeSignedVarInt(Math.round(f * DIV))
   }
 
   writeFloat2(f: number): void {
-    const DIV = 32767 / 2000
     const clamped = Math.max(-32768, Math.min(32767, Math.round(f * DIV)))
     this.writeShort(clamped)
   }
 
-  writeVec3ub(v: { x: number; y: number; z: number }): void {
-    const clamp = (val: number) => Math.max(0, Math.min(255, Math.round(val * 10)))
-    this.writeByte(clamp(v.x))
-    this.writeByte(clamp(v.y))
-    this.writeByte(clamp(v.z))
-  }
-
   writeVec6b(v: { x: number; y: number; z: number }): void {
-    const DIV = 32767 / 2000
-    this.writeShort(Math.max(-32768, Math.min(32767, Math.round(v.x * DIV))))
-    this.writeShort(Math.max(-32768, Math.min(32767, Math.round(v.y * DIV))))
-    this.writeShort(Math.max(-32768, Math.min(32767, Math.round(v.z * DIV))))
+    this.writeFloat2(v.x)
+    this.writeFloat2(v.y)
+    this.writeFloat2(v.z)
   }
 
   writeAngle(v: { x: number; y: number; z: number }): void {
-    this.writeShort(Math.max(0, Math.min(65535, Math.round(v.x / 360 * 65535))))
-    this.writeShort(Math.max(0, Math.min(65535, Math.round(v.y / 360 * 65535))))
-    this.writeShort(Math.max(0, Math.min(65535, Math.round(v.z / 360 * 65535))))
+    this.writeShort(this.angleShort(v.x))
+    this.writeShort(this.angleShort(v.y))
+    this.writeShort(this.angleShort(v.z))
+  }
+
+  private angleShort(v: number): number {
+    let deg = v
+    while (deg < 0) deg += 360
+    while (deg >= 360) deg -= 360
+    return Math.max(0, Math.min(65535, Math.round(deg / 360 * 65535)))
   }
 
   writeVarVec3(v: { x: number; y: number; z: number }): void {
@@ -79,12 +77,6 @@ export class CpmBinaryWriter {
 
   writeEnum(ordinal: number): void {
     this.writeByte(ordinal)
-  }
-
-  writeUtf(s: string): void {
-    const bytes = new TextEncoder().encode(s)
-    this.writeVarInt(bytes.length)
-    this.writeBytes(bytes)
   }
 
   writeObjectBlock(ordinal: number, writeFn: (writer: CpmBinaryWriter) => void): void {
@@ -99,4 +91,12 @@ export class CpmBinaryWriter {
   toArray(): Uint8Array {
     return new Uint8Array(this.buffer)
   }
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
 }

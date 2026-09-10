@@ -95,6 +95,23 @@ a {
   }
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width)), 1fr));
+  gap: var(--element-gap);
+  align-items: start;
+
+  > .span-full {
+    grid-column: 1 / -1;
+  }
+}
+
+.settings-row {
+  width: 100%;
+  max-width: var(--settings-row-width);
+  margin-inline: auto;
+}
+
 .heading-display {
   margin: 0 0 10px 0;
   font-family: var(--font-display);

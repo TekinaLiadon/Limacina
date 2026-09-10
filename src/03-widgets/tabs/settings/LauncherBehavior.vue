@@ -62,6 +62,7 @@ const emit = defineEmits<{
       @update:model-value="emit('update:debugMode', $event)"
     />
     <Input
+      class="span-full"
       :model-value="downloadSpeedLimit"
       :options="{ label: 'Ограничение скорости скачивания (КБ/с)', placeholder: 'Без ограничений', type: 'number' }"
       :min="1"
@@ -72,8 +73,18 @@ const emit = defineEmits<{
 
 <style lang="scss">
 .launcher-behavior {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width)), 1fr));
   gap: var(--element-gap);
+  align-items: center;
+  grid-column: 1 / -1;
+
+  > .span-full {
+    grid-column: 1 / -1;
+    margin-top: var(--space-12);
+    justify-self: center;
+    width: 100%;
+    max-width: var(--settings-row-width);
+  }
 }
 </style>

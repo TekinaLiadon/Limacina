@@ -1,23 +1,35 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useCpmViewer } from '@/04-features'
-import type { CPMData } from '@/05-entities/core/types'
+import type { CPMData, CPMAnimation } from '@/05-entities/core/types'
 import { useViewerControls } from './viewerControls'
 
 const props = defineProps<{
   cpmData: CPMData | null
-  activeLayers: string[]
+  activeLayers: number[]
+  activeAnimations?: CPMAnimation[]
+  isAnimationPlaying?: boolean
+  animationSpeed?: number
+  isAnimationLooped?: boolean
 }>()
 
 const container = ref<HTMLDivElement | null>(null)
 
 const cpmData = ref<CPMData | null>(props.cpmData)
-const activeLayers = ref<string[]>(props.activeLayers)
+const activeLayers = ref<number[]>(props.activeLayers)
+const activeAnimations = ref<CPMAnimation[]>(props.activeAnimations ?? [])
+const isAnimationPlaying = ref<boolean>(props.isAnimationPlaying ?? false)
+const animationSpeed = ref<number>(props.animationSpeed ?? 1)
+const isAnimationLooped = ref<boolean>(props.isAnimationLooped ?? false)
 
 watch(() => props.cpmData, (data) => { cpmData.value = data })
 watch(() => props.activeLayers, (layers) => { activeLayers.value = layers }, { deep: true })
+watch(() => props.activeAnimations, (animations) => { activeAnimations.value = animations ?? [] }, { deep: true })
+watch(() => props.isAnimationPlaying, (playing) => { isAnimationPlaying.value = playing ?? false })
+watch(() => props.animationSpeed, (speed) => { animationSpeed.value = speed ?? 1 })
+watch(() => props.isAnimationLooped, (looped) => { isAnimationLooped.value = looped ?? false })
 
-useCpmViewer(container, cpmData, activeLayers, useViewerControls())
+useCpmViewer(container, cpmData, activeLayers, useViewerControls(), activeAnimations, isAnimationPlaying, animationSpeed, isAnimationLooped)
 </script>
 
 <template>

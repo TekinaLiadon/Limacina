@@ -21,13 +21,13 @@ const {
 
 <template>
   <div class="launcher-settings">
-    <div class="launcher-settings__section">
-      <div class="section-label">Расположение</div>
-      <LauncherPath :launcher-path="launcherPath" @browse="selectLauncherFolder" />
+    <div class="settings-grid">
+      <div class="section-label span-full">Расположение</div>
+      <LauncherPath class="span-full settings-row" :launcher-path="launcherPath" @browse="selectLauncherFolder" />
     </div>
 
-    <div class="launcher-settings__section">
-      <div class="section-label">Поведение</div>
+    <div class="settings-grid">
+      <div class="section-label span-full">Поведение</div>
       <LauncherBehavior
         :discord-activity="discordActivity"
         :auto-update="autoUpdate"
@@ -49,7 +49,7 @@ const {
     </div>
 
     <Button
-        class="btn-primary btn-lg btn-block"
+        class="btn-primary btn-lg launcher-settings__save"
         :is-loading="isSaving"
         :is-disabled="isSaving"
         @click="handleSave"
@@ -57,11 +57,11 @@ const {
       Сохранить
     </Button>
 
-    <LauncherUpdate />
+    <LauncherUpdate class="settings-row" />
 
-    <div class="launcher-settings__section">
-      <div class="section-label">Внешний вид</div>
-      <ThemeSelector />
+    <div class="settings-grid">
+      <div class="section-label span-full">Внешний вид</div>
+      <ThemeSelector class="span-full" />
     </div>
   </div>
 </template>
@@ -72,10 +72,9 @@ const {
   flex-direction: column;
   gap: var(--section-gap);
 
-  &__section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--element-gap);
+  &__save {
+    align-self: center;
+    min-width: 220px;
   }
 }
 </style>

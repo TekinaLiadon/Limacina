@@ -22,6 +22,9 @@
   --page-padding-y: var(--space-40);
   --page-padding-x: var(--space-32);
   --page-max-width: 480px;
+  --page-max-width-wide: clamp(720px, 66vw, 1440px);
+  --settings-column-width: 280px;
+  --settings-row-width: 480px;
 
   --sidebar-width: 220px;
   --panel-padding-y: var(--space-12);

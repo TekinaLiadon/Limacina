@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Button, Checkbox } from '@/06-shared'
 import { useCpmSettings } from '@/04-features'
+import type { DropdownOption } from '@/06-shared/types'
+import type { CPMAnimation } from '@/05-entities/core/types'
+import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
 import Viewer3D from './Viewer3D.vue'
 
@@ -10,27 +13,108 @@ const {
   errorMessage,
   showEmptyLayers,
   displayLayers,
-  activeLayerNames,
+  activeLayerIds,
   isUploading,
   uploadedModels,
-  txtFileData,
-  txtFileName,
   selectCpmFile,
   resetCpm,
-  selectTxtFile,
   handleUploadModel,
   handleDeleteModel,
   handleCopyUrl,
 } = useCpmSettings()
 
 const hasModel = computed((): boolean => cpmData.value !== null)
-const hasTxtFile = computed((): boolean => txtFileData.value !== '')
+
+const availableAnimations = computed((): CPMAnimation[] =>
+  (cpmData.value?.animations ?? []).filter((animation) => !animation.hidden),
+)
+
+const animationOptions = computed((): DropdownOption[] =>
+  availableAnimations.value.map((animation) => ({
+    title: animation.name,
+    value: animation.id,
+  })),
+)
+
+const selectedAnimationIds = ref<string[]>([])
+const isAnimationPlaying = ref<boolean>(false)
+const isAnimationLooped = ref<boolean>(false)
+const animationSpeed = ref<number>(1)
+
+const activeAnimations = computed((): CPMAnimation[] => {
+  return selectedAnimationIds.value
+    .map((id) => availableAnimations.value.find((animation) => animation.id === id))
+    .filter((animation): animation is CPMAnimation => animation !== undefined)
+})
+
+const SPEED_MIN = 0.25
+const SPEED_MAX = 3
+const SPEED_STEP = 0.25
+
+const canSpeedDown = computed((): boolean => animationSpeed.value > SPEED_MIN)
+const canSpeedUp = computed((): boolean => animationSpeed.value < SPEED_MAX)
+
+watch(availableAnimations, () => {
+  const existing = new Set(availableAnimations.value.map((animation) => animation.id))
+  const filtered = selectedAnimationIds.value.filter((id) => existing.has(id))
+  if (filtered.length !== selectedAnimationIds.value.length) {
+    selectedAnimationIds.value = filtered
+  }
+})
+
+const toggleAnimationPlayback = (): void => {
+  if (activeAnimations.value.length === 0) return
+  isAnimationPlaying.value = !isAnimationPlaying.value
+}
+
+const toggleAnimationLoop = (): void => {
+  isAnimationLooped.value = !isAnimationLooped.value
+}
+
+const speedDown = (): void => {
+  animationSpeed.value = Math.max(SPEED_MIN, Math.round((animationSpeed.value - SPEED_STEP) * 100) / 100)
+}
+
+const speedUp = (): void => {
+  animationSpeed.value = Math.min(SPEED_MAX, Math.round((animationSpeed.value + SPEED_STEP) * 100) / 100)
+}
+
+watch(() => cpmData.value, () => {
+  selectedAnimationIds.value = []
+  isAnimationPlaying.value = false
+  isAnimationLooped.value = false
+  animationSpeed.value = 1
+})
 </script>
 
 <template>
   <div class="cpm-settings">
-    <Viewer3D v-if="hasModel" :min-zoom="8" :max-zoom="60">
-      <CpmViewer :cpm-data="cpmData" :active-layers="activeLayerNames" />
+    <Viewer3D v-if="hasModel" :min-zoom="8" :max-zoom="150">
+      <CpmViewer
+        :cpm-data="cpmData"
+        :active-layers="activeLayerIds"
+        :active-animations="activeAnimations"
+        :is-animation-playing="isAnimationPlaying"
+        :animation-speed="animationSpeed"
+        :is-animation-looped="isAnimationLooped"
+      />
+      <template #bottom>
+        <CpmAnimationBar
+          v-if="animationOptions.length > 0"
+          v-model="selectedAnimationIds"
+          :options="animationOptions"
+          :has-animation="activeAnimations.length > 0"
+          :is-playing="isAnimationPlaying"
+          :is-looped="isAnimationLooped"
+          :speed="animationSpeed"
+          :can-speed-down="canSpeedDown"
+          :can-speed-up="canSpeedUp"
+          @toggle-play="toggleAnimationPlayback"
+          @toggle-loop="toggleAnimationLoop"
+          @speed-down="speedDown"
+          @speed-up="speedUp"
+        />
+      </template>
     </Viewer3D>
 
     <div v-if="errorMessage" class="cpm-settings__error">
@@ -46,7 +130,7 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
       <div class="cpm-settings__layer-list">
         <Checkbox
           v-for="layer in displayLayers"
-          :key="layer.name"
+          :key="layer.storeID ?? layer.name"
           v-model="layer._visible"
           :label="layer.name"
         />
@@ -56,6 +140,15 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     <div class="cpm-settings__actions">
       <Button class="btn-secondary cpm-settings__btn" @click="selectCpmFile">
         {{ hasModel ? 'Заменить модель' : 'Загрузить модель' }}
+      </Button>
+      <Button
+        v-if="hasModel"
+        class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
+        :is-loading="isUploading"
+        :is-disabled="isUploading"
+        @click="handleUploadModel"
+      >
+        Отправить
       </Button>
       <Button
         v-if="hasModel"
@@ -69,30 +162,6 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     <p class="cpm-settings__hint">
       Формат: .cpmproject, не более 2 МБ
     </p>
-
-    <div class="cpm-settings__txt-block">
-      <div class="cpm-settings__txt-title section-label">Загрузка модели (.txt)</div>
-      <div class="cpm-settings__txt-actions">
-        <Button class="btn-secondary cpm-settings__btn" @click="selectTxtFile">
-          {{ hasTxtFile ? 'Заменить файл' : 'Выбрать .txt файл' }}
-        </Button>
-        <Button
-          v-if="hasTxtFile"
-          class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
-          :is-loading="isUploading"
-          :is-disabled="isUploading"
-          @click="handleUploadModel"
-        >
-          Отправить
-        </Button>
-      </div>
-      <p v-if="txtFileName" class="cpm-settings__txt-filename">
-        Выбран: {{ txtFileName }}
-      </p>
-      <p class="cpm-settings__txt-hint">
-        Формат: .txt, не более 1 МБ
-      </p>
-    </div>
 
     <div v-if="uploadedModels.length > 0" class="cpm-settings__content-list">
       <div class="cpm-settings__content-title section-label">Загруженные модели</div>
@@ -181,39 +250,6 @@ const hasTxtFile = computed((): boolean => txtFileData.value !== '')
     font-size: var(--text-caption);
     color: var(--login-text-muted);
     text-align: center;
-  }
-
-  &__txt-block {
-    margin-top: var(--space-8);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-12);
-  }
-
-  &__txt-actions {
-    display: flex;
-    gap: var(--space-8);
-
-    .cpm-settings__btn {
-      flex: 1;
-      min-height: var(--control-height);
-
-      &--upload {
-        flex: 0 0 auto;
-      }
-    }
-  }
-
-  &__txt-filename {
-    margin: 0;
-    font-size: var(--text-caption);
-    color: var(--login-text-secondary);
-  }
-
-  &__txt-hint {
-    margin: 0;
-    font-size: var(--text-caption);
-    color: var(--login-text-muted);
   }
 
   &__content-list {

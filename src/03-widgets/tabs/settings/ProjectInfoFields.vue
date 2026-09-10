@@ -29,6 +29,7 @@ const fields = [
       @update:model-value="config[field.key] = $event"
     />
     <Checkbox
+      class="span-full"
       :model-value="config.autoJoinServer"
       label="Автозаход на сервер при запуске"
       @update:model-value="config.autoJoinServer = $event"
@@ -38,8 +39,16 @@ const fields = [
 
 <style lang="scss">
 .project-info-fields {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width)), 1fr));
   gap: var(--element-gap);
+  align-items: center;
+  grid-column: 1 / -1;
+
+  > .span-full {
+    grid-column: 1 / -1;
+    margin-top: var(--space-12);
+    justify-self: center;
+  }
 }
 </style>

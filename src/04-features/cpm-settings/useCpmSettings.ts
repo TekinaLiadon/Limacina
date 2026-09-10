@@ -3,6 +3,8 @@ import JSZip from 'jszip'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { selectFile, copyToClipboard, reportError } from '@/06-shared'
 import { uploadModel, listModels, deleteModel } from '@/06-shared/api'
+import { cpmProjectToBase64 } from '@/04-features'
+import { parseCpmAnimations } from './cpmAnimationParser'
 import type { CPMConfig, CPMChild, CPMData, UserContentItem } from '@/05-entities/core/types'
 
 function isLayerEmpty(child: CPMChild): boolean {
@@ -12,7 +14,7 @@ function isLayerEmpty(child: CPMChild): boolean {
 function collectLayers(children: CPMChild[] | undefined, result: CPMChild[], parentHidden: boolean): void {
   if (!children) return
   for (const child of children) {
-    const isHidden = parentHidden || child.hidden === true || child.show === false
+    const isHidden = parentHidden || child.hidden === true
     child._hidden = isHidden
     child._visible = !isLayerEmpty(child) && !isHidden
     result.push(child)
@@ -24,13 +26,12 @@ export function useCpmSettings() {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const cpmData = ref<CPMData | null>(null)
+  const cpmFileBytes = ref<ArrayBuffer | null>(null)
   const errorMessage = ref<string>('')
   const showEmptyLayers = ref<boolean>(false)
   const isUploading = ref<boolean>(false)
   const uploadedModels = ref<UserContentItem[]>([])
   const isLoadingModels = ref<boolean>(false)
-  const txtFileData = ref<string>('')
-  const txtFileName = ref<string>('')
 
   const allLayers = computed((): CPMChild[] => {
     if (!cpmData.value) return []
@@ -47,8 +48,11 @@ export function useCpmSettings() {
     return allLayers.value.filter((child) => !isLayerEmpty(child))
   })
 
-  const activeLayerNames = computed((): string[] => {
-    return allLayers.value.filter((child) => child._visible).map((child) => child.name)
+  const activeLayerIds = computed((): number[] => {
+    return allLayers.value
+      .filter((child) => child._visible)
+      .map((child) => child.storeID)
+      .filter((storeID): storeID is number => storeID !== undefined)
   })
 
   function selectCpmFile(): void {
@@ -79,11 +83,14 @@ export function useCpmSettings() {
 
           const configText = await configFile.async('string')
           const config: CPMConfig = JSON.parse(configText)
+          const animations = await parseCpmAnimations(zip)
 
           const skinBlob = await skinFile.async('blob')
           const textureUrl = URL.createObjectURL(skinBlob)
 
-          cpmData.value = { config, textureUrl }
+          if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
+          cpmData.value = { config, textureUrl, animations }
+          cpmFileBytes.value = result as ArrayBuffer
         } catch {
           errorMessage.value = 'Не удалось распаковать файл'
         }
@@ -95,6 +102,7 @@ export function useCpmSettings() {
     if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
 
     cpmData.value = null
+    cpmFileBytes.value = null
     errorMessage.value = ''
   }
 
@@ -111,39 +119,16 @@ export function useCpmSettings() {
     }
   }
 
-  const selectTxtFile = (): void => {
-    errorMessage.value = ''
-
-    selectFile({
-      accept: '.txt',
-      maxBytes: 1 * 1024 * 1024,
-      readAs: 'arrayBuffer',
-      onError: (msg: string) => {
-        errorMessage.value = msg
-      },
-      onLoad: async (file: File, result: string | ArrayBuffer) => {
-        try {
-          const text = new TextDecoder().decode(result as ArrayBuffer)
-          txtFileData.value = text
-          txtFileName.value = file.name
-        } catch {
-          errorMessage.value = 'Не удалось прочитать файл'
-        }
-      },
-    })
-  }
-
   const handleUploadModel = async (): Promise<void> => {
-    if (!txtFileData.value) return
+    if (!cpmFileBytes.value) return
 
     isUploading.value = true
     errorMessage.value = ''
 
     try {
-      await uploadModel(txtFileData.value)
+      const base64 = await cpmProjectToBase64(cpmFileBytes.value)
+      await uploadModel(base64)
       notification.show('Модель успешно загружена')
-      txtFileData.value = ''
-      txtFileName.value = ''
       await loadModels()
     } catch (e: unknown) {
       errorMessage.value = String(e)
@@ -177,15 +162,12 @@ export function useCpmSettings() {
     errorMessage,
     showEmptyLayers,
     displayLayers,
-    activeLayerNames,
+    activeLayerIds,
     isUploading,
     uploadedModels,
     isLoadingModels,
-    txtFileData,
-    txtFileName,
     selectCpmFile,
     resetCpm,
-    selectTxtFile,
     handleUploadModel,
     handleDeleteModel,
     handleCopyUrl,
