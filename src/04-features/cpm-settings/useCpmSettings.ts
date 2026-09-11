@@ -1,91 +1,86 @@
-import { ref, computed, onMounted } from 'vue'
-import JSZip from 'jszip'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { selectFile, copyToClipboard, reportError } from '@/06-shared'
-import { uploadModel, listModels, deleteModel } from '@/06-shared/api'
-import type { CPMConfig, CPMChild, CPMData, UserContentItem } from '@/05-entities/core/types'
+import { ref, computed, reactive } from 'vue'
+import { selectFile } from '@/06-shared'
+import { cpmProjectToBase64 } from '@/04-features'
+import { useModelUserContent } from '@/04-features/user-content/useUserContent'
+import { parseCpmProjectFile } from './cpmProjectParser'
+import type { CPMChild, CPMData, CPMVec3 } from '@/05-entities/core/types'
 
-function isLayerEmpty(child: CPMChild): boolean {
-  return child.size.x === 0 && child.size.y === 0 && child.size.z === 0
+export interface CpmLayer {
+  storeId: number | null
+  name: string
+  visible: boolean
+  empty: boolean
 }
 
-function collectLayers(children: CPMChild[] | undefined, result: CPMChild[], parentHidden: boolean): void {
+const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
+
+function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolean, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
-    const isHidden = parentHidden || child.hidden === true || child.show === false
-    child._hidden = isHidden
-    child._visible = !isLayerEmpty(child) && !isHidden
-    result.push(child)
-    collectLayers(child.children, result, isHidden)
+    const isHidden = inheritedHidden || child.hidden === true
+    const empty = child.size !== undefined && isZeroVec(child.size)
+    result.push(reactive({
+      storeId: child.storeID ?? null,
+      name: child.name,
+      visible: !empty && !isHidden,
+      empty,
+    }))
+    collectLayers(child.children, isHidden, result)
   }
 }
 
 export function useCpmSettings() {
-  const coreStore = useCoreStore()
-  const notification = useNotificationStore()
-  const cpmData = ref<CPMData | null>(null)
-  const errorMessage = ref<string>('')
-  const showEmptyLayers = ref<boolean>(false)
-  const isUploading = ref<boolean>(false)
-  const uploadedModels = ref<UserContentItem[]>([])
-  const isLoadingModels = ref<boolean>(false)
-  const txtFileData = ref<string>('')
-  const txtFileName = ref<string>('')
+  const content = useModelUserContent()
 
-  const allLayers = computed((): CPMChild[] => {
+  const cpmData = ref<CPMData | null>(null)
+  const cpmFileBytes = ref<ArrayBuffer | null>(null)
+  const showEmptyLayers = ref<boolean>(false)
+
+  const allLayers = computed((): CpmLayer[] => {
     if (!cpmData.value) return []
 
-    const layers: CPMChild[] = []
+    const layers: CpmLayer[] = []
     cpmData.value.config.elements.forEach((element) => {
-      collectLayers(element.children, layers, false)
+      collectLayers(element.children, false, layers)
     })
     return layers
   })
 
-  const displayLayers = computed((): CPMChild[] => {
-    if (showEmptyLayers.value) return allLayers.value
-    return allLayers.value.filter((child) => !isLayerEmpty(child))
-  })
+  const displayLayers = computed((): CpmLayer[] =>
+    showEmptyLayers.value ? allLayers.value : allLayers.value.filter((layer) => !layer.empty),
+  )
 
-  const activeLayerNames = computed((): string[] => {
-    return allLayers.value.filter((child) => child._visible).map((child) => child.name)
-  })
+  const activeLayerIds = computed((): number[] =>
+    allLayers.value
+      .filter((layer) => layer.visible)
+      .map((layer) => layer.storeId)
+      .filter((storeId): storeId is number => storeId !== null),
+  )
 
   function selectCpmFile(): void {
-    errorMessage.value = ''
+    content.errorMessage.value = ''
 
     selectFile({
       accept: '.cpmproject',
       maxBytes: 2 * 1024 * 1024,
       readAs: 'arrayBuffer',
       onError: (msg: string) => {
-        errorMessage.value = msg
+        content.errorMessage.value = msg
       },
       onLoad: async (_file: File, result: string | ArrayBuffer) => {
         try {
-          const zip = await JSZip.loadAsync(result as ArrayBuffer)
+          const project = await parseCpmProjectFile(result as ArrayBuffer)
+          const textureUrl = URL.createObjectURL(project.textureBlob)
 
-          const configFile = zip.file('config.json')
-          if (!configFile) {
-            errorMessage.value = 'Файл не содержит config.json'
-            return
+          if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
+          cpmData.value = {
+            config: project.config,
+            textureUrl,
+            animations: project.animations,
           }
-
-          const skinFile = zip.file('skin.png')
-          if (!skinFile) {
-            errorMessage.value = 'Файл не содержит skin.png'
-            return
-          }
-
-          const configText = await configFile.async('string')
-          const config: CPMConfig = JSON.parse(configText)
-
-          const skinBlob = await skinFile.async('blob')
-          const textureUrl = URL.createObjectURL(skinBlob)
-
-          cpmData.value = { config, textureUrl }
-        } catch {
-          errorMessage.value = 'Не удалось распаковать файл'
+          cpmFileBytes.value = result as ArrayBuffer
+        } catch (e) {
+          content.errorMessage.value = e instanceof Error ? e.message : 'Не удалось распаковать файл'
         }
       },
     })
@@ -95,99 +90,29 @@ export function useCpmSettings() {
     if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
 
     cpmData.value = null
-    errorMessage.value = ''
-  }
-
-  const loadModels = async (): Promise<void> => {
-    if (!coreStore.session?.uuid) return
-
-    isLoadingModels.value = true
-    try {
-      uploadedModels.value = await listModels(coreStore.session.uuid)
-    } catch (e: unknown) {
-      reportError('Не удалось загрузить список моделей', e)
-    } finally {
-      isLoadingModels.value = false
-    }
-  }
-
-  const selectTxtFile = (): void => {
-    errorMessage.value = ''
-
-    selectFile({
-      accept: '.txt',
-      maxBytes: 1 * 1024 * 1024,
-      readAs: 'arrayBuffer',
-      onError: (msg: string) => {
-        errorMessage.value = msg
-      },
-      onLoad: async (file: File, result: string | ArrayBuffer) => {
-        try {
-          const text = new TextDecoder().decode(result as ArrayBuffer)
-          txtFileData.value = text
-          txtFileName.value = file.name
-        } catch {
-          errorMessage.value = 'Не удалось прочитать файл'
-        }
-      },
-    })
+    cpmFileBytes.value = null
+    content.errorMessage.value = ''
   }
 
   const handleUploadModel = async (): Promise<void> => {
-    if (!txtFileData.value) return
+    if (!cpmFileBytes.value) return
 
-    isUploading.value = true
-    errorMessage.value = ''
-
-    try {
-      await uploadModel(txtFileData.value)
-      notification.show('Модель успешно загружена')
-      txtFileData.value = ''
-      txtFileName.value = ''
-      await loadModels()
-    } catch (e: unknown) {
-      errorMessage.value = String(e)
-    } finally {
-      isUploading.value = false
-    }
+    const base64 = await cpmProjectToBase64(cpmFileBytes.value)
+    await content.handleUpload(base64)
   }
-
-  const handleDeleteModel = async (id: number): Promise<void> => {
-    try {
-      await deleteModel(id)
-      await loadModels()
-    } catch (e: unknown) {
-      errorMessage.value = String(e)
-    }
-  }
-
-  const handleCopyUrl = async (url: string): Promise<void> => {
-    try {
-      await copyToClipboard(url)
-      notification.show('Ссылка скопирована')
-    } catch (e: unknown) {
-      errorMessage.value = 'Не удалось скопировать'
-    }
-  }
-
-  onMounted(loadModels)
 
   return {
     cpmData,
-    errorMessage,
+    errorMessage: content.errorMessage,
     showEmptyLayers,
     displayLayers,
-    activeLayerNames,
-    isUploading,
-    uploadedModels,
-    isLoadingModels,
-    txtFileData,
-    txtFileName,
+    activeLayerIds,
+    isUploading: content.isUploading,
+    uploadedModels: content.items,
     selectCpmFile,
     resetCpm,
-    selectTxtFile,
     handleUploadModel,
-    handleDeleteModel,
-    handleCopyUrl,
+    handleDeleteModel: content.handleDelete,
+    handleCopyUrl: content.handleCopyUrl,
   }
 }

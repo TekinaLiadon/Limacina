@@ -66,53 +66,61 @@ onUnmounted((): void => {
 </script>
 
 <template>
-  <div class="d-flex d-flex-colum input__core">
-  <label class="label" :for="id">
-    {{options?.label}}
-  </label>
-  <div class="input__wrapper" ref="inputRef">
-  <input class="input__text"
-         :class="{
-           'input__text--password': options?.type === 'password',
-           'input__text--disabled': options?.disabled,
-         }"
-         v-bind="$attrs"
-         :placeholder="options?.placeholder"
-         :type="inputType"
-         v-model="data"
-         :id="id"
-         :readonly="options?.readonly"
-         :disabled="options?.disabled"
-         @focus="options?.list?.length && (showDropdown = true)"
-         @input="options?.list?.length && (showDropdown = true)"
-  />
-  <div v-if="showDropdown && filteredList.length" class="input__dropdown">
-    <div
-      v-for="item in filteredList"
-      :key="item"
-      class="input__dropdown-item"
-      @mousedown.prevent="selectItem(item)"
-    >
-      {{ item }}
+  <div class="input__core">
+    <div class="input__field">
+      <label v-if="options?.label" class="label" :for="id">
+        {{options?.label}}
+      </label>
+      <div class="input__wrapper" ref="inputRef">
+        <input class="input__text"
+               :class="{
+                 'input__text--password': options?.type === 'password',
+                 'input__text--disabled': options?.disabled,
+               }"
+               v-bind="$attrs"
+               :placeholder="options?.placeholder"
+               :type="inputType"
+               v-model="data"
+               :id="id"
+               :readonly="options?.readonly"
+               :disabled="options?.disabled"
+               @focus="options?.list?.length && (showDropdown = true)"
+               @input="options?.list?.length && (showDropdown = true)"
+        />
+        <div v-if="showDropdown && filteredList.length" class="input__dropdown">
+          <div
+            v-for="item in filteredList"
+            :key="item"
+            class="input__dropdown-item"
+            @mousedown.prevent="selectItem(item)"
+          >
+            {{ item }}
+          </div>
+        </div>
+        <button
+          v-if="options?.type === 'password'"
+          type="button"
+          class="input__eye"
+          @click="showPassword = !showPassword"
+          tabindex="-1"
+        >
+          <OpenEye v-if="!showPassword" />
+          <ClosedEye v-else />
+        </button>
+      </div>
     </div>
-  </div>
-  <button
-    v-if="options?.type === 'password'"
-    type="button"
-    class="input__eye"
-    @click="showPassword = !showPassword"
-    tabindex="-1"
-  >
-    <OpenEye v-if="!showPassword" />
-    <ClosedEye v-else />
-  </button>
-  </div>
   </div>
 </template>
 
 <style lang="scss">
 .input {
   &__core {
+    container-type: inline-size;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
     gap: var(--space-8);
 
     .label {
@@ -128,6 +136,20 @@ onUnmounted((): void => {
     }
   }
 
+  @container (min-width: 420px) {
+    .input__field {
+      flex-direction: row;
+      align-items: center;
+      gap: var(--space-12);
+
+      .label {
+        margin-bottom: 0;
+        flex: 0 0 auto;
+        max-width: 40%;
+      }
+    }
+  }
+
   &__text {
     padding: var(--space-8) var(--control-padding-x);
     font-size: var(--text-body-sm);
@@ -140,6 +162,7 @@ onUnmounted((): void => {
     font-family: inherit;
     transition: box-shadow 0.2s ease, background-color 0.2s ease;
     width: 100%;
+    min-height: var(--control-height);
     box-sizing: border-box;
 
     &--password {

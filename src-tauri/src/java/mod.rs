@@ -68,10 +68,11 @@ async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf
 }
 
 pub(crate) fn get_java_version(mc_version: &str) -> String {
+    let base_version = mc_version.split('-').next().unwrap_or(mc_version);
 
-    if compare_versions(mc_version, "1.20.5") != Ordering::Less {
+    if compare_versions(base_version, "1.20.5") != Ordering::Less {
         "21".to_string()
-    } else if compare_versions(mc_version, "1.16.5") == Ordering::Greater {
+    } else if compare_versions(base_version, "1.16.5") == Ordering::Greater {
         "17".to_string()
     } else {
         "8".to_string()

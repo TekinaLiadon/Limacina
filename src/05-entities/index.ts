@@ -14,7 +14,6 @@ export type {
   StepStatus,
   StepProgressItem,
   ProjectConfig,
-  AuthSaved,
   LoginForm,
   RegisterForm,
   ModLoaderKind,
@@ -22,6 +21,8 @@ export type {
   ServerProfileForm,
   OfflineProfileForm,
   IntegrityReport,
+  SavedLogin,
+  AuthProjectConfig,
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'

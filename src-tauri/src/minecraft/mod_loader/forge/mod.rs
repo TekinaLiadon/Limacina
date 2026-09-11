@@ -8,10 +8,11 @@ use crate::{
         structs::{GameConfig, ModLoader, VersionMod},
         mod_loader::{
             config::merge_classpath,
-            download::download_libraries,
+            download::library_targets,
+            installer::create_installer_manifest,
             forge::{
                 structs::Manifest,
-                installer::{create_installer_manifest, start_installer},
+                installer::start_installer,
                 manifest::{
                     get_library, get_manifest_index, modify_manifest, transform_forge_manifest,
                 },
@@ -25,12 +26,14 @@ use crate::{
         compare_versions,
         download_file::{download_file, download_json},
         env_info::launcher_patch,
+        integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
         step_events::StepHandle,
     },
 };
 use anyhow::{anyhow, Result};
 use anyhow::bail;
 use async_trait::async_trait;
+use std::path::PathBuf;
 
 pub struct Forge;
 #[async_trait]
@@ -90,6 +93,34 @@ impl ModLoader for Forge {
             .ok_or_else(|| anyhow!("Версия не найдена"))?;
 
         let step = StepHandle::start("loader", "Установка Forge");
+        let project_name = &state.project_name;
+
+        let forge_manifest_path = launcher_patch(None)?
+            .join("manifest")
+            .join(format!("forge_{}.json", state.loader_version.as_deref().unwrap_or_default()));
+
+        if forge_manifest_path.exists() {
+            let version_manifest = download_json::<Manifest>(None, &forge_manifest_path).await?;
+            let library = get_library(version_manifest)?;
+            let mut targets = library_targets(&library)?;
+            targets.push(IntegrityTarget {
+                rel_path: PathBuf::from(format!("{}.jar", &target_version)),
+                hash: String::new(),
+                hash_kind: HashKind::Sha1,
+                download: TargetDownload::Url(version_info.url.clone()),
+            });
+            step_try!(step, ensure_files(&step, &base_url, project_name, targets).await);
+            step_try!(step, record_installed_hash(
+                project_name,
+                HashKind::Sha1,
+                &base_url,
+                &PathBuf::from(format!("{}.jar", &target_version)),
+            )
+            .await);
+            log_info!("Forge уже установлен, проверка файлов завершена");
+            step.finish(true);
+            return Ok(());
+        }
 
         step.detail("Скачивание инсталлера");
         step.set_total(1);
@@ -106,7 +137,21 @@ impl ModLoader for Forge {
 
         step.detail("Скачивание библиотек");
         log_info!("Скачивание библиотек");
-        step_try!(step, download_libraries(&state.project_name, library, &step).await);
+        let mut targets = library_targets(&library)?;
+        targets.push(IntegrityTarget {
+            rel_path: PathBuf::from(format!("{}.jar", &target_version)),
+            hash: String::new(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(version_info.url.clone()),
+        });
+        step_try!(step, ensure_files(&step, &base_url, project_name, targets).await);
+        step_try!(step, record_installed_hash(
+            project_name,
+            HashKind::Sha1,
+            &base_url,
+            &PathBuf::from(format!("{}.jar", &target_version)),
+        )
+        .await);
 
         log_info!("Установка завершена");
         step.finish(false);

@@ -12,11 +12,11 @@ use crate::log_info;
 pub async fn save_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     config: ProjectConfig,
-) -> CommandResult<String> {
-    let mut state = state.lock().await;
+) -> CommandResult<()> {
     config.save_config().await?;
+    let mut state = state.lock().await;
     state.project_config = config;
-    Ok("Настройки изменены".to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -24,20 +24,19 @@ pub async fn load_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    let mut state = state.lock().await;
-
     if let Ok(config) = load_config(&project_name).await {
+        let mut state = state.lock().await;
         state.project_config = config.clone();
         return Ok(config);
     }
 
-    let launcher_path = state
-        .launcher_config
-        .as_ref()
-        .map(|c| c.launcher_path.clone())
-        .unwrap_or_default();
+    let launcher_path = crate::state::launcher_config::LauncherConfig::resolved_launcher_path()
+        .to_string_lossy()
+        .to_string();
 
     let config = init_project_config(&launcher_path, &project_name, None).await?;
+
+    let mut state = state.lock().await;
     state.project_config = config.clone();
     Ok(config)
 }
@@ -81,15 +80,18 @@ async fn clear_minecraft_config_inner(
     if keep_old_configs {
         let old_dir = game_dir.join("old_config");
         if old_dir.exists() {
-            std::fs::remove_dir_all(&old_dir)
+            tokio::fs::remove_dir_all(&old_dir)
+                .await
                 .with_context(|| format!("Не удалось удалить старую папку {:?}", old_dir))?;
         }
-        std::fs::rename(&config_dir, &old_dir)
+        tokio::fs::rename(&config_dir, &old_dir)
+            .await
             .with_context(|| format!("Не удалось переименовать папку {:?}", config_dir))?;
         log_info!("Конфиги проекта {} перемещены в old_config", project_name);
         Ok("Конфиги перемещены в резервную копию".to_string())
     } else {
-        std::fs::remove_dir_all(&config_dir)
+        tokio::fs::remove_dir_all(&config_dir)
+            .await
             .with_context(|| format!("Не удалось удалить папку {:?}", config_dir))?;
         log_info!("Папка config проекта {} удалена", project_name);
         Ok("Папка конфигов удалена".to_string())

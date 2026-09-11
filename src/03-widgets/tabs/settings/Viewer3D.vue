@@ -43,6 +43,7 @@ onBeforeUnmount(() => {
       <slot />
     </div>
     <ViewerToolbar @toggle-fullscreen="openFullscreen" />
+    <slot name="bottom" />
   </div>
 
   <Teleport to="body">
@@ -53,6 +54,7 @@ onBeforeUnmount(() => {
             <slot />
           </div>
           <ViewerToolbar fullscreen @toggle-fullscreen="closeFullscreen" />
+          <slot name="bottom" />
         </div>
       </div>
     </Transition>

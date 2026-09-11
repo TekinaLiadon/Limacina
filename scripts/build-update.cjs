@@ -63,12 +63,12 @@ console.log(`ZIP: ${zipPath}`);
 
 try {
   if (platform === "win32") {
-    const psScript = `Compress-Archive -Path "${sourcePath}" -DestinationPath "${zipPath}" -Force`;
+    const psScript = `Compress-Archive -Path "${sourcePath}" -DestinationPath "${zipPath}" -CompressionLevel Maximum -Force`;
     execSync(`powershell -NoProfile -Command "${psScript}"`, { stdio: "inherit" });
   } else {
     const zipDir = path.dirname(sourcePath);
     const zipBase = path.basename(sourcePath);
-    execSync(`cd "${zipDir}" && zip -r "${zipPath}" "${zipBase}"`, { stdio: "inherit" });
+    execSync(`cd "${zipDir}" && zip -9 -r "${zipPath}" "${zipBase}"`, { stdio: "inherit" });
   }
   console.log(`\nГотово: ${zipPath}`);
 } catch (e) {

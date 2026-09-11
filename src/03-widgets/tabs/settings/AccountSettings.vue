@@ -22,16 +22,16 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
 
 <template>
   <div class="account-settings">
-    <div class="account-settings__section">
-      <div class="section-label">Аккаунт</div>
+    <div class="settings-grid">
+      <div class="section-label span-full">Аккаунт</div>
       <Input
         :model-value="username"
         :options="{ label: 'Никнейм', placeholder: 'Никнейм', disabled: true }"
       />
     </div>
 
-    <div class="account-settings__section">
-      <div class="section-label">Смена пароля</div>
+    <div class="settings-grid">
+      <div class="section-label span-full">Смена пароля</div>
       <Input
         v-model="oldPassword"
         :options="{ label: 'Текущий пароль', placeholder: 'Текущий пароль', type: 'password' }"
@@ -44,17 +44,17 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
         v-model="confirmPassword"
         :options="{ label: 'Повторите новый пароль', placeholder: 'Повторите новый пароль', type: 'password' }"
       />
-      <div v-if="!passwordsMatch" class="account-settings__error">
+      <div v-if="!passwordsMatch" class="account-settings__error span-full">
         Пароли не совпадают
       </div>
-      <div v-else-if="isSamePassword" class="account-settings__error">
+      <div v-else-if="isSamePassword" class="account-settings__error span-full">
         Новый пароль совпадает с текущим
       </div>
-      <div v-else-if="errorMessage" class="account-settings__error">
+      <div v-else-if="errorMessage" class="account-settings__error span-full">
         {{ errorMessage }}
       </div>
       <Button
-        class="btn-primary btn-lg btn-block"
+        class="btn-primary btn-lg account-settings__submit span-full"
         :is-loading="isChanging"
         :is-disabled="isDisabled"
         @click="handleChangePassword"
@@ -75,12 +75,6 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
   flex-direction: column;
   gap: var(--section-gap);
 
-  &__section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--element-gap);
-  }
-
   &__error {
     color: var(--error);
     font-size: var(--text-body-sm);
@@ -90,6 +84,12 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
     box-shadow: inset 0 0 0 1px var(--error-border);
     border-radius: var(--radius-badge);
     word-break: break-word;
+  }
+
+  &__submit {
+    justify-self: center;
+    width: 100%;
+    max-width: var(--settings-row-width);
   }
 
   &__hint {

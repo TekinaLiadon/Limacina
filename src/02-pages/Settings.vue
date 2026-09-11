@@ -82,7 +82,7 @@ const isTabDisabled = (tab: Tab): boolean => {
 
 .settings-page {
   width: 100%;
-  max-width: var(--page-max-width);
+  max-width: var(--page-max-width-wide);
   margin: 0 auto;
   padding: var(--page-padding-y) var(--page-padding-x);
   display: flex;

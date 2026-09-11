@@ -1,3 +1,11 @@
+export interface SavedLogin {
+  username: string
+}
+
+export interface AuthProjectConfig {
+  logins: SavedLogin[]
+}
+
 export interface LauncherConfig {
   launcherPath: string
   discordActivity: boolean
@@ -12,6 +20,7 @@ export interface LauncherConfig {
   animationsEnabled: boolean
   projectNames: string[]
   currentProject: string | null
+  projects: Record<string, AuthProjectConfig>
 }
 
 export interface AppInitData {
@@ -141,8 +150,6 @@ export interface LoginForm {
   rememberMe: boolean
 }
 
-export type AuthSaved = Pick<LoginForm, 'username' | 'password'>
-
 export interface RegisterForm {
   login: string
   password: string
@@ -171,15 +178,23 @@ export interface CPMChild {
   pos: CPMVec3
   rotation: CPMVec3
   scale: CPMVec3
+  storeID?: number
+  rscale?: CPMVec3
   mcScale?: number
   mirror?: boolean
   texture?: boolean
   hidden?: boolean
   show?: boolean
-  faceUV: Record<string, CPMFaceUV>
+  glow?: boolean
+  singleTex?: boolean
+  extrude?: boolean
+  recolor?: boolean
+  color?: string
+  u?: number
+  v?: number
+  textureSize?: number
+  faceUV?: Record<string, CPMFaceUV>
   children?: CPMChild[]
-  _hidden?: boolean
-  _visible: boolean
 }
 
 export interface CPMElement {
@@ -189,6 +204,11 @@ export interface CPMElement {
   rotation: CPMVec3
   scale?: CPMVec3
   show?: boolean
+  hidden?: boolean
+  customPart?: boolean
+  dup?: boolean
+  storeID?: number
+  disableVanillaAnim?: boolean
   children?: CPMChild[]
 }
 
@@ -196,12 +216,46 @@ export interface CPMConfig {
   skinSize: { x: number; y: number }
   scaling?: number
   skinType?: 'default' | 'slim'
+  hideHeadIfSkull?: boolean
+  removeArmorOffset?: boolean
+  removeBedOffset?: boolean
+  enableInvisGlow?: boolean
   elements: CPMElement[]
+}
+
+export type CPMAnimationKind = 'gesture' | 'custom-pose' | 'vanilla-pose' | 'layer' | 'value-layer' | 'setup' | 'finish'
+
+export interface CPMAnimationFrameComponent {
+  storeID: number
+  pos: CPMVec3
+  rotation: CPMVec3
+  scale: CPMVec3
+  show: boolean
+}
+
+export interface CPMAnimationFrame {
+  components: CPMAnimationFrameComponent[]
+}
+
+export type CPMAnimationInterpolator = 'linear_loop' | 'linear_single' | 'poly_loop' | 'poly_single' | 'trig_loop' | 'trig_single' | 'no'
+
+export interface CPMAnimation {
+  id: string
+  name: string
+  kind: CPMAnimationKind
+  duration: number
+  priority: number
+  loop: boolean
+  additive: boolean
+  interpolator: CPMAnimationInterpolator
+  hidden: boolean
+  frames: CPMAnimationFrame[]
 }
 
 export interface CPMData {
   config: CPMConfig
   textureUrl: string
+  animations?: CPMAnimation[]
 }
 
 export interface JavaDistribution {

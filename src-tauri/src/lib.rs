@@ -9,7 +9,7 @@ mod state;
 mod updater;
 mod utils;
 
-use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, auth_saved, change_password, delete_account};
+use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account};
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
@@ -65,6 +65,12 @@ pub fn run() {
             crate::utils::bandwidth::set_limit(
                 launcher_config.as_ref().and_then(|c| c.download_speed_limit),
             );
+            crate::utils::logger_utils::set_console_emit_enabled(
+                launcher_config.as_ref().map(|c| c.debug_mode).unwrap_or(false),
+            );
+            crate::utils::logger_utils::set_game_output_enabled(
+                launcher_config.as_ref().map(|c| c.debug_mode).unwrap_or(false),
+            );
 
             let base_path = if let Some(ref lc) = launcher_config {
                 std::path::PathBuf::from(&lc.launcher_path)
@@ -98,6 +104,13 @@ pub fn run() {
 
             Ok(())
         })
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -109,7 +122,6 @@ pub fn run() {
             auth_login,
             auth_register,
             auth_refresh,
-            auth_saved,
             auth_logins,
             change_password,
             delete_account,

@@ -1,14 +1,11 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
-use tokio::fs;
 
 use crate::{
     minecraft::{
         structs::{LibraryMod, VersionMod},
         mod_loader::{
-            forge::structs::{Manifest, Metadata},
-            utils::maven_to_url,
+            forge::structs::{Library, Manifest, Metadata},
+            manifest::{read_or_fetch_index, LoaderIndex, LoaderLibrary, LoaderArtifact, loader_libraries},
         },
     },
     utils::{
@@ -17,17 +14,27 @@ use crate::{
     },
 };
 
-pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
-    let json_path = launcher_patch(None)?.join("manifest").join("forge.json");
-    if json_path.exists() {
-        let file = fs::read_to_string(&json_path).await?;
-        let json: HashMap<String, Vec<String>> = serde_json::from_str(&file)?;
-        return Ok(json);
-    }
+const METADATA_URL: &str =
+    "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+const CACHE_FILE: &str = "forge.json";
+const MAVEN_BASE: &str = "https://maven.minecraftforge.net";
 
-    let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
-    let metadata = download_xml::<Metadata>(url).await?;
-    let mut grouped_versions: HashMap<String, Vec<String>> = HashMap::new();
+pub async fn get_manifest_index() -> Result<LoaderIndex> {
+    let json_path = launcher_patch(None)?.join("manifest").join(CACHE_FILE);
+    let index = read_or_fetch_index(
+        &json_path,
+        || async {
+            let metadata = download_xml::<Metadata>(METADATA_URL).await?;
+            Ok(group_forge_versions(metadata))
+        },
+        |index| Ok(serde_json::to_string_pretty(index)?),
+    )
+    .await?;
+    Ok(index)
+}
+
+fn group_forge_versions(metadata: Metadata) -> LoaderIndex {
+    let mut grouped_versions: LoaderIndex = std::collections::HashMap::new();
 
     for v in metadata.versioning.versions.version_list {
         if let Some((mc_ver, forge_ver)) = v.split_once('-') {
@@ -38,20 +45,17 @@ pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
         }
     }
 
-    let json = serde_json::to_string_pretty(&grouped_versions)?;
-    fs::write(json_path, &json).await?;
-
-    Ok(grouped_versions)
+    grouped_versions
 }
 
-pub fn transform_forge_manifest(forge_manifect: HashMap<String, Vec<String>>) -> Vec<VersionMod> {
+pub fn transform_forge_manifest(forge_manifect: LoaderIndex) -> Vec<VersionMod> {
     let mut manifest: Vec<VersionMod> = Vec::new();
 
     for (mc_version, forge_versions) in &forge_manifect {
         for forge_version in forge_versions {
             let version = format!("{}-{}", mc_version, forge_version);
             let version_mod = VersionMod {
-                url: format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-installer.jar", version),
+                url: format!("{}/net/minecraftforge/forge/{v}/forge-{v}-installer.jar", MAVEN_BASE, v = version),
                 id: version.clone(),
                 main_class: "".to_string(),
                 library: Vec::new(),
@@ -80,21 +84,19 @@ pub async fn modify_manifest(version: &str, manifest: &mut [VersionMod]) -> Resu
 }
 
 pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
-    let mut library = Vec::new();
+    loader_libraries(manifest.libraries, MAVEN_BASE)
+}
 
-    for lib in manifest.libraries {
-        let url = if !lib.downloads.artifact.url.is_empty() {
-            lib.downloads.artifact.url.clone()
-        } else {
-            maven_to_url(&lib.name, "https://maven.minecraftforge.net")
-        };
-        let new_lib = LibraryMod {
-            name: lib.name.clone(),
-            url,
-            hash: lib.downloads.artifact.sha1,
-            size: lib.downloads.artifact.size,
-        };
-        library.push(new_lib);
+impl LoaderLibrary for Library {
+    fn name(&self) -> String {
+        self.name.clone()
     }
-    Ok(library)
+
+    fn into_artifact(self) -> LoaderArtifact {
+        LoaderArtifact {
+            url: self.downloads.artifact.url,
+            sha1: self.downloads.artifact.sha1,
+            size: self.downloads.artifact.size,
+        }
+    }
 }

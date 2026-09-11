@@ -61,11 +61,11 @@ const handleDownload = async (): Promise<void> => {
 
 <template>
   <div class="project-settings">
-    <div class="project-settings__section">
-      <div class="section-label">Профиль сборки</div>
+    <div class="settings-grid">
+      <div class="section-label span-full">Профиль сборки</div>
       <ProjectInfoFields :config="config" />
       <Button
-        class="btn-secondary btn-block"
+        class="btn-secondary span-full project-settings__refresh-btn"
         :is-loading="isRefreshingManifests"
         :is-disabled="isRefreshingManifests || isSaving"
         @click="handleRefreshManifests"
@@ -74,9 +74,9 @@ const handleDownload = async (): Promise<void> => {
       </Button>
     </div>
 
-    <div class="project-settings__section">
-      <div class="section-label">Java</div>
-      <JavaPathPicker :java-path="config.javaPath" @browse="selectJavaFolder" />
+    <div class="settings-grid">
+      <div class="section-label span-full">Java</div>
+      <JavaPathPicker class="span-full settings-row" :java-path="config.javaPath" @browse="selectJavaFolder" />
       <AlternativeJavaButton
         :distributions="distributions"
         :is-downloading="isAltDownloading"
@@ -92,9 +92,8 @@ const handleDownload = async (): Promise<void> => {
       <MemorySlider v-model="memoryRange" :max="maxMemoryLimit" />
     </div>
 
-    <div class="project-settings__section">
-      <div class="section-label">Конфиги игры</div>
-      <ConfigCleanup :is-clearing="isClearingConfig" @clear="handleClearMinecraftConfig" />
+    <div class="settings-grid">
+      <div class="section-label span-full">Конфиги игры</div>
       <IntegrityCheck
         :is-checking="isIntegrityChecking"
         :steps="integritySteps"
@@ -104,10 +103,11 @@ const handleDownload = async (): Promise<void> => {
         @check="handleIntegrityCheck"
         @close="closeIntegrityResult"
       />
+      <ConfigCleanup :is-clearing="isClearingConfig" @clear="handleClearMinecraftConfig" />
     </div>
 
     <Button
-      class="btn-primary btn-lg btn-block"
+      class="btn-primary btn-lg project-settings__save"
       :is-loading="isSaving"
       :is-disabled="isSaving"
       @click="handleSave"
@@ -123,10 +123,15 @@ const handleDownload = async (): Promise<void> => {
   flex-direction: column;
   gap: var(--section-gap);
 
-  &__section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--element-gap);
+  &__save {
+    align-self: center;
+    min-width: 220px;
+  }
+
+  &__refresh-btn {
+    justify-self: center;
+    width: 100%;
+    max-width: var(--settings-row-width);
   }
 }
 </style>

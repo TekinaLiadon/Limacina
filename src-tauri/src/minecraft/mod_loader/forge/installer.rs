@@ -1,99 +1,65 @@
-use anyhow::{anyhow, bail, Context, Result};
-use serde_json::json;
-use std::path::{Path, PathBuf};
-use tokio::{fs, process::Command};
+use anyhow::{Context, Result};
+use std::path::Path;
 
-use crate::{
-    log_err,
-    minecraft::mod_loader::forge::structs::Manifest,
-    state::dto::ProjectConfig,
-    utils::{download_file::download_json, env_info::launcher_patch},
+use crate::minecraft::mod_loader::{
+    installer::{
+        locate_installed_manifest, manifest_paths, move_version_jar, run_loader_installer,
+    },
+    forge::structs::Manifest,
 };
+use crate::state::dto::ProjectConfig;
+use crate::utils::download_file::download_json;
 
-pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
-    let launcher_profiles_path = base_url.join("launcher_profiles.json");
-    if !launcher_profiles_path.exists() {
-        let profiles = json!({
-            "profiles": {},
-            "selectedProfile": "",
-            "clientToken": uuid::Uuid::new_v4().to_string(),
-            "authenticationDatabase": {},
-            "launcherVersion": {
-                "name": "custom",
-                "format": 21,
-                "profilesFormat": 2
-            }
-        });
-
-        let profiles_str = serde_json::to_string_pretty(&profiles)
-            .context("Не удалось сериализовать profiles: ")?;
-        fs::write(&launcher_profiles_path, profiles_str)
-            .await
-            .context("Не удалось создать launcher_profiles.json: ")?;
-    }
-    Ok(())
-}
+const LOADER_NAME: &str = "Forge";
+const MANIFEST_PREFIX: &str = "forge";
 
 pub async fn start_installer(
-    url: &PathBuf,
-    vanilla_url: &PathBuf,
+    installer_path: &Path,
+    vanilla_dir: &Path,
     state_project: &ProjectConfig,
 ) -> Result<Manifest> {
-    let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
-    let mut command = Command::new(java_cmd);
-    command
-        .arg("-jar")
-        .arg(url)
-        .arg("--installClient")
-        .arg(vanilla_url);
+    run_loader_installer(LOADER_NAME, installer_path, vanilla_dir, state_project).await?;
 
-    #[cfg(target_os = "windows")]
-    {
-        command.creation_flags(0x08000000);
-    }
+    let (forge_manifest, base_url) = manifest_paths(state_project, MANIFEST_PREFIX)?;
+    let versions_dir = base_url.join("versions");
 
-    let output = command
-        .output()
-        .await
-        .context("Не удалось запустить Forge installer: ")?;
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if !stderr.is_empty() {
-        log_err!("Stderr: {}", stderr);
-    }
-
-    if !output.status.success() {
-        bail!(format!(
-            "Forge installer завершился с ошибкой (код {:?}):\n{}",
-            output.status.code(),
-            stderr
-        ))
-    }
-
-    let version = state_project
-        .loader_version
-        .as_deref()
-        .ok_or(anyhow!("Лоадер не выбран"))?;
-    let manifest_dir = launcher_patch(None)?.join("manifest");
-    fs::create_dir_all(&manifest_dir).await?;
-    let forge_manifest = manifest_dir.join(format!("forge_{}.json", &version));
-    let base_url = launcher_patch(Some(&state_project.project_name))?;
-    let forge_name_manifest = format!("{}_forge_{}", &state_project.mc_version, &version);
-    let forge_manifest_old_path = base_url
-        .join("versions")
+    let forge_name_manifest = format!(
+        "{}_forge_{}",
+        state_project.mc_version,
+        state_project
+            .loader_version
+            .as_deref()
+            .unwrap_or_default()
+    );
+    let expected_manifest = versions_dir
         .join(&forge_name_manifest)
-        .join(format!("{}.json", &forge_name_manifest));
-    fs::rename(forge_manifest_old_path, &forge_manifest).await?;
+        .join(format!("{}.json", forge_name_manifest));
 
-    let old_dir = base_url.join("versions");
-    let jar_minecraft = format!("{}.jar", state_project.mc_version);
-    fs::rename(
-        old_dir.join(&state_project.mc_version).join(&jar_minecraft),
-        base_url.join(&jar_minecraft),
-    )
-    .await?;
-    fs::remove_dir_all(old_dir).await?;
+    let source = if expected_manifest.exists() {
+        expected_manifest
+    } else {
+        locate_installed_manifest(
+            &versions_dir,
+            &state_project.mc_version,
+            &forge_manifest,
+        )
+        .await?
+    };
+
+    move_version_jar(&base_url, &state_project.mc_version).await?;
+
+    if source != forge_manifest {
+        if let Some(parent) = forge_manifest.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("Не удалось создать {:?}", parent))?;
+        }
+        tokio::fs::rename(&source, &forge_manifest)
+            .await
+            .with_context(|| format!("Не удалось переместить {:?} в {:?}", source, forge_manifest))?;
+    }
+
+    let _ = tokio::fs::remove_dir_all(versions_dir).await;
 
     let manifest = download_json::<Manifest>(None, &forge_manifest).await?;
     Ok(manifest)

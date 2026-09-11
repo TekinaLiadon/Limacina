@@ -7,20 +7,22 @@ pub mod rules;
 use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::minecraft::download::download_jar;
 use crate::minecraft::manifest::get_manifest_index;
 use crate::minecraft::mod_loader::manifest::get_manifest_version;
 use crate::minecraft::vanilla::config::get_classpath;
 use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
-use crate::minecraft::vanilla::download::{donwload_index_lib, download_assets, download_native};
-use crate::minecraft::vanilla::structs::{VanillaVersionsManifest, VersionDetailsManifest};
+use crate::minecraft::vanilla::download::{
+    collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
+    collect_library_targets, collect_natives_to_extract, extract_natives,
+};
+use crate::minecraft::vanilla::structs::{AssetIndexContent, VanillaVersionsManifest, VersionDetailsManifest};
 use crate::minecraft::vanilla::manifest::create_manifest_versions;
 use crate::state::dto::ProjectConfig;
 use crate::{
     log_info,
     minecraft::structs::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     step_try,
-    utils::{env_info::launcher_patch, java::find_java, step_events::StepHandle},
+    utils::{env_info::launcher_patch, integrity::ensure_files, java::find_java, step_events::StepHandle},
 };
 
 const LOADER_NAME: &str = "vanilla";
@@ -49,25 +51,80 @@ impl MinecraftLoader for Vanilla {
             step_try!(version_step, get_manifest_version(version, versions).await);
         version_step.finish(false);
 
-        let jar_step = StepHandle::start("mc.jar", "Скачивание клиента игры");
-        step_try!(jar_step, download_jar(
-            &state.project_name,
-            version,
-            &manifest.downloads.client.url,
-            Some(&manifest.downloads.client.sha1),
+        let base_path = launcher_patch(Some(&state.project_name))?;
+        let project_name = &state.project_name;
+
+        let jar_step = StepHandle::start("mc.jar", "Клиент игры");
+        step_try!(jar_step, ensure_files(
+            &jar_step,
+            &base_path,
+            project_name,
+            vec![collect_client_jar_target(&manifest)],
         )
         .await);
         jar_step.finish(false);
 
-        log_info!("Скачивание нативных библиотек");
-        download_native(&state.project_name, &manifest).await?;
+        let libs_step = StepHandle::start("mc.libs", "Библиотеки игры");
+        step_try!(libs_step, ensure_files(
+            &libs_step,
+            &base_path,
+            project_name,
+            collect_library_targets(&manifest),
+        )
+        .await);
+        libs_step.finish(false);
 
-        log_info!("Скачивание assets");
+        let natives_rel = collect_natives_to_extract(&manifest);
+        let natives_step = StepHandle::start("mc.natives", "Нативные библиотеки");
+        let natives_dir = base_path.join("natives");
+        let natives_empty = match tokio::fs::read_dir(&natives_dir).await {
+            Ok(mut entries) => entries.next_entry().await.map(|e| e.is_none()).unwrap_or(true),
+            Err(_) => true,
+        };
+        if natives_empty {
+            natives_step.detail("Распаковка");
+            step_try!(natives_step, extract_natives(&base_path, natives_rel).await);
+            natives_step.finish(false);
+        } else {
+            natives_step.finish(true);
+        }
+
         let index_step = StepHandle::start("mc.assets.index", "Загрузка индекса ресурсов");
-        let index_lib = step_try!(index_step, donwload_index_lib(&state.project_name, &manifest).await);
+        let index_target = collect_asset_index_target(&manifest);
+        step_try!(index_step, ensure_files(
+            &index_step,
+            &base_path,
+            project_name,
+            vec![index_target.clone()],
+        )
+        .await);
+
+        let index_path = base_path.join(&index_target.rel_path);
+        let asset_index: AssetIndexContent = match tokio::fs::read_to_string(&index_path).await {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(index) => index,
+                Err(e) => {
+                    index_step.fail(e.to_string());
+                    return Err(anyhow::Error::new(e).context("Не удалось разобрать индекс ресурсов"));
+                }
+            },
+            Err(e) => {
+                index_step.fail(e.to_string());
+                return Err(anyhow::Error::new(e).context("Не удалось прочитать индекс ресурсов"));
+            }
+        };
         index_step.finish(false);
 
-        download_assets(&state.project_name, index_lib).await?;
+        let assets_step = StepHandle::start("mc.assets", "Загрузка ресурсов");
+        step_try!(assets_step, ensure_files(
+            &assets_step,
+            &base_path,
+            project_name,
+            collect_asset_targets(&asset_index),
+        )
+        .await);
+        assets_step.finish(false);
+
         Ok(())
     }
     async fn config(&self, state: &ProjectConfig, config: &LaunchConfig) -> Result<GameConfig> {

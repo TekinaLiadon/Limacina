@@ -1,5 +1,5 @@
 use crate::{state::dto::ProjectConfig, utils::env_info::launcher_patch};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tokio::fs::{create_dir_all, read_to_string, write};
 use toml::{from_str, to_string_pretty};
 
@@ -19,17 +19,28 @@ impl ProjectConfig {
 
 pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
     let path = launcher_patch(Some("config"))?;
-    let content = read_to_string(path.join(format!("{}.toml", project_name))).await?;
-    let config: ProjectConfig = from_str(&content)?;
+    let file_path = path.join(format!("{}.toml", project_name));
+    let content = read_to_string(&file_path).await?;
+    let config: ProjectConfig = from_str(&content)
+        .with_context(|| format!("Повреждён конфиг профиля {:?}", file_path))?;
     Ok(config)
 }
 
-
-pub async fn load_config_or_default(project_name: &str) -> ProjectConfig {
-    load_config(project_name)
-        .await
-        .unwrap_or_else(|_| ProjectConfig {
+pub async fn load_config_or_default(project_name: &str) -> Result<ProjectConfig> {
+    match load_config(project_name).await {
+        Ok(config) => Ok(config),
+        Err(e) if is_missing_config(&e) => Ok(ProjectConfig {
             project_name: project_name.to_string(),
             ..ProjectConfig::default()
-        })
+        }),
+        Err(e) => Err(e),
+    }
+}
+
+fn is_missing_config(e: &anyhow::Error) -> bool {
+    e.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+    })
 }

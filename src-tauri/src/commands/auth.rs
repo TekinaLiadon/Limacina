@@ -10,17 +10,11 @@ use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::tauri_err::CommandResult;
 
-#[derive(serde::Serialize)]
-pub struct SavedCredentials {
-    pub username: String,
-    pub password: String,
-}
-
-
 async fn store_session(
     state: &State<'_, Mutex<GlobalState>>,
     data: &AuthData,
     fallback_username: &str,
+    project_name: &str,
 ) -> (String, String) {
     let uuid = data.uuid();
     let username = data.username(fallback_username);
@@ -30,6 +24,7 @@ async fn store_session(
         access_token: data.tokens.access_token.clone(),
         uuid: uuid.clone(),
         username: username.clone(),
+        project_name: project_name.to_string(),
     });
 
     (uuid, username)
@@ -60,7 +55,7 @@ pub(crate) async fn restore_session(
     username: &str,
     password: Option<&str>,
 ) -> Result<AuthData> {
-    let project = load_config_or_default(project_name).await;
+    let project = load_config_or_default(project_name).await?;
     if !project.online {
         bail!(
             "Профиль «{}» — одиночный, серверная авторизация недоступна",
@@ -80,12 +75,7 @@ pub(crate) async fn restore_session(
         }
     }
 
-    let stored_password = match password {
-        Some(password) => Some(password.to_string()),
-        None => storage::get_credential(project_name, username, "password")
-            .await
-            .ok(),
-    };
+    let stored_password = password.map(|password| password.to_string());
     match stored_password {
         Some(password) => auth::login(&server_url, username, &password).await,
         None => bail!(
@@ -112,14 +102,13 @@ async fn register_account(
     username: &str,
     password: &str,
 ) -> Result<()> {
-    let project = load_config_or_default(project_name).await;
+    let project = load_config_or_default(project_name).await?;
     if !project.online {
         bail!("Регистрация недоступна для одиночного профиля");
     }
 
     auth::register(&project.resolved_server_url(), username, password).await?;
 
-    storage::save_credential(project_name, username, "password", password).await?;
     remember_login(state, project_name, username, true).await?;
 
     Ok(())
@@ -144,26 +133,24 @@ async fn login_account(
     password: &str,
     remember_me: bool,
 ) -> Result<()> {
-    let project = load_config_or_default(project_name).await;
-
+    let project = load_config_or_default(project_name).await?;
 
     if !project.online {
         if username.trim().is_empty() {
             bail!("Введите ник");
         }
         let data = auth::offline(username);
-        store_session(state, &data, username).await;
+        store_session(state, &data, username, project_name).await;
         remember_login(state, project_name, username, true).await?;
         return Ok(());
     }
 
     let data = restore_session(project_name, username, Some(password)).await?;
 
-    let (uuid, _) = store_session(state, &data, username).await;
+    let (uuid, _) = store_session(state, &data, username, project_name).await;
     remember_login(state, project_name, username, remember_me).await?;
 
     if remember_me {
-        storage::save_credential(project_name, username, "password", password).await?;
         storage::save_credential(
             project_name,
             username,
@@ -189,16 +176,16 @@ pub async fn auth_refresh(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
-    let project = load_config_or_default(&project_name).await;
+    let project = load_config_or_default(&project_name).await?;
 
     if !project.online {
         let data = auth::offline(&username);
-        store_session(&state, &data, &username).await;
+        store_session(&state, &data, &username, &project_name).await;
         return Ok(());
     }
 
     let auth_data = restore_session(&project_name, &username, None).await?;
-    let (uuid, _) = store_session(&state, &auth_data, &username).await;
+    let (uuid, _) = store_session(&state, &auth_data, &username, &project_name).await;
 
     if !uuid.is_empty() {
         let _ = storage::save_credential(&project_name, &username, "uuid", &uuid).await;
@@ -212,40 +199,6 @@ pub async fn auth_refresh(
     .await?;
 
     Ok(())
-}
-
-#[tauri::command]
-pub async fn auth_saved(
-    state: State<'_, Mutex<GlobalState>>,
-    project_name: String,
-) -> CommandResult<Option<SavedCredentials>> {
-    let username = {
-        let state = state.lock().await;
-        state
-            .launcher_config
-            .as_ref()
-            .and_then(|lc| lc.get_first_login(&project_name))
-    };
-
-    let Some(username) = username else {
-        return Ok(None);
-    };
-
-
-    let project = load_config_or_default(&project_name).await;
-    if !project.online {
-        return Ok(Some(SavedCredentials {
-            username,
-            password: String::new(),
-        }));
-    }
-
-
-
-    let password = storage::get_credential(&project_name, &username, "password")
-        .await
-        .unwrap_or_default();
-    Ok(Some(SavedCredentials { username, password }))
 }
 
 #[tauri::command]
@@ -290,7 +243,7 @@ async fn change_password_flow(
         (session.username.clone(), session.access_token.clone())
     };
 
-    let project = load_config_or_default(project_name).await;
+    let project = load_config_or_default(project_name).await?;
     if !project.online {
         bail!("Смена пароля недоступна для одиночного профиля");
     }
@@ -306,10 +259,10 @@ async fn change_password_flow(
             access_token: data.tokens.access_token.clone(),
             uuid: data.uuid(),
             username: data.username(&username),
+            project_name: project_name.to_string(),
         });
     }
 
-    storage::save_credential(project_name, &username, "password", new_password).await?;
     storage::save_credential(
         project_name,
         &username,

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::state::dto::GlobalState;
 use crate::utils::bandwidth;
-use crate::utils::download_file::{file_md5};
+use crate::utils::download_file::file_sha1;
 use crate::utils::env_info::is_safe_relative_path;
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::StepHandle;
@@ -84,16 +84,31 @@ async fn write_streamed(
         .with_context(|| format!("Не удалось создать файл {:?}", tmp_path))?;
     let mut stream = response.bytes_stream();
     let mut total_bytes: u64 = 0;
+    let mut stream_result: Result<()> = Ok(());
 
     while let Some(item) = stream.next().await {
-        let chunk = item
-            .with_context(|| format!("Ошибка чтения потока при скачивании {}", url))?;
+        let chunk = match item {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                stream_result = Err(anyhow::Error::new(e)
+                    .context(format!("Ошибка чтения потока при скачивании {}", url)));
+                break;
+            }
+        };
         bandwidth::acquire(chunk.len() as u64).await;
         total_bytes += chunk.len() as u64;
-        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
-            .with_context(|| format!("Ошибка записи в файл {:?}", tmp_path))?;
+        if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await {
+            stream_result = Err(e).with_context(|| format!("Ошибка записи в файл {:?}", tmp_path));
+            break;
+        }
     }
     drop(file);
+
+    if let Err(e) = stream_result {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(e);
+    }
+
     log_info!("[download] Скачано {} байт: {}", total_bytes, url);
 
     tokio::fs::rename(&tmp_path, file_path).await
@@ -175,7 +190,14 @@ pub(crate) fn download_launcher_server_file(
     }
 }
 
-pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<String> {
+#[derive(Serialize, Default)]
+pub struct FilesSyncReport {
+    pub total: usize,
+    pub downloaded: usize,
+    pub skipped: bool,
+}
+
+pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
     let (token, server_url, online) = {
         let guard = state.lock().await;
         let online = guard.project_config.online;
@@ -195,7 +217,7 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
 
     if !online {
         log_info!("[files] Одиночный профиль {} — синхронизация с сервером не нужна", project_name);
-        return Ok("Одиночный профиль: синхронизация не требуется".to_string());
+        return Ok(FilesSyncReport::default());
     }
 
     let client = build_auth_client(&token)?;
@@ -222,7 +244,7 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
         if !file_path.exists() {
             files_to_download.push(key.clone());
         } else if check_hashes {
-            match file_md5(&file_path).await {
+            match file_sha1(&file_path).await {
                 Ok(hash) if hash == *expected_hash => continue,
                 _ => files_to_download.push(key.clone()),
             }
@@ -237,7 +259,11 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
     if total_files == 0 {
         log_info!("[files] Все файлы уже на месте");
         download_step.finish(true);
-        return Ok(serde_json::to_string(&file_list)?);
+        return Ok(FilesSyncReport {
+            total: file_list.len(),
+            downloaded: 0,
+            skipped: true,
+        });
     }
 
     for key in &files_to_download {
@@ -289,10 +315,14 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
         res?;
     }
 
-    Ok(format!("Скачано файлов: {}", total_files))
+    Ok(FilesSyncReport {
+        total: total_files,
+        downloaded,
+        skipped: false,
+    })
 }
 
-pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<String> {
+pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
     let (token, server_url, online) = {
         let guard = state.lock().await;
         let online = guard.project_config.online;
@@ -312,7 +342,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
 
     if !online {
         log_info!("[mods] Одиночный профиль {} — моды с сервера не скачиваются", project_name);
-        return Ok("Одиночный профиль: моды с сервера не скачиваются".to_string());
+        return Ok(FilesSyncReport::default());
     }
 
     let client = build_auth_client(&token)?;
@@ -354,7 +384,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
     if mods.is_empty() {
         log_info!("[mods] Список модов пуст");
         download_step.finish(true);
-        return Ok("Нет модов для скачивания".to_string());
+        return Ok(FilesSyncReport::default());
     }
 
     let mut files_to_download: Vec<String> = Vec::new();
@@ -375,7 +405,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
             log_info!("[mods] Мод отсутствует: {}", file_name);
             files_to_download.push(server_key.clone());
         } else {
-            match file_md5(&file_path).await {
+            match file_sha1(&file_path).await {
                 Ok(hash) if hash == *expected_hash => {
                     log_info!("[mods] Мод актуален: {}", file_name);
                     continue;
@@ -400,7 +430,11 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
     if total_to_download == 0 {
         log_info!("[mods] Все моды актуальны");
         download_step.finish(true);
-        return Ok(format!("Все моды актуальны: {}", mods.len()));
+        return Ok(FilesSyncReport {
+            total: mods.len(),
+            downloaded: 0,
+            skipped: true,
+        });
     }
 
     for key in &files_to_download {
@@ -451,5 +485,9 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
         res?;
     }
 
-    Ok(format!("Скачано модов: {}/{}", downloaded, total_to_download))
+    Ok(FilesSyncReport {
+        total: total_to_download,
+        downloaded,
+        skipped: false,
+    })
 }

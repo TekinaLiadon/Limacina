@@ -7,11 +7,12 @@ use tokio::sync::Mutex;
 use crate::auth::{self, storage};
 use crate::commands::auth::restore_session;
 use crate::launcher_server::user_content::{self, UserContentItem};
-use crate::log_info;
+use crate::{log_err, log_info};
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::launcher_patch;
+use crate::utils::hex::digest_hex;
 use crate::utils::tauri_err::CommandResult;
 
 #[derive(Serialize)]
@@ -26,7 +27,7 @@ pub async fn select_account(
     project_name: String,
     username: String,
 ) -> CommandResult<SessionInfo> {
-    let project = load_config_or_default(&project_name).await;
+    let project = load_config_or_default(&project_name).await?;
 
 
 
@@ -45,6 +46,7 @@ pub async fn select_account(
             access_token: auth_data.tokens.access_token.clone(),
             uuid: uuid.clone(),
             username: username_str.clone(),
+            project_name: project_name.clone(),
         });
     }
 
@@ -84,6 +86,31 @@ pub async fn get_session_info(
 pub async fn logout_account(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
+    let (project_name, username, online, server_url) = {
+        let state = state.lock().await;
+        match state.session.as_ref() {
+            Some(session) => (
+                session.project_name.clone(),
+                session.username.clone(),
+                state.project_config.online,
+                state.project_config.resolved_server_url(),
+            ),
+            None => (String::new(), String::new(), false, String::new()),
+        }
+    };
+
+    if online && !project_name.is_empty() && !username.is_empty() {
+        match storage::get_credential(&project_name, &username, "refresh_token").await {
+            Ok(refresh_token) if !refresh_token.is_empty() => {
+                if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
+                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                }
+                let _ = storage::delete_credential(&project_name, &username, "refresh_token").await;
+            }
+            _ => {}
+        }
+    }
+
     let mut state = state.lock().await;
     state.session = None;
     Ok(())
@@ -126,8 +153,7 @@ pub async fn delete_skin(
 
 fn skin_cache_name(uuid: &str, url: &str) -> String {
     let hash = Md5::digest(url.as_bytes());
-    let hex: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
-    format!("{}_{}.png", uuid, hex)
+    format!("{}_{}.png", uuid, digest_hex(hash))
 }
 
 async fn get_profile_skin_inner(
@@ -153,19 +179,35 @@ async fn get_profile_skin_inner(
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
-    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with(&prefix) && name != file_name {
-                    let _ = std::fs::remove_file(entry.path());
+    tokio::task::spawn_blocking({
+        let cache_dir = cache_dir.clone();
+        let file_name = file_name.clone();
+        let prefix = prefix.clone();
+        move || {
+            if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&prefix) && name != file_name {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
                 }
             }
         }
-    }
+    })
+    .await
+    .context("Не удалось выполнить очистку кэша скинов")?;
 
     download_file(url, &cache_path).await?;
 
-    std::fs::read(&cache_path).with_context(|| format!("Не удалось прочитать {:?}", cache_path))
+    let cache_path_clone = cache_path.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        std::fs::read(&cache_path_clone)
+            .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))
+    })
+    .await
+    .context("Не удалось выполнить чтение кэша скина")??;
+    Ok(bytes)
 }
 
 #[tauri::command]

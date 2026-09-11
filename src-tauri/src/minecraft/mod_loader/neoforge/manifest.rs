@@ -1,14 +1,11 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
-use tokio::fs;
 
 use crate::{
     minecraft::{
         structs::{LibraryMod, VersionMod},
         mod_loader::{
-            neoforge::structs::{Manifest, Metadata},
-            utils::maven_to_url,
+            manifest::{read_or_fetch_index, LoaderIndex, LoaderLibrary, LoaderArtifact, loader_libraries},
+            neoforge::structs::{Library, Manifest, Metadata},
         },
     },
     utils::{
@@ -17,30 +14,35 @@ use crate::{
     },
 };
 
-pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
-    let json_path = launcher_patch(None)?.join("manifest").join("neoforge.json");
-    if json_path.exists() {
-        let file = fs::read_to_string(&json_path).await?;
-        let json: HashMap<String, Vec<String>> = serde_json::from_str(&file)?;
-        return Ok(json);
-    }
+const METADATA_URL: &str =
+    "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+const CACHE_FILE: &str = "neoforge.json";
+const MAVEN_BASE: &str = "https://maven.neoforged.net";
 
-    let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
-    let metadata = download_xml::<Metadata>(url).await?;
-    let mut grouped_versions: HashMap<String, Vec<String>> = HashMap::new();
+pub async fn get_manifest_index() -> Result<LoaderIndex> {
+    let json_path = launcher_patch(None)?.join("manifest").join(CACHE_FILE);
+    let index = read_or_fetch_index(
+        &json_path,
+        || async {
+            let metadata = download_xml::<Metadata>(METADATA_URL).await?;
+            Ok(group_neoforge_versions(metadata))
+        },
+        |index| Ok(serde_json::to_string_pretty(index)?),
+    )
+    .await?;
+    Ok(index)
+}
+
+fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
+    let mut grouped_versions: LoaderIndex = std::collections::HashMap::new();
 
     for v in metadata.versioning.versions.version_list {
         let parts: Vec<&str> = v.split('.').collect();
         if parts.len() < 2 {
             continue;
         }
-        let major: u32 = match parts[0].parse() {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let minor: u32 = match parts[1].parse() {
-            Ok(v) => v,
-            Err(_) => continue,
+        let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) else {
+            continue;
         };
         let mc_version = format!("1.{}.{}", major, minor);
         grouped_versions
@@ -49,23 +51,17 @@ pub async fn get_manifest_index() -> Result<HashMap<String, Vec<String>>> {
             .push(v.to_string());
     }
 
-    let json = serde_json::to_string_pretty(&grouped_versions)?;
-    if let Some(parent) = json_path.parent() {
-        fs::create_dir_all(parent).await?;
-    }
-    fs::write(json_path, &json).await?;
-
-    Ok(grouped_versions)
+    grouped_versions
 }
 
-pub fn transform_neoforge_manifest(neoforge_manifest: HashMap<String, Vec<String>>) -> Vec<VersionMod> {
+pub fn transform_neoforge_manifest(neoforge_manifest: LoaderIndex) -> Vec<VersionMod> {
     let mut manifest: Vec<VersionMod> = Vec::new();
 
     for (mc_version, neoforge_versions) in &neoforge_manifest {
         for neoforge_version in neoforge_versions {
             let version_id = format!("{}-{}", mc_version, neoforge_version);
             let version_mod = VersionMod {
-                url: format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{0}/neoforge-{0}-installer.jar", neoforge_version),
+                url: format!("{}/releases/net/neoforged/neoforge/{v}/neoforge-{v}-installer.jar", MAVEN_BASE, v = neoforge_version),
                 id: version_id.clone(),
                 main_class: "".to_string(),
                 library: Vec::new(),
@@ -94,21 +90,19 @@ pub async fn modify_manifest(version: &str, manifest: &mut [VersionMod]) -> Resu
 }
 
 pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
-    let mut library = Vec::new();
+    loader_libraries(manifest.libraries, MAVEN_BASE)
+}
 
-    for lib in manifest.libraries {
-        let url = if !lib.downloads.artifact.url.is_empty() {
-            lib.downloads.artifact.url.clone()
-        } else {
-            maven_to_url(&lib.name, "https://maven.neoforged.net")
-        };
-        let new_lib = LibraryMod {
-            name: lib.name.clone(),
-            url,
-            hash: lib.downloads.artifact.sha1,
-            size: lib.downloads.artifact.size,
-        };
-        library.push(new_lib);
+impl LoaderLibrary for Library {
+    fn name(&self) -> String {
+        self.name.clone()
     }
-    Ok(library)
+
+    fn into_artifact(self) -> LoaderArtifact {
+        LoaderArtifact {
+            url: self.downloads.artifact.url,
+            sha1: self.downloads.artifact.sha1,
+            size: self.downloads.artifact.size,
+        }
+    }
 }

@@ -58,6 +58,11 @@ struct AuthRefreshRequest {
 }
 
 #[derive(serde::Serialize)]
+struct AuthInvalidateRequest {
+    refresh_token: String,
+}
+
+#[derive(serde::Serialize)]
 struct AuthChangePasswordRequest {
     old_password: String,
     new_password: String,
@@ -215,4 +220,28 @@ pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> 
         .context("Не удалось распарсить ответ авторизации")?;
 
     Ok(auth_data)
+}
+
+pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
+    let url = format!("{}/v1/common/auth/invalidate", server_url);
+
+    let client = crate::utils::http::http_client();
+    let body = AuthInvalidateRequest {
+        refresh_token: refresh_token.to_string(),
+    };
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .context("Не удалось подключиться к серверу авторизации")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Сервер авторизации вернул {} при инвалидации токена: {}", status, body);
+    }
+
+    Ok(())
 }

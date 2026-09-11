@@ -1,28 +1,8 @@
+use crate::minecraft::rules::is_typed_rule_allowed;
 use crate::minecraft::vanilla::structs::Rule;
-use crate::utils::env_info::get_current_os;
 
 pub fn is_rule_allowed(rules: Option<&[Rule]>) -> bool {
-    let Some(rules) = rules else {
-        return true;
-    };
-
-    let current_os = get_current_os();
-    let mut allowed = false;
-
-    for rule in rules {
-        let os_matches = match &rule.os {
-            Some(os) => os.name.as_ref().is_none_or(|n| n == current_os),
-            None => true,
-        };
-
-        let features_match = rule.features.is_none();
-
-        if os_matches && features_match {
-            allowed = rule.action == "allow";
-        }
-    }
-
-    allowed
+    is_typed_rule_allowed(rules)
 }
 
 #[cfg(test)]

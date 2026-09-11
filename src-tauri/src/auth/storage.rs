@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::{
     log_err,
     utils::env_info::{get_launcher_name, launcher_patch},
+    utils::hex::{from_hex, to_hex},
 };
 
 
@@ -16,7 +17,8 @@ const FALLBACK_ALLOWED_SUFFIXES: &[&str] = &["refresh_token", "uuid"];
 #[derive(Serialize, Deserialize)]
 struct EncryptedEntry {
     username: String,
-    ciphertext: String,
+    #[serde(alias = "ciphertext")]
+    obfuscated: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -42,22 +44,6 @@ fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
         .zip(key.iter().cycle())
         .map(|(d, k)| d ^ k)
         .collect()
-}
-
-fn to_hex(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
-fn from_hex(s: &str) -> Result<Vec<u8>> {
-    let mut result = Vec::with_capacity(s.len() / 2);
-    let mut chars = s.chars();
-    while let Some(hi) = chars.next() {
-        let lo = chars.next().context("Нечётная длина hex строки")?;
-        let byte = u8::from_str_radix(&format!("{}{}", hi, lo), 16)
-            .context("Неверный hex символ")?;
-        result.push(byte);
-    }
-    Ok(result)
 }
 
 fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -> Result<()> {
@@ -86,7 +72,7 @@ fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -
         0,
         EncryptedEntry {
             username: entry_key,
-            ciphertext: to_hex(&encrypted),
+            obfuscated: to_hex(&encrypted),
         },
     );
 
@@ -115,7 +101,7 @@ fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<Stri
         .context("Credentials не найдены в хранилище")?;
 
     let key = derive_key(project, username, key_suffix);
-    let ciphertext = from_hex(&entry.ciphertext)?;
+    let ciphertext = from_hex(&entry.obfuscated)?;
     let decrypted = xor_crypt(&ciphertext, &key);
     String::from_utf8(decrypted).context("Не удалось расшифровать credentials")
 }

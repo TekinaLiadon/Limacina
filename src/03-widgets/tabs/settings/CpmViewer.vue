@@ -1,23 +1,46 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, toRef } from 'vue'
 import { useCpmViewer } from '@/04-features'
-import type { CPMData } from '@/05-entities/core/types'
+import type { CPMData, CPMAnimation } from '@/05-entities/core/types'
 import { useViewerControls } from './viewerControls'
 
 const props = defineProps<{
   cpmData: CPMData | null
-  activeLayers: string[]
+  activeLayers: number[]
+  activeAnimations?: CPMAnimation[]
+  isAnimationPlaying?: boolean
+  animationSpeed?: number
+  isAnimationLooped?: boolean
+}>()
+
+const emit = defineEmits<{
+  'animations-changed': [playing: boolean]
+  'animation-finished': []
 }>()
 
 const container = ref<HTMLDivElement | null>(null)
 
-const cpmData = ref<CPMData | null>(props.cpmData)
-const activeLayers = ref<string[]>(props.activeLayers)
+const cpmData = toRef(props, 'cpmData')
+const activeLayers = toRef(props, 'activeLayers')
+const activeAnimations = computed((): CPMAnimation[] => props.activeAnimations ?? [])
+const isAnimationPlaying = computed((): boolean => props.isAnimationPlaying ?? false)
+const animationSpeed = computed((): number => props.animationSpeed ?? 1)
+const isAnimationLooped = computed((): boolean => props.isAnimationLooped ?? false)
 
-watch(() => props.cpmData, (data) => { cpmData.value = data })
-watch(() => props.activeLayers, (layers) => { activeLayers.value = layers }, { deep: true })
-
-useCpmViewer(container, cpmData, activeLayers, useViewerControls())
+useCpmViewer(
+  container,
+  cpmData,
+  activeLayers,
+  useViewerControls(),
+  activeAnimations,
+  isAnimationPlaying,
+  animationSpeed,
+  isAnimationLooped,
+  {
+    onAnimationsChanged: (playing: boolean) => emit('animations-changed', playing),
+    onAnimationFinished: () => emit('animation-finished'),
+  },
+)
 </script>
 
 <template>

@@ -1,4 +1,4 @@
-import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import type { IntegrityReport, StepEvent, StepProgressItem } from '@/05-entities/core/types'
 import { checkFilesIntegrity, listenIntegritySteps } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
@@ -37,6 +37,13 @@ export function useIntegrityCheck(): {
 
   let unlisten: UnlistenFn | null = null
   let currentId = 0
+  let isUnmounted = false
+
+  onBeforeUnmount(() => {
+    isUnmounted = true
+    unlisten?.()
+    unlisten = null
+  })
 
   const apply = (event: StepEvent): void => {
     switch (event.type) {
@@ -100,10 +107,14 @@ export function useIntegrityCheck(): {
 
     try {
       if (unlisten === null) {
-        unlisten = await listenIntegritySteps((event: StepEvent) => {
+        const fn = await listenIntegritySteps((event: StepEvent) => {
           if (isChecking.value) apply(event)
         })
-        // TODO unlisten
+        if (isUnmounted) {
+          fn()
+          return
+        }
+        unlisten = fn
       }
       const result = await checkFilesIntegrity()
       if (checkId !== currentId) return

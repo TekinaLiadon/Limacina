@@ -56,7 +56,7 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
 
     let jar_report = check_integrity(
         &base_path,
-        vec![collect_client_jar_target(&project_name, &manifest)?],
+        vec![collect_client_jar_target(&manifest)],
         "mc.jar",
         "Клиент игры",
         url_download_fn(),

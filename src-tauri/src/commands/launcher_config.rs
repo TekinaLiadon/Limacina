@@ -27,16 +27,34 @@ pub(crate) async fn update_launcher_config(
     state: &State<'_, Mutex<GlobalState>>,
     mutate: impl FnOnce(&mut LauncherConfig),
 ) -> anyhow::Result<LauncherConfig> {
-    let mut guard = state.lock().await;
-    let mut config = match guard.launcher_config.clone() {
-        Some(config) => config,
-        None => LauncherConfig::load().ok().flatten().unwrap_or_default(),
+    let (config, content, path) = {
+        let mut guard = state.lock().await;
+        let mut config = match guard.launcher_config.clone() {
+            Some(config) => config,
+            None => LauncherConfig::load().ok().flatten().unwrap_or_default(),
+        };
+
+        mutate(&mut config);
+
+        let content = config
+            .serialize_for_save()
+            .map_err(|e| anyhow::anyhow!("Не удалось сериализовать конфиг: {}", e))?;
+        let path = LauncherConfig::config_file_path_public()
+            .map_err(|e| anyhow::anyhow!("Не удалось определить путь конфига: {}", e))?;
+
+        guard.launcher_config = Some(config.clone());
+        (config, content, path)
     };
 
-    mutate(&mut config);
-    config.save()?;
+    let content_clone = content.clone();
+    let path_clone = path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        LauncherConfig::write_serialized(&path_clone, &content_clone)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Не удалось выполнить запись конфига: {}", e))??;
 
-    guard.launcher_config = Some(config.clone());
+    config.on_saved_update_path();
     Ok(config)
 }
 
@@ -44,7 +62,11 @@ pub(crate) async fn update_launcher_config(
 pub async fn get_app_init_data(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<AppInitData> {
-    let mut config = LauncherConfig::load().ok().flatten();
+    let mut config = tauri::async_runtime::spawn_blocking(LauncherConfig::load)
+        .await
+        .map_err(|e| anyhow::anyhow!("Не удалось выполнить чтение конфига: {}", e))?
+        .ok()
+        .flatten();
 
     if let Some(ref mut cfg) = config {
         if cfg.project_names.is_empty() {
@@ -54,7 +76,10 @@ pub async fn get_app_init_data(
                 if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await {
                     if !server_config.project_name.is_empty() {
                         cfg.project_names = vec![server_config.project_name];
-                        let _ = cfg.save();
+                        let cfg_clone = cfg.clone();
+                        let _ = tauri::async_runtime::spawn_blocking(move || cfg_clone.save())
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Не удалось выполнить запись конфига: {}", e))?;
                     }
                 }
             }
@@ -102,14 +127,16 @@ pub async fn save_launcher_config(
     .await?;
 
     let base = PathBuf::from(&config.launcher_path);
-    std::fs::create_dir_all(&base)
-        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"{}\": {}", base.display(), e))?;
-    std::fs::create_dir_all(base.join("project"))
-        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"project\": {}", e))?;
-    std::fs::create_dir_all(base.join("manifest"))
-        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"manifest\": {}", e))?;
-    std::fs::create_dir_all(base.join("java"))
-        .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"java\": {}", e))?;
+    let dirs_to_create = [base.clone(), base.join("project"), base.join("manifest"), base.join("java")];
+    tauri::async_runtime::spawn_blocking(move || {
+        for dir in dirs_to_create {
+            std::fs::create_dir_all(&dir)
+                .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"{}\": {}", dir.display(), e))?;
+        }
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Не удалось выполнить создание папок: {}", e))??;
 
     Ok(config)
 }
@@ -145,6 +172,9 @@ pub async fn save_launcher_settings(
     .await?;
 
     crate::utils::bandwidth::set_limit(config.download_speed_limit);
+
+    crate::utils::logger_utils::set_console_emit_enabled(config.debug_mode);
+    crate::utils::logger_utils::set_game_output_enabled(config.debug_mode);
 
     let discord_enabled = config.discord_activity;
     tauri::async_runtime::spawn_blocking(move || {

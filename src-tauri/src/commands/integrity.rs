@@ -89,7 +89,7 @@ fn collect_launcher_server_targets(
         targets.push(IntegrityTarget {
             rel_path: std::path::PathBuf::from(key),
             hash: hash.clone(),
-            hash_kind: HashKind::Md5,
+            hash_kind: HashKind::Sha1,
             download: TargetDownload::LauncherServer { key: key.clone() },
         });
     }

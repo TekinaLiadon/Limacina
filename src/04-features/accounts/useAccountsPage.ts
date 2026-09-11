@@ -1,7 +1,8 @@
 import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { useAccounts, useGameLaunch } from '@/04-features'
-import { deleteAccount } from '@/06-shared/api'
+import { deleteAccount, logoutAccount } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 
 export function useAccountsPage() {
   const coreStore = useCoreStore()
@@ -51,12 +52,17 @@ export function useAccountsPage() {
     store.activeSubTab = 'login'
   }
 
-  const goToAccounts = (): void => {
+  const goToAccounts = async (): Promise<void> => {
     store.launchGeneration++
     store.isLaunching = false
+    store.showAuthForm = false
+    try {
+      await logoutAccount()
+    } catch (e: unknown) {
+      reportError('Не удалось завершить сессию на стороне лаунчера', e)
+    }
     coreStore.isLoggedIn = false
     coreStore.session = null
-    store.showAuthForm = false
   }
 
   const activeSubTab = computed({
