@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { Button } from '@/06-shared'
 import { useSkinSettings } from '@/04-features'
-import type { SkinModelMode } from '@/03-widgets/types'
 import SkinViewer from './SkinViewer.vue'
 import Viewer3D from './Viewer3D.vue'
 
@@ -12,8 +11,10 @@ const {
   isUploading,
   isSkinLoading,
   uploadedSkins,
+  modelMode,
   selectSkin,
   handleUpload,
+  handleActivate,
   handleDelete,
   handleCopyUrl,
   resetSkin,
@@ -21,9 +22,7 @@ const {
 
 const hasSkin = computed((): boolean => skinUrl.value !== '')
 
-const modelMode = ref<SkinModelMode>('classic')
-
-const modelModes: Array<{ value: SkinModelMode; label: string }> = [
+const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   { value: 'classic', label: 'Классик' },
   { value: 'slim', label: 'Слим' },
 ]
@@ -49,7 +48,6 @@ const modelModes: Array<{ value: SkinModelMode; label: string }> = [
           {{ mode.label }}
         </button>
       </div>
-
       <Viewer3D>
         <SkinViewer :skin-url="skinUrl" :slim="modelMode === 'slim'" />
       </Viewer3D>
@@ -89,13 +87,24 @@ const modelModes: Array<{ value: SkinModelMode; label: string }> = [
       <div class="skin-settings__content-title section-label">Загруженные скины</div>
       <div class="skin-settings__content-items">
         <div
-          v-for="(item, index) in uploadedSkins"
+          v-for="item in uploadedSkins"
           :key="item.id ?? item.url"
           class="skin-settings__content-item"
         >
-          <span class="skin-settings__content-url">{{ item.url }}</span>
+          <span class="skin-settings__content-url" :class="{ 'skin-settings__content-url--active': item.active === true }">
+            {{ item.url }}
+          </span>
           <div class="skin-settings__content-actions">
             <Button
+              v-if="item.id != null && item.active !== true"
+              class="btn-primary skin-settings__activate-btn"
+              @click="handleActivate(item.id!)"
+            >
+              Активировать
+            </Button>
+            <span v-else-if="item.active === true" class="skin-settings__active-badge">Активен</span>
+            <Button
+              v-if="item.id != null"
               class="btn-quiet skin-settings__copy-btn"
               @click="handleCopyUrl(item.url)"
             >
@@ -104,8 +113,6 @@ const modelModes: Array<{ value: SkinModelMode; label: string }> = [
             <Button
               v-if="item.id != null"
               class="btn-danger skin-settings__delete-btn"
-              :is-disabled="index === 0"
-              :title="index === 0 ? 'Активный скин нельзя удалить' : undefined"
               @click="handleDelete(item.id!)"
             >
               Удалить
@@ -244,6 +251,20 @@ const modelModes: Array<{ value: SkinModelMode; label: string }> = [
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: left;
+
+    &--active {
+      color: var(--accent-text);
+    }
+  }
+
+  &__active-badge {
+    padding: var(--space-4) var(--control-padding-x);
+    border-radius: var(--radius-badge);
+    background: var(--accent-active-bg);
+    color: var(--accent-text);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
   }
 
   &__content-actions {
@@ -253,7 +274,8 @@ const modelModes: Array<{ value: SkinModelMode; label: string }> = [
   }
 
   &__copy-btn,
-  &__delete-btn {
+  &__delete-btn,
+  &__activate-btn {
     padding: var(--space-4) var(--control-padding-x);
     font-size: var(--text-caption);
   }

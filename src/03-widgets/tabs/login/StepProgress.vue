@@ -186,19 +186,20 @@ const subLabel = (step: StepProgressItem): string => {
 .step-progress-fade-move,
 .step-progress-fade-enter-active,
 .step-progress-fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-.step-progress-fade-enter-from,
+.step-progress-fade-enter-from {
+  opacity: 0;
+  transform: translateX(var(--space-24));
+}
+
 .step-progress-fade-leave-to {
   opacity: 0;
+  transform: translateX(calc(-1 * var(--space-48)));
 }
 
 .step-progress-fade-leave-active {
   position: absolute;
-}
-
-.step-progress-fade-enter-from {
-  transform: translateY(var(--space-8));
 }
 </style>

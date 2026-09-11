@@ -227,6 +227,10 @@ export async function deleteSkin(id: number): Promise<void> {
   return invoke('delete_skin', { id })
 }
 
+export async function setActiveSkin(id: number): Promise<void> {
+  return invoke('set_active_skin', { id })
+}
+
 export async function getProfileSkin(url: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>('get_profile_skin', { url })
   return new Uint8Array(buffer)

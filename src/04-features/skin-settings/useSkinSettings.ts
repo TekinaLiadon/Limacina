@@ -1,7 +1,9 @@
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
 import { selectFile, reportError } from '@/06-shared'
 import { getProfileSkin } from '@/06-shared/api'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
+import type { UserContentItem } from '@/05-entities/core/types'
+import type { SkinModelMode } from '@/03-widgets/types'
 
 function decodeImage(dataUrl: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -29,8 +31,20 @@ export function useSkinSettings() {
   const skinUrl = ref<string>('')
   const skinFileBytes = ref<Uint8Array>(new Uint8Array())
   const isSkinLoading = ref<boolean>(false)
+  const modelMode = ref<SkinModelMode>('classic')
 
   const hasSkin = computed((): boolean => skinUrl.value !== '')
+
+  const activeSkin = computed((): UserContentItem | undefined => {
+    const items = content.items.value
+    if (items.length === 0) return undefined
+    return items.find((item) => item.active === true) ?? items[0]
+  })
+
+  watch(activeSkin, (skin) => {
+    if (skin?.model === 'slim') modelMode.value = 'slim'
+    else if (skin?.model === 'classic') modelMode.value = 'classic'
+  }, { immediate: true })
 
   const resetSkinUrl = (): void => {
     if (skinUrl.value.startsWith('blob:')) URL.revokeObjectURL(skinUrl.value)
@@ -43,7 +57,7 @@ export function useSkinSettings() {
   }
 
   const loadCurrentSkin = async (): Promise<void> => {
-    const current = content.items.value[0]
+    const current = activeSkin.value
     if (!current || skinUrl.value !== '' || skinFileBytes.value.length > 0) return
 
     try {
@@ -88,6 +102,21 @@ export function useSkinSettings() {
     content.errorMessage.value = ''
   }
 
+  const reloadSkinPreview = async (): Promise<void> => {
+    resetSkin()
+    await loadCurrentSkin()
+  }
+
+  const handleActivate = async (id: number): Promise<void> => {
+    await content.handleActivate(id)
+    await reloadSkinPreview()
+  }
+
+  const handleDelete = async (id: number): Promise<void> => {
+    await content.handleDelete(id)
+    await reloadSkinPreview()
+  }
+
   onMounted(async (): Promise<void> => {
     isSkinLoading.value = true
     try {
@@ -98,6 +127,10 @@ export function useSkinSettings() {
     }
   })
 
+  onScopeDispose((): void => {
+    resetSkinUrl()
+  })
+
   return {
     hasSkin,
     skinUrl,
@@ -105,9 +138,11 @@ export function useSkinSettings() {
     isUploading: content.isUploading,
     uploadedSkins: content.items,
     isSkinLoading,
+    modelMode,
     selectSkin,
     handleUpload,
-    handleDelete: content.handleDelete,
+    handleActivate,
+    handleDelete,
     handleCopyUrl: content.handleCopyUrl,
     resetSkin,
   }

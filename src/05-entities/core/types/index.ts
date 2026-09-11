@@ -63,6 +63,8 @@ export type AuthSubTab = 'login' | 'register'
 export interface UserContentItem {
   id: number | null
   url: string
+  model?: string | null
+  active?: boolean
 }
 
 export interface SessionInfo {
