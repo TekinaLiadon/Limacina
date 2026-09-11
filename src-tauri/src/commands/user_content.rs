@@ -151,6 +151,15 @@ pub async fn delete_skin(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn set_active_skin(
+    state: State<'_, Mutex<GlobalState>>,
+    id: i64,
+) -> CommandResult<()> {
+    user_content::set_active_skin(&state, id).await?;
+    Ok(())
+}
+
 fn skin_cache_name(uuid: &str, url: &str) -> String {
     let hash = Md5::digest(url.as_bytes());
     format!("{}_{}.png", uuid, digest_hex(hash))

@@ -9,6 +9,10 @@ use tokio::sync::Mutex;
 pub struct UserContentItem {
     pub id: Option<i64>,
     pub url: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub active: bool,
 }
 
 
@@ -115,6 +119,28 @@ pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
 
     api_delete(&url, &token).await?;
     log_info!("Скин удалён: id={}", id);
+
+    Ok(())
+}
+
+pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
+    let (token, server_url) = require_api_context(state).await?;
+    let url = format!("{}/v1/common/content/skins/active", server_url);
+
+    let client = crate::utils::http::http_client();
+    let response = require_success(
+        client
+            .patch(&url)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({ "id": id }))
+            .send()
+            .await
+            .context("Не удалось подключиться к серверу")?,
+    )
+    .await?;
+
+    let _ = response;
+    log_info!("Активный скин изменён: id={}", id);
 
     Ok(())
 }

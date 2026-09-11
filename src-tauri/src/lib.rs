@@ -31,7 +31,7 @@ use commands::start::start_minecraft;
 use commands::update::{apply_update_cmd, check_update, get_launcher_versions};
 use commands::user_content::{
     delete_model, delete_skin, get_profile_skin, get_session_info, list_models, list_skins,
-    logout_account, select_account, upload_model, upload_skin,
+    logout_account, select_account, set_active_skin, upload_model, upload_skin,
 };
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -162,6 +162,7 @@ pub fn run() {
             upload_skin,
             list_skins,
             delete_skin,
+            set_active_skin,
             get_profile_skin,
             upload_model,
             list_models,

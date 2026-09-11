@@ -10,6 +10,8 @@ interface BodyPart {
   d: number
   pos: [number, number, number]
   faces: Array<[number, number]>
+  overlayDelta: [number, number]
+  inflate: number
 }
 
 function createParts(slim: boolean): BodyPart[] {
@@ -26,26 +28,32 @@ function createParts(slim: boolean): BodyPart[] {
     {
       w: 8, h: 8, d: 8, pos: [0, 10, 0],
       faces: [[16, 8], [0, 8], [8, 0], [16, 0], [8, 8], [24, 8]],
+      overlayDelta: [32, 0], inflate: 0.5,
     },
     {
       w: 8, h: 12, d: 4, pos: [0, 0, 0],
       faces: [[16, 20], [28, 20], [20, 16], [28, 16], [20, 20], [32, 20]],
+      overlayDelta: [0, 16], inflate: 0.25,
     },
     {
       w: armW, h: 12, d: 4, pos: [-armX, 0, 0],
       faces: rightArmFaces,
+      overlayDelta: [0, 16], inflate: 0.25,
     },
     {
       w: armW, h: 12, d: 4, pos: [armX, 0, 0],
       faces: leftArmFaces,
+      overlayDelta: [16, 0], inflate: 0.25,
     },
     {
       w: 4, h: 12, d: 4, pos: [-2, -12, 0],
       faces: [[8, 20], [0, 20], [4, 16], [8, 16], [4, 20], [12, 20]],
+      overlayDelta: [0, 16], inflate: 0.25,
     },
     {
       w: 4, h: 12, d: 4, pos: [2, -12, 0],
       faces: [[24, 52], [16, 52], [20, 48], [24, 48], [20, 52], [28, 52]],
+      overlayDelta: [-16, 0], inflate: 0.25,
     },
   ]
 }
@@ -59,8 +67,18 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
   const isOldFormat = texH === 32 * s
   const parts = createParts(slim)
 
-  parts.forEach((part, index) => {
-    const geo = new THREE.BoxGeometry(part.w, part.h, part.d)
+  const addMesh = (
+    part: BodyPart,
+    mirrorFrom: BodyPart | null,
+    uvShift: [number, number],
+    inflate: number,
+    material: THREE.Material,
+  ): void => {
+    const geo = new THREE.BoxGeometry(
+      part.w + inflate * 2,
+      part.h + inflate * 2,
+      part.d + inflate * 2,
+    )
     const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
 
     const faceDims: Array<[number, number]> = [
@@ -73,16 +91,10 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
     ]
 
     for (let i = 0; i < 6; i++) {
-      let [u, v] = part.faces[i]
+      const source = mirrorFrom ?? part
+      const u = source.faces[i][0] + uvShift[0]
+      const v = source.faces[i][1] + uvShift[1]
       const [fw, fh] = faceDims[i]
-
-      if (isOldFormat) {
-        if (index === 3) {
-          [u, v] = parts[2].faces[i]
-        } else if (index === 5) {
-          [u, v] = parts[4].faces[i]
-        }
-      }
 
       const u0 = (u * s) / texW
       const v0 = 1 - (v * s) / texH
@@ -105,10 +117,29 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
     }
     uvAttr.needsUpdate = true
 
-    const mat = new THREE.MeshLambertMaterial({ map: texture })
-    const mesh = new THREE.Mesh(geo, mat)
+    const mesh = new THREE.Mesh(geo, material)
     mesh.position.set(...part.pos)
     group.add(mesh)
+  }
+
+  const baseMat = new THREE.MeshLambertMaterial({ map: texture })
+  const overlayMat = new THREE.MeshLambertMaterial({
+    map: texture,
+    transparent: true,
+    alphaTest: 0.01,
+    side: THREE.DoubleSide,
+  })
+
+  parts.forEach((part, index) => {
+    const mirrorFrom = isOldFormat && index === 3
+      ? parts[2]
+      : isOldFormat && index === 5
+        ? parts[4]
+        : null
+    addMesh(part, mirrorFrom, [0, 0], 0, baseMat)
+    if (!isOldFormat || index === 0) {
+      addMesh(part, null, part.overlayDelta, part.inflate, overlayMat)
+    }
   })
 
   group.scale.set(0.4, 0.4, 0.4)

@@ -4,11 +4,12 @@ import { reportError } from '@/06-shared'
 import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
 
 const MIN_DISPLAY_MS = 1000
-const FAST_BYPASS_MS = 300
+const DONE_SETTLE_MS = 200
 
 let streamStarted = false
 let eventQueue: StepEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+let lastFinishedAt = 0
 
 export function useLaunchStepsStream(): {
   startLaunchStepsStream: () => Promise<void>
@@ -107,13 +108,16 @@ export function useLaunchStepsStream(): {
         const step = findStep(event.id)
         const elapsed =
           step && step.status === 'active' ? Date.now() - step.shownAt : MIN_DISPLAY_MS
-        if (elapsed >= FAST_BYPASS_MS && elapsed < MIN_DISPLAY_MS) {
+        const hold =
+          elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : DONE_SETTLE_MS - (Date.now() - lastFinishedAt)
+        if (hold > 0) {
           flushTimer = setTimeout((): void => {
             flushTimer = null
             processQueue()
-          }, MIN_DISPLAY_MS - elapsed)
+          }, hold)
           return
         }
+        lastFinishedAt = Date.now()
       }
 
       eventQueue.shift()

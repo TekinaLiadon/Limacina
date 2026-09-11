@@ -2,7 +2,7 @@ import { ref, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
-  listSkins, uploadSkin, deleteSkin,
+  listSkins, uploadSkin, deleteSkin, setActiveSkin,
   listModels, uploadModel, deleteModel,
 } from '@/06-shared/api'
 import type { UserContentItem } from '@/05-entities/core/types'
@@ -11,6 +11,7 @@ interface UserContentApi<T> {
   list: (uuid: string) => Promise<UserContentItem[]>
   upload: (payload: T) => Promise<UserContentItem>
   delete: (id: number) => Promise<void>
+  activate?: (id: number) => Promise<void>
   uploadSuccessMessage: string
   listLoadErrorMessage: string
 }
@@ -62,6 +63,16 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     }
   }
 
+  const handleActivate = async (id: number): Promise<void> => {
+    if (api.activate === undefined) return
+    try {
+      await api.activate(id)
+      await loadItems()
+    } catch (e: unknown) {
+      errorMessage.value = String(e)
+    }
+  }
+
   const handleCopyUrl = async (url: string): Promise<void> => {
     try {
       await copyToClipboard(url)
@@ -81,6 +92,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     loadItems,
     handleUpload,
     handleDelete,
+    handleActivate,
     handleCopyUrl,
   }
 }
@@ -90,6 +102,7 @@ export function useSkinUserContent() {
     list: listSkins,
     upload: uploadSkin,
     delete: deleteSkin,
+    activate: setActiveSkin,
     uploadSuccessMessage: 'Скин успешно загружен',
     listLoadErrorMessage: 'Не удалось загрузить список скинов',
   })
