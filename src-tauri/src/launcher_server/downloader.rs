@@ -190,7 +190,14 @@ pub(crate) fn download_launcher_server_file(
     }
 }
 
-pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<String> {
+#[derive(Serialize, Default)]
+pub struct FilesSyncReport {
+    pub total: usize,
+    pub downloaded: usize,
+    pub skipped: bool,
+}
+
+pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
     let (token, server_url, online) = {
         let guard = state.lock().await;
         let online = guard.project_config.online;
@@ -210,7 +217,7 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
 
     if !online {
         log_info!("[files] Одиночный профиль {} — синхронизация с сервером не нужна", project_name);
-        return Ok("Одиночный профиль: синхронизация не требуется".to_string());
+        return Ok(FilesSyncReport::default());
     }
 
     let client = build_auth_client(&token)?;
@@ -252,7 +259,11 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
     if total_files == 0 {
         log_info!("[files] Все файлы уже на месте");
         download_step.finish(true);
-        return Ok(serde_json::to_string(&file_list)?);
+        return Ok(FilesSyncReport {
+            total: file_list.len(),
+            downloaded: 0,
+            skipped: true,
+        });
     }
 
     for key in &files_to_download {
@@ -304,10 +315,14 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
         res?;
     }
 
-    Ok(format!("Скачано файлов: {}", total_files))
+    Ok(FilesSyncReport {
+        total: total_files,
+        downloaded,
+        skipped: false,
+    })
 }
 
-pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<String> {
+pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
     let (token, server_url, online) = {
         let guard = state.lock().await;
         let online = guard.project_config.online;
@@ -327,7 +342,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
 
     if !online {
         log_info!("[mods] Одиночный профиль {} — моды с сервера не скачиваются", project_name);
-        return Ok("Одиночный профиль: моды с сервера не скачиваются".to_string());
+        return Ok(FilesSyncReport::default());
     }
 
     let client = build_auth_client(&token)?;
@@ -369,7 +384,7 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
     if mods.is_empty() {
         log_info!("[mods] Список модов пуст");
         download_step.finish(true);
-        return Ok("Нет модов для скачивания".to_string());
+        return Ok(FilesSyncReport::default());
     }
 
     let mut files_to_download: Vec<String> = Vec::new();
@@ -415,7 +430,11 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
     if total_to_download == 0 {
         log_info!("[mods] Все моды актуальны");
         download_step.finish(true);
-        return Ok(format!("Все моды актуальны: {}", mods.len()));
+        return Ok(FilesSyncReport {
+            total: mods.len(),
+            downloaded: 0,
+            skipped: true,
+        });
     }
 
     for key in &files_to_download {
@@ -466,5 +485,9 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
         res?;
     }
 
-    Ok(format!("Скачано модов: {}/{}", downloaded, total_to_download))
+    Ok(FilesSyncReport {
+        total: total_to_download,
+        downloaded,
+        skipped: false,
+    })
 }

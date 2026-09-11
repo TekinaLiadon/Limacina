@@ -55,7 +55,7 @@ pub(crate) async fn restore_session(
     username: &str,
     password: Option<&str>,
 ) -> Result<AuthData> {
-    let project = load_config_or_default(project_name).await;
+    let project = load_config_or_default(project_name).await?;
     if !project.online {
         bail!(
             "Профиль «{}» — одиночный, серверная авторизация недоступна",
@@ -102,7 +102,7 @@ async fn register_account(
     username: &str,
     password: &str,
 ) -> Result<()> {
-    let project = load_config_or_default(project_name).await;
+    let project = load_config_or_default(project_name).await?;
     if !project.online {
         bail!("Регистрация недоступна для одиночного профиля");
     }
@@ -133,8 +133,7 @@ async fn login_account(
     password: &str,
     remember_me: bool,
 ) -> Result<()> {
-    let project = load_config_or_default(project_name).await;
-
+    let project = load_config_or_default(project_name).await?;
 
     if !project.online {
         if username.trim().is_empty() {
@@ -177,7 +176,7 @@ pub async fn auth_refresh(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
-    let project = load_config_or_default(&project_name).await;
+    let project = load_config_or_default(&project_name).await?;
 
     if !project.online {
         let data = auth::offline(&username);
@@ -244,7 +243,7 @@ async fn change_password_flow(
         (session.username.clone(), session.access_token.clone())
     };
 
-    let project = load_config_or_default(project_name).await;
+    let project = load_config_or_default(project_name).await?;
     if !project.online {
         bail!("Смена пароля недоступна для одиночного профиля");
     }

@@ -45,9 +45,11 @@ function detectVanillaPose(posePart: string): string | null {
 }
 
 function classify(fileName: string, displayName: string): { kind: CPMAnimationKind; name: string } {
-  const [prefix, rest] = fileName.split('_', 2)
+  const separatorIndex = fileName.indexOf('_')
+  const prefix = separatorIndex === -1 ? fileName : fileName.slice(0, separatorIndex)
+  const rest = separatorIndex === -1 ? '' : fileName.slice(separatorIndex + 1)
 
-  if (prefix === 'v' && rest !== undefined) {
+  if (prefix === 'v' && rest !== '') {
     const pose = detectVanillaPose(rest)
     if (pose) return { kind: 'vanilla-pose', name: pose }
   } else if (prefix === 'c') {

@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { Button, Checkbox } from '@/06-shared'
-import { useCpmSettings } from '@/04-features'
-import type { DropdownOption } from '@/06-shared/types'
-import type { CPMAnimation } from '@/05-entities/core/types'
+import { useCpmSettings, useCpmAnimations } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
 import Viewer3D from './Viewer3D.vue'
@@ -23,68 +21,26 @@ const {
   handleCopyUrl,
 } = useCpmSettings()
 
+const {
+  animationOptions,
+  selectedAnimationIds,
+  activeAnimations,
+  isAnimationPlaying,
+  isAnimationLooped,
+  animationSpeed,
+  canSpeedDown,
+  canSpeedUp,
+  toggleAnimationPlayback,
+  toggleAnimationLoop,
+  speedDown,
+  speedUp,
+} = useCpmAnimations(cpmData)
+
 const hasModel = computed((): boolean => cpmData.value !== null)
 
-const availableAnimations = computed((): CPMAnimation[] =>
-  (cpmData.value?.animations ?? []).filter((animation) => !animation.hidden),
-)
-
-const animationOptions = computed((): DropdownOption[] =>
-  availableAnimations.value.map((animation) => ({
-    title: animation.name,
-    value: animation.id,
-  })),
-)
-
-const selectedAnimationIds = ref<string[]>([])
-const isAnimationPlaying = ref<boolean>(false)
-const isAnimationLooped = ref<boolean>(false)
-const animationSpeed = ref<number>(1)
-
-const activeAnimations = computed((): CPMAnimation[] => {
-  return selectedAnimationIds.value
-    .map((id) => availableAnimations.value.find((animation) => animation.id === id))
-    .filter((animation): animation is CPMAnimation => animation !== undefined)
-})
-
-const SPEED_MIN = 0.25
-const SPEED_MAX = 3
-const SPEED_STEP = 0.25
-
-const canSpeedDown = computed((): boolean => animationSpeed.value > SPEED_MIN)
-const canSpeedUp = computed((): boolean => animationSpeed.value < SPEED_MAX)
-
-watch(availableAnimations, () => {
-  const existing = new Set(availableAnimations.value.map((animation) => animation.id))
-  const filtered = selectedAnimationIds.value.filter((id) => existing.has(id))
-  if (filtered.length !== selectedAnimationIds.value.length) {
-    selectedAnimationIds.value = filtered
-  }
-})
-
-const toggleAnimationPlayback = (): void => {
-  if (activeAnimations.value.length === 0) return
-  isAnimationPlaying.value = !isAnimationPlaying.value
+const setPlaying = (playing: boolean): void => {
+  isAnimationPlaying.value = playing
 }
-
-const toggleAnimationLoop = (): void => {
-  isAnimationLooped.value = !isAnimationLooped.value
-}
-
-const speedDown = (): void => {
-  animationSpeed.value = Math.max(SPEED_MIN, Math.round((animationSpeed.value - SPEED_STEP) * 100) / 100)
-}
-
-const speedUp = (): void => {
-  animationSpeed.value = Math.min(SPEED_MAX, Math.round((animationSpeed.value + SPEED_STEP) * 100) / 100)
-}
-
-watch(() => cpmData.value, () => {
-  selectedAnimationIds.value = []
-  isAnimationPlaying.value = false
-  isAnimationLooped.value = false
-  animationSpeed.value = 1
-})
 </script>
 
 <template>
@@ -97,6 +53,8 @@ watch(() => cpmData.value, () => {
         :is-animation-playing="isAnimationPlaying"
         :animation-speed="animationSpeed"
         :is-animation-looped="isAnimationLooped"
+        @animations-changed="setPlaying"
+        @animation-finished="setPlaying(false)"
       />
       <template #bottom>
         <CpmAnimationBar
@@ -130,8 +88,8 @@ watch(() => cpmData.value, () => {
       <div class="cpm-settings__layer-list">
         <Checkbox
           v-for="layer in displayLayers"
-          :key="layer.storeID ?? layer.name"
-          v-model="layer._visible"
+          :key="layer.storeId ?? layer.name"
+          v-model="layer.visible"
           :label="layer.name"
         />
       </div>

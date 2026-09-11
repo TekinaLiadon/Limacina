@@ -195,8 +195,6 @@ export interface CPMChild {
   textureSize?: number
   faceUV?: Record<string, CPMFaceUV>
   children?: CPMChild[]
-  _hidden?: boolean
-  _visible: boolean
 }
 
 export interface CPMElement {

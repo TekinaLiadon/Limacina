@@ -65,6 +65,12 @@ pub fn run() {
             crate::utils::bandwidth::set_limit(
                 launcher_config.as_ref().and_then(|c| c.download_speed_limit),
             );
+            crate::utils::logger_utils::set_console_emit_enabled(
+                launcher_config.as_ref().map(|c| c.debug_mode).unwrap_or(false),
+            );
+            crate::utils::logger_utils::set_game_output_enabled(
+                launcher_config.as_ref().map(|c| c.debug_mode).unwrap_or(false),
+            );
 
             let base_path = if let Some(ref lc) = launcher_config {
                 std::path::PathBuf::from(&lc.launcher_path)

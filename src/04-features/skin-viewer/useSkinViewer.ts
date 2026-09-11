@@ -1,6 +1,7 @@
 import { watch, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene } from '@/06-shared'
+import { useThreeScene, configurePixelTexture, disposeObjectTree } from '@/06-shared'
+import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
 import type { ViewerControls } from '@/03-widgets/types'
 
 interface BodyPart {
@@ -126,22 +127,20 @@ export function useSkinViewer(
   let loadGeneration = 0
   let currentTexture: THREE.Texture | null = null
 
-  function applyCamera(): void {
-    if (!camera.value) return
+  const { applyCamera } = useViewerCamera(
+      { camera, getOrbitControls },
+      playerGroup,
+      controls,
+  )
 
-    const dist = controls.zoomLevel.value
-    const elevation = THREE.MathUtils.degToRad(controls.rotationX.value)
-    camera.value.position.set(0, dist * Math.sin(elevation), dist * Math.cos(elevation))
-    camera.value.lookAt(0, 0, 0)
-  }
+  function fitSkinToView(): void {
+    const group = playerGroup.value
+    const perspectiveCamera = camera.value
+    if (!group || !perspectiveCamera) return
 
-  function fitModelToView(): void {
-    if (!playerGroup.value || !camera.value) return
-
-    const box = new THREE.Box3().setFromObject(playerGroup.value)
-    const size = box.getSize(new THREE.Vector3())
+    const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z)
-    const fov = camera.value.fov * (Math.PI / 180)
+    const fov = perspectiveCamera.fov * (Math.PI / 180)
     const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.2
 
     controls.zoomLevel.value = distance
@@ -149,33 +148,27 @@ export function useSkinViewer(
     applyCamera()
   }
 
-  function disposeGroup(group: THREE.Group): void {
-    group.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
-        object.geometry.dispose()
-        const material = object.material
-        if (Array.isArray(material)) material.forEach((m) => m.dispose())
-        else material.dispose()
-      }
-    })
-  }
-
   function removeCurrentModel(): void {
     if (!playerGroup.value || !scene.value) return
 
     scene.value.remove(playerGroup.value)
-    disposeGroup(playerGroup.value)
+    disposeObjectTree(playerGroup.value)
     playerGroup.value = null
   }
 
-  function rebuildModel(): void {
-    if (!scene.value || !currentTexture) return
+  function showModel(texture: THREE.Texture): void {
+    if (!scene.value) return
 
     removeCurrentModel()
-    const player = buildPlayerModel(currentTexture, slim.value)
+    const player = buildPlayerModel(texture, slim.value)
     scene.value.add(player)
     playerGroup.value = player
-    fitModelToView()
+    fitSkinToView()
+  }
+
+  function rebuildModel(): void {
+    if (!currentTexture) return
+    showModel(currentTexture)
   }
 
   function loadSkin(url: string): void {
@@ -187,19 +180,11 @@ export function useSkinViewer(
     loader.load(url, (texture) => {
       if (generation !== loadGeneration || !scene.value) return
 
-      texture.magFilter = THREE.NearestFilter
-      texture.minFilter = THREE.NearestFilter
-      texture.generateMipmaps = false
-      texture.colorSpace = THREE.SRGBColorSpace
-
-      removeCurrentModel()
+      configurePixelTexture(texture)
       if (currentTexture) currentTexture.dispose()
       currentTexture = texture
 
-      const player = buildPlayerModel(texture, slim.value)
-      scene.value.add(player)
-      playerGroup.value = player
-      fitModelToView()
+      showModel(texture)
     })
   }
 
@@ -213,25 +198,6 @@ export function useSkinViewer(
 
   watch(slim, () => {
     rebuildModel()
-  })
-
-  watch(controls.autoRotate, (enabled: boolean) => {
-    const orbit = getOrbitControls()
-    if (orbit) orbit.autoRotate = enabled
-  })
-
-  watch(controls.zoomLevel, () => {
-    applyCamera()
-  })
-
-  watch(controls.rotationX, () => {
-    applyCamera()
-  })
-
-  watch(controls.rotationY, (angle: number) => {
-    if (playerGroup.value) {
-      playerGroup.value.rotation.y = THREE.MathUtils.degToRad(angle)
-    }
   })
 
   return {}

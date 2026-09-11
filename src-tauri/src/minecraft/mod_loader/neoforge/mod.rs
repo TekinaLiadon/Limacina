@@ -9,9 +9,10 @@ use crate::{
         mod_loader::{
             config::merge_classpath,
             download::library_targets,
+            installer::create_installer_manifest,
             neoforge::{
                 structs::Manifest,
-                installer::{create_installer_manifest, start_installer},
+                installer::start_installer,
                 manifest::{
                     get_library, get_manifest_index, modify_manifest, transform_neoforge_manifest,
                 },

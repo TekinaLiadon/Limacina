@@ -18,7 +18,7 @@ use uuid::{Builder, Variant, Version};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-use crate::utils::logger_utils::send_log;
+use crate::utils::logger_utils::send_game_output;
 use crate::utils::{compare_versions, get_classpath_separator};
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
 
@@ -80,13 +80,13 @@ pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
 pub fn filter_classpath(classpath: Vec<String>) -> Vec<String> {
     let mut latest_versions: HashMap<String, String> = HashMap::new();
     for path_str in &classpath {
-        if let Some((artifact_id, version)) = extract_maven_info(path_str) {
-            if let Some(existing_version) = latest_versions.get(&artifact_id) {
+        if let Some((coord, version)) = extract_maven_info(path_str) {
+            if let Some(existing_version) = latest_versions.get(&coord) {
                 if compare_versions(&version, existing_version) == Ordering::Greater {
-                    latest_versions.insert(artifact_id, version);
+                    latest_versions.insert(coord, version);
                 }
             } else {
-                latest_versions.insert(artifact_id, version);
+                latest_versions.insert(coord, version);
             }
         }
     }
@@ -96,8 +96,8 @@ pub fn filter_classpath(classpath: Vec<String>) -> Vec<String> {
     for path_str in classpath {
         let normalized = path_str.replace('\\', "/");
         if !seen.contains(&normalized) {
-            if let Some((artifact_id, version)) = extract_maven_info(&path_str) {
-                if let Some(latest) = latest_versions.get(&artifact_id) {
+            if let Some((coord, version)) = extract_maven_info(&path_str) {
+                if let Some(latest) = latest_versions.get(&coord) {
                     if &version == latest {
                         final_classpath.push(path_str.clone());
                         seen.insert(normalized);
@@ -138,15 +138,30 @@ pub fn strip_classpath_args(args: Vec<String>) -> Vec<String> {
 }
 
 fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
-    let path = Path::new(path_str);
+    let normalized = path_str.replace('\\', "/");
+    let path = Path::new(&normalized);
     let file_name = path.file_name()?.to_str()?;
-    let version = path.parent()?.file_name()?.to_str()?;
-    let artifact_id = path.parent()?.parent()?.file_name()?.to_str()?;
+    let version_dir = path.parent()?;
+    let version = version_dir.file_name()?.to_str()?;
+    let artifact_dir = version_dir.parent()?;
+    let artifact_id = artifact_dir.file_name()?.to_str()?;
 
-    if file_name.starts_with(artifact_id) && file_name.contains(version) {
-        return Some((artifact_id.to_string(), version.to_string()));
+    if !file_name.starts_with(artifact_id) || !file_name.contains(version) {
+        return None;
     }
-    None
+
+    let mut group_segments: Vec<&str> = Vec::new();
+    let mut current = artifact_dir.parent()?;
+    while let Some(segment) = current.file_name().and_then(|n| n.to_str()) {
+        group_segments.push(segment);
+        current = current.parent()?;
+    }
+    group_segments.reverse();
+
+    Some((
+        format!("{}:{}", group_segments.join("."), artifact_id),
+        version.to_string(),
+    ))
 }
 
 pub fn find_authlib_jar(game_dir: &Path) -> Option<PathBuf> {
@@ -160,6 +175,7 @@ pub fn find_authlib_jar(game_dir: &Path) -> Option<PathBuf> {
 }
 
 fn split_server_address(address: &str) -> (&str, Option<&str>) {
+    let address = address.trim_end_matches(':');
     match address.rsplit_once(':') {
         Some((host, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => {
             (host, Some(port))
@@ -175,8 +191,9 @@ pub fn auto_join_args(address: &str, mc_version: &str) -> Vec<String> {
     }
 
     let (host, port) = split_server_address(trimmed);
+    let base_version = mc_version.split('-').next().unwrap_or(mc_version);
 
-    if compare_versions(mc_version, "1.20") != Ordering::Less {
+    if compare_versions(base_version, "1.20") != Ordering::Less {
         match port {
             Some(port) => vec![
                 "--quickPlayMultiplayer".to_string(),
@@ -258,6 +275,9 @@ pub struct GameProcess {
 }
 
 impl GameProcess {
+    pub fn exited_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.exited)
+    }
 
 
 
@@ -338,7 +358,7 @@ fn spawn_output_reader(
     thread::spawn(move || {
         let reader = BufReader::new(stream);
         for line in reader.lines().map_while(Result::ok) {
-            send_log(format!("[MC] {}", line), is_error);
+            send_game_output(format!("[MC] {}", line), is_error);
             track_output(&last_output, &line);
             if !window_opened.load(AtomicOrdering::Relaxed) && is_window_open_marker(&line) {
                 log_info!("Обнаружено открытие окна игры");
@@ -508,10 +528,14 @@ mod tests {
     }
 
     #[test]
-    fn address_without_digits_after_colon_kept_as_host() {
+    fn address_with_empty_port_strips_trailing_colon() {
         assert_eq!(
             auto_join_args("play.example.com:", "1.21.1"),
-            vec!["--quickPlayMultiplayer".to_string(), "play.example.com:".to_string()]
+            vec!["--quickPlayMultiplayer".to_string(), "play.example.com".to_string()]
+        );
+        assert_eq!(
+            auto_join_args("play.example.com:", "1.12.2"),
+            vec!["--server".to_string(), "play.example.com".to_string()]
         );
     }
 }
@@ -616,5 +640,138 @@ mod maven_coords_tests {
         assert!(maven_to_url(":fabric-loader:0.16.9", "https://maven.fabricmc.net").is_err());
         assert!(maven_to_url("net.fabricmc::0.16.9", "https://maven.fabricmc.net").is_err());
         assert!(maven_to_url("net.fabricmc:fabric-loader:", "https://maven.fabricmc.net").is_err());
+    }
+}
+
+#[cfg(test)]
+mod filter_classpath_tests {
+    use super::filter_classpath;
+
+    const WIN_SEP: bool = cfg!(windows);
+
+    fn maven_path(group: &str, artifact: &str, version: &str) -> String {
+        let sep = if WIN_SEP { "\\" } else { "/" };
+        let group_path = group.replace('.', sep);
+        format!(
+            "{p}libraries{p}{g}{p}{a}{p}{v}{p}{a}-{v}.jar",
+            p = sep,
+            g = group_path,
+            a = artifact,
+            v = version
+        )
+    }
+
+    fn to_os(input: &str) -> String {
+        if WIN_SEP {
+            input.replace('/', "\\")
+        } else {
+            input.to_string()
+        }
+    }
+
+    #[test]
+    fn keeps_latest_version_of_same_artifact() {
+        let classpath = vec![
+            maven_path("org.ow2.asm", "asm", "9.1"),
+            maven_path("org.ow2.asm", "asm", "9.7"),
+        ];
+        let result = filter_classpath(classpath);
+        assert_eq!(result, vec![maven_path("org.ow2.asm", "asm", "9.7")]);
+    }
+
+    #[test]
+    fn keeps_both_artifacts_with_same_id_in_different_groups() {
+        let classpath = vec![
+            maven_path("com.example.one", "library", "1.0"),
+            maven_path("com.example.two", "library", "2.0"),
+        ];
+        let result = filter_classpath(classpath);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn keeps_non_maven_entries_as_is() {
+        let jar = to_os("game/1.20.1.jar");
+        let classpath = vec![jar.clone(), jar.clone()];
+        let result = filter_classpath(classpath);
+        assert_eq!(result, vec![jar]);
+    }
+
+    #[test]
+    fn deduplicates_identical_paths() {
+        let classpath = vec![
+            maven_path("org.lwjgl", "lwjgl", "3.3.1"),
+            maven_path("org.lwjgl", "lwjgl", "3.3.1"),
+        ];
+        let result = filter_classpath(classpath);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn preserves_input_order_of_kept_entries() {
+        let classpath = vec![
+            maven_path("net.fabricmc", "fabric-loader", "0.16.9"),
+            maven_path("org.ow2.asm", "asm", "9.1"),
+            maven_path("org.ow2.asm", "asm", "9.7"),
+        ];
+        let result = filter_classpath(classpath);
+        assert_eq!(
+            result,
+            vec![
+                maven_path("net.fabricmc", "fabric-loader", "0.16.9"),
+                maven_path("org.ow2.asm", "asm", "9.7"),
+            ]
+        );
+    }
+
+    #[test]
+    fn version_jar_with_dashed_version_still_recognized() {
+        let path = to_os("project/libraries/net/neoforged/neoforge/20.4.80-beta/neoforge-20.4.80-beta.jar");
+        let result = filter_classpath(vec![path.clone()]);
+        assert_eq!(result, vec![path]);
+    }
+
+    #[test]
+    fn keeps_base_and_natives_classifier_of_same_version() {
+        let natives = format!(
+            "{p}libraries{p}org{p}lwjgl{p}lwjgl{p}3.3.3{p}lwjgl-3.3.3-natives-linux.jar",
+            p = if WIN_SEP { "\\" } else { "/" }
+        );
+        let result = filter_classpath(vec![
+            maven_path("org.lwjgl", "lwjgl", "3.3.3"),
+            natives.clone(),
+        ]);
+        assert_eq!(
+            result,
+            vec![maven_path("org.lwjgl", "lwjgl", "3.3.3"), natives]
+        );
+    }
+
+    #[test]
+    fn keeps_classifier_variants_of_netty_style_artifact() {
+        let base = if WIN_SEP { "\\" } else { "/" };
+        let epoll = |classifier: &str| {
+            format!(
+                "project{p}libraries{p}io{p}netty{p}netty-transport-native-epoll{p}4.1.97.Final{p}netty-transport-native-epoll-4.1.97.Final-{c}.jar",
+                p = base,
+                c = classifier
+            )
+        };
+        let classpath = vec![epoll("linux-aarch_64"), epoll("linux-x86_64")];
+        let result = filter_classpath(classpath.clone());
+        assert_eq!(result, classpath);
+    }
+
+    #[test]
+    fn windows_separators_are_normalized() {
+        let classpath = vec![
+            to_os("project/libraries/org/ow2/asm/asm/9.1/asm-9.1.jar"),
+            to_os("project\\libraries\\org\\ow2\\asm\\asm\\9.7\\asm-9.7.jar"),
+        ];
+        let result = filter_classpath(classpath);
+        assert_eq!(
+            result,
+            vec![to_os("project\\libraries\\org\\ow2\\asm\\asm\\9.7\\asm-9.7.jar")]
+        );
     }
 }

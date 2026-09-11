@@ -1,138 +1,97 @@
-import { ref, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { selectFile, copyToClipboard, reportError } from '@/06-shared'
-import { uploadSkin, listSkins, deleteSkin, getProfileSkin } from '@/06-shared/api'
-import type { UserContentItem } from '@/05-entities/core/types'
+import { ref, computed, onMounted } from 'vue'
+import { selectFile, reportError } from '@/06-shared'
+import { getProfileSkin } from '@/06-shared/api'
+import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
+
+function decodeImage(dataUrl: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve()
+    img.onerror = () => reject(new Error('Не удалось декодировать изображение'))
+    img.src = dataUrl
+  })
+}
+
+function loadBlobUrl(bytes: Uint8Array): Promise<string> {
+  const dataUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }))
+  return decodeImage(dataUrl).then(
+    () => dataUrl,
+    (e) => {
+      URL.revokeObjectURL(dataUrl)
+      throw e
+    },
+  )
+}
 
 export function useSkinSettings() {
-  const coreStore = useCoreStore()
-  const notification = useNotificationStore()
+  const content = useSkinUserContent()
+
   const skinUrl = ref<string>('')
   const skinFileBytes = ref<Uint8Array>(new Uint8Array())
-  const errorMessage = ref<string>('')
-  const isUploading = ref<boolean>(false)
-  const uploadedSkins = ref<UserContentItem[]>([])
-  const isLoadingSkins = ref<boolean>(false)
   const isSkinLoading = ref<boolean>(false)
 
-  const loadSkins = async (): Promise<void> => {
-    if (!coreStore.session?.uuid) return
-    isLoadingSkins.value = true
-
-    try {
-      uploadedSkins.value = await listSkins(coreStore.session.uuid)
-    } catch (e: unknown) {
-      reportError('Не удалось загрузить список скинов', e)
-    } finally {
-      isLoadingSkins.value = false
-    }
-  }
+  const hasSkin = computed((): boolean => skinUrl.value !== '')
 
   const resetSkinUrl = (): void => {
     if (skinUrl.value.startsWith('blob:')) URL.revokeObjectURL(skinUrl.value)
     skinUrl.value = ''
   }
 
+  const setSkinUrl = (url: string): void => {
+    resetSkinUrl()
+    skinUrl.value = url
+  }
+
   const loadCurrentSkin = async (): Promise<void> => {
-    const current = uploadedSkins.value[0]
+    const current = content.items.value[0]
     if (!current || skinUrl.value !== '' || skinFileBytes.value.length > 0) return
 
     try {
       const bytes = await getProfileSkin(current.url)
-      const blob = new Blob([bytes], { type: 'image/png' })
-      const dataUrl = URL.createObjectURL(blob)
-      await new Promise<void>((resolve, reject) => {
-        const img = new Image()
-        img.onload = () => resolve()
-        img.onerror = () => {
-          URL.revokeObjectURL(dataUrl)
-          reject(new Error('Не удалось декодировать изображение'))
-        }
-        img.src = dataUrl
-      })
-      resetSkinUrl()
-      skinUrl.value = dataUrl
+      setSkinUrl(await loadBlobUrl(bytes))
     } catch (e: unknown) {
       reportError('Не удалось загрузить текущий скин', e)
     }
   }
 
   const selectSkin = (): void => {
-    errorMessage.value = ''
+    content.errorMessage.value = ''
 
     selectFile({
       accept: '.png,image/png',
       maxBytes: 256 * 1024,
       readAs: 'arrayBuffer',
       onError: (msg: string) => {
-        errorMessage.value = msg
+        content.errorMessage.value = msg
       },
-      onLoad: (_file: File, result: string | ArrayBuffer) => {
-        skinFileBytes.value = new Uint8Array(result as ArrayBuffer)
-
-        const blob = new Blob([result as ArrayBuffer], { type: 'image/png' })
-        const dataUrl = URL.createObjectURL(blob)
-        const img = new Image()
-        img.onload = () => {
-          resetSkinUrl()
-          skinUrl.value = dataUrl
+      onLoad: async (_file: File, result: string | ArrayBuffer) => {
+        try {
+          const bytes = new Uint8Array(result as ArrayBuffer)
+          const dataUrl = await loadBlobUrl(bytes)
+          skinFileBytes.value = bytes
+          setSkinUrl(dataUrl)
+        } catch {
+          content.errorMessage.value = 'Не удалось загрузить изображение'
         }
-        img.onerror = () => {
-          errorMessage.value = 'Не удалось загрузить изображение'
-          URL.revokeObjectURL(dataUrl)
-        }
-        img.src = dataUrl
       },
     })
   }
 
   const handleUpload = async (): Promise<void> => {
     if (skinFileBytes.value.length === 0) return
-
-    isUploading.value = true
-    errorMessage.value = ''
-
-    try {
-      await uploadSkin(skinFileBytes.value)
-      notification.show('Скин успешно загружен')
-      await loadSkins()
-    } catch (e: unknown) {
-      errorMessage.value = String(e)
-    } finally {
-      isUploading.value = false
-    }
-  }
-
-  const handleDelete = async (id: number): Promise<void> => {
-    try {
-      await deleteSkin(id)
-      await loadSkins()
-    } catch (e: unknown) {
-      errorMessage.value = String(e)
-    }
-  }
-
-  const handleCopyUrl = async (url: string): Promise<void> => {
-    try {
-      await copyToClipboard(url)
-      notification.show('Ссылка скопирована')
-    } catch (e: unknown) {
-      errorMessage.value = 'Не удалось скопировать'
-    }
+    await content.handleUpload(skinFileBytes.value)
   }
 
   const resetSkin = (): void => {
     resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
-    errorMessage.value = ''
+    content.errorMessage.value = ''
   }
 
   onMounted(async (): Promise<void> => {
-    if (!coreStore.session?.uuid) return
-
     isSkinLoading.value = true
     try {
-      await loadSkins()
+      await content.loadItems()
       await loadCurrentSkin()
     } finally {
       isSkinLoading.value = false
@@ -140,17 +99,16 @@ export function useSkinSettings() {
   })
 
   return {
+    hasSkin,
     skinUrl,
-    skinFileBytes,
-    errorMessage,
-    isUploading,
-    uploadedSkins,
-    isLoadingSkins,
+    errorMessage: content.errorMessage,
+    isUploading: content.isUploading,
+    uploadedSkins: content.items,
     isSkinLoading,
     selectSkin,
     handleUpload,
-    handleDelete,
-    handleCopyUrl,
+    handleDelete: content.handleDelete,
+    handleCopyUrl: content.handleCopyUrl,
     resetSkin,
   }
 }

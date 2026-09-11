@@ -125,14 +125,14 @@ interface ChannelTrack {
   pos: AxisTracks
   rot: AxisTracks
   scale: AxisTracks
-  show: boolean[]
+  show: number[]
 }
 
 interface NodeFill {
   pos: CPMVec3
   rot: CPMVec3
   scale: CPMVec3
-  show: boolean
+  show: number
 }
 
 function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] {
@@ -150,10 +150,10 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
   const additive = animation.additive
 
   const fillFor = (node: AnimatedNode | undefined): NodeFill => {
-    if (!node) return { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: true }
+    if (!node) return { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: 1 }
 
     if (additive) {
-      return { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: node.baseVisible }
+      return { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: node.baseVisible ? 1 : 0 }
     }
 
     const pos = node.isRoot
@@ -168,7 +168,7 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
         z: -THREE.MathUtils.radToDeg(node.baseRot.z),
       },
       scale: { x: node.baseScale.x, y: node.baseScale.y, z: node.baseScale.z },
-      show: node.baseVisible,
+      show: node.baseVisible ? 1 : 0,
     }
   }
 
@@ -188,7 +188,7 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
       track.scale[0].push(component.scale.x)
       track.scale[1].push(component.scale.y)
       track.scale[2].push(component.scale.z)
-      track.show.push(component.show)
+      track.show.push(component.show ? 1 : 0)
     })
 
     tracks.forEach((track) => {
@@ -415,39 +415,38 @@ export class CpmAnimationPlayer {
       const sx = sample(track.scale[0])
       const sy = sample(track.scale[1])
       const sz = sample(track.scale[2])
-      const show = track.show.length > 0 && sampleStep(track.show.map((visible) => (visible ? 1 : 0)), framePos) !== 0
+      const show = track.show.length > 0 && sampleStep(track.show, framePos) !== 0
 
       if (additive) {
         node.group.position.set(node.group.position.x + px, node.group.position.y - py, node.group.position.z - pz)
         node.group.rotation.set(
-          node.group.rotation.x + THREE.MathUtils.degToRad(rx),
-          node.group.rotation.y - THREE.MathUtils.degToRad(ry),
-          node.group.rotation.z + THREE.MathUtils.degToRad(rz),
-          'ZYX',
+            node.group.rotation.x + THREE.MathUtils.degToRad(rx),
+            node.group.rotation.y - THREE.MathUtils.degToRad(ry),
+            node.group.rotation.z + THREE.MathUtils.degToRad(rz),
+            'ZYX',
         )
         node.group.scale.set(
-          sx !== 0 ? node.group.scale.x * sx : node.group.scale.x,
-          sy !== 0 ? node.group.scale.y * sy : node.group.scale.y,
-          sz !== 0 ? node.group.scale.z * sz : node.group.scale.z,
+            sx !== 0 ? node.group.scale.x * sx : node.group.scale.x,
+            sy !== 0 ? node.group.scale.y * sy : node.group.scale.y,
+            sz !== 0 ? node.group.scale.z * sz : node.group.scale.z,
         )
-      } else if (node.isRoot) {
-        node.group.position.set(px, MODEL_ORIGIN_Y - py, -pz)
-        node.group.rotation.set(
-          THREE.MathUtils.degToRad(rx),
-          THREE.MathUtils.degToRad(-ry),
-          THREE.MathUtils.degToRad(-rz),
-          'ZYX',
-        )
-        node.group.scale.set(sx !== 0 ? sx : node.baseScale.x, sy !== 0 ? sy : node.baseScale.y, sz !== 0 ? sz : node.baseScale.z)
       } else {
-        node.group.position.set(px, -py, -pz)
-        node.group.rotation.set(
-          THREE.MathUtils.degToRad(rx),
-          THREE.MathUtils.degToRad(-ry),
-          THREE.MathUtils.degToRad(-rz),
-          'ZYX',
+        node.group.position.set(
+            px,
+            node.isRoot ? MODEL_ORIGIN_Y - py : -py,
+            -pz,
         )
-        node.group.scale.set(sx !== 0 ? sx : node.baseScale.x, sy !== 0 ? sy : node.baseScale.y, sz !== 0 ? sz : node.baseScale.z)
+        node.group.rotation.set(
+            THREE.MathUtils.degToRad(rx),
+            THREE.MathUtils.degToRad(-ry),
+            THREE.MathUtils.degToRad(-rz),
+            'ZYX',
+        )
+        node.group.scale.set(
+            sx !== 0 ? sx : node.baseScale.x,
+            sy !== 0 ? sy : node.baseScale.y,
+            sz !== 0 ? sz : node.baseScale.z,
+        )
       }
 
       if (!node.isRoot) {

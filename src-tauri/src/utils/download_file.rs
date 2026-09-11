@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use super::bandwidth;
+use super::hex;
 use super::http::http_client;
 
 
@@ -159,9 +160,7 @@ fn hash_file_blocking<D: md5::Digest>(path: &Path) -> Result<String> {
         hasher.update(&buffer[..bytes_read]);
     }
 
-    let digest = hasher.finalize();
-    let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
-    Ok(hex)
+    Ok(hex::digest_hex(hasher.finalize()))
 }
 
 

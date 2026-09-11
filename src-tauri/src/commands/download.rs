@@ -13,7 +13,7 @@ use crate::{minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
 #[tauri::command]
 pub async fn download_minecraft(
     state: tauri::State<'_, Mutex<GlobalState>>,
-) -> CommandResult<String> {
+) -> CommandResult<()> {
     let mut project_config = {
         let state = state.lock().await;
         state.project_config.clone()
@@ -32,20 +32,20 @@ pub async fn download_minecraft(
     Vanilla.setup(&project_config).await?;
 
     if matches!(mod_loader, ConfigModLoader::Vanilla) {
-        return Ok("Vanilla майнкрафт установлен успешно".to_string());
+        return Ok(());
     }
 
     let loader = create_mod_loader(&mod_loader)?;
     let manifest = loader.versions(&project_config).await?;
     loader.setup(&project_config, &manifest).await?;
 
-    Ok("Модифицированный майнкрафт установлен успешно".to_string())
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn download_server_file(
     state: tauri::State<'_, Mutex<GlobalState>>,
-) -> CommandResult<String> {
+) -> CommandResult<()> {
     let project_name = state
         .lock()
         .await
@@ -53,35 +53,37 @@ pub async fn download_server_file(
         .project_name
         .clone();
     download_all_files(project_name, false, &state).await?;
-    Ok("Ok".to_string())
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<String> {
-    let project_config = {
+pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
+    let mut project_config = {
         let state = state.lock().await;
         state.project_config.clone()
     };
 
     let java_path = install_java(&project_config).await?;
+    project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+    project_config.save_config().await?;
 
     let mut state = state.lock().await;
-    state.project_config.java_path = Some(java_path.to_string_lossy().into_owned());
-    state.project_config.save_config().await?;
-    Ok("Ok".to_string())
+    state.project_config = project_config;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn download_server_mods(
     state: tauri::State<'_, Mutex<GlobalState>>,
-) -> CommandResult<String> {
+) -> CommandResult<()> {
     let project_name = state
         .lock()
         .await
         .project_config
         .project_name
         .clone();
-    download_mods(project_name, &state).await.map_err(Into::into)
+    download_mods(project_name, &state).await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -95,16 +97,21 @@ pub async fn download_alternative_java(
     distribution: String,
     java_version: Option<String>,
     replace_default: bool,
-) -> CommandResult<String> {
+) -> CommandResult<()> {
     let mc_version = {
         let state = state.lock().await;
         state.project_config.mc_version.clone()
     };
     let java_path = download_alt_java(&distribution, java_version.as_deref(), &mc_version).await?;
     if replace_default {
+        let mut project_config = {
+            let state = state.lock().await;
+            state.project_config.clone()
+        };
+        project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+        project_config.save_config().await?;
         let mut state = state.lock().await;
-        state.project_config.java_path = Some(java_path.to_string_lossy().into_owned());
-        state.project_config.save_config().await?;
+        state.project_config = project_config;
     }
-    Ok("Ok".to_string())
+    Ok(())
 }

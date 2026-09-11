@@ -41,5 +41,5 @@ pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
         }
     }
 
-    Ok(PathBuf::from("java"))
+    anyhow::bail!("Java не найдена в системе — установите её в настройках лаунчера или выберите папку с Java вручную")
 }

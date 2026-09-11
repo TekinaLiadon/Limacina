@@ -1,4 +1,5 @@
 pub mod integrity;
+pub mod rules;
 pub mod structs;
 pub mod manifest;
 pub mod mod_loader;

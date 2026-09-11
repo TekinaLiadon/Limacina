@@ -18,7 +18,7 @@ const GAME_WINDOW_TIMEOUT: Duration = Duration::from_secs(120);
 pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
-) -> CommandResult<String> {
+) -> CommandResult<()> {
     let config_step = StepHandle::start("launch.config", "Подготовка конфигурации");
 
     let (username, uuid, access_token, project, mc_version, authlib_server_url, project_config, discord_enabled) = {
@@ -111,12 +111,13 @@ pub async fn start_minecraft(
     window_step.finish(false);
 
     if !process.has_exited() {
+        let exited = process.exited_flag();
         tauri::async_runtime::spawn_blocking(move || {
-            discord::set_game_activity(discord_enabled, &mc_version, &project);
+            discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited));
         });
     }
 
-    Ok("Майнкрафт успешно запущен".to_string())
+    Ok(())
 }
 
 #[tauri::command]

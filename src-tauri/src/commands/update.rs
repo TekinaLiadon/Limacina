@@ -41,6 +41,11 @@ pub async fn apply_update_cmd(
 
     let target_version = match version {
         Some(v) => {
+            let current_version = app.package_info().version.to_string();
+            if v == current_version {
+                log_err!("Версия v{} уже установлена", v);
+                return Err(anyhow::anyhow!("Версия v{} уже установлена", v).into());
+            }
             let versions = fetch_launcher_versions().await?;
             if !versions.versions.iter().any(|entry| entry.version == v) {
                 log_err!("Версия v{} отсутствует на сервере", v);

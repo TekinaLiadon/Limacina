@@ -28,23 +28,6 @@ export class CpmBinaryWriter {
     this.writeByte(value)
   }
 
-  writeSignedVarInt(v: number): void {
-    const sign = v < 0 ? 0x40 : 0
-    let value = Math.abs(v)
-    let b = (value & 0x3F) | sign
-    value >>>= 6
-    while (value !== 0) {
-      this.writeByte(b | 0x80)
-      b = value & 0x7F
-      value >>>= 7
-    }
-    this.writeByte(b)
-  }
-
-  writeVarFloat(f: number): void {
-    this.writeSignedVarInt(Math.round(f * DIV))
-  }
-
   writeFloat2(f: number): void {
     const clamped = Math.max(-32768, Math.min(32767, Math.round(f * DIV)))
     this.writeShort(clamped)
@@ -67,12 +50,6 @@ export class CpmBinaryWriter {
     while (deg < 0) deg += 360
     while (deg >= 360) deg -= 360
     return Math.max(0, Math.min(65535, Math.round(deg / 360 * 65535)))
-  }
-
-  writeVarVec3(v: { x: number; y: number; z: number }): void {
-    this.writeVarFloat(v.x)
-    this.writeVarFloat(v.y)
-    this.writeVarFloat(v.z)
   }
 
   writeEnum(ordinal: number): void {

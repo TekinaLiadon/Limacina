@@ -1,6 +1,7 @@
 import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene } from '@/06-shared'
+import { useThreeScene, configurePixelTexture, disposeObjectTree } from '@/06-shared'
+import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities/core/types'
 import type { ViewerControls } from '@/03-widgets/types'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS } from './cpmAnimationPlayer'
@@ -15,78 +16,68 @@ const FACE_MAP: Record<string, number> = {
   south: 5,
 }
 
-const VANILLA_PIVOTS: Record<string, CPMVec3> = {
-  head:      { x: 0,  y: 24, z: 0 },
-  body:      { x: 0,  y: 24, z: 0 },
-  left_arm:  { x: 5,  y: 22, z: 0 },
-  right_arm: { x: -5, y: 22, z: 0 },
-  left_leg:  { x: 2,  y: 12, z: 0 },
-  right_leg: { x: -2, y: 12, z: 0 },
-}
-
 const ROOT_PIVOTS: Record<string, CPMVec3> = {
-  cape:            { x: 0,   y: 24, z: 0 },
-  elytra_left:     { x: 0,   y: 24, z: 0 },
-  elytra_right:    { x: 0,   y: 24, z: 0 },
-  armor_helmet:    { x: 0,   y: 24, z: 0 },
-  armor_body:      { x: 0,   y: 24, z: 0 },
-  armor_left_arm:  { x: 5,   y: 22, z: 0 },
-  armor_right_arm: { x: -5,  y: 22, z: 0 },
-  armor_leggings_body: { x: 0,   y: 24, z: 0 },
-  armor_left_leg:  { x: 2,   y: 12, z: 0 },
-  armor_right_leg: { x: -2,  y: 12, z: 0 },
-  armor_left_foot: { x: 2,   y: 12, z: 0 },
+  head:             { x: 0,  y: 24, z: 0 },
+  body:             { x: 0,  y: 24, z: 0 },
+  left_arm:         { x: 5,  y: 22, z: 0 },
+  right_arm:        { x: -5, y: 22, z: 0 },
+  left_leg:         { x: 2,  y: 12, z: 0 },
+  right_leg:        { x: -2, y: 12, z: 0 },
+  cape:             { x: 0,  y: 24, z: 0 },
+  elytra_left:      { x: 0,  y: 24, z: 0 },
+  elytra_right:     { x: 0,  y: 24, z: 0 },
+  armor_helmet:     { x: 0,  y: 24, z: 0 },
+  armor_body:       { x: 0,  y: 24, z: 0 },
+  armor_left_arm:   { x: 5,  y: 22, z: 0 },
+  armor_right_arm:  { x: -5, y: 22, z: 0 },
+  armor_leggings_body: { x: 0,  y: 24, z: 0 },
+  armor_left_leg:   { x: 2,  y: 12, z: 0 },
+  armor_right_leg:  { x: -2, y: 12, z: 0 },
+  armor_left_foot:  { x: 2,  y: 12, z: 0 },
   armor_right_foot: { x: -2, y: 12, z: 0 },
 }
-
-const PLAYER_PART_INDEX: Record<string, number> = PLAYER_PART_IDS
 
 function parseColor(color: string | undefined): number | null {
   if (!color) return null
   const value = parseInt(color, 16)
-  if (Number.isNaN(value)) return null
-  return value
+  return Number.isNaN(value) ? null : value
 }
 
-function applyFaceUVs(geo: THREE.BoxGeometry, faceUV: Record<string, CPMFaceUV>, skinW: number, skinH: number) {
+function setFaceQuad(uvAttr: THREE.BufferAttribute, base: number, quad: Array<[number, number]>): void {
+  quad.forEach(([u, v], i) => {
+    uvAttr.setXY(base + i, u, v)
+  })
+}
+
+function applyFaceUVs(geo: THREE.BoxGeometry, faceUV: Record<string, CPMFaceUV>, skinW: number, skinH: number): void {
   const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+
   Object.entries(faceUV).forEach(([face, uv]) => {
     const faceIndex = FACE_MAP[face]
     if (faceIndex === undefined) return
 
     const base = faceIndex * 4
     const u0 = uv.sx / skinW
-    const v0 = uv.sy / skinH
+    const v0 = 1 - uv.sy / skinH
     const u1 = uv.ex / skinW
-    const v1 = uv.ey / skinH
+    const v1 = 1 - uv.ey / skinH
 
-    const rot = uv.rot || '0'
-    let tl = { u: u0, v: 1 - v0 }
-    let tr = { u: u1, v: 1 - v0 }
-    let bl = { u: u0, v: 1 - v1 }
-    let br = { u: u1, v: 1 - v1 }
-
-    if (rot === '180') {
-      tl = { u: u1, v: 1 - v1 }
-      tr = { u: u0, v: 1 - v1 }
-      bl = { u: u1, v: 1 - v0 }
-      br = { u: u0, v: 1 - v0 }
-    } else if (rot === '90') {
-      tl = { u: u0, v: 1 - v1 }
-      tr = { u: u0, v: 1 - v0 }
-      bl = { u: u1, v: 1 - v1 }
-      br = { u: u1, v: 1 - v0 }
-    } else if (rot === '270') {
-      tl = { u: u1, v: 1 - v0 }
-      tr = { u: u1, v: 1 - v1 }
-      bl = { u: u0, v: 1 - v0 }
-      br = { u: u0, v: 1 - v1 }
+    let quad: Array<[number, number]>
+    switch (uv.rot || '0') {
+      case '90':
+        quad = [[u0, v1], [u0, v0], [u1, v1], [u1, v0]]
+        break
+      case '180':
+        quad = [[u1, v1], [u0, v1], [u1, v0], [u0, v0]]
+        break
+      case '270':
+        quad = [[u1, v0], [u1, v1], [u0, v0], [u0, v1]]
+        break
+      default:
+        quad = [[u0, v0], [u1, v0], [u0, v1], [u1, v1]]
     }
 
-    uvAttr.setXY(base, tl.u, tl.v)
-    uvAttr.setXY(base + 1, tr.u, tr.v)
-    uvAttr.setXY(base + 2, bl.u, bl.v)
-    uvAttr.setXY(base + 3, br.u, br.v)
+    setFaceQuad(uvAttr, base, quad)
   })
 
   uvAttr.needsUpdate = true
@@ -100,7 +91,7 @@ function applyBoxUVs(
     skinW: number, skinH: number,
     singleTex: boolean,
     mirror: boolean,
-) {
+): void {
   const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
   const ts = Math.abs(texSize)
   const dx = Math.ceil(w * ts)
@@ -111,56 +102,37 @@ function applyBoxUVs(
 
   const s = (px: number, py: number): [number, number] => [px / skinW, 1 - py / skinH]
 
-  let faces: [number, number, number, number][]
+  let faces: Array<[number, number, number, number]>
   if (singleTex) {
-    const txS = Math.max(dx, dy, dz)
-    faces = [
-      [tu, tv, tu + txS, tv + txS],
-      [tu, tv, tu + txS, tv + txS],
-      [tu, tv, tu + txS, tv + txS],
-      [tu, tv, tu + txS, tv + txS],
-      [tu, tv, tu + txS, tv + txS],
-      [tu, tv, tu + txS, tv + txS],
-    ]
-    if (mirror) {
-      const east = faces[0]
-      faces[0] = faces[1]
-      faces[1] = east
-      faces = faces.map(([a, b, c, r]) => [c, b, a, r])
-    }
+    const side = Math.max(dx, dy, dz)
+    faces = Array.from({ length: 6 }, () => [tu, tv, tu + side, tv + side])
   } else {
-    const f4 = tu
-    const f5 = tu + dz
-    const f6 = tu + dz + dx
-    const f7 = tu + dz + dx + dx
-    const f8 = tu + dz + dx + dz
-    const f9 = tu + dz + dx + dz + dx
-    const f10 = tv
-    const f11 = tv + dz
-    const f12 = tv + dz + dy
+    const x1 = tu + dz
+    const x2 = tu + dz + dx
+    const x3 = tu + dz + dx + dx
+    const x4 = tu + dz + dx + dz
+    const x5 = tu + dz + dx + dz + dx
+    const y1 = tv + dz
+    const y2 = tv + dz + dy
     faces = [
-      [f6, f11, f8, f12],
-      [f4, f11, f5, f12],
-      [f5, f10, f6, f11],
-      [f6, f11, f7, f10],
-      [f5, f11, f6, f12],
-      [f8, f11, f9, f12],
+      [x2, y1, x4, y2],
+      [tu, y1, x1, y2],
+      [x1, tv, x2, y1],
+      [x2, y1, x3, tv],
+      [x1, y1, x2, y2],
+      [x4, y1, x5, y2],
     ]
-    if (mirror) {
-      const east = faces[0]
-      faces[0] = faces[1]
-      faces[1] = east
-      faces = faces.map(([a, b, c, r]) => [c, b, a, r])
-    }
+  }
+
+  if (mirror) {
+    const east = faces[0]
+    faces = [faces[1], east, ...faces.slice(2)]
   }
 
   faces.forEach((rect, threeFace) => {
     const [u1, v1, u2, v2] = rect
     const base = threeFace * 4
-    uvAttr.setXY(base, ...s(u1, v1))
-    uvAttr.setXY(base + 1, ...s(u2, v1))
-    uvAttr.setXY(base + 2, ...s(u1, v2))
-    uvAttr.setXY(base + 3, ...s(u2, v2))
+    setFaceQuad(uvAttr, base, [s(u1, v1), s(u2, v1), s(u1, v2), s(u2, v2)])
   })
   uvAttr.needsUpdate = true
 }
@@ -173,19 +145,12 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
   function buildNode(node: CPMElement | CPMChild, isRoot: boolean, rootId?: string): THREE.Group {
     const group = new THREE.Group()
 
-    if (isRoot) {
-      const id = rootId as string
-      const pivot = VANILLA_PIVOTS[id] || ROOT_PIVOTS[id] || { x: 0, y: 0, z: 0 }
-      const px = pivot.x + (node.pos?.x || 0)
-      const py = pivot.y - (node.pos?.y || 0)
-      const pz = -(pivot.z + (node.pos?.z || 0))
-      group.position.set(px, py, pz)
-    } else {
-      const px = node.pos?.x || 0
-      const py = -(node.pos?.y || 0)
-      const pz = -(node.pos?.z || 0)
-      group.position.set(px, py, pz)
-    }
+    const pivot = isRoot ? (ROOT_PIVOTS[rootId as string] ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 }
+    group.position.set(
+        pivot.x + (node.pos?.x || 0),
+        pivot.y - (node.pos?.y || 0),
+        -(pivot.z + (node.pos?.z || 0)),
+    )
 
     if (node.rotation) {
       group.rotation.set(
@@ -203,29 +168,27 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
       const element = node as CPMElement
       const isVanillaRoot = element.customPart !== true && element.dup !== true
       group.userData.storeID = isVanillaRoot
-        ? PLAYER_PART_INDEX[element.id]
+        ? PLAYER_PART_IDS[element.id]
         : element.storeID
       group.userData.isRoot = true
     } else {
-      group.userData.storeID = (node as CPMChild).storeID
-      const defaultVisible = (node as CPMChild).hidden !== true
+      const child = node as CPMChild
+      group.userData.storeID = child.storeID
+      const defaultVisible = child.hidden !== true
       group.visible = defaultVisible
       group.userData.defaultVisible = defaultVisible
-    }
 
-    if (!isRoot) {
-      const child = node as CPMChild
       const size = child.size
       const hasSize = size && (size.x > 0 || size.y > 0 || size.z > 0)
 
       if (hasSize) {
         const mcScale = child.mcScale || 0
         const meshScale = child.scale || { x: 1, y: 1, z: 1 }
-        const w = size.x * meshScale.x + mcScale * 2
-        const h = size.y * meshScale.y + mcScale * 2
-        const d = size.z * meshScale.z + mcScale * 2
-
-        const geo = new THREE.BoxGeometry(w, h, d)
+        const geo = new THREE.BoxGeometry(
+            size.x * meshScale.x + mcScale * 2,
+            size.y * meshScale.y + mcScale * 2,
+            size.z * meshScale.z + mcScale * 2,
+        )
         const position = new THREE.Vector3(
             child.offset.x + size.x * meshScale.x / 2,
             -child.offset.y - size.y * meshScale.y / 2,
@@ -275,8 +238,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
 
     if (node.children && Array.isArray(node.children)) {
       node.children.forEach((childNode) => {
-        const childGroup = buildNode(childNode, false)
-        group.add(childGroup)
+        group.add(buildNode(childNode, false))
       })
     }
 
@@ -293,16 +255,14 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
   const dupIndex: Record<string, number> = {}
   config.elements.forEach((element) => {
     if (element.customPart) {
-      const elementGroup = buildNode(element, true, element.id)
-      rootGroup.add(elementGroup)
+      rootGroup.add(buildNode(element, true, element.id))
       return
     }
     if (element.dup) {
       dupIndex[element.id] = (dupIndex[element.id] || 0) + 1
       if (seenVanilla.has(element.id) || dupIndex[element.id] > 1) return
     }
-    const elementGroup = buildNode(element, true, element.id)
-    rootGroup.add(elementGroup)
+    rootGroup.add(buildNode(element, true, element.id))
   })
 
   const scale = config.scaling || 1
@@ -315,6 +275,11 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
   return rootGroup
 }
 
+export interface CpmViewerOptions {
+  onAnimationsChanged?: (playing: boolean) => void
+  onAnimationFinished?: () => void
+}
+
 export function useCpmViewer(
     container: Ref<HTMLDivElement | null>,
     cpmData: Ref<CPMData | null>,
@@ -324,73 +289,52 @@ export function useCpmViewer(
     isAnimationPlaying: Ref<boolean>,
     animationSpeed: Ref<number>,
     isAnimationLooped: Ref<boolean>,
+    options: CpmViewerOptions = {},
 ) {
   const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
   const modelGroup = shallowRef<THREE.Group | null>(null)
-  const isAnimating = shallowRef<boolean>(false)
   let loadGeneration = 0
   let player: CpmAnimationPlayer | null = null
+  let currentTexture: THREE.Texture | null = null
   let tickId = 0
 
-  function applyCamera(): void {
-    if (!camera.value) return
+  const { setFitDistance, modelBoundingSphereRadius } = useViewerCamera(
+      { camera, getOrbitControls },
+      modelGroup,
+      controls,
+  )
 
-    const dist = controls.zoomLevel.value
-    const elevation = THREE.MathUtils.degToRad(controls.rotationX.value)
-    camera.value.position.set(0, dist * Math.sin(elevation), dist * Math.cos(elevation))
-    camera.value.lookAt(0, 0, 0)
-  }
+  function removeCurrentModel(): void {
+    if (!modelGroup.value || !scene.value) return
 
-  function fitModelToView(): void {
-    if (!modelGroup.value || !camera.value) return
-
-    const box = new THREE.Box3().setFromObject(modelGroup.value)
-    const size = box.getSize(new THREE.Vector3())
-    const radius = Math.sqrt(
-        (size.x / 2) ** 2 + (size.y / 2) ** 2 + (size.z / 2) ** 2
-    )
-    const fovV = camera.value.fov * (Math.PI / 180)
-    const fovH = 2 * Math.atan(Math.tan(fovV / 2) * camera.value.aspect)
-    const fov = Math.min(fovV, fovH)
-    const distance = (radius / Math.sin(fov / 2)) * 1.08
-
-    controls.zoomLevel.value = distance
-    controls.fitDistance.value = distance
-    applyCamera()
-  }
-
-  function stopAnimation(): void {
-    isAnimationPlaying.value = false
-    isAnimating.value = false
+    scene.value.remove(modelGroup.value)
+    disposeObjectTree(modelGroup.value)
+    modelGroup.value = null
   }
 
   function loadModel(data: CPMData): void {
     if (!scene.value) return
 
-    if (modelGroup.value) {
-      scene.value.remove(modelGroup.value)
-      modelGroup.value = null
-    }
+    removeCurrentModel()
 
     const generation = ++loadGeneration
 
     const loader = new THREE.TextureLoader()
     loader.load(data.textureUrl, (texture) => {
-      if (generation !== loadGeneration) return
+      if (generation !== loadGeneration || !scene.value) return
 
-      texture.magFilter = THREE.NearestFilter
-      texture.minFilter = THREE.NearestFilter
-      texture.generateMipmaps = false
-      texture.colorSpace = THREE.SRGBColorSpace
+      configurePixelTexture(texture)
+      if (currentTexture) currentTexture.dispose()
+      currentTexture = texture
 
       const model = buildCpmModel(data.config, texture)
-      scene.value!.add(model)
+      scene.value.add(model)
       modelGroup.value = model
 
       player = new CpmAnimationPlayer(indexModelNodes(model), {
         activeLayerIds,
         onFinished: () => {
-          stopAnimation()
+          options.onAnimationFinished?.()
         },
       })
 
@@ -400,7 +344,14 @@ export function useCpmViewer(
       player.setPlaying(isAnimationPlaying.value)
 
       updateVisibility()
-      fitModelToView()
+
+      const radius = modelBoundingSphereRadius()
+      const perspectiveCamera = camera.value
+      if (radius !== null && perspectiveCamera) {
+        const fovV = perspectiveCamera.fov * (Math.PI / 180)
+        const fovH = 2 * Math.atan(Math.tan(fovV / 2) * perspectiveCamera.aspect)
+        setFitDistance((radius / Math.sin(Math.min(fovV, fovH) / 2)) * 1.08)
+      }
     })
   }
 
@@ -436,7 +387,7 @@ export function useCpmViewer(
   watch(activeAnimations, (animations) => {
     if (!player) return
     player.setAnimations(animations)
-    isAnimationPlaying.value = animations.length > 0
+    options.onAnimationsChanged?.(animations.length > 0)
   }, { deep: true })
 
   watch(isAnimationPlaying, (playing: boolean) => {
@@ -459,32 +410,16 @@ export function useCpmViewer(
     updateVisibility()
   })
 
-  watch(controls.autoRotate, (enabled: boolean) => {
-    const orbit = getOrbitControls()
-    if (orbit) orbit.autoRotate = enabled
-  })
-
-  watch(controls.zoomLevel, () => {
-    applyCamera()
-  })
-
-  watch(controls.rotationX, () => {
-    applyCamera()
-  })
-
-  watch(controls.rotationY, (angle: number) => {
-    if (modelGroup.value) {
-      modelGroup.value.rotation.y = THREE.MathUtils.degToRad(angle)
-    }
-  })
-
   tickId = requestAnimationFrame(tickAnimation)
 
   onBeforeUnmount(() => {
     cancelAnimationFrame(tickId)
+    removeCurrentModel()
+    if (currentTexture) {
+      currentTexture.dispose()
+      currentTexture = null
+    }
   })
 
-  return {
-    isAnimating,
-  }
+  return {}
 }

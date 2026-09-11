@@ -80,14 +80,18 @@ async fn fetch_package(
     let pkg = packages
         .result
         .into_iter()
-        .find(|p| {
-            SUPPORTED_ARCHIVE_TYPES.contains(&p.archive_type.as_str())
-                && p.links
-                    .as_ref()
-                    .is_some_and(|l| !l.pkg_download_redirect.is_empty())
+        .find_map(|p| {
+            let links = p.links.as_ref()?;
+            if SUPPORTED_ARCHIVE_TYPES.contains(&p.archive_type.as_str())
+                && !links.pkg_download_redirect.is_empty()
+            {
+                Some((links.pkg_download_redirect.clone(), p.archive_type.clone()))
+            } else {
+                None
+            }
         });
 
-    Ok(pkg.map(|p| (p.links.unwrap().pkg_download_redirect, p.archive_type)))
+    Ok(pkg)
 }
 
 async fn collect_dirs(path: &PathBuf) -> Result<Vec<String>> {

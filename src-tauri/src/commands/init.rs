@@ -11,7 +11,9 @@ pub async fn initialize_launcher(
     state: State<'_, Mutex<GlobalState>>,
     parent_path: String,
 ) -> CommandResult<LauncherConfig> {
-    let config = init::init_launcher(&parent_path)?;
+    let config = tauri::async_runtime::spawn_blocking(move || init::init_launcher(&parent_path))
+        .await
+        .map_err(|e| anyhow::anyhow!("Не удалось выполнить инициализацию лаунчера: {}", e))??;
 
     {
         let mut state = state.lock().await;
@@ -42,8 +44,11 @@ pub async fn initialize_project(
 pub async fn set_initialized(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ProjectConfig> {
-    let mut state = state.lock().await;
-    state.project_config.initialized = true;
-    state.project_config.save_config().await?;
-    Ok(state.project_config.clone())
+    let config = {
+        let mut state = state.lock().await;
+        state.project_config.initialized = true;
+        state.project_config.clone()
+    };
+    config.save_config().await?;
+    Ok(config)
 }

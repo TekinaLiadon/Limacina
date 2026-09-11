@@ -1,15 +1,16 @@
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
 static GLOBAL_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
-
-
 const LOG_BUFFER_LIMIT: usize = 500;
 
 static LOG_BUFFER: OnceLock<Mutex<VecDeque<ConsolePayload>>> = OnceLock::new();
+static CONSOLE_EMIT_ENABLED: AtomicBool = AtomicBool::new(true);
+static GAME_OUTPUT_ENABLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +28,14 @@ pub fn global_app_handle() -> Option<&'static AppHandle> {
     GLOBAL_APP_HANDLE.get()
 }
 
+pub fn set_console_emit_enabled(enabled: bool) {
+    CONSOLE_EMIT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn set_game_output_enabled(enabled: bool) {
+    GAME_OUTPUT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 pub fn send_log(msg: String, is_error: bool) {
     if is_error {
         eprintln!("[ERR] {}", msg);
@@ -39,8 +48,10 @@ pub fn send_log(msg: String, is_error: bool) {
         is_error,
     };
 
-    if let Some(app) = GLOBAL_APP_HANDLE.get() {
-        let _ = app.emit("game-console", &payload);
+    if CONSOLE_EMIT_ENABLED.load(Ordering::Relaxed) {
+        if let Some(app) = GLOBAL_APP_HANDLE.get() {
+            let _ = app.emit("game-console", &payload);
+        }
     }
 
     if let Some(buffer) = LOG_BUFFER.get() {
@@ -51,6 +62,13 @@ pub fn send_log(msg: String, is_error: bool) {
             buf.push_back(payload);
         }
     }
+}
+
+pub fn send_game_output(msg: String, is_error: bool) {
+    if !GAME_OUTPUT_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    send_log(msg, is_error);
 }
 
 pub fn drain_startup_logs() -> Vec<ConsolePayload> {

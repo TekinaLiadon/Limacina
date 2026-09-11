@@ -184,6 +184,18 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
   const { cubes, elementIds } = flatten(config)
 
   const def = new CpmBinaryWriter()
+  const renderEffect = (effect: number, writeFn: (writer: CpmBinaryWriter) => void): void => {
+    def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
+      w.writeEnum(effect)
+      writeFn(w)
+    })
+  }
+  const hideElement = (id: number): void => {
+    renderEffect(RE.HIDE, (w) => {
+      w.writeVarInt(id)
+    })
+  }
+
   def.writeVarInt(cubes.length)
   const sorted = [...cubes].sort((a, b) => a.id - b.id)
   for (const cube of sorted) {
@@ -233,30 +245,24 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
     const rgb = parseHexColor(child.color)
 
     if (child.glow) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.GLOW)
+      renderEffect(RE.GLOW, (w) => {
         w.writeVarInt(id)
       })
     }
     const meshScale = child.scale
     const mcScale = child.mcScale ?? 0
     if (Math.abs(mcScale) > 0.0001 || !vecNear(meshScale, 1, 0.001)) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.SCALE)
+      renderEffect(RE.SCALE, (w) => {
         w.writeVarInt(id)
         w.writeFloat2(mcScale)
         w.writeVec6b(meshScale ?? { x: 1, y: 1, z: 1 })
       })
     }
     if (child.hidden === true) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.HIDE)
-        w.writeVarInt(id)
-      })
+      hideElement(id)
     }
     if (child.recolor) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.COLOR)
+      renderEffect(RE.COLOR, (w) => {
         w.writeVarInt(id)
         w.writeByte((rgb >>> 16) & 0xFF)
         w.writeByte((rgb >>> 8) & 0xFF)
@@ -264,26 +270,22 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
       })
     }
     if (child.singleTex) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.SINGLE_TEX)
+      renderEffect(RE.SINGLE_TEX, (w) => {
         w.writeVarInt(id)
       })
     }
     if (child.extrude) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.EXTRUDE)
+      renderEffect(RE.EXTRUDE, (w) => {
         w.writeVarInt(id)
       })
     }
     if (child.faceUV && Object.keys(child.faceUV).length > 0) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.PER_FACE_UV)
+      renderEffect(RE.PER_FACE_UV, (w) => {
         w.writeVarInt(id)
         writeFaceUVs(w, child.faceUV as Record<string, CPMFaceUV>)
       })
     } else if ((child.u ?? 0) > 255 || (child.v ?? 0) > 255) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.UV_OVERFLOW)
+      renderEffect(RE.UV_OVERFLOW, (w) => {
         w.writeVarInt(id)
         w.writeVarInt(child.u ?? 0)
         w.writeVarInt(child.v ?? 0)
@@ -309,10 +311,7 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
     const id = elementIds.get(el) ?? 0
     if (el.dup === true) {
       if (el.show === false) {
-        def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-          w.writeEnum(RE.HIDE)
-          w.writeVarInt(id)
-        })
+        hideElement(id)
       }
       def.writeObjectBlock(PT.DUP_ROOT, (w) => {
         w.writeVarInt(id)
@@ -320,10 +319,7 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
       })
     } else if (el.customPart === true) {
       if (el.show === false) {
-        def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-          w.writeEnum(RE.HIDE)
-          w.writeVarInt(id)
-        })
+        hideElement(id)
       }
       def.writeObjectBlock(PT.MODEL_ROOT, (w) => {
         w.writeVarInt(id)
@@ -331,8 +327,7 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
       })
     }
     if (el.disableVanillaAnim === true) {
-      def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-        w.writeEnum(RE.DISABLE_VANILLA)
+      renderEffect(RE.DISABLE_VANILLA, (w) => {
         w.writeVarInt(id)
       })
     }
@@ -340,37 +335,30 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
 
   const scaling = config.scaling ?? 1
   if (scaling !== 0 && scaling !== 1) {
-    def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-      w.writeEnum(RE.SCALING)
+    renderEffect(RE.SCALING, (w) => {
       w.writeEnum(0)
       w.writeFloat2(scaling)
     })
   }
 
   if (config.hideHeadIfSkull !== true) {
-    def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-      w.writeEnum(RE.HIDE_SKULL)
+    renderEffect(RE.HIDE_SKULL, (w) => {
       w.writeByte(0)
     })
   }
 
   if (config.removeArmorOffset === true) {
-    def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-      w.writeEnum(RE.REMOVE_ARMOR_OFFSET)
+    renderEffect(RE.REMOVE_ARMOR_OFFSET, (w) => {
       w.writeByte(1)
     })
   }
 
   if (config.removeBedOffset === true) {
-    def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-      w.writeEnum(RE.REMOVE_BED_OFFSET)
-    })
+    renderEffect(RE.REMOVE_BED_OFFSET, () => {})
   }
 
   if (config.enableInvisGlow === true) {
-    def.writeObjectBlock(PT.RENDER_EFFECT, (w) => {
-      w.writeEnum(RE.INVIS_GLOW)
-    })
+    renderEffect(RE.INVIS_GLOW, () => {})
   }
 
   def.writeObjectBlock(PT.END, () => {})

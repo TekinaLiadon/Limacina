@@ -1,5 +1,6 @@
 use std::env;
-use std::sync::{Mutex as StdMutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
@@ -102,10 +103,21 @@ pub fn init(enabled: bool) {
     apply(&mut state);
 }
 
-pub fn set_game_activity(enabled: bool, mc_version: &str, project_name: &str) {
+pub fn set_game_activity(
+    enabled: bool,
+    mc_version: &str,
+    project_name: &str,
+    exited: Option<Arc<AtomicBool>>,
+) {
     let mut state = discord_state()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    if exited
+        .as_ref()
+        .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
+    {
+        return;
+    }
     state.enabled = enabled;
     state.game = Some(GameActivity {
         details: format!("Minecraft {}", mc_version),

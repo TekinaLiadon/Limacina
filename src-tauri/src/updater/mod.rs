@@ -72,8 +72,7 @@ async fn verify_sha256(bytes: &[u8], expected: &str) -> Result<()> {
     let bytes = bytes.to_vec();
     let hash = tokio::task::spawn_blocking(move || {
         use sha2::Digest;
-        let digest = sha2::Sha256::digest(&bytes);
-        digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        crate::utils::hex::digest_hex(sha2::Sha256::digest(&bytes))
     })
     .await
     .context("Ошибка при вычислении SHA-256")?;
@@ -106,48 +105,68 @@ pub fn apply_update(archive_path: &Path) -> Result<()> {
     let new_binary = find_binary_in_dir(&temp_extract_dir)?;
     log_info!("Новый бинарник: {:?}", new_binary);
 
-    let old_path = current_exe.with_file_name(format!(
-        "{}.old",
+    let exe_dir = current_exe
+        .parent()
+        .context("Не удалось определить директорию бинарника")?;
+    let staged_path = exe_dir.join(format!(
+        "{}.new",
         current_exe
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
     ));
 
+    let old_path = old_binary_path(&current_exe);
+
     if old_path.exists() {
         std::fs::remove_file(&old_path).context("Не удалось удалить старый бинарник")?;
     }
 
-    std::fs::rename(&current_exe, &old_path)
-        .context("Не удалось переименовать текущий бинарник")?;
-
-    let apply_result = (|| -> Result<()> {
-        std::fs::copy(&new_binary, &current_exe)
-            .context("Не удалось скопировать новый бинарник")?;
+    let prepare_result = (|| -> Result<()> {
+        std::fs::copy(&new_binary, &staged_path)
+            .context("Не удалось подготовить новый бинарник")?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o755);
-            std::fs::set_permissions(&current_exe, perms)
+            std::fs::set_permissions(&staged_path, perms)
                 .context("Не удалось установить права на бинарник")?;
         }
 
         Ok(())
     })();
 
-    if let Err(e) = apply_result {
-        log_err!("Применение обновления не удалось, откат: {}", e);
-        if current_exe.exists() {
-            let _ = std::fs::remove_file(&current_exe);
-        }
-        if let Err(rollback_err) = std::fs::rename(&old_path, &current_exe) {
-            log_err!(
-                "Критическая ошибка отката: не удалось вернуть исходный бинарник ({:?})",
-                rollback_err
-            );
-        }
+    if let Err(e) = prepare_result {
+        log_err!("Подготовка обновления не удалась: {}", e);
+        let _ = std::fs::remove_file(&staged_path);
+        let _ = std::fs::remove_dir_all(&temp_extract_dir);
         return Err(e);
+    }
+
+    std::fs::rename(&current_exe, &old_path)
+        .context("Не удалось переименовать текущий бинарник")?;
+
+    match std::fs::rename(&staged_path, &current_exe) {
+        Ok(()) => {
+            log_info!("Обновление применено, перезапуск...");
+        }
+        Err(e) => {
+            log_err!("Не удалось перенести новый бинарник ({}), откат", e);
+            if current_exe.exists() {
+                let _ = std::fs::remove_file(&current_exe);
+            }
+            if let Err(rollback_err) = std::fs::rename(&old_path, &current_exe) {
+                log_err!(
+                    "Критическая ошибка отката: не удалось вернуть исходный бинарник ({:?})",
+                    rollback_err
+                );
+            }
+            let _ = std::fs::remove_file(&staged_path);
+            let _ = std::fs::remove_dir_all(&temp_extract_dir);
+            return Err(anyhow::Error::new(e)
+                .context("Не удалось применить обновление: перенос бинарника не удался"));
+        }
     }
 
     if temp_extract_dir.exists() {
@@ -155,8 +174,17 @@ pub fn apply_update(archive_path: &Path) -> Result<()> {
     }
     let _ = std::fs::remove_file(archive_path);
 
-    log_info!("Обновление применено, перезапуск...");
     Ok(())
+}
+
+fn old_binary_path(current_exe: &Path) -> PathBuf {
+    current_exe.with_file_name(format!(
+        "{}.old",
+        current_exe
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+    ))
 }
 
 fn find_binary_in_dir(dir: &Path) -> Result<PathBuf> {
@@ -206,17 +234,26 @@ fn find_binary_in_dir(dir: &Path) -> Result<PathBuf> {
 
 pub fn cleanup_old_binaries() {
     if let Ok(current_exe) = std::env::current_exe() {
-        let old_path = current_exe.with_file_name(format!(
-            "{}.old",
+        let old_path = old_binary_path(&current_exe);
+        if old_path.exists() {
+            match std::fs::remove_file(&old_path).context("Не удалось удалить старый бинарник")
+            {
+                Ok(()) => log_info!("Удалён старый бинарник: {:?}", old_path),
+                Err(e) => log_err!("{:?}", e),
+            }
+        }
+
+        let staged_path = current_exe.with_file_name(format!(
+            "{}.new",
             current_exe
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
         ));
-        if old_path.exists() {
-            match std::fs::remove_file(&old_path).context("Не удалось удалить старый бинарник")
+        if staged_path.exists() {
+            match std::fs::remove_file(&staged_path).context("Не удалось удалить незавершённое обновление")
             {
-                Ok(()) => log_info!("Удалён старый бинарник: {:?}", old_path),
+                Ok(()) => log_info!("Удалён незавершённый бинарник обновления: {:?}", staged_path),
                 Err(e) => log_err!("{:?}", e),
             }
         }

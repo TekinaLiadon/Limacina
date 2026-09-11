@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::utils::env_info::get_current_os;
+use crate::minecraft::rules::is_json_rules_allowed;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +52,7 @@ fn extract_value_strings(values: &[Value]) -> Vec<String> {
             Value::String(s) => result.push(s.clone()),
             Value::Object(obj) => {
                 if let Some(rules) = obj.get("rules").and_then(|r| r.as_array()) {
-                    if !is_rules_allowed(rules) {
+                    if !is_json_rules_allowed(rules) {
                         continue;
                     }
                 }
@@ -74,29 +74,6 @@ fn extract_value_strings(values: &[Value]) -> Vec<String> {
         }
     }
     result
-}
-
-fn is_rules_allowed(rules: &[Value]) -> bool {
-    let current_os = get_current_os();
-    let mut allowed = false;
-
-    for rule in rules {
-        let os_matches = rule
-            .get("os")
-            .and_then(|os| os.get("name"))
-            .and_then(|n| n.as_str())
-            .is_none_or(|n| n == current_os);
-
-        let features_match = rule
-            .get("features")
-            .is_none_or(|_| false);
-
-        if os_matches && features_match {
-            allowed = rule.get("action").and_then(|a| a.as_str()) == Some("allow");
-        }
-    }
-
-    allowed
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
