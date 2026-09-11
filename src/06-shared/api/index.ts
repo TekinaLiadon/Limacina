@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
+import type { SkinModelMode } from '@/03-widgets/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -215,8 +216,10 @@ export async function logoutAccount(): Promise<void> {
   return invoke('logout_account')
 }
 
-export async function uploadSkin(fileData: Uint8Array): Promise<UserContentItem> {
-  return invoke<UserContentItem>('upload_skin', fileData)
+export async function uploadSkin(fileData: Uint8Array, model: SkinModelMode): Promise<UserContentItem> {
+  return invoke<UserContentItem>('upload_skin', fileData, {
+    headers: { 'Skin-Model': model },
+  })
 }
 
 export async function listSkins(uuid: string): Promise<UserContentItem[]> {

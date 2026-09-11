@@ -72,9 +72,17 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Result<UserContentItem> {
+pub async fn upload_skin(
+    state: &Mutex<GlobalState>,
+    file_data: Vec<u8>,
+    model: Option<&str>,
+) -> Result<UserContentItem> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/v1/common/content/skins", server_url);
+    let mut url = format!("{}/v1/common/content/skins", server_url);
+    if let Some(model) = model {
+        url.push_str("?model=");
+        url.push_str(model);
+    }
 
     let part = reqwest::multipart::Part::bytes(file_data)
         .file_name("skin.png")

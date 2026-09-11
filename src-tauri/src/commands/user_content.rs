@@ -121,6 +121,15 @@ pub async fn upload_skin(
     state: State<'_, Mutex<GlobalState>>,
     request: tauri::ipc::Request<'_>,
 ) -> CommandResult<UserContentItem> {
+    let model = request
+        .headers()
+        .get("Skin-Model")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| match value {
+            "slim" => Some("slim"),
+            "classic" => Some("classic"),
+            _ => None,
+        });
 
     let file_data = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
@@ -129,7 +138,7 @@ pub async fn upload_skin(
             .context("Некорректное тело запроса загрузки скина")?,
     };
 
-    let item = user_content::upload_skin(&state, file_data).await?;
+    let item = user_content::upload_skin(&state, file_data, model).await?;
     Ok(item)
 }
 

@@ -6,6 +6,12 @@ import {
   listModels, uploadModel, deleteModel,
 } from '@/06-shared/api'
 import type { UserContentItem } from '@/05-entities/core/types'
+import type { SkinModelMode } from '@/03-widgets/types'
+
+interface SkinUploadPayload {
+  fileData: Uint8Array
+  model: SkinModelMode
+}
 
 interface UserContentApi<T> {
   list: (uuid: string) => Promise<UserContentItem[]>
@@ -98,9 +104,9 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 }
 
 export function useSkinUserContent() {
-  return useUserContent({
+  return useUserContent<SkinUploadPayload>({
     list: listSkins,
-    upload: uploadSkin,
+    upload: ({ fileData, model }): Promise<UserContentItem> => uploadSkin(fileData, model),
     delete: deleteSkin,
     activate: setActiveSkin,
     uploadSuccessMessage: 'Скин успешно загружен',
