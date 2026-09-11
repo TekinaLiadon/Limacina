@@ -223,19 +223,50 @@ struct ServerEntry {
     ip: Option<String>,
 }
 
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+fn is_zlib_header(raw: &[u8]) -> bool {
+    if raw.len() < 2 {
+        return false;
+    }
+    let cmf = raw[0] as u16;
+    let flg = raw[1] as u16;
+    cmf & 0x0f == 8 && (cmf << 8 | flg).is_multiple_of(31)
+}
+
+fn decode_nbt_container(raw: Vec<u8>, path: &Path) -> Result<Vec<u8>> {
+    if raw.starts_with(&GZIP_MAGIC) {
+        let mut data = Vec::new();
+        flate2::read::GzDecoder::new(raw.as_slice())
+            .read_to_end(&mut data)
+            .with_context(|| format!("Не удалось распаковать {:?}", path))?;
+        Ok(data)
+    } else if is_zlib_header(&raw) {
+        let mut data = Vec::new();
+        flate2::read::ZlibDecoder::new(raw.as_slice())
+            .read_to_end(&mut data)
+            .with_context(|| format!("Не удалось распаковать {:?}", path))?;
+        Ok(data)
+    } else if raw.first().is_some_and(|byte| *byte <= 12) {
+        Ok(raw)
+    } else {
+        anyhow::bail!(
+            "Неизвестный формат NBT файла {:?} (первые байты: {:02x?})",
+            path,
+            &raw[..raw.len().min(4)]
+        )
+    }
+}
+
 pub fn first_server_address(game_dir: &Path) -> Result<Option<String>> {
     let path = game_dir.join("servers.dat");
     if !path.exists() {
         return Ok(None);
     }
 
-    let file = std::fs::File::open(&path)
+    let raw = std::fs::read(&path)
         .with_context(|| format!("Не удалось открыть {:?}", path))?;
-    let mut decoder = flate2::read::GzDecoder::new(file);
-    let mut data = Vec::new();
-    decoder
-        .read_to_end(&mut data)
-        .with_context(|| format!("Не удалось распаковать {:?}", path))?;
+    let data = decode_nbt_container(raw, &path)?;
 
     let root: ServersDatRoot = fastnbt::from_bytes(data.as_slice())
         .with_context(|| format!("Не удалось разобрать {:?}", path))?;
@@ -546,7 +577,14 @@ mod servers_dat_tests {
     use std::io::Write;
     use std::path::Path;
 
-    fn write_servers_dat(dir: &Path, ip: &str) {
+    enum Container {
+        Raw,
+        Gzip,
+        Zlib,
+    }
+
+
+    fn write_servers_dat(dir: &Path, ip: &str, container: Container) {
         let mut nbt = Vec::new();
         nbt.push(0x0A);
         nbt.extend_from_slice(&0u16.to_be_bytes());
@@ -563,10 +601,20 @@ mod servers_dat_tests {
         nbt.push(0x00);
         nbt.push(0x00);
 
-        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(&nbt).expect("gzip сжатие");
-        let compressed = encoder.finish().expect("завершение gzip");
-        std::fs::write(dir.join("servers.dat"), compressed).expect("запись servers.dat");
+        let bytes = match container {
+            Container::Raw => nbt,
+            Container::Gzip => {
+                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+                encoder.write_all(&nbt).expect("gzip сжатие");
+                encoder.finish().expect("завершение gzip")
+            }
+            Container::Zlib => {
+                let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+                encoder.write_all(&nbt).expect("zlib сжатие");
+                encoder.finish().expect("завершение zlib")
+            }
+        };
+        std::fs::write(dir.join("servers.dat"), bytes).expect("запись servers.dat");
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -579,12 +627,49 @@ mod servers_dat_tests {
     #[test]
     fn reads_first_server_ip() {
         let dir = temp_dir("limacina_servers_dat_ok");
-        write_servers_dat(&dir, "play.example.com:25565");
+        write_servers_dat(&dir, "play.example.com:25565", Container::Raw);
 
         assert_eq!(
             first_server_address(&dir).expect("чтение servers.dat"),
             Some("play.example.com:25565".to_string())
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_first_server_ip_from_gzip() {
+        let dir = temp_dir("limacina_servers_dat_gzip");
+        write_servers_dat(&dir, "play.example.com:25565", Container::Gzip);
+
+        assert_eq!(
+            first_server_address(&dir).expect("чтение servers.dat"),
+            Some("play.example.com:25565".to_string())
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_first_server_ip_from_zlib() {
+        let dir = temp_dir("limacina_servers_dat_zlib");
+        write_servers_dat(&dir, "play.example.com:25565", Container::Zlib);
+
+        assert_eq!(
+            first_server_address(&dir).expect("чтение servers.dat"),
+            Some("play.example.com:25565".to_string())
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn garbage_file_is_error() {
+        let dir = temp_dir("limacina_servers_dat_garbage");
+        std::fs::write(dir.join("servers.dat"), b"PK\x03\x04fake zip").expect("запись мусора");
+
+        let err = first_server_address(&dir).expect_err("мусор должен дать ошибку");
+        assert!(err.to_string().contains("Неизвестный формат"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
