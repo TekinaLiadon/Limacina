@@ -63,7 +63,7 @@ console.log(`ZIP: ${zipPath}`);
 
 try {
   if (platform === "win32") {
-    const psScript = `Compress-Archive -Path "${sourcePath}" -DestinationPath "${zipPath}" -CompressionLevel Maximum -Force`;
+    const psScript = `Compress-Archive -Path "${sourcePath}" -DestinationPath "${zipPath}" -CompressionLevel Optimal -Force`;
     execSync(`powershell -NoProfile -Command "${psScript}"`, { stdio: "inherit" });
   } else {
     const zipDir = path.dirname(sourcePath);
