@@ -1,17 +1,16 @@
-use crate::{log_info, log_err, step_try};
+use crate::{log_err, log_info, step_try};
 use anyhow::{Context, Result};
-use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::launcher_server::api_context;
 use crate::state::dto::GlobalState;
-use crate::utils::bandwidth;
-use crate::utils::download_file::file_sha1;
-use crate::utils::env_info::is_safe_relative_path;
+use crate::utils::download_file::{file_sha1, write_stream_to_atomic};
+use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
@@ -28,6 +27,22 @@ pub(crate) fn build_auth_client(token: &str) -> Result<Client> {
         .connect_timeout(Duration::from_secs(10))
         .build()
         .context("Не удалось создать HTTP клиент")
+}
+
+pub(crate) struct ApiContext {
+    pub client: Client,
+    pub server_url: String,
+}
+
+pub(crate) async fn require_api_client(
+    state: &Mutex<GlobalState>,
+    auth_error: &str,
+) -> Result<ApiContext> {
+    let (token, server_url) = api_context(state, auth_error).await?;
+    Ok(ApiContext {
+        client: build_auth_client(&token)?,
+        server_url,
+    })
 }
 
 #[derive(Serialize)]
@@ -60,59 +75,8 @@ async fn download_file(
         anyhow::bail!("Сервер вернул {} при скачивании {}: {} (путь: {:?})", status, url, body, file_path);
     }
 
-    write_streamed(response, file_path, url).await?;
-    log_info!("[download] Готово: {}", url);
-    Ok(())
-}
-
-async fn write_streamed(
-    response: reqwest::Response,
-    file_path: &Path,
-    url: &str,
-) -> Result<()> {
-    if let Some(parent) = file_path.parent() {
-        tokio::fs::create_dir_all(parent).await
-            .with_context(|| format!("Не удалось создать директорию {:?}", parent))?;
-    }
-
-    let tmp_path = {
-        let mut name = file_path.as_os_str().to_os_string();
-        name.push(".part");
-        PathBuf::from(name)
-    };
-    let mut file = tokio::fs::File::create(&tmp_path).await
-        .with_context(|| format!("Не удалось создать файл {:?}", tmp_path))?;
-    let mut stream = response.bytes_stream();
-    let mut total_bytes: u64 = 0;
-    let mut stream_result: Result<()> = Ok(());
-
-    while let Some(item) = stream.next().await {
-        let chunk = match item {
-            Ok(chunk) => chunk,
-            Err(e) => {
-                stream_result = Err(anyhow::Error::new(e)
-                    .context(format!("Ошибка чтения потока при скачивании {}", url)));
-                break;
-            }
-        };
-        bandwidth::acquire(chunk.len() as u64).await;
-        total_bytes += chunk.len() as u64;
-        if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await {
-            stream_result = Err(e).with_context(|| format!("Ошибка записи в файл {:?}", tmp_path));
-            break;
-        }
-    }
-    drop(file);
-
-    if let Err(e) = stream_result {
-        let _ = tokio::fs::remove_file(&tmp_path).await;
-        return Err(e);
-    }
-
+    let total_bytes = write_stream_to_atomic(response, file_path, url).await?;
     log_info!("[download] Скачано {} байт: {}", total_bytes, url);
-
-    tokio::fs::rename(&tmp_path, file_path).await
-        .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp_path, file_path))?;
     Ok(())
 }
 
@@ -197,90 +161,105 @@ pub struct FilesSyncReport {
     pub skipped: bool,
 }
 
-pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
-    let (token, server_url, online) = {
-        let guard = state.lock().await;
-        let online = guard.project_config.online;
-        let server_url = guard.project_config.resolved_server_url();
-        if !online {
-            (String::new(), server_url, false)
-        } else {
-            let token = guard
-                .session
-                .as_ref()
-                .context("Необходима авторизация для скачивания файлов")?
-                .access_token
-                .clone();
-            (token, server_url, true)
-        }
-    };
+struct SyncLabels {
+    log_prefix: &'static str,
+    item: &'static str,
+    noun: &'static str,
+}
 
-    if !online {
-        log_info!("[files] Одиночный профиль {} — синхронизация с сервером не нужна", project_name);
-        return Ok(FilesSyncReport::default());
-    }
+const FILES_LABELS: SyncLabels = SyncLabels {
+    log_prefix: "[files]",
+    item: "файла",
+    noun: "файлов",
+};
 
-    let client = build_auth_client(&token)?;
+const MODS_LABELS: SyncLabels = SyncLabels {
+    log_prefix: "[mods]",
+    item: "мода",
+    noun: "модов",
+};
 
-    let file_list = fetch_file_list(&client, &server_url, &project_name).await?;
-
-    let core = crate::utils::env_info::launcher_patch(Some(&project_name))?;
-
-    log_info!("[files] Получено файлов от сервера: {}", file_list.len());
-    log_info!("[files] Папка проекта: {:?}", core);
-
-    let download_step = StepHandle::start("files.download", "Скачивание файлов");
+async fn sync_server_files(
+    ctx: &ApiContext,
+    list: &HashMap<String, String>,
+    base_dir: &Path,
+    check_hashes: bool,
+    step: StepHandle,
+    labels: &SyncLabels,
+    dest_for: impl Fn(&str) -> PathBuf,
+) -> Result<FilesSyncReport> {
+    let client = ctx.client.clone();
+    let server_url = ctx.server_url.clone();
+    let prefix = labels.log_prefix;
 
     let mut files_to_download: Vec<String> = Vec::new();
 
-    for (key, expected_hash) in &file_list {
+    for (key, expected_hash) in list {
         if !is_safe_relative_path(key) {
-            log_err!("[files] Отклонён небезопасный путь от сервера: {}", key);
-            download_step.fail(format!("Сервер передал недопустимый путь: {}", key));
-            anyhow::bail!("Сервер передал недопустимый путь файла: {}", key);
+            log_err!("{} Отклонён небезопасный путь от сервера: {}", prefix, key);
+            step.fail(format!("Сервер передал недопустимый путь: {}", key));
+            anyhow::bail!("Сервер передал недопустимый путь {}: {}", labels.item, key);
         }
 
-        let file_path = core.join(key);
+        let file_path = base_dir.join(dest_for(key));
         if !file_path.exists() {
+            log_info!("{} Отсутствует: {}", prefix, dest_for(key).display());
             files_to_download.push(key.clone());
         } else if check_hashes {
             match file_sha1(&file_path).await {
                 Ok(hash) if hash == *expected_hash => continue,
-                _ => files_to_download.push(key.clone()),
+                Ok(hash) => {
+                    log_info!(
+                        "{} Изменился: {} (ожидается {}, есть {})",
+                        prefix,
+                        dest_for(key).display(),
+                        expected_hash,
+                        hash
+                    );
+                    files_to_download.push(key.clone());
+                }
+                Err(e) => {
+                    log_info!("{} Ошибка чтения {}: {}", prefix, dest_for(key).display(), e);
+                    files_to_download.push(key.clone());
+                }
             }
         }
     }
 
-    log_info!("[files] Проверка завершена. К скачиванию: {} из {}", files_to_download.len(), file_list.len());
+    let total = files_to_download.len();
+    log_info!("{} К скачиванию: {} из {}", prefix, total, list.len());
+    step.set_total(total as u64);
 
-    let total_files = files_to_download.len();
-    download_step.set_total(total_files as u64);
-
-    if total_files == 0 {
-        log_info!("[files] Все файлы уже на месте");
-        download_step.finish(true);
+    if total == 0 {
+        log_info!("{} Всё актуально, скачивание не требуется", prefix);
+        step.finish(true);
         return Ok(FilesSyncReport {
-            total: file_list.len(),
+            total: list.len(),
             downloaded: 0,
             skipped: true,
         });
     }
 
     for key in &files_to_download {
-        log_info!("[files] Будет скачан: {}", key);
+        log_info!("{} Будет скачан: {}", prefix, key);
     }
 
     let semaphore_list: Vec<SemaphoreInfo> = files_to_download
         .iter()
         .map(|key| SemaphoreInfo {
             url: key.clone(),
-            dest: PathBuf::from(key),
+            dest: dest_for(key),
         })
         .collect();
 
-    log_info!("[files] Начало скачивания {} файлов (макс. 15 параллельно)", total_files);
-    let step_counter = download_step.clone();
-    let download_futures = semaphore_core(core.clone(), semaphore_list, move |url, dest| {
+    log_info!(
+        "{} Начало скачивания {} {} (макс. 15 параллельно)",
+        prefix,
+        total,
+        labels.noun
+    );
+    let step_counter = step.clone();
+    let download_futures = semaphore_core(base_dir.to_path_buf(), semaphore_list, move |url, dest| {
         let client = client.clone();
         let server_url = server_url.clone();
         async move {
@@ -288,7 +267,6 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
         }
     }, Some(move |_: &str| step_counter.inc()));
 
-    log_info!("[files] Файлы созданы, запуск загрузки...");
     let results = futures::future::join_all(download_futures).await;
 
     let mut downloaded = 0;
@@ -298,17 +276,17 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
             Ok(()) => downloaded += 1,
             Err(e) => {
                 errors += 1;
-                log_err!("[files] Ошибка: {:?}", e);
+                log_err!("{} Ошибка: {:?}", prefix, e);
             }
         }
     }
 
-    log_info!("[files] Итого: скачано {}, ошибок: {}, всего: {}", downloaded, errors, total_files);
+    log_info!("{} Итого: скачано {}, ошибок: {}, всего: {}", prefix, downloaded, errors, total);
 
     if errors > 0 {
-        download_step.fail(format!("Не удалось скачать файлов: {}", errors));
+        step.fail(format!("Не удалось скачать {}: {}", labels.noun, errors));
     } else {
-        download_step.finish(false);
+        step.finish(false);
     }
 
     for res in results {
@@ -316,50 +294,60 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
     }
 
     Ok(FilesSyncReport {
-        total: total_files,
+        total,
         downloaded,
         skipped: false,
     })
 }
 
-pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
-    let (token, server_url, online) = {
-        let guard = state.lock().await;
-        let online = guard.project_config.online;
-        let server_url = guard.project_config.resolved_server_url();
-        if !online {
-            (String::new(), server_url, false)
-        } else {
-            let token = guard
-                .session
-                .as_ref()
-                .context("Необходима авторизация для скачивания модов")?
-                .access_token
-                .clone();
-            (token, server_url, true)
-        }
-    };
+pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
+    let online = state.lock().await.project_config.online;
+    if !online {
+        log_info!("[files] Одиночный профиль {} — синхронизация с сервером не нужна", project_name);
+        return Ok(FilesSyncReport::default());
+    }
 
+    let ctx = require_api_client(state, "Необходима авторизация для скачивания файлов").await?;
+    let file_list = fetch_file_list(&ctx.client, &ctx.server_url, &project_name).await?;
+
+    let core = launcher_path(Some(&project_name))?;
+
+    log_info!("[files] Получено файлов от сервера: {}", file_list.len());
+    log_info!("[files] Папка проекта: {:?}", core);
+
+    let download_step = StepHandle::start("files.download", "Скачивание файлов");
+    sync_server_files(
+        &ctx,
+        &file_list,
+        &core,
+        check_hashes,
+        download_step,
+        &FILES_LABELS,
+        |key: &str| PathBuf::from(key),
+    )
+    .await
+}
+
+pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
+    let online = state.lock().await.project_config.online;
     if !online {
         log_info!("[mods] Одиночный профиль {} — моды с сервера не скачиваются", project_name);
         return Ok(FilesSyncReport::default());
     }
 
-    let client = build_auth_client(&token)?;
-
-    let mods = fetch_mods_list(&client, &server_url, &project_name).await?;
+    let ctx = require_api_client(state, "Необходима авторизация для скачивания модов").await?;
+    let mods = fetch_mods_list(&ctx.client, &ctx.server_url, &project_name).await?;
 
     log_info!("[mods] Получено модов: {}", mods.len());
     for (name, hash) in &mods {
         log_info!("  мод: {} (hash: {})", name, hash);
     }
 
-    let mods_dir = crate::utils::env_info::launcher_patch(Some(&project_name))?
-        .join("mods");
+    let mods_dir = launcher_path(Some(&project_name))?.join("mods");
 
     tokio::fs::create_dir_all(&mods_dir).await?;
 
-    let server_mods: std::collections::HashSet<&str> = mods.keys()
+    let server_mods: HashSet<&str> = mods.keys()
         .map(|k| k.strip_prefix("mods/").unwrap_or(k))
         .collect();
 
@@ -380,114 +368,15 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
     clean_step.finish(false);
 
     let download_step = StepHandle::start("mods.download", "Проверка и скачивание модов");
-
-    if mods.is_empty() {
-        log_info!("[mods] Список модов пуст");
-        download_step.finish(true);
-        return Ok(FilesSyncReport::default());
-    }
-
-    let mut files_to_download: Vec<String> = Vec::new();
-
     log_info!("[mods] Путь к папке модов: {:?}", mods_dir);
-
-    for (server_key, expected_hash) in &mods {
-        if !is_safe_relative_path(server_key) {
-            log_err!("[mods] Отклонён небезопасный путь от сервера: {}", server_key);
-            download_step.fail(format!("Сервер передал недопустимый путь: {}", server_key));
-            anyhow::bail!("Сервер передал недопустимый путь мода: {}", server_key);
-        }
-
-        let file_name = server_key.strip_prefix("mods/").unwrap_or(server_key);
-        let file_path = mods_dir.join(file_name);
-        let exists = file_path.exists();
-        if !exists {
-            log_info!("[mods] Мод отсутствует: {}", file_name);
-            files_to_download.push(server_key.clone());
-        } else {
-            match file_sha1(&file_path).await {
-                Ok(hash) if hash == *expected_hash => {
-                    log_info!("[mods] Мод актуален: {}", file_name);
-                    continue;
-                }
-                Ok(hash) => {
-                    log_info!("[mods] Мод изменился: {} (ожидается {}, есть {})", file_name, expected_hash, hash);
-                    files_to_download.push(server_key.clone());
-                }
-                Err(e) => {
-                    log_info!("[mods] Ошибка чтения мода {}: {}", file_name, e);
-                    files_to_download.push(server_key.clone());
-                }
-            }
-        }
-    }
-
-    let total_to_download = files_to_download.len();
-    log_info!("[mods] Модов к скачиванию: {} из {}", total_to_download, mods.len());
-
-    download_step.set_total(total_to_download as u64);
-
-    if total_to_download == 0 {
-        log_info!("[mods] Все моды актуальны");
-        download_step.finish(true);
-        return Ok(FilesSyncReport {
-            total: mods.len(),
-            downloaded: 0,
-            skipped: true,
-        });
-    }
-
-    for key in &files_to_download {
-        log_info!("[mods] Будет скачан: {}", key);
-    }
-
-    let semaphore_list: Vec<SemaphoreInfo> = files_to_download
-        .iter()
-        .map(|key| SemaphoreInfo {
-            url: key.clone(),
-            dest: PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
-        })
-        .collect();
-
-    let step_counter = download_step.clone();
-    log_info!("[mods] Начало скачивания {} модов (макс. 15 параллельно)", total_to_download);
-    let download_futures = semaphore_core(mods_dir, semaphore_list, move |url, dest| {
-        let client = client.clone();
-        let server_url = server_url.clone();
-        async move {
-            download_file(&client, &dest, &url, &server_url).await
-        }
-    }, Some(move |_: &str| step_counter.inc()));
-
-    let results = futures::future::join_all(download_futures).await;
-
-    let mut downloaded = 0;
-    let mut errors = 0;
-    for res in &results {
-        match res {
-            Ok(()) => downloaded += 1,
-            Err(e) => {
-                errors += 1;
-                log_err!("[mods] Ошибка: {:?}", e);
-            }
-        }
-    }
-
-    log_info!("[mods] Итого: скачано {}, ошибок: {}, всего: {}", downloaded, errors, total_to_download);
-
-    if errors > 0 {
-        download_step.fail(format!("Не удалось скачать модов: {}", errors));
-    } else {
-        download_step.finish(false);
-    }
-
-    for res in results {
-        res?;
-    }
-
-    Ok(FilesSyncReport {
-        total: total_to_download,
-        downloaded,
-        skipped: false,
-    })
+    sync_server_files(
+        &ctx,
+        &mods,
+        &mods_dir,
+        true,
+        download_step,
+        &MODS_LABELS,
+        |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
+    )
+    .await
 }

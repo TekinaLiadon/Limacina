@@ -48,6 +48,25 @@ async fn remember_login(
     Ok(())
 }
 
+pub(crate) async fn persist_session_credentials(
+    project_name: &str,
+    username: &str,
+    data: &AuthData,
+) -> Result<()> {
+    let uuid = data.uuid();
+    if !uuid.is_empty() {
+        let _ = storage::save_credential(project_name, username, "uuid", &uuid).await;
+    }
+    storage::save_credential(
+        project_name,
+        username,
+        "refresh_token",
+        &data.tokens.refresh_token,
+    )
+    .await?;
+    Ok(())
+}
+
 
 
 pub(crate) async fn restore_session(
@@ -147,20 +166,11 @@ async fn login_account(
 
     let data = restore_session(project_name, username, Some(password)).await?;
 
-    let (uuid, _) = store_session(state, &data, username, project_name).await;
+    store_session(state, &data, username, project_name).await;
     remember_login(state, project_name, username, remember_me).await?;
 
     if remember_me {
-        storage::save_credential(
-            project_name,
-            username,
-            "refresh_token",
-            &data.tokens.refresh_token,
-        )
-        .await?;
-        if !uuid.is_empty() {
-            storage::save_credential(project_name, username, "uuid", &uuid).await?;
-        }
+        persist_session_credentials(project_name, username, &data).await?;
     } else {
         let _ = storage::delete_credential(project_name, username, "password").await;
         let _ = storage::delete_credential(project_name, username, "refresh_token").await;
@@ -185,18 +195,9 @@ pub async fn auth_refresh(
     }
 
     let auth_data = restore_session(&project_name, &username, None).await?;
-    let (uuid, _) = store_session(&state, &auth_data, &username, &project_name).await;
+    store_session(&state, &auth_data, &username, &project_name).await;
 
-    if !uuid.is_empty() {
-        let _ = storage::save_credential(&project_name, &username, "uuid", &uuid).await;
-    }
-    storage::save_credential(
-        &project_name,
-        &username,
-        "refresh_token",
-        &auth_data.tokens.refresh_token,
-    )
-    .await?;
+    persist_session_credentials(&project_name, &username, &auth_data).await?;
 
     Ok(())
 }

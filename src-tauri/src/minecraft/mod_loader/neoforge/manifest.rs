@@ -1,36 +1,18 @@
 use anyhow::Result;
 
-use crate::{
-    minecraft::{
-        structs::{LibraryMod, VersionMod},
-        mod_loader::{
-            manifest::{read_or_fetch_index, LoaderIndex, LoaderLibrary, LoaderArtifact, loader_libraries},
-            neoforge::structs::{Library, Manifest, Metadata},
-        },
-    },
-    utils::{
-        download_file::{download_json, download_xml},
-        env_info::launcher_patch,
-    },
+use crate::minecraft::{
+    mod_loader::manifest::{get_loader_index, loader_libraries, LoaderIndex, Manifest, Metadata},
+    structs::{LibraryMod, VersionMod},
 };
 
 const METADATA_URL: &str =
     "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
 const CACHE_FILE: &str = "neoforge.json";
-const MAVEN_BASE: &str = "https://maven.neoforged.net";
+pub(crate) const MAVEN_BASE: &str = "https://maven.neoforged.net";
+pub(crate) const MANIFEST_PREFIX: &str = "neoforge";
 
 pub async fn get_manifest_index() -> Result<LoaderIndex> {
-    let json_path = launcher_patch(None)?.join("manifest").join(CACHE_FILE);
-    let index = read_or_fetch_index(
-        &json_path,
-        || async {
-            let metadata = download_xml::<Metadata>(METADATA_URL).await?;
-            Ok(group_neoforge_versions(metadata))
-        },
-        |index| Ok(serde_json::to_string_pretty(index)?),
-    )
-    .await?;
-    Ok(index)
+    get_loader_index(CACHE_FILE, METADATA_URL, group_neoforge_versions).await
 }
 
 fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
@@ -73,36 +55,6 @@ pub fn transform_neoforge_manifest(neoforge_manifest: LoaderIndex) -> Vec<Versio
     manifest
 }
 
-pub async fn modify_manifest(version: &str, manifest: &mut [VersionMod]) -> Result<()> {
-    let neoforge_url = launcher_patch(None)?
-        .join("manifest")
-        .join(format!("neoforge_{}.json", &version));
-    let version_manifest = download_json::<Manifest>(None, &neoforge_url).await?;
-    let main_class = version_manifest.main_class.clone();
-    let target_id = format!("{}-{}", version_manifest.inherits_from.clone(), version);
-    let library = get_library(version_manifest)?;
-
-    if let Some(mod_item) = manifest.iter_mut().find(|m| m.id == target_id) {
-        mod_item.main_class = main_class;
-        mod_item.library = library;
-    }
-    Ok(())
-}
-
 pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
     loader_libraries(manifest.libraries, MAVEN_BASE)
-}
-
-impl LoaderLibrary for Library {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn into_artifact(self) -> LoaderArtifact {
-        LoaderArtifact {
-            url: self.downloads.artifact.url,
-            sha1: self.downloads.artifact.sha1,
-            size: self.downloads.artifact.size,
-        }
-    }
 }

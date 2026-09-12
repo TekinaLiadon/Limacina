@@ -39,7 +39,7 @@ export function useThreeScene(
     s.background = new THREE.Color(background)
     scene.value = s
 
-    const cam = new THREE.PerspectiveCamera(cameraFov, w / h, 0.1, 500)
+    const cam = new THREE.PerspectiveCamera(cameraFov, w / h, 0.1, 2000)
     cam.position.set(...cameraPosition)
     camera.value = cam
 

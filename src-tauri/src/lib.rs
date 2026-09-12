@@ -75,7 +75,7 @@ pub fn run() {
             let base_path = if let Some(ref lc) = launcher_config {
                 std::path::PathBuf::from(&lc.launcher_path)
             } else {
-                crate::utils::env_info::launcher_patch(None)
+                crate::utils::env_info::launcher_path(None)
                     .unwrap_or_else(|_| std::env::home_dir().unwrap_or_default().join("Limacina"))
             };
 
@@ -136,9 +136,9 @@ pub fn run() {
             create_server_profile,
             create_offline_profile,
             save_current_project,
-    get_minecraft_versions,
-    get_loader_versions,
-    refresh_manifests,
+            get_minecraft_versions,
+            get_loader_versions,
+            refresh_manifests,
             download_server_file,
             download_server_mods,
             check_files_integrity,

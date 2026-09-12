@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::log_err;
 use crate::log_info;
-use crate::utils::download_file::{file_md5, file_sha1, download_file};
+use crate::utils::download_file::{file_sha1, download_file};
 use crate::utils::install_manifest::{
     load_install_manifest, merge_installed, save_install_manifest,
 };
@@ -15,17 +15,11 @@ use crate::utils::step_events::{StepChannel, StepHandle};
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HashKind {
     Sha1,
-    #[allow(dead_code)]
-    Md5,
 }
 
 impl HashKind {
     pub async fn matches(&self, path: &Path, expected: &str) -> Result<bool> {
-        let actual = match self {
-            HashKind::Sha1 => file_sha1(path).await?,
-            HashKind::Md5 => file_md5(path).await?,
-        };
-        Ok(actual == expected)
+        Ok(file_sha1(path).await? == expected)
     }
 }
 
@@ -63,6 +57,82 @@ impl IntegrityReport {
     }
 }
 
+async fn scan_targets(
+    base_path: &Path,
+    step: &StepHandle,
+    targets: Vec<IntegrityTarget>,
+    mut expected_hash: impl FnMut(&IntegrityTarget) -> Option<String>,
+) -> (Vec<IntegrityTarget>, u64) {
+    let mut broken: Vec<IntegrityTarget> = Vec::new();
+    let mut missing: u64 = 0;
+
+    for target in targets {
+        let file_path = base_path.join(&target.rel_path);
+        let expected = expected_hash(&target);
+        let intact = if !file_path.exists() {
+            missing += 1;
+            false
+        } else if expected.as_deref().is_none_or(str::is_empty) {
+            true
+        } else {
+            match target
+                .hash_kind
+                .matches(&file_path, expected.as_deref().unwrap_or_default())
+                .await
+            {
+                Ok(matches) => matches,
+                Err(e) => {
+                    log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
+                    false
+                }
+            }
+        };
+
+        if !intact {
+            if file_path.exists() {
+                let _ = tokio::fs::remove_file(&file_path).await;
+            }
+            broken.push(target);
+        }
+        step.inc();
+    }
+
+    (broken, missing)
+}
+
+async fn download_targets<F, Fut>(
+    base_path: &Path,
+    step: &StepHandle,
+    targets: Vec<IntegrityTarget>,
+    download_fn: F,
+) -> Vec<(IntegrityTarget, Result<(), anyhow::Error>)>
+where
+    F: Fn(String, PathBuf) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<(), anyhow::Error>> + Send + 'static,
+{
+    let semaphore_info: Vec<SemaphoreInfo> = targets
+        .iter()
+        .map(|t| SemaphoreInfo {
+            url: match &t.download {
+                TargetDownload::Url(url) => url.clone(),
+                TargetDownload::LauncherServer { key } => key.clone(),
+            },
+            dest: t.rel_path.clone(),
+        })
+        .collect();
+
+    let step_counter = step.clone();
+    let futures = semaphore_core(
+        base_path.to_path_buf(),
+        semaphore_info,
+        download_fn,
+        Some(move |_: &str| step_counter.inc()),
+    );
+    let results = futures::future::join_all(futures).await;
+
+    targets.into_iter().zip(results).collect()
+}
+
 pub async fn check_integrity<F, Fut>(
     base_path: &Path,
     targets: Vec<IntegrityTarget>,
@@ -78,34 +148,14 @@ where
     let total = targets.len() as u64;
     step.set_total(total);
 
-    let mut broken: Vec<IntegrityTarget> = Vec::new();
-    let mut missing: u64 = 0;
-
-    for target in &targets {
-        let file_path = base_path.join(&target.rel_path);
-        let intact = if !file_path.exists() {
-            missing += 1;
-            false
-        } else if target.hash.is_empty() {
-            true
+    let (broken, missing) = scan_targets(base_path, &step, targets, |target| {
+        if target.hash.is_empty() {
+            None
         } else {
-            match target.hash_kind.matches(&file_path, &target.hash).await {
-                Ok(matches) => matches,
-                Err(e) => {
-                    log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
-                    false
-                }
-            }
-        };
-
-        if !intact {
-            if file_path.exists() {
-                let _ = tokio::fs::remove_file(&file_path).await;
-            }
-            broken.push(target.clone());
+            Some(target.hash.clone())
         }
-        step.inc();
-    }
+    })
+    .await;
 
     if broken.is_empty() {
         step.finish(true);
@@ -120,34 +170,11 @@ where
     step.detail("Восстановление повреждённых файлов");
     step.set_total(broken_count);
 
-    let mut failed: Vec<String> = Vec::new();
-    let repairable = broken;
-
-    let semaphore_info: Vec<SemaphoreInfo> = repairable
-        .iter()
-        .map(|t| {
-            let url = match &t.download {
-                TargetDownload::Url(url) => url.clone(),
-                TargetDownload::LauncherServer { key } => key.clone(),
-            };
-            SemaphoreInfo {
-                url,
-                dest: t.rel_path.clone(),
-            }
-        })
-        .collect();
-
-    let step_counter = step.clone();
-    let futures = semaphore_core(
-        base_path.to_path_buf(),
-        semaphore_info,
-        download_fn,
-        Some(move |_: &str| step_counter.inc()),
-    );
-    let results = futures::future::join_all(futures).await;
+    let results = download_targets(base_path, &step, broken, download_fn).await;
 
     let mut repaired: u64 = 0;
-    for (target, result) in repairable.into_iter().zip(results) {
+    let mut failed: Vec<String> = Vec::new();
+    for (target, result) in results {
         let file_path = base_path.join(&target.rel_path);
         let ok = match result {
             Err(e) => {
@@ -222,42 +249,16 @@ pub async fn ensure_files(
     let total = targets.len() as u64;
     step.set_total(total);
 
-    let mut broken: Vec<IntegrityTarget> = Vec::new();
-
-    for target in &targets {
-        let file_path = base_path.join(&target.rel_path);
-        let expected_hash = if !target.hash.is_empty() {
-            target.hash.clone()
-        } else {
-            installed
-                .files
-                .get(&target.rel_path.to_string_lossy().into_owned())
-                .cloned()
-                .unwrap_or_default()
-        };
-
-        let intact = if !file_path.exists() {
-            false
-        } else if expected_hash.is_empty() {
-            true
-        } else {
-            match target.hash_kind.matches(&file_path, &expected_hash).await {
-                Ok(matches) => matches,
-                Err(e) => {
-                    log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
-                    false
-                }
-            }
-        };
-
-        if !intact {
-            if file_path.exists() {
-                let _ = tokio::fs::remove_file(&file_path).await;
-            }
-            broken.push(target.clone());
+    let (broken, _missing) = scan_targets(base_path, step, targets, |target| {
+        if !target.hash.is_empty() {
+            return Some(target.hash.clone());
         }
-        step.inc();
-    }
+        installed
+            .files
+            .get(&target.rel_path.to_string_lossy().into_owned())
+            .cloned()
+    })
+    .await;
 
     if broken.is_empty() {
         step.clone().finish(true);
@@ -272,30 +273,15 @@ pub async fn ensure_files(
     step.detail(&format!("Скачивание файлов: {}", broken_count));
     step.set_total(broken_count);
 
-    let semaphore_info: Vec<SemaphoreInfo> = broken
-        .iter()
-        .map(|t| SemaphoreInfo {
-            url: match &t.download {
-                TargetDownload::Url(url) => url.clone(),
-                TargetDownload::LauncherServer { key } => key.clone(),
-            },
-            dest: t.rel_path.clone(),
-        })
-        .collect();
-
-    let step_counter = step.clone();
-    let futures = semaphore_core(
-        base_path.to_path_buf(),
-        semaphore_info,
-        |url, dest| async move { download_file(&url, &dest).await },
-        Some(move |_: &str| step_counter.inc()),
-    );
-    let results = futures::future::join_all(futures).await;
+    let results = download_targets(base_path, step, broken, |url, dest| async move {
+        download_file(&url, &dest).await
+    })
+    .await;
 
     let mut repaired: u64 = 0;
     let mut failed: Vec<String> = Vec::new();
 
-    for (target, result) in broken.into_iter().zip(results) {
+    for (target, result) in results {
         let file_path = base_path.join(&target.rel_path);
         let ok = match result {
             Err(e) => {
@@ -306,10 +292,7 @@ pub async fn ensure_files(
         };
 
         if ok {
-            let actual = match target.hash_kind {
-                HashKind::Sha1 => file_sha1(&file_path).await,
-                HashKind::Md5 => file_md5(&file_path).await,
-            };
+            let actual = file_sha1(&file_path).await;
             match actual {
                 Ok(hash) => {
                     merge_installed(
@@ -355,7 +338,6 @@ pub async fn ensure_files(
 
 pub async fn record_installed_hash(
     project_name: &str,
-    hash_kind: HashKind,
     base_path: &Path,
     rel_path: &Path,
 ) -> Result<()> {
@@ -363,10 +345,7 @@ pub async fn record_installed_hash(
     if !file_path.exists() {
         anyhow::bail!("Файл не существует: {:?}", file_path);
     }
-    let hash = match hash_kind {
-        HashKind::Sha1 => file_sha1(&file_path).await?,
-        HashKind::Md5 => file_md5(&file_path).await?,
-    };
+    let hash = file_sha1(&file_path).await?;
     let mut manifest = load_install_manifest(project_name).await?;
     merge_installed(&mut manifest, &rel_path.to_string_lossy(), &hash);
     save_install_manifest(project_name, &manifest).await?;

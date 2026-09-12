@@ -93,7 +93,7 @@ export function useSkinSettings() {
 
   const handleUpload = async (): Promise<void> => {
     if (skinFileBytes.value.length === 0) return
-    await content.handleUpload(skinFileBytes.value)
+    await content.handleUpload({ fileData: skinFileBytes.value, model: modelMode.value })
   }
 
   const resetSkin = (): void => {
@@ -136,6 +136,7 @@ export function useSkinSettings() {
     skinUrl,
     errorMessage: content.errorMessage,
     isUploading: content.isUploading,
+    isOffline: content.isOffline,
     uploadedSkins: content.items,
     isSkinLoading,
     modelMode,

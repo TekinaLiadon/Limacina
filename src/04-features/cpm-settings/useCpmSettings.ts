@@ -108,6 +108,7 @@ export function useCpmSettings() {
     displayLayers,
     activeLayerIds,
     isUploading: content.isUploading,
+    isOffline: content.isOffline,
     uploadedModels: content.items,
     selectCpmFile,
     resetCpm,

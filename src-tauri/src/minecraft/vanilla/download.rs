@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
@@ -28,7 +29,7 @@ pub fn collect_natives_to_extract(
             continue;
         }
 
-        if !is_native_library_for_current_os(&lib.name) {
+        if !should_download_library(&lib.name) {
             continue;
         }
 
@@ -84,7 +85,7 @@ pub async fn extract_natives(
     extract_native(natives_to_extract, natives_dir).await
 }
 
-fn is_native_library_for_current_os(lib_name: &str) -> bool {
+fn should_download_library(lib_name: &str) -> bool {
     let suffixes = get_native_suffixes_for_os();
 
     for suffix in &suffixes {
@@ -255,6 +256,7 @@ pub fn collect_library_targets(
 ) -> Vec<IntegrityTarget> {
     let current_os = get_current_os();
     let mut targets = Vec::new();
+    let mut queued: HashSet<PathBuf> = HashSet::new();
 
     for lib in &manifest.libraries {
         if !is_rule_allowed(lib.rules.as_deref()) {
@@ -263,15 +265,19 @@ pub fn collect_library_targets(
 
         if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
-                if !artifact.url.is_empty() && !artifact.sha1.is_empty()
-                    && !is_native_library_for_current_os(&lib.name) {
-                        targets.push(IntegrityTarget {
-                            rel_path: PathBuf::from(format!("libraries/{}", artifact.path)),
-                            hash: artifact.sha1.clone(),
-                            hash_kind: HashKind::Sha1,
-                            download: TargetDownload::Url(artifact.url.clone()),
-                        });
-                    }
+                let rel_path = PathBuf::from(format!("libraries/{}", artifact.path));
+                if !artifact.url.is_empty()
+                    && !artifact.sha1.is_empty()
+                    && should_download_library(&lib.name)
+                    && queued.insert(rel_path.clone())
+                {
+                    targets.push(IntegrityTarget {
+                        rel_path,
+                        hash: artifact.sha1.clone(),
+                        hash_kind: HashKind::Sha1,
+                        download: TargetDownload::Url(artifact.url.clone()),
+                    });
+                }
             }
         }
 
@@ -283,15 +289,18 @@ pub fn collect_library_targets(
                     if let Some(classifiers) = &downloads.classifiers {
                         if let Some(native_artifact) = classifiers.get(&classifier) {
                             if !native_artifact.sha1.is_empty() {
-                                targets.push(IntegrityTarget {
-                                    rel_path: PathBuf::from(format!(
-                                        "libraries/{}",
-                                        native_artifact.path
-                                    )),
-                                    hash: native_artifact.sha1.clone(),
-                                    hash_kind: HashKind::Sha1,
-                                    download: TargetDownload::Url(native_artifact.url.clone()),
-                                });
+                                let rel_path = PathBuf::from(format!(
+                                    "libraries/{}",
+                                    native_artifact.path
+                                ));
+                                if queued.insert(rel_path.clone()) {
+                                    targets.push(IntegrityTarget {
+                                        rel_path,
+                                        hash: native_artifact.sha1.clone(),
+                                        hash_kind: HashKind::Sha1,
+                                        download: TargetDownload::Url(native_artifact.url.clone()),
+                                    });
+                                }
                             }
                         }
                     }
@@ -333,4 +342,211 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTa
         });
     }
     targets
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{collect_library_targets, get_current_os};
+    use crate::minecraft::vanilla::structs::VersionDetailsManifest;
+    use crate::utils::integrity::{HashKind, TargetDownload};
+
+    const MANIFEST_1_18_2: &str = r#"{
+        "id": "1.18.2",
+        "downloads": {
+            "client": {
+                "sha1": "2e9a3e3107cca00d6bc9c97bf7d149cae163ef21",
+                "size": 20259661,
+                "url": "https://piston-data.mojang.com/v1/objects/2e9a3e3107cca00d6bc9c97bf7d149cae163ef21/client.jar"
+            }
+        },
+        "libraries": [
+            {
+                "name": "com.mojang:logging:1.0.0",
+                "downloads": {
+                    "artifact": {
+                        "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
+                        "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
+                        "size": 15343,
+                        "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
+                    }
+                }
+            },
+            {
+                "name": "net.sf.jopt-simple:jopt-simple:5.0.4",
+                "downloads": {
+                    "artifact": {
+                        "path": "net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
+                        "sha1": "4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c",
+                        "size": 78146,
+                        "url": "https://libraries.minecraft.net/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
+                    }
+                }
+            },
+            {
+                "name": "com.google.code.gson:gson:2.8.9",
+                "downloads": {
+                    "artifact": {
+                        "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
+                        "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
+                        "size": 258075,
+                        "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar"
+                    }
+                }
+            },
+            {
+                "name": "org.lwjgl:lwjgl:3.2.2",
+                "downloads": {
+                    "artifact": {
+                        "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                        "sha1": "8ad6294407e15780b43e84929c40e4c5e997972e",
+                        "size": 321900,
+                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar"
+                    }
+                },
+                "rules": [
+                    { "action": "allow" },
+                    { "action": "disallow", "os": { "name": "osx" } }
+                ]
+            },
+            {
+                "name": "org.lwjgl:lwjgl:3.2.2",
+                "downloads": {
+                    "artifact": {
+                        "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                        "sha1": "8ad6294407e15780b43e84929c40e4c5e997972e",
+                        "size": 321900,
+                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar"
+                    },
+                    "classifiers": {
+                        "natives-linux": {
+                            "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar",
+                            "sha1": "ae7976827ca2a3741f6b9a843a89bacd637af350",
+                            "size": 124776,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar"
+                        },
+                        "natives-windows": {
+                            "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar",
+                            "sha1": "05359f3aa50d36352815fc662ea73e1c00d22170",
+                            "size": 279593,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar"
+                        }
+                    }
+                },
+                "natives": {
+                    "linux": "natives-linux",
+                    "windows": "natives-windows"
+                },
+                "rules": [
+                    { "action": "allow" },
+                    { "action": "disallow", "os": { "name": "osx" } }
+                ]
+            },
+            {
+                "name": "com.mojang:text2speech:1.12.4",
+                "downloads": {
+                    "artifact": {
+                        "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar",
+                        "sha1": "1f618f522dbdd93218c270bcfd8f8dd84be31717",
+                        "size": 12874,
+                        "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar"
+                    },
+                    "classifiers": {
+                        "natives-linux": {
+                            "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-linux.jar",
+                            "sha1": "9571b1360a268311d7fa625614186965914f0215",
+                            "size": 7833,
+                            "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-linux.jar"
+                        },
+                        "natives-windows": {
+                            "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-windows.jar",
+                            "sha1": "7e37c535186a058d730ec03491182fae2efb57be",
+                            "size": 81379,
+                            "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-windows.jar"
+                        }
+                    }
+                },
+                "extract": { "exclude": ["META-INF/"] },
+                "natives": {
+                    "linux": "natives-linux",
+                    "windows": "natives-windows"
+                }
+            }
+        ],
+        "assetIndex": {
+            "id": "1.18",
+            "sha1": "d31a2e85ae149dd1b1a7070b22cb8887892fda6c",
+            "size": 348724,
+            "url": "https://piston-meta.mojang.com/v1/packages/d31a2e85ae149dd1b1a7070b22cb8887892fda6c/1.18.json",
+            "totalSize": 468892705
+        },
+        "assets": "1.18",
+        "mainClass": "net.minecraft.client.main.Main"
+    }"#;
+
+    #[test]
+    fn collect_library_targets_includes_regular_libraries() {
+        let manifest: VersionDetailsManifest = serde_json::from_str(MANIFEST_1_18_2).unwrap();
+        let targets = collect_library_targets(&manifest);
+        let rel_paths: Vec<String> = targets
+            .iter()
+            .map(|t| t.rel_path.to_string_lossy().into_owned())
+            .collect();
+
+        for rel in [
+            "libraries/com/mojang/logging/1.0.0/logging-1.0.0.jar",
+            "libraries/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
+            "libraries/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
+            "libraries/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar",
+        ] {
+            assert!(
+                rel_paths.contains(&rel.to_string()),
+                "нет таргета {}: {:?}",
+                rel,
+                rel_paths
+            );
+        }
+
+        let jopt = targets
+            .iter()
+            .find(|t| {
+                t.rel_path.as_os_str()
+                    == "libraries/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
+            })
+            .unwrap();
+        assert_eq!(jopt.hash, "4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c");
+        assert!(matches!(jopt.hash_kind, HashKind::Sha1));
+        assert!(matches!(
+            &jopt.download,
+            TargetDownload::Url(url)
+                if url.as_str() == "https://libraries.minecraft.net/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
+        ));
+
+        let lwjgl_jar = "libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar";
+        match get_current_os() {
+            "osx" => {
+                assert!(!rel_paths.iter().any(|p| p.contains("org/lwjgl")));
+                assert_eq!(rel_paths.len(), 4);
+            }
+            os => {
+                let suffix = if os == "windows" {
+                    "natives-windows"
+                } else {
+                    "natives-linux"
+                };
+                assert_eq!(
+                    rel_paths.iter().filter(|p| p.as_str() == lwjgl_jar).count(),
+                    1,
+                    "lwjgl задублирован: {:?}",
+                    rel_paths
+                );
+                assert!(rel_paths.contains(&format!(
+                    "libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-{suffix}.jar"
+                )));
+                assert!(rel_paths.contains(&format!(
+                    "libraries/com/mojang/text2speech/1.12.4/text2speech-1.12.4-{suffix}.jar"
+                )));
+                assert_eq!(rel_paths.len(), 7);
+            }
+        }
+    }
 }

@@ -5,13 +5,11 @@ import ViewerToolbar from './ViewerToolbar.vue'
 
 const props = withDefaults(defineProps<{
   minZoom?: number
-  maxZoom?: number
 }>(), {
   minZoom: 5,
-  maxZoom: 30,
 })
 
-provideViewerControls(props.minZoom, props.maxZoom)
+provideViewerControls(props.minZoom)
 
 const isFullscreen = ref<boolean>(false)
 

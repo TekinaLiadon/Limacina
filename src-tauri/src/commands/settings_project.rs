@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 use crate::init::init_project_config;
 use crate::state::config::load_config;
 use crate::state::dto::{GlobalState, ProjectConfig};
-use crate::utils::env_info::launcher_patch;
+use crate::utils::env_info::launcher_path;
 use crate::utils::tauri_err::CommandResult;
 use crate::log_info;
 
@@ -70,7 +70,7 @@ async fn clear_minecraft_config_inner(
         bail!("Проект не выбран");
     }
 
-    let game_dir = launcher_patch(Some(project_name))?;
+    let game_dir = launcher_path(Some(project_name))?;
     let config_dir = game_dir.join("config");
 
     if !config_dir.exists() {

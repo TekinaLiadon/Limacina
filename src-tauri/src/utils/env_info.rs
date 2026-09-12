@@ -56,7 +56,7 @@ pub fn is_safe_relative_path(key: &str) -> bool {
     })
 }
 
-pub fn launcher_patch(project: Option<&str>) -> Result<PathBuf> {
+pub fn launcher_path(project: Option<&str>) -> Result<PathBuf> {
     let base_path = crate::state::launcher_config::LauncherConfig::resolved_launcher_path();
 
     let result = match project {

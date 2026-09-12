@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use md5::Md5;
 use quick_xml::de::from_str;
 use serde::de::DeserializeOwned;
 use sha1::Sha1;
@@ -39,13 +38,21 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let response = client.get(url).send().await?.error_for_status()?;
+    write_stream_to_atomic(response, dest, url).await?;
+    Ok(())
+}
+
+pub(crate) async fn write_stream_to_atomic(
+    response: reqwest::Response,
+    dest: &Path,
+    url: &str,
+) -> Result<u64> {
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .with_context(|| format!("Не удалось создать директорию для {:?}", dest))?;
     }
-
-    let response = client.get(url).send().await?.error_for_status()?;
 
     let tmp = part_path(dest);
     let result = async {
@@ -53,32 +60,33 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
             .await
             .with_context(|| format!("Не удалось создать файл во {:?}", tmp))?;
         let mut stream = response.bytes_stream();
+        let mut total_bytes: u64 = 0;
         while let Some(item) = stream.next().await {
             let chunk =
                 item.with_context(|| format!("Ошибка чтения потока при скачивании {}", url))?;
             bandwidth::acquire(chunk.len() as u64).await;
+            total_bytes += chunk.len() as u64;
             tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
                 .await
                 .with_context(|| format!("Ошибка записи в файл {:?}", tmp))?;
         }
         drop(file);
-        Ok::<(), anyhow::Error>(())
+        Ok::<u64, anyhow::Error>(total_bytes)
     }
     .await;
 
     match result {
-        Ok(()) => {
+        Ok(total_bytes) => {
             tokio::fs::rename(&tmp, dest)
                 .await
                 .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, dest))?;
+            Ok(total_bytes)
         }
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp).await;
-            return Err(e);
+            Err(e)
         }
     }
-
-    Ok(())
 }
 
 pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) -> Result<T> {
@@ -169,11 +177,4 @@ pub async fn file_sha1(path: &Path) -> Result<String> {
     tokio::task::spawn_blocking(move || hash_file_blocking::<Sha1>(&path))
         .await
         .context("Ошибка при вычислении SHA1")?
-}
-
-pub async fn file_md5(path: &Path) -> Result<String> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || hash_file_blocking::<Md5>(&path))
-        .await
-        .context("Ошибка при вычислении MD5")?
 }

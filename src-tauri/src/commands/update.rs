@@ -1,6 +1,7 @@
 use crate::updater::{
-    apply_update, check_for_update, download_update, get_launcher_versions as fetch_launcher_versions,
-    UpdateInfo, UpdateVersions,
+    apply_update, check_for_update, download_update,
+    get_launcher_versions as fetch_launcher_versions, retain_current_platform, UpdateInfo,
+    UpdateVersions,
 };
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
@@ -24,12 +25,12 @@ pub async fn check_update(
 
 #[tauri::command]
 pub async fn get_launcher_versions() -> CommandResult<UpdateVersions> {
-    let versions = fetch_launcher_versions().await?;
+    let mut versions = fetch_launcher_versions().await?;
+    retain_current_platform(&mut versions);
     Ok(versions)
 }
 
 #[tauri::command]
-#[allow(unreachable_code)]
 pub async fn apply_update_cmd(
     app: AppHandle,
     version: Option<String>,
@@ -92,9 +93,7 @@ pub async fn apply_update_cmd(
         Err(e) => {
             log_err!("Не удалось применить обновление: {}", e);
             let _ = std::fs::remove_file(&archive_path);
-            return Err(anyhow::anyhow!("Не удалось применить обновление").into());
+            Err(anyhow::anyhow!("Не удалось применить обновление").into())
         }
     }
-
-    Ok(())
 }

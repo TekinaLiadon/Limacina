@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-use crate::utils::env_info::launcher_patch;
+use crate::utils::env_info::launcher_path;
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct InstallManifest {
@@ -11,7 +11,7 @@ pub struct InstallManifest {
 }
 
 fn manifest_path(project_name: &str) -> Result<PathBuf> {
-    Ok(launcher_patch(None)?
+    Ok(launcher_path(None)?
         .join("manifest")
         .join(format!("installed_{}.json", project_name)))
 }

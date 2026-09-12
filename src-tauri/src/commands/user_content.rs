@@ -5,13 +5,13 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::auth::{self, storage};
-use crate::commands::auth::restore_session;
+use crate::commands::auth::{persist_session_credentials, restore_session};
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::{log_err, log_info};
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::download_file::download_file;
-use crate::utils::env_info::launcher_patch;
+use crate::utils::env_info::launcher_path;
 use crate::utils::hex::digest_hex;
 use crate::utils::tauri_err::CommandResult;
 
@@ -51,16 +51,7 @@ pub async fn select_account(
     }
 
     if project.online {
-        if !uuid.is_empty() {
-            let _ = storage::save_credential(&project_name, &username, "uuid", &uuid).await;
-        }
-        storage::save_credential(
-            &project_name,
-            &username,
-            "refresh_token",
-            &auth_data.tokens.refresh_token,
-        )
-        .await?;
+        persist_session_credentials(&project_name, &username, &auth_data).await?;
     }
 
     log_info!("Аккаунт выбран: {}", username_str);
@@ -121,6 +112,15 @@ pub async fn upload_skin(
     state: State<'_, Mutex<GlobalState>>,
     request: tauri::ipc::Request<'_>,
 ) -> CommandResult<UserContentItem> {
+    let model = request
+        .headers()
+        .get("Skin-Model")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| match value {
+            "slim" => Some("slim"),
+            "classic" => Some("classic"),
+            _ => None,
+        });
 
     let file_data = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
@@ -129,7 +129,7 @@ pub async fn upload_skin(
             .context("Некорректное тело запроса загрузки скина")?,
     };
 
-    let item = user_content::upload_skin(&state, file_data).await?;
+    let item = user_content::upload_skin(&state, file_data, model).await?;
     Ok(item)
 }
 
@@ -183,12 +183,12 @@ async fn get_profile_skin_inner(
         bail!("Проект не выбран");
     }
 
-    let cache_dir = launcher_patch(Some(&project_name))?.join("profile_skins");
+    let cache_dir = launcher_path(Some(&project_name))?.join("profile_skins");
     let file_name = skin_cache_name(&uuid, url);
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
-    tokio::task::spawn_blocking({
+    crate::utils::blocking("Не удалось выполнить очистку кэша скинов", {
         let cache_dir = cache_dir.clone();
         let file_name = file_name.clone();
         let prefix = prefix.clone();
@@ -204,18 +204,16 @@ async fn get_profile_skin_inner(
             }
         }
     })
-    .await
-    .context("Не удалось выполнить очистку кэша скинов")?;
+    .await?;
 
     download_file(url, &cache_path).await?;
 
     let cache_path_clone = cache_path.clone();
-    let bytes = tokio::task::spawn_blocking(move || {
+    let bytes = crate::utils::blocking("Не удалось выполнить чтение кэша скина", move || {
         std::fs::read(&cache_path_clone)
             .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))
     })
-    .await
-    .context("Не удалось выполнить чтение кэша скина")??;
+    .await??;
     Ok(bytes)
 }
 

@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use futures::future::BoxFuture;
 
 use crate::log_info;
-use crate::minecraft::manifest::get_manifest_index;
-use crate::minecraft::mod_loader::manifest::get_manifest_version;
+use crate::minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL};
 use crate::minecraft::vanilla::download::{
     collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
     collect_library_targets,
@@ -12,7 +11,7 @@ use crate::minecraft::vanilla::manifest::create_manifest_versions;
 use crate::minecraft::vanilla::structs::{AssetIndexContent, VanillaVersionsManifest};
 use crate::state::dto::ProjectConfig;
 use crate::utils::download_file::download_file;
-use crate::utils::env_info::launcher_patch;
+use crate::utils::env_info::launcher_path;
 use crate::utils::integrity::{check_integrity, IntegrityReport};
 use crate::utils::step_events::{StepChannel, StepHandle};
 
@@ -21,7 +20,7 @@ pub async fn load_version_manifest(
 ) -> Result<crate::minecraft::vanilla::structs::VersionDetailsManifest> {
     let manifest_index = get_manifest_index::<VanillaVersionsManifest>(
         "vanilla",
-        "https://launchermeta.mojang.com/mc/game/version_manifest.json",
+        VERSION_MANIFEST_URL,
         "index",
     )
     .await?;
@@ -52,7 +51,7 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
     let manifest = load_version_manifest(project).await?;
     manifest_step.finish(false);
 
-    let base_path = launcher_patch(Some(&project_name))?;
+    let base_path = launcher_path(Some(&project_name))?;
 
     let jar_report = check_integrity(
         &base_path,

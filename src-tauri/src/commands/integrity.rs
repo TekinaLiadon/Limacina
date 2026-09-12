@@ -1,13 +1,12 @@
-use anyhow::Context;
 use tokio::sync::Mutex;
 
 use crate::launcher_server::downloader::{
-    build_auth_client, download_launcher_server_file, fetch_file_list, fetch_mods_list,
+    download_launcher_server_file, fetch_file_list, fetch_mods_list, require_api_client, ApiContext,
 };
 use crate::log_info;
 use crate::minecraft::integrity::check_minecraft_integrity;
 use crate::state::dto::GlobalState;
-use crate::utils::env_info::{is_safe_relative_path, launcher_patch};
+use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::integrity::{check_integrity, HashKind, IntegrityReport, IntegrityTarget, TargetDownload};
 use crate::utils::tauri_err::CommandResult;
 
@@ -39,19 +38,9 @@ async fn check_server_integrity(
     project: &crate::state::dto::ProjectConfig,
     state: &tauri::State<'_, Mutex<GlobalState>>,
 ) -> anyhow::Result<IntegrityReport> {
-    let (token, server_url) = {
-        let guard = state.lock().await;
-        let token = guard
-            .session
-            .as_ref()
-            .context("Необходима авторизация для проверки файлов")?
-            .access_token
-            .clone();
-        (token, guard.project_config.resolved_server_url())
-    };
-
-    let client = build_auth_client(&token)?;
-    let base_path = launcher_patch(Some(&project.project_name))?;
+    let ApiContext { client, server_url } =
+        require_api_client(state.inner(), "Необходима авторизация для проверки файлов").await?;
+    let base_path = launcher_path(Some(&project.project_name))?;
 
     let file_list = fetch_file_list(&client, &server_url, &project.project_name).await?;
     let files_report = check_integrity(

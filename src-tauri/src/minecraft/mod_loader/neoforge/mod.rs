@@ -1,162 +1,46 @@
-pub mod installer;
 pub mod manifest;
-pub mod structs;
 
 use crate::{
     log_info,
     minecraft::{
-        structs::{GameConfig, ModLoader, VersionMod},
         mod_loader::{
             config::merge_classpath,
-            download::library_targets,
-            installer::create_installer_manifest,
-            neoforge::{
-                structs::Manifest,
-                installer::start_installer,
-                manifest::{
-                    get_library, get_manifest_index, modify_manifest, transform_neoforge_manifest,
-                },
+            installer::setup_loader,
+            manifest::{
+                apply_installed_manifest, current_loader_version, latest_index_version, Manifest,
+            },
+            neoforge::manifest::{
+                get_library, get_manifest_index, transform_neoforge_manifest, MAVEN_BASE,
+                MANIFEST_PREFIX,
             },
             utils::{filter_classpath, strip_classpath_args},
         },
+        structs::{GameConfig, ModLoader, VersionMod},
     },
     state::dto::ProjectConfig,
-    step_try,
-    utils::{
-        compare_versions,
-        download_file::{download_file, download_json},
-        env_info::launcher_patch,
-        get_classpath_separator,
-        integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
-        step_events::StepHandle,
-    },
+    utils::{download_file::download_json, env_info::launcher_path, get_classpath_separator},
 };
 use anyhow::{anyhow, Result};
-use anyhow::bail;
 use async_trait::async_trait;
-use std::path::PathBuf;
 
 pub struct NeoForge;
 #[async_trait]
 impl ModLoader for NeoForge {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        let manifest_neoforge = get_manifest_index().await?;
-        let mut manifest: Vec<VersionMod> = transform_neoforge_manifest(manifest_neoforge);
-
-        if let Some(version) = state.loader_version.as_deref() {
-            let neoforge_manifest = launcher_patch(None)?
-                .join("manifest")
-                .join(format!("neoforge_{}.json", &version));
-            if neoforge_manifest.exists() {
-                modify_manifest(version, &mut manifest).await?;
-            }
-        }
-
+        let mut manifest = transform_neoforge_manifest(get_manifest_index().await?);
+        apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest).await?;
         Ok(manifest)
     }
     async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
         let versions_list = self.versions(state).await?;
-        let version = &state
-            .loader_version
-            .as_deref()
-            .ok_or(anyhow!("Лоадер не выбран"))?;
-        let target_id = format!("{}-{}", state.mc_version, version);
-
-        if let Some(neoforge_item) = versions_list.into_iter().find(|m| m.id == target_id) {
-            return Ok(neoforge_item);
-        }
-        bail!("Версия не найдена")
+        current_loader_version(state, versions_list)
     }
     async fn latest_version(&self, state: &ProjectConfig) -> Result<String> {
-        let manifest_neoforge = get_manifest_index().await?;
-        let versions = manifest_neoforge
-            .get(&state.mc_version)
-            .ok_or(anyhow!("Нет версий NeoForge для MC {}", state.mc_version))?;
-        let latest = versions
-            .iter()
-            .max_by(|a, b| compare_versions(a, b))
-            .ok_or(anyhow!("Нет доступных версий NeoForge"))?;
-        Ok(latest.to_string())
+        let index = get_manifest_index().await?;
+        latest_index_version(&index, &state.mc_version, "NeoForge")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        let base_url = launcher_patch(Some(&state.project_name))?;
-        let target_version = format!(
-            "{}-{}",
-            &state.mc_version,
-            state
-                .loader_version
-                .as_deref()
-                .ok_or(anyhow!("Лоадер не выбран"))?
-        );
-        let version_info = manifest
-            .iter()
-            .find(|v| v.id == target_version)
-            .ok_or_else(|| anyhow!("Версия не найдена"))?;
-
-        let step = StepHandle::start("loader", "Установка NeoForge");
-        let project_name = &state.project_name;
-
-        let neoforge_manifest_path = launcher_patch(None)?
-            .join("manifest")
-            .join(format!("neoforge_{}.json", state.loader_version.as_deref().unwrap_or_default()));
-
-        if neoforge_manifest_path.exists() {
-            let version_manifest = download_json::<Manifest>(None, &neoforge_manifest_path).await?;
-            let library = get_library(version_manifest)?;
-            let mut targets = library_targets(&library)?;
-            targets.push(IntegrityTarget {
-                rel_path: PathBuf::from(format!("{}.jar", &target_version)),
-                hash: String::new(),
-                hash_kind: HashKind::Sha1,
-                download: TargetDownload::Url(version_info.url.clone()),
-            });
-            step_try!(step, ensure_files(&step, &base_url, project_name, targets).await);
-            step_try!(step, record_installed_hash(
-                project_name,
-                HashKind::Sha1,
-                &base_url,
-                &PathBuf::from(format!("{}.jar", &target_version)),
-            )
-            .await);
-            log_info!("NeoForge уже установлен, проверка файлов завершена");
-            step.finish(true);
-            return Ok(());
-        }
-
-        step.detail("Скачивание инсталлера");
-        step.set_total(1);
-        let installer_path = base_url.join(format!("{}.jar", &target_version));
-        step_try!(step, download_file(&version_info.url, &installer_path).await);
-        step.inc();
-
-        step_try!(step, create_installer_manifest(&base_url).await);
-
-        step.detail("Запуск инсталлера");
-        log_info!("Запуск инсталлера NeoForge");
-        let manifest = step_try!(step, start_installer(&installer_path, &base_url, state).await);
-        let library = step_try!(step, get_library(manifest));
-
-        step.detail("Скачивание библиотек");
-        log_info!("Скачивание библиотек NeoForge");
-        let mut targets = library_targets(&library)?;
-        targets.push(IntegrityTarget {
-            rel_path: PathBuf::from(format!("{}.jar", &target_version)),
-            hash: String::new(),
-            hash_kind: HashKind::Sha1,
-            download: TargetDownload::Url(version_info.url.clone()),
-        });
-        step_try!(step, ensure_files(&step, &base_url, project_name, targets).await);
-        step_try!(step, record_installed_hash(
-            project_name,
-            HashKind::Sha1,
-            &base_url,
-            &PathBuf::from(format!("{}.jar", &target_version)),
-        )
-        .await);
-
-        log_info!("Установка NeoForge завершена");
-        step.finish(false);
-        Ok(())
+        setup_loader("NeoForge", MANIFEST_PREFIX, state, manifest, get_library).await
     }
     async fn config(
         &self,
@@ -170,13 +54,13 @@ impl ModLoader for NeoForge {
             .as_deref()
             .ok_or(anyhow!("Лоадер не выбран"))?;
 
-        let neoforge_manifest = launcher_patch(None)?.join("manifest").join(format!(
+        let neoforge_manifest = launcher_path(None)?.join("manifest").join(format!(
             "neoforge_{}.json",
             target_version
         ));
         let manifest = download_json::<Manifest>(None, &neoforge_manifest).await?;
 
-        let base_path = launcher_patch(Some(&state.project_name))?;
+        let base_path = launcher_path(Some(&state.project_name))?;
         let natives_dir = base_path.join("natives").to_string_lossy().to_string();
         let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
 
@@ -239,7 +123,7 @@ impl ModLoader for NeoForge {
         }
 
         let main_class = manifest.main_class.clone();
-        let game_dir = launcher_patch(Some(&state.project_name))?;
+        let game_dir = launcher_path(Some(&state.project_name))?;
         let game_config = GameConfig {
             java_path: vanilla_config.java_path,
             jvm_args,

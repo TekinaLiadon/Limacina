@@ -6,20 +6,19 @@ use tokio::sync::Mutex;
 
 use crate::commands::launcher_config::update_launcher_config;
 use crate::log_info;
+use crate::minecraft::manifest::VERSION_MANIFEST_URL;
 use crate::minecraft::mod_loader::fabric::Fabric;
 use crate::minecraft::mod_loader::forge::manifest::get_manifest_index as forge_manifest_index;
 use crate::minecraft::mod_loader::neoforge::manifest::get_manifest_index as neoforge_manifest_index;
-use crate::minecraft::structs::ModLoader as ModLoaderTrait;
+use crate::minecraft::structs::{ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES};
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
 use crate::state::config::load_config;
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::utils::compare_versions;
 use crate::utils::download_file::download_json;
-use crate::utils::env_info::{launcher_patch, normalize_server_url};
+use crate::utils::env_info::{launcher_path, normalize_server_url};
 use crate::utils::http::http_client;
 use crate::utils::tauri_err::CommandResult;
-
-const VERSION_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 
 
 async fn register_project(state: &State<'_, Mutex<GlobalState>>, project_name: &str) -> Result<()> {
@@ -58,7 +57,7 @@ async fn validate_new_project_name(
 
 
 async fn persist_new_project(config: &ProjectConfig) -> Result<()> {
-    let project_dir = launcher_patch(Some(&config.project_name))?;
+    let project_dir = launcher_path(Some(&config.project_name))?;
     fs::create_dir_all(&project_dir)
         .await
         .with_context(|| format!("Не удалось создать папку профиля {:?}", project_dir))?;
@@ -144,7 +143,7 @@ async fn add_offline_profile(
     };
 
     persist_new_project(&config).await?;
-    let mods_dir = launcher_patch(Some(&config.project_name))?.join("mods");
+    let mods_dir = launcher_path(Some(&config.project_name))?.join("mods");
     fs::create_dir_all(&mods_dir)
         .await
         .with_context(|| format!("Не удалось создать папку модов {:?}", mods_dir))?;
@@ -157,7 +156,7 @@ async fn add_offline_profile(
 }
 
 async fn minecraft_versions(include_snapshots: bool) -> Result<Vec<String>> {
-    let manifest_path = launcher_patch(None)?
+    let manifest_path = launcher_path(None)?
         .join("manifest")
         .join("vanilla_index.json");
     let manifest: VanillaVersionsManifest =
@@ -262,7 +261,7 @@ pub async fn get_loader_versions(
 
 #[tauri::command]
 pub async fn refresh_manifests() -> CommandResult<String> {
-    let manifest_dir = launcher_patch(None)?.join("manifest");
+    let manifest_dir = launcher_path(None)?.join("manifest");
     let mut removed = 0usize;
 
     if manifest_dir.exists() {
@@ -275,10 +274,10 @@ pub async fn refresh_manifests() -> CommandResult<String> {
             .context("Не удалось прочитать запись в папке manifest")?
         {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let is_index = name == "vanilla_index.json"
-                || name == "forge.json"
-                || name == "neoforge.json"
-                || name.starts_with("fabric_");
+            let is_index = INDEX_CACHE_FILES.contains(&name.as_str())
+                || INDEX_CACHE_PREFIXES
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix));
             if is_index {
                 log_info!("[manifests] Удалён кеш: {}", name);
                 let _ = fs::remove_file(entry.path()).await;

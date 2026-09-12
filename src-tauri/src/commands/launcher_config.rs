@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::state::dto::GlobalState;
 use crate::state::launcher_config::LauncherConfig;
+use crate::utils::blocking;
 use crate::utils::env_info::{get_home_dir, get_launcher_name};
 use crate::utils::http::http_client;
 use crate::utils::tauri_err::CommandResult;
@@ -48,11 +49,10 @@ pub(crate) async fn update_launcher_config(
 
     let content_clone = content.clone();
     let path_clone = path.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking("Не удалось выполнить запись конфига", move || {
         LauncherConfig::write_serialized(&path_clone, &content_clone)
     })
-    .await
-    .map_err(|e| anyhow::anyhow!("Не удалось выполнить запись конфига: {}", e))??;
+    .await??;
 
     config.on_saved_update_path();
     Ok(config)
@@ -62,9 +62,8 @@ pub(crate) async fn update_launcher_config(
 pub async fn get_app_init_data(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<AppInitData> {
-    let mut config = tauri::async_runtime::spawn_blocking(LauncherConfig::load)
-        .await
-        .map_err(|e| anyhow::anyhow!("Не удалось выполнить чтение конфига: {}", e))?
+    let mut config = blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
+        .await?
         .ok()
         .flatten();
 
@@ -77,9 +76,8 @@ pub async fn get_app_init_data(
                     if !server_config.project_name.is_empty() {
                         cfg.project_names = vec![server_config.project_name];
                         let cfg_clone = cfg.clone();
-                        let _ = tauri::async_runtime::spawn_blocking(move || cfg_clone.save())
-                            .await
-                            .map_err(|e| anyhow::anyhow!("Не удалось выполнить запись конфига: {}", e))?;
+                        let _ = blocking("Не удалось выполнить запись конфига", move || cfg_clone.save())
+                            .await?;
                     }
                 }
             }
@@ -128,15 +126,14 @@ pub async fn save_launcher_config(
 
     let base = PathBuf::from(&config.launcher_path);
     let dirs_to_create = [base.clone(), base.join("project"), base.join("manifest"), base.join("java")];
-    tauri::async_runtime::spawn_blocking(move || {
+    blocking("Не удалось выполнить создание папок", move || {
         for dir in dirs_to_create {
             std::fs::create_dir_all(&dir)
                 .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"{}\": {}", dir.display(), e))?;
         }
         Ok::<(), anyhow::Error>(())
     })
-    .await
-    .map_err(|e| anyhow::anyhow!("Не удалось выполнить создание папок: {}", e))??;
+    .await??;
 
     Ok(config)
 }

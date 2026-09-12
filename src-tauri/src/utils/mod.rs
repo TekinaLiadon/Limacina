@@ -12,7 +12,18 @@ pub mod java;
 pub mod tauri_err;
 pub mod zip;
 
+use anyhow::{anyhow, Result};
 use std::cmp::Ordering;
+
+pub async fn blocking<T, F>(error_context: &str, task: F) -> Result<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| anyhow!("{}: {}", error_context, e))
+}
 
 fn split_numeric_part(version: &str) -> Vec<u32> {
     version

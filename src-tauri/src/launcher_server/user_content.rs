@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::log_info;
 use crate::state::dto::GlobalState;
+use crate::utils::http::{request_json, require_success};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -17,43 +18,16 @@ pub struct UserContentItem {
 
 
 async fn require_api_context(state: &Mutex<GlobalState>) -> Result<(String, String)> {
-    let state = state.lock().await;
-    let token = state
-        .session
-        .as_ref()
-        .map(|s| s.access_token.clone())
-        .context("Нет активной сессии. Войдите в аккаунт.")?;
-    Ok((token, state.project_config.resolved_server_url()))
-}
-
-async fn require_success(response: reqwest::Response) -> Result<reqwest::Response> {
-    if !response.status().is_success() {
-        let text = response.text().await.unwrap_or_default();
-        let message = serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
-            .unwrap_or(text);
-        anyhow::bail!("{}", message);
-    }
-    Ok(response)
+    crate::launcher_server::api_context(state, "Нет активной сессии. Войдите в аккаунт.").await
 }
 
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
-    let client = crate::utils::http::http_client();
-    let response = require_success(
-        client
-            .get(url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .context("Не удалось подключиться к серверу")?,
+    request_json(
+        crate::utils::http::http_client().get(url).bearer_auth(token),
+        "Не удалось подключиться к серверу",
+        "Не удалось распарсить ответ сервера",
     )
-    .await?;
-
-    response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ сервера")
+    .await
 }
 
 async fn api_delete(url: &str, token: &str) -> Result<()> {
@@ -72,9 +46,17 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn upload_skin(state: &Mutex<GlobalState>, file_data: Vec<u8>) -> Result<UserContentItem> {
+pub async fn upload_skin(
+    state: &Mutex<GlobalState>,
+    file_data: Vec<u8>,
+    model: Option<&str>,
+) -> Result<UserContentItem> {
     let (token, server_url) = require_api_context(state).await?;
-    let url = format!("{}/v1/common/content/skins", server_url);
+    let mut url = format!("{}/v1/common/content/skins", server_url);
+    if let Some(model) = model {
+        url.push_str("?model=");
+        url.push_str(model);
+    }
 
     let part = reqwest::multipart::Part::bytes(file_data)
         .file_name("skin.png")

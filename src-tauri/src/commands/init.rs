@@ -11,9 +11,11 @@ pub async fn initialize_launcher(
     state: State<'_, Mutex<GlobalState>>,
     parent_path: String,
 ) -> CommandResult<LauncherConfig> {
-    let config = tauri::async_runtime::spawn_blocking(move || init::init_launcher(&parent_path))
-        .await
-        .map_err(|e| anyhow::anyhow!("Не удалось выполнить инициализацию лаунчера: {}", e))??;
+    let config =
+        crate::utils::blocking("Не удалось выполнить инициализацию лаунчера", move || {
+            init::init_launcher(&parent_path)
+        })
+        .await??;
 
     {
         let mut state = state.lock().await;

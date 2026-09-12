@@ -13,7 +13,7 @@ pub struct Platform {
     pub sha256: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct UpdateInfo {
     pub version: String,
     pub platforms: Vec<Platform>,
@@ -21,13 +21,7 @@ pub struct UpdateInfo {
     pub sha256: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
-pub struct UpdateVersionInfo {
-    pub version: String,
-    pub platforms: Vec<Platform>,
-    #[serde(default)]
-    pub sha256: Option<String>,
-}
+pub type UpdateVersionInfo = UpdateInfo;
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct UpdateVersions {
@@ -56,21 +50,23 @@ pub async fn get_launcher_versions() -> Result<UpdateVersions> {
         .error_for_status()
         .context("Сервер вернул ошибку при получении списка версий")?;
 
-    let mut data: UpdateVersions = resp
+    let data: UpdateVersions = resp
         .json()
         .await
         .context("Не удалось распарсить список версий")?;
 
+    Ok(data)
+}
+
+pub fn retain_current_platform(versions: &mut UpdateVersions) {
     let os = get_current_os();
     let arch = get_arch();
-    data.versions.retain(|entry| {
+    versions.versions.retain(|entry| {
         entry
             .platforms
             .iter()
             .any(|p| p.os == os && arch_matches(&p.arch, arch))
     });
-
-    Ok(data)
 }
 
 pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo>> {

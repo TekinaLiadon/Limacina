@@ -3,6 +3,8 @@ pub mod storage;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::utils::http::{http_client, request_json};
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AuthTokens {
     pub access_token: String,
@@ -87,35 +89,17 @@ pub fn offline(username: &str) -> AuthData {
 
 pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
     let url = format!("{}/v1/common/auth/registration", server_url);
-
-    let client = crate::utils::http::http_client();
     let body = AuthLoginRequest {
         username: username.to_string(),
         password: password.to_string(),
     };
 
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу авторизации")?;
-
-    if !response.status().is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let message = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
-            .unwrap_or(body);
-        anyhow::bail!("{}", message);
-    }
-
-    let auth_data: AuthData = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ авторизации")?;
-
-    Ok(auth_data)
+    request_json(
+        http_client().post(&url).json(&body),
+        "Не удалось подключиться к серверу авторизации",
+        "Не удалось распарсить ответ авторизации",
+    )
+    .await
 }
 
 pub async fn change_password(
@@ -125,101 +109,49 @@ pub async fn change_password(
     new_password: &str,
 ) -> Result<AuthData> {
     let url = format!("{}/v1/common/auth/password", server_url);
-
-    let client = crate::utils::http::http_client();
     let body = AuthChangePasswordRequest {
         old_password: old_password.to_string(),
         new_password: new_password.to_string(),
     };
 
-    let response = client
-        .patch(&url)
-        .bearer_auth(access_token)
-        .json(&body)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу авторизации")?;
-
-    if !response.status().is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let message = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
-            .unwrap_or(body);
-        anyhow::bail!("{}", message);
-    }
-
-    let auth_data: AuthData = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ смены пароля")?;
-
-    Ok(auth_data)
+    request_json(
+        http_client()
+            .patch(&url)
+            .bearer_auth(access_token)
+            .json(&body),
+        "Не удалось подключиться к серверу авторизации",
+        "Не удалось распарсить ответ смены пароля",
+    )
+    .await
 }
 
 pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
     let url = format!("{}/v1/common/auth/login", server_url);
-
-    let client = crate::utils::http::http_client();
     let body = AuthLoginRequest {
         username: username.to_string(),
         password: password.to_string(),
     };
 
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу авторизации")?;
-
-    if !response.status().is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let message = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
-            .unwrap_or(body);
-        anyhow::bail!("{}", message);
-    }
-
-    let auth_data: AuthData = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ авторизации")?;
-
-    Ok(auth_data)
+    request_json(
+        http_client().post(&url).json(&body),
+        "Не удалось подключиться к серверу авторизации",
+        "Не удалось распарсить ответ авторизации",
+    )
+    .await
 }
 
 pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {
     let url = format!("{}/v1/common/auth/refresh", server_url);
-
-    let client = crate::utils::http::http_client();
     let body = AuthRefreshRequest {
         refresh_token: refresh_token.to_string(),
     };
 
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу авторизации")?;
-
-    if !response.status().is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let message = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
-            .unwrap_or(body);
-        anyhow::bail!("{}", message);
-    }
-
-    let auth_data: AuthData = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ авторизации")?;
-
-    Ok(auth_data)
+    request_json(
+        http_client().post(&url).json(&body),
+        "Не удалось подключиться к серверу авторизации",
+        "Не удалось распарсить ответ авторизации",
+    )
+    .await
 }
 
 pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {

@@ -20,7 +20,7 @@ use crate::{
     state::dto::ProjectConfig,
     step_try,
     utils::{
-        env_info::launcher_patch,
+        env_info::launcher_path,
         integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
         step_events::StepHandle,
     },
@@ -71,7 +71,7 @@ impl ModLoader for Fabric {
             .ok_or_else(|| anyhow!("Версия не найдена"))?;
 
         let step = StepHandle::start("loader", "Установка Fabric");
-        let base_path = launcher_patch(Some(&state.project_name))?;
+        let base_path = launcher_path(Some(&state.project_name))?;
         let project_name = &state.project_name;
 
         let mut targets = library_targets(&version_info.library)?;
@@ -86,7 +86,6 @@ impl ModLoader for Fabric {
 
         step_try!(step, record_installed_hash(
             project_name,
-            HashKind::Sha1,
             &base_path,
             &PathBuf::from(format!("{}.jar", version_info.id)),
         )
@@ -114,7 +113,7 @@ impl ModLoader for Fabric {
         )?;
 
         let main_class = version.main_class.clone();
-        let game_dir = launcher_patch(Some(&state.project_name))?;
+        let game_dir = launcher_path(Some(&state.project_name))?;
         let game_config = GameConfig {
             java_path: vanilla_config.java_path,
             jvm_args: vanilla_config.jvm_args,

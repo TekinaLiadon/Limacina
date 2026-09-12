@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
@@ -6,6 +6,12 @@ import {
   listModels, uploadModel, deleteModel,
 } from '@/06-shared/api'
 import type { UserContentItem } from '@/05-entities/core/types'
+import type { SkinModelMode } from '@/03-widgets/types'
+
+interface SkinUploadPayload {
+  fileData: Uint8Array
+  model: SkinModelMode
+}
 
 interface UserContentApi<T> {
   list: (uuid: string) => Promise<UserContentItem[]>
@@ -25,7 +31,10 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   const errorMessage = ref<string>('')
   const isListLoading = ref<boolean>(false)
 
+  const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
+
   const loadItems = async (): Promise<void> => {
+    if (isOffline.value) return
     const uuid = coreStore.session?.uuid
     if (!uuid) return
 
@@ -89,6 +98,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     isUploading,
     isListLoading,
     errorMessage,
+    isOffline,
     loadItems,
     handleUpload,
     handleDelete,
@@ -98,9 +108,9 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 }
 
 export function useSkinUserContent() {
-  return useUserContent({
+  return useUserContent<SkinUploadPayload>({
     list: listSkins,
-    upload: uploadSkin,
+    upload: ({ fileData, model }): Promise<UserContentItem> => uploadSkin(fileData, model),
     delete: deleteSkin,
     activate: setActiveSkin,
     uploadSuccessMessage: 'Скин успешно загружен',

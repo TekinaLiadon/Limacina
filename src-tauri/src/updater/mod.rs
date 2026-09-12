@@ -1,7 +1,8 @@
 pub mod version;
 
 pub use version::{
-    check_for_update, get_launcher_versions, platform_sha256, UpdateInfo, UpdateVersions,
+    check_for_update, get_launcher_versions, platform_sha256, retain_current_platform, UpdateInfo,
+    UpdateVersions,
 };
 
 use anyhow::{Context, Result};

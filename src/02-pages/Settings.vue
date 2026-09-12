@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Button } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
@@ -13,7 +13,7 @@ interface Tab {
   name: string
   needsInit?: boolean
   needsAuth?: boolean
-  needsOnline?: boolean
+  hiddenOffline?: boolean
 }
 
 const router = useRouter()
@@ -23,9 +23,9 @@ const coreStore = useCoreStore()
 const tabs: Tab[] = [
   { key: 'launcher', label: 'Лаунчер', name: 'SettingsLauncher' },
   { key: 'project', label: 'Проект', name: 'SettingsProject', needsInit: true },
-  { key: 'account', label: 'Аккаунт', name: 'SettingsAccount', needsInit: true, needsAuth: true, needsOnline: true },
-  { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true, needsOnline: true },
-  { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true, needsOnline: true },
+  { key: 'account', label: 'Аккаунт', name: 'SettingsAccount', needsInit: true, needsAuth: true, hiddenOffline: true },
+  { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true },
+  { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true },
 ]
 
 const { config, isLoaded } = useProjectSettings()
@@ -43,12 +43,20 @@ const isProjectDisabled = computed((): boolean => {
 
 const isOfflineProject = computed((): boolean => isLoaded.value && !config.value.online)
 
+const visibleTabs = computed((): Tab[] =>
+  tabs.filter((tab) => !(isOfflineProject.value && tab.hiddenOffline === true)),
+)
+
 const isTabDisabled = (tab: Tab): boolean => {
+  if (isOfflineProject.value) return false
   if (tab.needsInit && isProjectDisabled.value) return true
   if (tab.needsAuth && !coreStore.isLoggedIn) return true
-  if (tab.needsOnline && isOfflineProject.value) return true
   return false
 }
+
+watch(isOfflineProject, (offline) => {
+  if (offline && route.name === 'SettingsAccount') router.replace({ name: 'SettingsLauncher' })
+})
 
 </script>
 
@@ -58,7 +66,7 @@ const isTabDisabled = (tab: Tab): boolean => {
 
     <div class="settings-page__tabs" role="tablist">
       <Button
-        v-for="tab in tabs"
+        v-for="tab in visibleTabs"
         :key="tab.key"
         class="settings-page__tab"
         :class="{ 'settings-page__tab--active': activeSubTab === tab.key }"
