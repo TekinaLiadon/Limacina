@@ -9,10 +9,12 @@ use walkdir::WalkDir;
 
 use crate::{
     log_info,
+    minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL},
+    minecraft::vanilla::{manifest::create_manifest_versions, structs::VanillaVersionsManifest},
     state::dto::ProjectConfig,
     step_try,
     utils::{
-        compare_versions, download_file::download_file, env_info::{get_arch, get_current_os, launcher_patch},
+        compare_versions, download_file::download_file, env_info::{get_arch, get_current_os, launcher_path},
         step_events::StepHandle,
     },
 };
@@ -22,8 +24,8 @@ use tokio::{
 };
 
 pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
-    let java_version = get_java_version(&config.mc_version);
-    let java_dir = launcher_patch(None)?.join("java").join(&java_version);
+    let java_version = resolve_java_version(&config.mc_version).await;
+    let java_dir = launcher_path(None)?.join("java").join(&java_version);
 
     let check_step = StepHandle::start("java.check", "Проверка Java");
     if let Ok(executable_path) = find_java_executable(&java_dir) {
@@ -76,6 +78,33 @@ pub(crate) fn get_java_version(mc_version: &str) -> String {
         "17".to_string()
     } else {
         "8".to_string()
+    }
+}
+
+async fn manifest_java_major(mc_version: &str) -> Option<u32> {
+    let index = get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
+        .await
+        .ok()?;
+    let versions = create_manifest_versions(index.versions).ok()?;
+    let manifest = get_manifest_version(mc_version, versions).await.ok()?;
+    manifest.java_version.map(|j| j.major_version)
+}
+
+pub(crate) async fn resolve_java_version(mc_version: &str) -> String {
+    match manifest_java_major(mc_version).await {
+        Some(major) => {
+            log_info!("[java] Для Minecraft {} по манифесту требуется Java {}", mc_version, major);
+            major.to_string()
+        }
+        None => {
+            let fallback = get_java_version(mc_version);
+            log_info!(
+                "[java] Требуемая версия Java недоступна из манифеста, для Minecraft {} выбрана Java {}",
+                mc_version,
+                fallback
+            );
+            fallback
+        }
     }
 }
 
@@ -152,4 +181,60 @@ pub(crate) fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
         }
     }
     bail!("Не удалось найти исполняемый файл Java после распаковки");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_java_version;
+    use crate::minecraft::vanilla::structs::VersionDetailsManifest;
+
+    #[test]
+    fn java_version_table_covers_known_minecraft_eras() {
+        assert_eq!(get_java_version("1.8.9"), "8");
+        assert_eq!(get_java_version("1.12.2"), "8");
+        assert_eq!(get_java_version("1.16.5"), "8");
+        assert_eq!(get_java_version("1.17"), "17");
+        assert_eq!(get_java_version("1.18.2"), "17");
+        assert_eq!(get_java_version("1.20.4"), "17");
+        assert_eq!(get_java_version("1.20.5"), "21");
+        assert_eq!(get_java_version("1.21.1"), "21");
+        assert_eq!(get_java_version("1.21.8"), "21");
+    }
+
+    #[test]
+    fn manifest_java_version_is_parsed() {
+        let manifest: VersionDetailsManifest = serde_json::from_str(
+            r#"{
+                "id": "26.2",
+                "downloads": {"client": {"sha1": "", "size": 0, "url": ""}},
+                "libraries": [],
+                "assetIndex": {"id": "x", "sha1": "", "size": 0, "url": "", "totalSize": 0},
+                "assets": "x",
+                "mainClass": "net.minecraft.client.main.Main",
+                "javaVersion": {"component": "java-runtime-epsilon", "majorVersion": 25}
+            }"#,
+        )
+        .unwrap();
+
+        let java_version = manifest.java_version.unwrap();
+        assert_eq!(java_version.major_version, 25);
+        assert_eq!(java_version.component, "java-runtime-epsilon");
+    }
+
+    #[test]
+    fn manifest_without_java_version_defaults_to_none() {
+        let manifest: VersionDetailsManifest = serde_json::from_str(
+            r#"{
+                "id": "1.0",
+                "downloads": {"client": {"sha1": "", "size": 0, "url": ""}},
+                "libraries": [],
+                "assetIndex": {"id": "x", "sha1": "", "size": 0, "url": "", "totalSize": 0},
+                "assets": "x",
+                "mainClass": "net.minecraft.client.main.Main"
+            }"#,
+        )
+        .unwrap();
+
+        assert!(manifest.java_version.is_none());
+    }
 }

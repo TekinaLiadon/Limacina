@@ -136,6 +136,7 @@ export function useSkinSettings() {
     skinUrl,
     errorMessage: content.errorMessage,
     isUploading: content.isUploading,
+    isOffline: content.isOffline,
     uploadedSkins: content.items,
     isSkinLoading,
     modelMode,

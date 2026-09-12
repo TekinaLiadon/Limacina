@@ -10,6 +10,7 @@ const {
   errorMessage,
   isUploading,
   isSkinLoading,
+  isOffline,
   uploadedSkins,
   modelMode,
   selectSkin,
@@ -30,6 +31,10 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
 
 <template>
   <div class="skin-settings">
+    <div v-if="isOffline" class="skin-settings__notice">
+      Локальный профиль: скин доступен только для предпросмотра и не отправляется на сервер
+    </div>
+
     <div v-if="isSkinLoading" class="skin-settings__loading">
       <span class="skin-settings__loading-spinner" aria-hidden="true" />
       <span class="skin-settings__loading-text">Загрузка скина...</span>
@@ -62,7 +67,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
         {{ hasSkin ? 'Заменить скин' : 'Загрузить скин' }}
       </Button>
       <Button
-        v-if="hasSkin"
+        v-if="hasSkin && !isOffline"
         class="btn-primary skin-settings__btn skin-settings__btn--upload"
         :is-loading="isUploading"
         :is-disabled="isUploading"
@@ -83,7 +88,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
       Формат: .png, не более 256 КБ
     </p>
 
-    <div v-if="uploadedSkins.length > 0" class="skin-settings__content-list">
+    <div v-if="!isOffline && uploadedSkins.length > 0" class="skin-settings__content-list">
       <div class="skin-settings__content-title section-label">Загруженные скины</div>
       <div class="skin-settings__content-items">
         <div
@@ -162,6 +167,15 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     background: var(--error-bg);
     box-shadow: inset 0 0 0 1px var(--error-border);
     color: var(--error);
+    font-size: var(--text-body-sm);
+    text-align: left;
+  }
+
+  &__notice {
+    padding: var(--space-12);
+    border-radius: var(--radius-badge);
+    background: var(--accent-subtle);
+    color: var(--accent-text);
     font-size: var(--text-body-sm);
     text-align: left;
   }

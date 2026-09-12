@@ -35,7 +35,7 @@ pub struct ProjectConfig {
     pub auto_join_server: bool,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 

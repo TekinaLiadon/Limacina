@@ -38,29 +38,7 @@ pub fn generate_offline_uuid(nickname: &str) -> String {
     builder.into_uuid().to_string().replace("-", "")
 }
 
-pub fn maven_to_path(name: &str) -> Result<PathBuf> {
-    let parts: Vec<&str> = name.split(':').collect();
-    let [group_id, artifact_id, version] = parts[..] else {
-        anyhow::bail!("Некорректная Maven-координата: {}", name);
-    };
-    if group_id.is_empty() || artifact_id.is_empty() || version.is_empty() {
-        anyhow::bail!("Некорректная Maven-координата: {}", name);
-    }
-
-    let group_path = group_id.replace('.', "/");
-    let file_name = format!("{}-{}.jar", artifact_id, version);
-
-    let mut local_path = PathBuf::new();
-    local_path = local_path
-        .join(&group_path)
-        .join(artifact_id)
-        .join(version)
-        .join(&file_name);
-
-    Ok(local_path)
-}
-
-pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
+fn parse_maven(coord: &str) -> Result<(String, String, String)> {
     let parts: Vec<&str> = coord.split(':').collect();
     let [group_id, artifact_id, version] = parts[..] else {
         anyhow::bail!("Некорректная Maven-координата: {}", coord);
@@ -68,8 +46,26 @@ pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
     if group_id.is_empty() || artifact_id.is_empty() || version.is_empty() {
         anyhow::bail!("Некорректная Maven-координата: {}", coord);
     }
+    Ok((
+        group_id.replace('.', "/"),
+        artifact_id.to_string(),
+        version.to_string(),
+    ))
+}
 
-    let group = group_id.replace('.', "/");
+pub fn maven_to_path(name: &str) -> Result<PathBuf> {
+    let (group_path, artifact_id, version) = parse_maven(name)?;
+    let file_name = format!("{}-{}.jar", artifact_id, version);
+
+    Ok(PathBuf::new()
+        .join(&group_path)
+        .join(&artifact_id)
+        .join(&version)
+        .join(&file_name))
+}
+
+pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
+    let (group, artifact_id, version) = parse_maven(coord)?;
 
     Ok(format!(
         "{}/{}/{}/{}/{}-{}.jar",

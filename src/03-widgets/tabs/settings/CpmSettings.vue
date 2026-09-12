@@ -13,6 +13,7 @@ const {
   displayLayers,
   activeLayerIds,
   isUploading,
+  isOffline,
   uploadedModels,
   selectCpmFile,
   resetCpm,
@@ -45,7 +46,11 @@ const setPlaying = (playing: boolean): void => {
 
 <template>
   <div class="cpm-settings">
-    <Viewer3D v-if="hasModel" :min-zoom="8" :max-zoom="150">
+    <div v-if="isOffline" class="cpm-settings__notice">
+      Локальный профиль: модель доступна только для предпросмотра и не отправляется на сервер
+    </div>
+
+    <Viewer3D v-if="hasModel" :min-zoom="8">
       <CpmViewer
         :cpm-data="cpmData"
         :active-layers="activeLayerIds"
@@ -100,7 +105,7 @@ const setPlaying = (playing: boolean): void => {
         {{ hasModel ? 'Заменить модель' : 'Загрузить модель' }}
       </Button>
       <Button
-        v-if="hasModel"
+        v-if="hasModel && !isOffline"
         class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
         :is-loading="isUploading"
         :is-disabled="isUploading"
@@ -121,7 +126,7 @@ const setPlaying = (playing: boolean): void => {
       Формат: .cpmproject, не более 2 МБ
     </p>
 
-    <div v-if="uploadedModels.length > 0" class="cpm-settings__content-list">
+    <div v-if="!isOffline && uploadedModels.length > 0" class="cpm-settings__content-list">
       <div class="cpm-settings__content-title section-label">Загруженные модели</div>
       <div class="cpm-settings__content-items">
         <div
@@ -163,6 +168,15 @@ const setPlaying = (playing: boolean): void => {
     background: var(--error-bg);
     box-shadow: inset 0 0 0 1px var(--error-border);
     color: var(--error);
+    font-size: var(--text-body-sm);
+    text-align: left;
+  }
+
+  &__notice {
+    padding: var(--space-12);
+    border-radius: var(--radius-badge);
+    background: var(--accent-subtle);
+    color: var(--accent-text);
     font-size: var(--text-body-sm);
     text-align: left;
   }

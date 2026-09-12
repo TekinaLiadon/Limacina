@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
@@ -31,7 +31,10 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   const errorMessage = ref<string>('')
   const isListLoading = ref<boolean>(false)
 
+  const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
+
   const loadItems = async (): Promise<void> => {
+    if (isOffline.value) return
     const uuid = coreStore.session?.uuid
     if (!uuid) return
 
@@ -95,6 +98,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     isUploading,
     isListLoading,
     errorMessage,
+    isOffline,
     loadItems,
     handleUpload,
     handleDelete,

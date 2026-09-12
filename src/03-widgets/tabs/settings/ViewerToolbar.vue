@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ELEVATION_MAX, ELEVATION_MIN, useViewerControls } from './viewerControls'
+import { ELEVATION_MAX, ELEVATION_MIN, MIN_ZOOM_PERCENT, useViewerControls } from './viewerControls'
 
 defineProps<{
   fullscreen?: boolean
@@ -17,7 +17,7 @@ const zoomPercent = computed((): number =>
 )
 
 const canZoomIn = computed((): boolean => controls.zoomLevel.value > controls.minZoom)
-const canZoomOut = computed((): boolean => controls.zoomLevel.value < controls.maxZoom)
+const canZoomOut = computed((): boolean => zoomPercent.value > MIN_ZOOM_PERCENT)
 const canRotateUp = computed((): boolean => controls.rotationX.value < ELEVATION_MAX)
 const canRotateDown = computed((): boolean => controls.rotationX.value > ELEVATION_MIN)
 

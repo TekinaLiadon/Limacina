@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::{
     log_err,
-    utils::env_info::{get_launcher_name, launcher_patch},
+    utils::env_info::{get_launcher_name, launcher_path},
     utils::hex::{from_hex, to_hex},
 };
 
@@ -27,7 +27,7 @@ struct CredentialStore {
 }
 
 fn fallback_path() -> Result<PathBuf> {
-    let base = launcher_patch(None)?;
+    let base = launcher_path(None)?;
     Ok(base.join("credentials.json"))
 }
 

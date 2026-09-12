@@ -8,29 +8,29 @@ const ELEVATION_STEP = 15
 export const ELEVATION_MIN = -22.5
 export const ELEVATION_MAX = 45
 const DEFAULT_ELEVATION = 13
+const ZOOM_STEP_FACTOR = 1.25
+export const MIN_ZOOM_PERCENT = 10
 
-function createViewerControls(minZoom: number, maxZoom: number): ViewerControls {
+function createViewerControls(minZoom: number): ViewerControls {
   const zoomLevel = ref<number>(22)
   const rotationY = ref<number>(0)
   const rotationX = ref<number>(DEFAULT_ELEVATION)
   const autoRotate = ref<boolean>(false)
   const fitDistance = ref<number>(22)
 
-  const zoomStep = (maxZoom - minZoom) / 16
-
   return {
     minZoom,
-    maxZoom,
     zoomLevel,
     rotationY,
     rotationX,
     autoRotate,
     fitDistance,
     zoomIn: (): void => {
-      zoomLevel.value = Math.max(minZoom, zoomLevel.value - zoomStep)
+      zoomLevel.value = Math.max(minZoom, zoomLevel.value / ZOOM_STEP_FACTOR)
     },
     zoomOut: (): void => {
-      zoomLevel.value = Math.min(maxZoom, zoomLevel.value + zoomStep)
+      const maxDistance = fitDistance.value * (100 / MIN_ZOOM_PERCENT)
+      zoomLevel.value = Math.min(maxDistance, zoomLevel.value * ZOOM_STEP_FACTOR)
     },
     rotateLeft: (): void => {
       rotationY.value = (((rotationY.value - ROTATE_STEP) % 360) + 360) % 360
@@ -55,12 +55,12 @@ function createViewerControls(minZoom: number, maxZoom: number): ViewerControls 
   }
 }
 
-export function provideViewerControls(minZoom: number, maxZoom: number): ViewerControls {
-  const controls = createViewerControls(minZoom, maxZoom)
+export function provideViewerControls(minZoom: number): ViewerControls {
+  const controls = createViewerControls(minZoom)
   provide(VIEWER_CONTROLS_KEY, controls)
   return controls
 }
 
 export function useViewerControls(): ViewerControls {
-  return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(5, 30), true)
+  return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(5), true)
 }

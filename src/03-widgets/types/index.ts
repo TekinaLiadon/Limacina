@@ -16,7 +16,6 @@ export interface TabItem {
 
 export interface ViewerControls {
   minZoom: number
-  maxZoom: number
   zoomLevel: Ref<number>
   rotationY: Ref<number>
   rotationX: Ref<number>

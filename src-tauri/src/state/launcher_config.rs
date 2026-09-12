@@ -5,6 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
+use crate::state::dto::default_true;
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SavedLogin {
     pub username: String,
@@ -62,10 +64,6 @@ pub struct LauncherConfig {
 
     #[serde(default)]
     pub projects: HashMap<String, AuthProjectConfig>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 impl Default for LauncherConfig {
@@ -244,7 +242,6 @@ struct LegacyAuthProjectConfig {
     logins: Vec<SavedLogin>,
 }
 
-// Одноразовая миграция
 fn migrate_flattened_projects(config: &mut LauncherConfig, content: &str) -> Result<bool> {
     let raw: LegacyLauncherConfig = serde_json::from_str(content)
         .context("Неверный формат конфигурации")?;

@@ -36,6 +36,15 @@ pub struct VersionDetailsManifest {
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: Option<String>,
     pub arguments: Option<Arguments>,
+    #[serde(rename = "javaVersion")]
+    pub java_version: Option<JavaVersionInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JavaVersionInfo {
+    pub component: String,
+    #[serde(rename = "majorVersion")]
+    pub major_version: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

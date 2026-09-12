@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use tokio::fs::{create_dir_all, read_dir, remove_file, rename};
 use tokio::task::spawn_blocking;
 
-use crate::java::{extract_archive, find_java_executable, get_java_version};
+use crate::java::{extract_archive, find_java_executable, resolve_java_version};
 use crate::utils::download_file::download_file;
-use crate::utils::env_info::{get_arch, get_current_os, launcher_patch};
+use crate::utils::env_info::{get_arch, get_current_os, launcher_path};
 
 #[derive(Serialize, Clone)]
 pub struct JavaDistribution {
@@ -110,8 +110,10 @@ pub async fn download_alt_java(
     java_version: Option<&str>,
     mc_version: &str,
 ) -> Result<PathBuf> {
-    let fallback_version = get_java_version(mc_version);
-    let version = java_version.unwrap_or(&fallback_version);
+    let version = match java_version {
+        Some(v) => v.to_string(),
+        None => resolve_java_version(mc_version).await,
+    };
 
     let os = get_current_os();
     let arch = match get_arch() {
@@ -126,17 +128,17 @@ pub async fn download_alt_java(
 
     let client = crate::utils::http::http_client();
 
-    let (download_url, archive_type) = match fetch_package(client, distribution, version, arch, os_foojay, "jre").await? {
+    let (download_url, archive_type) = match fetch_package(client, distribution, &version, arch, os_foojay, "jre").await? {
         Some(result) => result,
         None => {
-            fetch_package(client, distribution, version, arch, os_foojay, "jdk")
+            fetch_package(client, distribution, &version, arch, os_foojay, "jdk")
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Foojay API не вернул файлов для скачивания (ни JRE, ни JDK)"))?
         }
     };
 
-    let base_path = launcher_patch(None)?;
-    let java_parent = base_path.join("java").join(version);
+    let base_path = launcher_path(None)?;
+    let java_parent = base_path.join("java").join(&version);
     let java_path = java_parent.join(distribution);
     let archive_path = java_parent.join(format!("archive_{}.{}", distribution, archive_type));
 
