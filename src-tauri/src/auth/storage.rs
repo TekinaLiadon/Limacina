@@ -9,9 +9,6 @@ use crate::{
     utils::hex::{from_hex, to_hex},
 };
 
-
-
-
 const FALLBACK_ALLOWED_SUFFIXES: &[&str] = &["refresh_token", "uuid"];
 
 #[derive(Serialize, Deserialize)]
@@ -60,7 +57,6 @@ fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -
         CredentialStore::default()
     };
 
-
     store.entries.retain(|e| !e.username.ends_with("_password"));
 
     let entry_key = format!("{}_{}", username, key_suffix);
@@ -78,8 +74,7 @@ fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -
 
     let content = serde_json::to_string_pretty(&store)
         .context("Не удалось сериализовать хранилище credentials")?;
-    fs::write(&path, content)
-        .with_context(|| format!("Не удалось записать {:?}", path))?;
+    fs::write(&path, content).with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
 }
 
@@ -89,8 +84,8 @@ fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<Stri
         anyhow::bail!("Файл хранилища credentials не найден");
     }
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Не удалось прочитать {:?}", path))?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
     let store: CredentialStore =
         serde_json::from_str(&content).context("Неверный формат хранилища credentials")?;
     let entry_key = format!("{}_{}", username, key_suffix);
@@ -125,9 +120,12 @@ fn keyring_key(project: &str, username: &str, key_suffix: &str) -> String {
     format!("{}_{}_{}", project, username, key_suffix)
 }
 
-
-
-pub async fn save_credential(project: &str, username: &str, key_suffix: &str, value: &str) -> Result<()> {
+pub async fn save_credential(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+    value: &str,
+) -> Result<()> {
     let (project, username, key_suffix, value) = (
         project.to_string(),
         username.to_string(),
@@ -141,7 +139,12 @@ pub async fn save_credential(project: &str, username: &str, key_suffix: &str, va
     .context("Не удалось выполнить задачу сохранения credentials")?
 }
 
-fn save_credential_sync(project: &str, username: &str, key_suffix: &str, value: &str) -> Result<()> {
+fn save_credential_sync(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+    value: &str,
+) -> Result<()> {
     let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
@@ -175,11 +178,9 @@ pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> 
         username.to_string(),
         key_suffix.to_string(),
     );
-    tokio::task::spawn_blocking(move || {
-        get_credential_sync(&project, &username, &key_suffix)
-    })
-    .await
-    .context("Не удалось выполнить задачу чтения credentials")?
+    tokio::task::spawn_blocking(move || get_credential_sync(&project, &username, &key_suffix))
+        .await
+        .context("Не удалось выполнить задачу чтения credentials")?
 }
 
 fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<String> {
@@ -209,11 +210,9 @@ pub async fn delete_credential(project: &str, username: &str, key_suffix: &str) 
         username.to_string(),
         key_suffix.to_string(),
     );
-    tokio::task::spawn_blocking(move || {
-        delete_credential_sync(&project, &username, &key_suffix)
-    })
-    .await
-    .context("Не удалось выполнить задачу удаления credentials")?
+    tokio::task::spawn_blocking(move || delete_credential_sync(&project, &username, &key_suffix))
+        .await
+        .context("Не удалось выполнить задачу удаления credentials")?
 }
 
 fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<()> {

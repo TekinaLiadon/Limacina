@@ -8,6 +8,7 @@ const props = defineProps<{
   progress: number
   steps: StepProgressItem[]
   error?: string
+  isCancelPending?: boolean
 }>()
 
 const isLaunchingGame = computed((): boolean => {
@@ -22,14 +23,6 @@ const headerLabel = computed((): string =>
 defineEmits<{
   'go-to-accounts': []
 }>()
-
-const canGoBack = (steps: StepProgressItem[]): boolean => {
-  if (steps.length === 0) return true
-  if (steps.some((step) => step.status === 'error')) return true
-
-  const last = steps[steps.length - 1]
-  return last.status === 'active' || last.status === 'done'
-}
 </script>
 
 <template>
@@ -47,10 +40,10 @@ const canGoBack = (steps: StepProgressItem[]): boolean => {
 
     <Button
         class="btn-quiet btn-block launch-progress__btn"
-        :is-disabled="!canGoBack(steps)"
+        :is-disabled="isCancelPending ?? false"
         @click="$emit('go-to-accounts')"
     >
-      Выбрать другой
+      {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Выбрать другой' }}
     </Button>
 
     <div v-if="error" class="launch-progress__error">
@@ -60,6 +53,7 @@ const canGoBack = (steps: StepProgressItem[]): boolean => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .launch-progress {
   width: 100%;
   display: flex;
@@ -84,14 +78,7 @@ const canGoBack = (steps: StepProgressItem[]): boolean => {
   }
 
   &__error {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
-    word-break: break-word;
+    @include mixins.error-box;
   }
 }
 </style>

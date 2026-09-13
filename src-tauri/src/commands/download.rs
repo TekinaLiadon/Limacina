@@ -1,43 +1,71 @@
+use anyhow::{Context, Result};
 use tokio::sync::Mutex;
 
-use crate::commands::dto::{create_mod_loader, resolve_latest_loader_version};
+use crate::commands::dto::create_mod_loader;
+use crate::java::alternative_java::{
+    download_alt_java, get_java_distributions_list, JavaDistribution,
+};
 use crate::java::install_java;
-use crate::java::alternative_java::{download_alt_java, get_java_distributions_list, JavaDistribution};
-use crate::launcher_server::downloader::download_all_files;
-use crate::launcher_server::downloader::download_mods;
+use crate::launcher_server::downloader::{download_all_files, download_mods};
 use crate::minecraft::structs::MinecraftLoader;
-use crate::state::dto::GlobalState;
 use crate::state::dto::ModLoader as ConfigModLoader;
+use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::{minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
 
-#[tauri::command]
-pub async fn download_minecraft(
-    state: tauri::State<'_, Mutex<GlobalState>>,
-) -> CommandResult<()> {
+async fn update_project_config(
+    state: &tauri::State<'_, Mutex<GlobalState>>,
+    mutate: impl AsyncFnOnce(&mut ProjectConfig) -> Result<()>,
+) -> CommandResult<ProjectConfig> {
     let mut project_config = {
         let state = state.lock().await;
         state.project_config.clone()
     };
-
-    resolve_latest_loader_version(&mut project_config).await?;
+    mutate(&mut project_config).await?;
     project_config.save_config().await?;
-
     {
         let mut state = state.lock().await;
         state.project_config = project_config.clone();
     }
+    Ok(project_config)
+}
 
+#[tauri::command]
+pub async fn download_minecraft(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
+    let mut project_config = {
+        let state = state.lock().await;
+        state.project_config.clone()
+    };
     let mod_loader = project_config.mod_loader.clone();
+
+    let loader_manifest = if matches!(mod_loader, ConfigModLoader::Vanilla) {
+        None
+    } else {
+        let loader = create_mod_loader(&mod_loader)?;
+        let manifest = loader.versions(&project_config).await?;
+        if project_config.loader_version.is_none() {
+            let version = loader
+                .latest_version(&project_config, &manifest)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Не удалось определить последнюю версию лоадера (проект: {})",
+                        project_config.project_name
+                    )
+                })?;
+            project_config.loader_version = Some(version);
+            project_config.save_config().await?;
+            let mut state = state.lock().await;
+            state.project_config = project_config.clone();
+        }
+        Some(manifest)
+    };
 
     Vanilla.setup(&project_config).await?;
 
-    if matches!(mod_loader, ConfigModLoader::Vanilla) {
-        return Ok(());
+    if let Some(manifest) = loader_manifest {
+        let loader = create_mod_loader(&mod_loader)?;
+        loader.setup(&project_config, &manifest).await?;
     }
-
-    let loader = create_mod_loader(&mod_loader)?;
-    let manifest = loader.versions(&project_config).await?;
-    loader.setup(&project_config, &manifest).await?;
 
     Ok(())
 }
@@ -46,29 +74,19 @@ pub async fn download_minecraft(
 pub async fn download_server_file(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let project_name = state
-        .lock()
-        .await
-        .project_config
-        .project_name
-        .clone();
+    let project_name = state.lock().await.project_config.project_name.clone();
     download_all_files(project_name, false, &state).await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let mut project_config = {
-        let state = state.lock().await;
-        state.project_config.clone()
-    };
-
-    let java_path = install_java(&project_config).await?;
-    project_config.java_path = Some(java_path.to_string_lossy().into_owned());
-    project_config.save_config().await?;
-
-    let mut state = state.lock().await;
-    state.project_config = project_config;
+    update_project_config(&state, async |project_config: &mut ProjectConfig| {
+        let java_path = install_java(project_config).await?;
+        project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+        Ok(())
+    })
+    .await?;
     Ok(())
 }
 
@@ -76,12 +94,7 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
 pub async fn download_server_mods(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let project_name = state
-        .lock()
-        .await
-        .project_config
-        .project_name
-        .clone();
+    let project_name = state.lock().await.project_config.project_name.clone();
     download_mods(project_name, &state).await?;
     Ok(())
 }
@@ -104,14 +117,11 @@ pub async fn download_alternative_java(
     };
     let java_path = download_alt_java(&distribution, java_version.as_deref(), &mc_version).await?;
     if replace_default {
-        let mut project_config = {
-            let state = state.lock().await;
-            state.project_config.clone()
-        };
-        project_config.java_path = Some(java_path.to_string_lossy().into_owned());
-        project_config.save_config().await?;
-        let mut state = state.lock().await;
-        state.project_config = project_config;
+        update_project_config(&state, async |project_config: &mut ProjectConfig| {
+            project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+            Ok(())
+        })
+        .await?;
     }
     Ok(())
 }

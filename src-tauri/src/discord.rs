@@ -96,9 +96,7 @@ fn apply(state: &mut DiscordState) {
 }
 
 pub fn init(enabled: bool) {
-    let mut state = discord_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
     state.enabled = enabled;
     apply(&mut state);
 }
@@ -109,9 +107,7 @@ pub fn set_game_activity(
     project_name: &str,
     exited: Option<Arc<AtomicBool>>,
 ) {
-    let mut state = discord_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
     if exited
         .as_ref()
         .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
@@ -128,17 +124,13 @@ pub fn set_game_activity(
 }
 
 pub fn on_game_exit() {
-    let mut state = discord_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
     state.game.take();
     apply(&mut state);
 }
 
 pub fn on_settings_saved(enabled: bool) {
-    let mut state = discord_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
     state.enabled = enabled;
     apply(&mut state);
 }

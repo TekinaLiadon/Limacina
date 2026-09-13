@@ -62,7 +62,13 @@ where
                         break;
                     }
                     Err(e) if attempt < MAX_RETRIES => {
-                        log_err!("[semaphore] Ошибка скачивания {} (попытка {}/{}): {:?}", el.url, attempt, MAX_RETRIES, e);
+                        log_err!(
+                            "[semaphore] Ошибка скачивания {} (попытка {}/{}): {:?}",
+                            el.url,
+                            attempt,
+                            MAX_RETRIES,
+                            e
+                        );
 
                         let delay = 2_u64.pow(attempt as u32);
                         log_info!("[semaphore] Повтор через {} сек: {}", delay, el.url);
@@ -70,7 +76,13 @@ where
                     }
 
                     Err(e) => {
-                        log_err!("[semaphore] Финальная ошибка скачивания {} (попытка {}/{}): {:?}", el.url, attempt, MAX_RETRIES, e);
+                        log_err!(
+                            "[semaphore] Финальная ошибка скачивания {} (попытка {}/{}): {:?}",
+                            el.url,
+                            attempt,
+                            MAX_RETRIES,
+                            e
+                        );
                         final_result = Err(e);
                         break;
                     }

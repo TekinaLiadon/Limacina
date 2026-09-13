@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { Button } from '@/06-shared'
 import { useSkinSettings } from '@/04-features'
 import SkinViewer from './SkinViewer.vue'
+import UserContentList from './UserContentList.vue'
 import Viewer3D from './Viewer3D.vue'
 
 const {
@@ -31,9 +32,9 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
 
 <template>
   <div class="skin-settings">
-    <div v-if="isOffline" class="skin-settings__notice">
-      Локальный профиль: скин доступен только для предпросмотра и не отправляется на сервер
-    </div>
+    <p v-if="isOffline" class="skin-settings__hint">
+      Локальный профиль: скин сохраняется на этом компьютере и применяется при запуске игры
+    </p>
 
     <div v-if="isSkinLoading" class="skin-settings__loading">
       <span class="skin-settings__loading-spinner" aria-hidden="true" />
@@ -88,48 +89,30 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
       Формат: .png, не более 256 КБ
     </p>
 
-    <div v-if="!isOffline && uploadedSkins.length > 0" class="skin-settings__content-list">
-      <div class="skin-settings__content-title section-label">Загруженные скины</div>
-      <div class="skin-settings__content-items">
-        <div
-          v-for="item in uploadedSkins"
-          :key="item.id ?? item.url"
-          class="skin-settings__content-item"
+    <UserContentList
+      v-if="!isOffline && uploadedSkins.length > 0"
+      title="Загруженные скины"
+      :items="uploadedSkins"
+      @copy="handleCopyUrl"
+      @delete="handleDelete"
+    >
+      <template #item-actions="{ item }">
+        <Button
+          v-if="item.id != null && item.active !== true"
+          class="btn-primary skin-settings__activate-btn"
+          @click="handleActivate(item.id!)"
         >
-          <span class="skin-settings__content-url" :class="{ 'skin-settings__content-url--active': item.active === true }">
-            {{ item.url }}
-          </span>
-          <div class="skin-settings__content-actions">
-            <Button
-              v-if="item.id != null && item.active !== true"
-              class="btn-primary skin-settings__activate-btn"
-              @click="handleActivate(item.id!)"
-            >
-              Активировать
-            </Button>
-            <span v-else-if="item.active === true" class="skin-settings__active-badge">Активен</span>
-            <Button
-              v-if="item.id != null"
-              class="btn-quiet skin-settings__copy-btn"
-              @click="handleCopyUrl(item.url)"
-            >
-              Копировать
-            </Button>
-            <Button
-              v-if="item.id != null"
-              class="btn-danger skin-settings__delete-btn"
-              @click="handleDelete(item.id!)"
-            >
-              Удалить
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+          Активировать
+        </Button>
+        <span v-else-if="item.active === true" class="skin-settings__active-badge">Активен</span>
+      </template>
+    </UserContentList>
   </div>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .skin-settings {
   display: flex;
   flex-direction: column;
@@ -162,22 +145,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__error {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
-  }
-
-  &__notice {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--accent-subtle);
-    color: var(--accent-text);
-    font-size: var(--text-body-sm);
-    text-align: left;
+    @include mixins.error-box;
   }
 
   &__model-mode {
@@ -228,47 +196,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__hint {
-    margin: 0;
-    font-size: var(--text-caption);
-    color: var(--login-text-muted);
-    text-align: center;
-  }
-
-  &__content-list {
-    margin-top: var(--space-8);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-12);
-  }
-
-  &__content-items {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-  }
-
-  &__content-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-12);
-    padding: var(--space-12);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-card);
-  }
-
-  &__content-url {
-    flex: 1;
-    font-size: var(--text-caption);
-    color: var(--login-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: left;
-
-    &--active {
-      color: var(--accent-text);
-    }
+    @include mixins.caption-hint;
   }
 
   &__active-badge {
@@ -281,14 +209,6 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     white-space: nowrap;
   }
 
-  &__content-actions {
-    display: flex;
-    gap: var(--space-4);
-    flex-shrink: 0;
-  }
-
-  &__copy-btn,
-  &__delete-btn,
   &__activate-btn {
     padding: var(--space-4) var(--control-padding-x);
     font-size: var(--text-caption);

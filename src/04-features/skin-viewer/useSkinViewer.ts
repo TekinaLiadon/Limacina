@@ -1,6 +1,6 @@
 import { watch, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene, configurePixelTexture, disposeObjectTree } from '@/06-shared'
+import { useThreeScene, removeGroupFromScene, createManagedTextureLoader } from '@/06-shared'
 import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
 import type { ViewerControls } from '@/03-widgets/types'
 
@@ -92,9 +92,11 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
 
     for (let i = 0; i < 6; i++) {
       const source = mirrorFrom ?? part
-      const u = source.faces[i][0] + uvShift[0]
-      const v = source.faces[i][1] + uvShift[1]
-      const [fw, fh] = faceDims[i]
+      const face = source.faces[i]
+      if (face === undefined) continue
+      const u = face[0] + uvShift[0]
+      const v = face[1] + uvShift[1]
+      const [fw = 0, fh = 0] = faceDims[i] ?? []
 
       const u0 = (u * s) / texW
       const v0 = 1 - (v * s) / texH
@@ -132,9 +134,9 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
 
   parts.forEach((part, index) => {
     const mirrorFrom = isOldFormat && index === 3
-      ? parts[2]
+      ? parts[2] ?? null
       : isOldFormat && index === 5
-        ? parts[4]
+        ? parts[4] ?? null
         : null
     addMesh(part, mirrorFrom, [0, 0], 0, baseMat)
     if (!isOldFormat || index === 0) {
@@ -152,10 +154,11 @@ export function useSkinViewer(
     skinUrl: Ref<string>,
     controls: ViewerControls,
     slim: Ref<boolean>,
+    paused?: Ref<boolean>,
 ) {
-  const { scene, camera, getOrbitControls } = useThreeScene(container, { autoRotate: false })
+  const { scene, camera, getOrbitControls, setPaused } = useThreeScene(container, { autoRotate: false })
   const playerGroup = shallowRef<THREE.Group | null>(null)
-  let loadGeneration = 0
+  const textureLoader = createManagedTextureLoader(scene)
   let currentTexture: THREE.Texture | null = null
 
   const { applyCamera } = useViewerCamera(
@@ -179,18 +182,10 @@ export function useSkinViewer(
     applyCamera()
   }
 
-  function removeCurrentModel(): void {
-    if (!playerGroup.value || !scene.value) return
-
-    scene.value.remove(playerGroup.value)
-    disposeObjectTree(playerGroup.value)
-    playerGroup.value = null
-  }
-
   function showModel(texture: THREE.Texture): void {
     if (!scene.value) return
 
-    removeCurrentModel()
+    removeGroupFromScene(scene, playerGroup)
     const player = buildPlayerModel(texture, slim.value)
     scene.value.add(player)
     playerGroup.value = player
@@ -203,18 +198,8 @@ export function useSkinViewer(
   }
 
   function loadSkin(url: string): void {
-    if (!scene.value) return
-
-    const generation = ++loadGeneration
-
-    const loader = new THREE.TextureLoader()
-    loader.load(url, (texture) => {
-      if (generation !== loadGeneration || !scene.value) return
-
-      configurePixelTexture(texture)
-      if (currentTexture) currentTexture.dispose()
+    textureLoader.load(url, (texture) => {
       currentTexture = texture
-
       showModel(texture)
     })
   }
@@ -230,6 +215,10 @@ export function useSkinViewer(
   watch(slim, () => {
     rebuildModel()
   })
+
+  if (paused) {
+    watch(paused, (value: boolean) => setPaused(value), { immediate: true })
+  }
 
   return {}
 }

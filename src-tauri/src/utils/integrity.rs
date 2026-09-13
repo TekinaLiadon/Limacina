@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::log_err;
 use crate::log_info;
-use crate::utils::download_file::{file_sha1, download_file};
+use crate::utils::download_file::{download_file, file_sha1};
 use crate::utils::install_manifest::{
     load_install_manifest, merge_installed, save_install_manifest,
 };
@@ -295,11 +295,7 @@ pub async fn ensure_files(
             let actual = file_sha1(&file_path).await;
             match actual {
                 Ok(hash) => {
-                    merge_installed(
-                        &mut installed,
-                        &target.rel_path.to_string_lossy(),
-                        &hash,
-                    );
+                    merge_installed(&mut installed, &target.rel_path.to_string_lossy(), &hash);
                     repaired += 1;
                 }
                 Err(e) => {
@@ -317,7 +313,8 @@ pub async fn ensure_files(
         step.clone().finish(false);
     } else {
         let _ = save_install_manifest(project_name, &installed).await;
-        step.clone().fail(format!("Не удалось скачать файлов: {}", failed.len()));
+        step.clone()
+            .fail(format!("Не удалось скачать файлов: {}", failed.len()));
     }
 
     log_info!(

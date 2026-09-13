@@ -47,36 +47,22 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .server-profile {
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
 
-  &__head {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  &__title {
-    font-size: var(--text-heading);
-  }
+  @include mixins.form-head;
 
   &__subtitle {
-    margin: 0;
-    font-size: var(--text-body-sm);
-    color: var(--login-text-muted);
+    @include mixins.form-subtitle;
   }
 
   &__error {
+    @include mixins.error-box;
+
     margin: 0;
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    padding: var(--space-12);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    border-radius: var(--radius-badge);
-    word-break: break-word;
   }
 
   &__actions {

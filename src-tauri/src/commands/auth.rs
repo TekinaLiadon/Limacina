@@ -30,7 +30,6 @@ async fn store_session(
     (uuid, username)
 }
 
-
 async fn remember_login(
     state: &State<'_, Mutex<GlobalState>>,
     project_name: &str,
@@ -67,8 +66,6 @@ pub(crate) async fn persist_session_credentials(
     Ok(())
 }
 
-
-
 pub(crate) async fn restore_session(
     project_name: &str,
     username: &str,
@@ -83,12 +80,16 @@ pub(crate) async fn restore_session(
     }
     let server_url = project.resolved_server_url();
 
-    if let Ok(refresh_token) = storage::get_credential(project_name, username, "refresh_token").await
+    if let Ok(refresh_token) =
+        storage::get_credential(project_name, username, "refresh_token").await
     {
         match auth::refresh(&server_url, &refresh_token).await {
             Ok(data) => return Ok(data),
             Err(e) => {
-                log_err!("restore_session: refresh не удался ({}), пробуем вход по паролю", e);
+                log_err!(
+                    "restore_session: refresh не удался ({}), пробуем вход по паролю",
+                    e
+                );
                 let _ = storage::delete_credential(project_name, username, "refresh_token").await;
             }
         }

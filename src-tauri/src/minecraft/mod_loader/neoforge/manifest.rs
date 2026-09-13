@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 use crate::minecraft::{
-    mod_loader::manifest::{get_loader_index, loader_libraries, LoaderIndex, Manifest, Metadata},
-    structs::{LibraryMod, VersionMod},
+    mod_loader::manifest::{get_loader_index, transform_loader_manifest, LoaderIndex, Metadata},
+    structs::VersionMod,
 };
 
 const METADATA_URL: &str =
@@ -37,24 +37,7 @@ fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
 }
 
 pub fn transform_neoforge_manifest(neoforge_manifest: LoaderIndex) -> Vec<VersionMod> {
-    let mut manifest: Vec<VersionMod> = Vec::new();
-
-    for (mc_version, neoforge_versions) in &neoforge_manifest {
-        for neoforge_version in neoforge_versions {
-            let version_id = format!("{}-{}", mc_version, neoforge_version);
-            let version_mod = VersionMod {
-                url: format!("{}/releases/net/neoforged/neoforge/{v}/neoforge-{v}-installer.jar", MAVEN_BASE, v = neoforge_version),
-                id: version_id.clone(),
-                main_class: "".to_string(),
-                library: Vec::new(),
-            };
-
-            manifest.push(version_mod);
-        }
-    }
-    manifest
-}
-
-pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
-    loader_libraries(manifest.libraries, MAVEN_BASE)
+    transform_loader_manifest(neoforge_manifest, |_, v| {
+        format!("{MAVEN_BASE}/releases/net/neoforged/neoforge/{v}/neoforge-{v}-installer.jar")
+    })
 }

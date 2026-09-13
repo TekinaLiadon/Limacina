@@ -35,6 +35,9 @@ export function useProjectSwitch() {
   const selectProject = async (projectName: string): Promise<void> => {
     if (!projectName || projectName === coreStore.currentProject) return
 
+    const previousProject = coreStore.currentProject
+    const previousConfig = coreStore.projectConfig
+
     coreStore.currentProject = projectName
     coreStore.projectConfig = null
     resetAccountsState()
@@ -45,6 +48,8 @@ export function useProjectSwitch() {
       coreStore.projectConfig = await loadSettingsProject(projectName)
       accountsStore.logins = await authLogins(projectName)
     } catch (e: unknown) {
+      coreStore.currentProject = previousProject
+      coreStore.projectConfig = previousConfig
       notification.show(String(e))
     }
   }

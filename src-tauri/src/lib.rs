@@ -5,20 +5,30 @@ mod init;
 mod java;
 mod launcher_server;
 mod minecraft;
+mod offline;
 mod state;
 mod updater;
 mod utils;
 
-use commands::auth::{auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account};
+#[cfg(test)]
+mod test_support;
+
+use commands::auth::{
+    auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account,
+};
+use commands::cpm_models::{read_cpm_project_file, save_player_model, take_cpm_project_path};
+use commands::download::download_alternative_java;
 use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
-use commands::download::download_alternative_java;
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
 use commands::integrity::check_files_integrity;
-use commands::launcher_config::{get_app_init_data, save_launcher_config, save_launcher_settings, save_theme, save_animations_enabled};
+use commands::launcher_config::{
+    get_app_init_data, save_animations_enabled, save_launcher_config, save_launcher_settings,
+    save_theme,
+};
 use commands::profile::{
     create_offline_profile, create_server_profile, get_loader_versions, get_minecraft_versions,
     refresh_manifests, save_current_project,
@@ -30,10 +40,11 @@ use commands::start::exit_launcher;
 use commands::start::start_minecraft;
 use commands::update::{apply_update_cmd, check_update, get_launcher_versions};
 use commands::user_content::{
-    delete_model, delete_skin, get_profile_skin, get_session_info, list_models, list_skins,
-    logout_account, select_account, set_active_skin, upload_model, upload_skin,
+    delete_model, delete_offline_skin, delete_skin, get_offline_skin, get_offline_skin_model,
+    get_profile_skin, get_session_info, list_models, list_skins, logout_account, save_offline_skin,
+    select_account, set_active_skin, upload_model, upload_skin,
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
 use utils::logger_utils;
 use utils::logger_utils::get_startup_logs;
@@ -61,15 +72,25 @@ pub fn run() {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
 
-            let launcher_config = crate::state::launcher_config::LauncherConfig::load().ok().flatten();
+            let launcher_config = crate::state::launcher_config::LauncherConfig::load()
+                .ok()
+                .flatten();
             crate::utils::bandwidth::set_limit(
-                launcher_config.as_ref().and_then(|c| c.download_speed_limit),
+                launcher_config
+                    .as_ref()
+                    .and_then(|c| c.download_speed_limit),
             );
             crate::utils::logger_utils::set_console_emit_enabled(
-                launcher_config.as_ref().map(|c| c.debug_mode).unwrap_or(false),
+                launcher_config
+                    .as_ref()
+                    .map(|c| c.debug_mode)
+                    .unwrap_or(false),
             );
             crate::utils::logger_utils::set_game_output_enabled(
-                launcher_config.as_ref().map(|c| c.debug_mode).unwrap_or(false),
+                launcher_config
+                    .as_ref()
+                    .map(|c| c.debug_mode)
+                    .unwrap_or(false),
             );
 
             let base_path = if let Some(ref lc) = launcher_config {
@@ -96,21 +117,33 @@ pub fn run() {
             };
             app.manage(Mutex::new(gs));
 
-            updater::cleanup_old_binaries();
+            tauri::async_runtime::spawn_blocking(updater::cleanup_old_binaries);
 
             tauri::async_runtime::spawn_blocking(move || {
                 discord::init(discord_enabled);
             });
 
+            if let Some(path) =
+                commands::cpm_models::extract_cpm_project_path(std::env::args().skip(1))
+            {
+                commands::cpm_models::store_cpm_project_path(Some(path));
+            }
+
             Ok(())
         })
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
+                if let Some(path) =
+                    commands::cpm_models::extract_cpm_project_path(argv.into_iter().skip(1))
+                {
+                    let _ = window.emit("cpm-project-open", path);
+                }
             }
         }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -160,6 +193,10 @@ pub fn run() {
             get_session_info,
             logout_account,
             upload_skin,
+            save_offline_skin,
+            get_offline_skin,
+            get_offline_skin_model,
+            delete_offline_skin,
             list_skins,
             delete_skin,
             set_active_skin,
@@ -167,6 +204,9 @@ pub fn run() {
             upload_model,
             list_models,
             delete_model,
+            save_player_model,
+            read_cpm_project_file,
+            take_cpm_project_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

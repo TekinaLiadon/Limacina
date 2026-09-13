@@ -9,7 +9,7 @@ const props = defineProps<{
 
 const activeRef = ref<HTMLDivElement | null>(null)
 
-watch(() => props.steps.map(s => `${s.status}:${s.current}:${s.detail}`).join(','), () => {
+watch(() => props.steps.map(s => s.status).join(','), () => {
   if (activeRef.value) {
     anime({
       targets: activeRef.value.querySelector('.step-progress__indicator'),

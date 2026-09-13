@@ -35,19 +35,58 @@ const SUPPORTED_ARCHIVE_TYPES: &[&str] = &["tar.gz", "zip"];
 
 pub fn get_java_distributions_list() -> Vec<JavaDistribution> {
     vec![
-        JavaDistribution { name: "Zulu".to_string(), api_parameter: "zulu".to_string() },
-        JavaDistribution { name: "Temurin".to_string(), api_parameter: "temurin".to_string() },
-        JavaDistribution { name: "Corretto".to_string(), api_parameter: "corretto".to_string() },
-        JavaDistribution { name: "Liberica".to_string(), api_parameter: "liberica".to_string() },
-        JavaDistribution { name: "Semeru".to_string(), api_parameter: "semeru".to_string() },
-        JavaDistribution { name: "SAP Machine".to_string(), api_parameter: "sap_machine".to_string() },
-        JavaDistribution { name: "Oracle OpenJDK".to_string(), api_parameter: "oracle_open_jdk".to_string() },
-        JavaDistribution { name: "OpenLogic".to_string(), api_parameter: "openlogic".to_string() },
-        JavaDistribution { name: "Microsoft".to_string(), api_parameter: "microsoft".to_string() },
-        JavaDistribution { name: "Dragonwell".to_string(), api_parameter: "dragonwell".to_string() },
-        JavaDistribution { name: "JetBrains".to_string(), api_parameter: "jetbrains".to_string() },
-        JavaDistribution { name: "Kona".to_string(), api_parameter: "kona".to_string() },
-        JavaDistribution { name: "GraalVM CE".to_string(), api_parameter: "graalvm_community".to_string() },
+        JavaDistribution {
+            name: "Zulu".to_string(),
+            api_parameter: "zulu".to_string(),
+        },
+        JavaDistribution {
+            name: "Temurin".to_string(),
+            api_parameter: "temurin".to_string(),
+        },
+        JavaDistribution {
+            name: "Corretto".to_string(),
+            api_parameter: "corretto".to_string(),
+        },
+        JavaDistribution {
+            name: "Liberica".to_string(),
+            api_parameter: "liberica".to_string(),
+        },
+        JavaDistribution {
+            name: "Semeru".to_string(),
+            api_parameter: "semeru".to_string(),
+        },
+        JavaDistribution {
+            name: "SAP Machine".to_string(),
+            api_parameter: "sap_machine".to_string(),
+        },
+        JavaDistribution {
+            name: "Oracle OpenJDK".to_string(),
+            api_parameter: "oracle_open_jdk".to_string(),
+        },
+        JavaDistribution {
+            name: "OpenLogic".to_string(),
+            api_parameter: "openlogic".to_string(),
+        },
+        JavaDistribution {
+            name: "Microsoft".to_string(),
+            api_parameter: "microsoft".to_string(),
+        },
+        JavaDistribution {
+            name: "Dragonwell".to_string(),
+            api_parameter: "dragonwell".to_string(),
+        },
+        JavaDistribution {
+            name: "JetBrains".to_string(),
+            api_parameter: "jetbrains".to_string(),
+        },
+        JavaDistribution {
+            name: "Kona".to_string(),
+            api_parameter: "kona".to_string(),
+        },
+        JavaDistribution {
+            name: "GraalVM CE".to_string(),
+            api_parameter: "graalvm_community".to_string(),
+        },
     ]
 }
 
@@ -77,19 +116,16 @@ async fn fetch_package(
         .await
         .context("Не удалось распарсить ответ Foojay API")?;
 
-    let pkg = packages
-        .result
-        .into_iter()
-        .find_map(|p| {
-            let links = p.links.as_ref()?;
-            if SUPPORTED_ARCHIVE_TYPES.contains(&p.archive_type.as_str())
-                && !links.pkg_download_redirect.is_empty()
-            {
-                Some((links.pkg_download_redirect.clone(), p.archive_type.clone()))
-            } else {
-                None
-            }
-        });
+    let pkg = packages.result.into_iter().find_map(|p| {
+        let links = p.links.as_ref()?;
+        if SUPPORTED_ARCHIVE_TYPES.contains(&p.archive_type.as_str())
+            && !links.pkg_download_redirect.is_empty()
+        {
+            Some((links.pkg_download_redirect.clone(), p.archive_type.clone()))
+        } else {
+            None
+        }
+    });
 
     Ok(pkg)
 }
@@ -128,14 +164,15 @@ pub async fn download_alt_java(
 
     let client = crate::utils::http::http_client();
 
-    let (download_url, archive_type) = match fetch_package(client, distribution, &version, arch, os_foojay, "jre").await? {
-        Some(result) => result,
-        None => {
-            fetch_package(client, distribution, &version, arch, os_foojay, "jdk")
+    let (download_url, archive_type) =
+        match fetch_package(client, distribution, &version, arch, os_foojay, "jre").await? {
+            Some(result) => result,
+            None => fetch_package(client, distribution, &version, arch, os_foojay, "jdk")
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("Foojay API не вернул файлов для скачивания (ни JRE, ни JDK)"))?
-        }
-    };
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Foojay API не вернул файлов для скачивания (ни JRE, ни JDK)")
+                })?,
+        };
 
     let base_path = launcher_path(None)?;
     let java_parent = base_path.join("java").join(&version);
@@ -150,8 +187,7 @@ pub async fn download_alt_java(
 
     let java_parent_clone = java_parent.clone();
     let archive_clone = archive_path.clone();
-    spawn_blocking(move || extract_archive(&archive_clone, &java_parent_clone))
-        .await??;
+    spawn_blocking(move || extract_archive(&archive_clone, &java_parent_clone)).await??;
 
     remove_file(&archive_path).await?;
 

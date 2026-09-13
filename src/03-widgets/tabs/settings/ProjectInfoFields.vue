@@ -25,7 +25,7 @@ const fields = [
       v-for="field in fields"
       :key="field.key"
       :model-value="config[field.key]"
-      :options="{ label: field.label, placeholder: field.placeholder, disabled: field?.disabled }"
+      :options="{ label: field.label, placeholder: field.placeholder, disabled: field?.disabled ?? false }"
       @update:model-value="config[field.key] = $event"
     />
     <Checkbox

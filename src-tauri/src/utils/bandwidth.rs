@@ -37,7 +37,10 @@ pub fn set_limit(kbps: Option<u64>) {
                 tokens: rate as f64,
                 last_refill: Instant::now(),
             });
-            log_info!("Ограничение скорости скачивания: {} КБ/с", kbps.unwrap_or(0));
+            log_info!(
+                "Ограничение скорости скачивания: {} КБ/с",
+                kbps.unwrap_or(0)
+            );
         }
     }
 }
@@ -57,8 +60,8 @@ pub async fn acquire(bytes: u64) {
             let now = Instant::now();
             let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
             if elapsed > 0.0 {
-                bucket.tokens =
-                    (bucket.tokens + elapsed * bucket.rate_bytes_per_sec as f64).min(bucket.rate_bytes_per_sec as f64);
+                bucket.tokens = (bucket.tokens + elapsed * bucket.rate_bytes_per_sec as f64)
+                    .min(bucket.rate_bytes_per_sec as f64);
                 bucket.last_refill = now;
             }
 

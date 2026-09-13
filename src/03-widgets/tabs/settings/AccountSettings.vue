@@ -70,20 +70,14 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .account-settings {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
 
   &__error {
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
-    padding: var(--space-12);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    border-radius: var(--radius-badge);
-    word-break: break-word;
+    @include mixins.error-box;
   }
 
   &__submit {

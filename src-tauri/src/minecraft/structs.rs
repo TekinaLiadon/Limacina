@@ -38,6 +38,38 @@ pub struct GameConfig {
     pub game_dir: PathBuf,
 }
 
+impl GameConfig {
+    pub fn new(
+        java_path: PathBuf,
+        jvm_args: Vec<String>,
+        game_args: Vec<String>,
+        classpath: Vec<String>,
+        main_class: String,
+        game_dir: PathBuf,
+    ) -> Self {
+        Self {
+            java_path,
+            jvm_args,
+            game_args,
+            classpath,
+            main_class,
+            game_dir,
+        }
+    }
+
+    pub fn with_args(mut self, jvm_args: Vec<String>, game_args: Vec<String>) -> Self {
+        self.jvm_args = jvm_args;
+        self.game_args = game_args;
+        self
+    }
+
+    pub fn with_loader(mut self, classpath: Vec<String>, main_class: String) -> Self {
+        self.classpath = classpath;
+        self.main_class = main_class;
+        self
+    }
+}
+
 pub async fn new_launch_config(
     username: &str,
     uuid: &str,
@@ -100,8 +132,16 @@ pub struct LibraryMod {
 #[async_trait]
 pub trait ModLoader: Send + Sync {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>>;
-    async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod>;
-    async fn latest_version(&self, state: &ProjectConfig) -> Result<String>;
+    async fn version_current(
+        &self,
+        state: &ProjectConfig,
+        versions: &[VersionMod],
+    ) -> Result<VersionMod>;
+    async fn latest_version(
+        &self,
+        state: &ProjectConfig,
+        versions: &[VersionMod],
+    ) -> Result<String>;
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()>;
     async fn config(
         &self,

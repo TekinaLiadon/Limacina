@@ -5,9 +5,12 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-set-background-color",
+    "core:webview:allow-set-webview-background-color",
     "opener:default",
     "dialog:default",
     "autostart:default",
-    "notification:default"
+    "notification:default",
+    "window-state:default"
   ]
 }

@@ -59,7 +59,6 @@ impl Default for ProjectConfig {
 }
 
 impl ProjectConfig {
-
     pub fn resolved_server_url(&self) -> String {
         match self.server_url.as_deref() {
             Some(url) if !url.trim().is_empty() => normalize_server_url(url),
@@ -106,7 +105,10 @@ mod tests {
         assert_eq!(parsed.project_name, "Cordelia");
         assert_eq!(parsed.mod_loader, ModLoader::NeoForge);
         assert_eq!(parsed.jvm_args, vec!["-XX:+UseG1GC".to_string()]);
-        assert_eq!(parsed.server_url.as_deref(), Some("http://mc.example.com:3000"));
+        assert_eq!(
+            parsed.server_url.as_deref(),
+            Some("http://mc.example.com:3000")
+        );
         assert!(parsed.online);
     }
 

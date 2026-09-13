@@ -29,6 +29,9 @@ export function useThreeScene(
   const camera = shallowRef<THREE.PerspectiveCamera | null>(null)
   const animationId = ref<number>(0)
   let orbitControls: OrbitControls | null = null
+  let resizeObserver: ResizeObserver | null = null
+  let paused = false
+  let startLoop: (() => void) | null = null
 
   function initScene(): void {
     if (!container.value) return
@@ -75,13 +78,26 @@ export function useThreeScene(
       ctrl.update()
       r.render(s, cam)
     }
-    animate()
+    startLoop = animate
+    if (!paused) animate()
+  }
+
+  function setPaused(value: boolean): void {
+    if (value === paused) return
+    paused = value
+    if (value) {
+      cancelAnimationFrame(animationId.value)
+      animationId.value = 0
+      return
+    }
+    if (startLoop && animationId.value === 0) startLoop()
   }
 
   function onResize(): void {
     if (!container.value || !camera.value || !renderer.value) return
     const w = container.value.clientWidth
     const h = container.value.clientHeight
+    if (w === 0 || h === 0) return
     camera.value.aspect = w / h
     camera.value.updateProjectionMatrix()
     renderer.value.setSize(w, h)
@@ -90,6 +106,8 @@ export function useThreeScene(
   function cleanup(): void {
     cancelAnimationFrame(animationId.value)
     window.removeEventListener('resize', onResize)
+    resizeObserver?.disconnect()
+    resizeObserver = null
     orbitControls?.dispose()
     renderer.value?.dispose()
   }
@@ -97,6 +115,10 @@ export function useThreeScene(
   onMounted(() => {
     initScene()
     window.addEventListener('resize', onResize)
+    if (container.value) {
+      resizeObserver = new ResizeObserver(onResize)
+      resizeObserver.observe(container.value)
+    }
   })
 
   onBeforeUnmount(() => {
@@ -109,5 +131,6 @@ export function useThreeScene(
     renderer,
     controls: orbitControls,
     getOrbitControls: () => orbitControls,
+    setPaused,
   }
 }

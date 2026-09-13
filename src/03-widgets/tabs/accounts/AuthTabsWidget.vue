@@ -70,7 +70,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
         :hide-password="isOffline"
         @submit="handleLogin"
         @back="emit('back')"
-        :is-back="showBack"
+        :is-back="showBack ?? false"
       >
         <Checkbox
           v-if="!isOffline"
@@ -90,7 +90,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
         username-placeholder="Логин"
         @submit="handleRegister"
         @back="emit('back')"
-        :is-back="showBack"
+        :is-back="showBack ?? false"
       >
         <div class="auth-tabs__field">
           <Input
@@ -108,6 +108,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .auth-tabs {
   width: 100%;
   display: flex;
@@ -116,13 +117,9 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
   min-height: 0;
 
   &__tabs {
-    display: flex;
-    gap: var(--space-4);
+    @include mixins.segmented;
+
     margin-bottom: var(--tabs-gap);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-pill);
-    padding: var(--space-4);
   }
 
   &__tab {
@@ -138,9 +135,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
     }
 
     &--active {
-      background: var(--surface-active);
-      box-shadow: var(--elevation-inset);
-      color: var(--login-text-primary);
+      @include mixins.segmented-active;
     }
   }
 

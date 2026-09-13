@@ -27,8 +27,9 @@ export function useAlternativeJava() {
   const loadDistributions = async (): Promise<void> => {
     try {
       distributions.value = await getJavaDistributions()
-      if (distributions.value.length > 0 && !selectedDistribution.value) {
-        selectedDistribution.value = distributions.value[0].name
+      if (!selectedDistribution.value) {
+        const [first] = distributions.value
+        if (first !== undefined) selectedDistribution.value = first.name
       }
     } catch (e: unknown) {
       reportError('Не удалось загрузить список Java-дистрибутивов', e)

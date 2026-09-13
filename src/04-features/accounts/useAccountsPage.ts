@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { useAccounts, useGameLaunch } from '@/04-features'
 import { deleteAccount, logoutAccount } from '@/06-shared/api'
@@ -25,6 +25,7 @@ export function useAccountsPage() {
   } = useGameLaunch()
 
   const handleLaunch = async (): Promise<void> => {
+    isCancelPending.value = false
     const launchGeneration = ++store.launchGeneration
     store.isLaunching = true
     try {
@@ -34,6 +35,8 @@ export function useAccountsPage() {
     } finally {
       if (launchGeneration === store.launchGeneration) {
         store.isLaunching = false
+      } else if (isCancelPending.value) {
+        await finalizeCancel()
       }
     }
   }
@@ -52,8 +55,10 @@ export function useAccountsPage() {
     store.activeSubTab = 'login'
   }
 
-  const goToAccounts = async (): Promise<void> => {
-    store.launchGeneration++
+  const isCancelPending = ref<boolean>(false)
+
+  const finalizeCancel = async (): Promise<void> => {
+    isCancelPending.value = false
     store.isLaunching = false
     store.showAuthForm = false
     try {
@@ -63,6 +68,15 @@ export function useAccountsPage() {
     }
     coreStore.isLoggedIn = false
     coreStore.session = null
+  }
+
+  const goToAccounts = async (): Promise<void> => {
+    store.launchGeneration++
+    if (store.isLaunching) {
+      isCancelPending.value = true
+      return
+    }
+    await finalizeCancel()
   }
 
   const activeSubTab = computed({
@@ -101,6 +115,7 @@ export function useAccountsPage() {
     activeProgress,
     loginError,
     sessionUsername,
+    isCancelPending,
     handleLaunch,
     showLoginForm,
     goToAccounts,

@@ -1,18 +1,43 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import type { Color } from '@tauri-apps/api/webview'
+import { reportError } from '../utils/reportError'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
 import type { SkinModelMode } from '@/03-widgets/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
 }
 
+interface UpdateInfoRaw {
+  version: string
+  platforms: UpdatePlatform[]
+}
+
+interface UpdateVersionsRaw {
+  version: string
+  platforms: UpdatePlatform[]
+  versions: UpdateInfoRaw[]
+}
+
+const toUpdateInfo = (raw: UpdateInfoRaw): UpdateInfo => ({
+  version: raw.version,
+  availablePlatforms: raw.platforms,
+})
+
 export async function checkUpdate(): Promise<UpdateInfo | null> {
-  return invoke<UpdateInfo | null>('check_update')
+  const raw = await invoke<UpdateInfoRaw | null>('check_update')
+  return raw ? toUpdateInfo(raw) : null
 }
 
 export async function getLauncherVersions(): Promise<UpdateVersions> {
-  return invoke<UpdateVersions>('get_launcher_versions')
+  const raw = await invoke<UpdateVersionsRaw>('get_launcher_versions')
+  return {
+    version: raw.version,
+    availablePlatforms: raw.platforms,
+    versions: raw.versions.map(toUpdateInfo),
+  }
 }
 
 export async function applyUpdateCmd(version: string | null = null): Promise<void> {
@@ -60,6 +85,27 @@ export async function saveTheme(theme: string): Promise<LauncherConfig> {
 
 export async function saveAnimationsEnabled(animationsEnabled: boolean): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('save_animations_enabled', { animationsEnabled })
+}
+
+function hexToWindowColor(hex: string): Color | null {
+  const match = /^#([0-9a-fA-F]{6})$/.exec(hex.trim())
+  const value = match ? Number.parseInt(match[1] ?? '', 16) : Number.NaN
+  if (Number.isNaN(value)) return null
+  return {
+    red: (value >> 16) & 0xff,
+    green: (value >> 8) & 0xff,
+    blue: value & 0xff,
+    alpha: 255,
+  }
+}
+
+export async function setWindowBackgroundColor(hex: string): Promise<void> {
+  const color = hexToWindowColor(hex)
+  if (!color) {
+    reportError('Не удалось применить цвет окна', new Error(`Некорректный цвет: ${hex}`))
+    return
+  }
+  await getCurrentWebviewWindow().setBackgroundColor(color)
 }
 
 export async function initializeLauncher(parentPath: string): Promise<LauncherConfig> {
@@ -239,6 +285,25 @@ export async function getProfileSkin(url: string): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
+export async function saveOfflineSkin(fileData: Uint8Array, model: SkinModelMode): Promise<void> {
+  return invoke('save_offline_skin', fileData, {
+    headers: { 'Skin-Model': model },
+  })
+}
+
+export async function getOfflineSkin(): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('get_offline_skin')
+  return new Uint8Array(buffer)
+}
+
+export async function getOfflineSkinModel(): Promise<SkinModelMode | null> {
+  return invoke<SkinModelMode | null>('get_offline_skin_model')
+}
+
+export async function deleteOfflineSkin(): Promise<void> {
+  return invoke('delete_offline_skin')
+}
+
 export async function uploadModel(fileContent: string): Promise<UserContentItem> {
   return invoke<UserContentItem>('upload_model', { fileContent })
 }
@@ -249,6 +314,34 @@ export async function listModels(uuid: string): Promise<UserContentItem[]> {
 
 export async function deleteModel(id: number): Promise<void> {
   return invoke('delete_model', { id })
+}
+
+export interface SavePlayerModelPayload {
+  name: string
+  url: string | null
+  modelId: number | null
+  slim: boolean
+  data: number[] | null
+}
+
+export async function savePlayerModel(payload: SavePlayerModelPayload): Promise<void> {
+  return invoke('save_player_model', { ...payload })
+}
+
+export async function readCpmProjectFile(path: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>('read_cpm_project_file', { path })
+}
+
+export async function takeCpmProjectPath(): Promise<string | null> {
+  return invoke<string | null>('take_cpm_project_path')
+}
+
+export async function listenCpmProjectOpen(
+  callback: (path: string) => void
+): Promise<UnlistenFn> {
+  return listen<string>('cpm-project-open', (event) => {
+    callback(event.payload)
+  })
 }
 
 export async function getJavaDistributions(): Promise<JavaDistribution[]> {

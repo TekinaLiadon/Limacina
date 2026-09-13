@@ -2,9 +2,12 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useDebugConsole } from '@/04-features'
+import type { ConsoleLog } from '@/05-entities/core/types'
 import { Icon } from '@/06-shared'
 
 const { logs, handleCopy } = useDebugConsole()
+
+const logAt = (index: number): ConsoleLog | undefined => logs.value[index]
 
 const parentRef = ref<HTMLDivElement | null>(null)
 const isAutoScroll = ref<boolean>(true)
@@ -67,8 +70,8 @@ watch(() => logs.value.length, async (): Promise<void> => {
           class="debug-tab__line"
         >
           <span class="debug-tab__num">{{ String(row.index + 1).padStart(4, ' ') }}</span>
-          <span :class="logs[row.index].isError ? 'debug-tab__text--error' : 'debug-tab__text'" class="debug-tab__text">
-            {{ logs[row.index].line }}
+          <span :class="logAt(row.index)?.isError ? 'debug-tab__text--error' : 'debug-tab__text'" class="debug-tab__text">
+            {{ logAt(row.index)?.line }}
           </span>
           <span class="debug-tab__cursor">&#9612;</span>
         </div>

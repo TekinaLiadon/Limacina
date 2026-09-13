@@ -75,6 +75,7 @@ defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .account-list {
   width: 100%;
   display: flex;
@@ -196,15 +197,9 @@ defineEmits<{
   }
 
   &__error {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
+    @include mixins.error-box;
+
     margin-top: var(--space-16);
-    word-break: break-word;
   }
 }
 </style>

@@ -1,8 +1,6 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
-import type { LauncherConfig } from '@/05-entities'
-import { saveLauncherSettings, saveLauncherConfig } from '@/06-shared/api'
-import type { LauncherSettingsPayload } from '@/06-shared/api'
+import { useCoreStore, useNotificationStore, type LauncherConfig } from '@/05-entities'
+import { saveLauncherSettings, saveLauncherConfig, type LauncherSettingsPayload } from '@/06-shared/api'
 import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
@@ -111,6 +109,7 @@ export function useLauncherSettings(): {
   }
 
   const handleSave = async (): Promise<void> => {
+    if (isSaving.value) return
     isSaving.value = true
     try {
       const config = coreStore.launcherConfig

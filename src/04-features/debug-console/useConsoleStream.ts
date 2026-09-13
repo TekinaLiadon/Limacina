@@ -20,8 +20,22 @@ const cleanLog = (log: ConsoleLog): ConsoleLog => ({
   isError: log.isError,
 })
 
+const isConsoleActive = ref<boolean>(false)
+const rawBacklog: ConsoleLog[] = []
+
 let streamingStarted = false
 let buffer: ConsoleLog[] = []
+
+const ingest = (log: ConsoleLog): void => {
+  if (!isConsoleActive.value) {
+    rawBacklog.push(log)
+    if (rawBacklog.length > LOG_LIMIT) {
+      rawBacklog.splice(0, rawBacklog.length - LOG_LIMIT)
+    }
+    return
+  }
+  buffer.push(cleanLog(log))
+}
 
 const flushBuffer = (): number => {
   if (buffer.length === 0) return 0
@@ -37,6 +51,7 @@ const flushBuffer = (): number => {
 export function useConsoleStream(): {
   logs: ComputedRef<ConsoleLog[]>
   startConsoleStream: () => Promise<void>
+  setConsoleActive: (active: boolean) => void
 } {
   const startConsoleStream = async (): Promise<void> => {
     if (streamingStarted) return
@@ -46,14 +61,12 @@ export function useConsoleStream(): {
       if (logs.value.length === 0) {
         const startupLogs: ConsoleLog[] = await getStartupLogs()
         for (const log of startupLogs) {
-          buffer.push(cleanLog(log))
+          ingest(log)
         }
         flushBuffer()
       }
 
-      await listenGameConsole((log: ConsoleLog) => {
-        buffer.push(cleanLog(log))
-      })
+      await listenGameConsole(ingest)
 
       setInterval(flushBuffer, FLUSH_INTERVAL)
     } catch (e: unknown) {
@@ -62,8 +75,21 @@ export function useConsoleStream(): {
     }
   }
 
+  const setConsoleActive = (active: boolean): void => {
+    isConsoleActive.value = active
+    if (!active) return
+    if (rawBacklog.length > 0) {
+      for (const log of rawBacklog) {
+        buffer.push(cleanLog(log))
+      }
+      rawBacklog.length = 0
+    }
+    flushBuffer()
+  }
+
   return {
     logs: computed(() => logs.value),
     startConsoleStream,
+    setConsoleActive,
   }
 }

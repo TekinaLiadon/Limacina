@@ -39,6 +39,7 @@ export const useNotificationStore = defineStore('notification', {
     },
 
     confirm(message: string): Promise<boolean> {
+      if (this.popupResolve) this.popupResolve(false)
       return new Promise((resolve) => {
         this.popupMessage = message
         this.popupVisible = true

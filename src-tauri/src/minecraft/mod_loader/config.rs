@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    minecraft::{structs::LibraryMod, mod_loader::utils::maven_to_path},
+    minecraft::{mod_loader::utils::maven_to_path, structs::LibraryMod},
     utils::env_info::launcher_path,
 };
 use anyhow::Result;

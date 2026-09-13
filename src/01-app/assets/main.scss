@@ -12,6 +12,7 @@
 @use "themes/monologue-dark";
 @use "themes/monologue-light";
 @use "breakpoints";
+@use "mixins" as mixins;
 @use "general";
 @use "animations";
 @use "view-transitions";

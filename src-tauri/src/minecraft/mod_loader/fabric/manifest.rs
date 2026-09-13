@@ -1,9 +1,9 @@
 use crate::minecraft::{
-    structs::{LibraryMod, VersionMod},
     mod_loader::{
         fabric::structs::{FabricManifest, MainClass},
         utils::maven_to_url,
     },
+    structs::{LibraryMod, VersionMod},
 };
 use anyhow::Result;
 

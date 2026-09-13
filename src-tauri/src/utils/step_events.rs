@@ -26,11 +26,27 @@ impl StepChannel {
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum StepEvent {
-    Started { id: String, label: String },
-    Progress { id: String, current: u64, total: u64 },
-    Detail { id: String, text: String },
-    Finished { id: String, skipped: bool },
-    Failed { id: String, message: String },
+    Started {
+        id: String,
+        label: String,
+    },
+    Progress {
+        id: String,
+        current: u64,
+        total: u64,
+    },
+    Detail {
+        id: String,
+        text: String,
+    },
+    Finished {
+        id: String,
+        skipped: bool,
+    },
+    Failed {
+        id: String,
+        message: String,
+    },
 }
 
 fn emit_step_event(channel: StepChannel, event: &StepEvent) {

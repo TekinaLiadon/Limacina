@@ -58,25 +58,16 @@ const cards: KindCard[] = [
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .profile-kind {
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
 
-  &__head {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  &__title {
-    font-size: var(--text-heading);
-  }
+  @include mixins.form-head;
 
   &__subtitle {
-    margin: 0;
-    font-size: var(--text-body-sm);
-    color: var(--login-text-muted);
+    @include mixins.form-subtitle;
   }
 
   &__cards {

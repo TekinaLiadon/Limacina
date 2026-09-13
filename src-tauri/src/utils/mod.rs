@@ -1,6 +1,3 @@
-pub mod logger_utils;
-pub mod semaphore;
-pub mod step_events;
 pub mod bandwidth;
 pub mod download_file;
 pub mod env_info;
@@ -9,6 +6,9 @@ pub mod http;
 pub mod install_manifest;
 pub mod integrity;
 pub mod java;
+pub mod logger_utils;
+pub mod semaphore;
+pub mod step_events;
 pub mod tauri_err;
 pub mod zip;
 
@@ -61,10 +61,11 @@ fn compare_pre_release_tags(a: &str, b: &str) -> Ordering {
     if pa != pb {
         return pa.cmp(&pb);
     }
-    let version_of = |tag: &str| tag
-        .trim_start_matches(|c: char| !c.is_ascii_digit())
-        .parse::<u32>()
-        .unwrap_or(0);
+    let version_of = |tag: &str| {
+        tag.trim_start_matches(|c: char| !c.is_ascii_digit())
+            .parse::<u32>()
+            .unwrap_or(0)
+    };
     let (va, vb) = (version_of(a), version_of(b));
     if va != vb {
         return va.cmp(&vb);
@@ -149,14 +150,26 @@ mod tests {
 
     #[test]
     fn pre_release_ordering() {
-        assert_eq!(compare_versions("1.20.5-pre2", "1.20.5-pre1"), Ordering::Greater);
-        assert_eq!(compare_versions("1.20.5-rc1", "1.20.5-pre1"), Ordering::Greater);
-        assert_eq!(compare_versions("1.20.5-rc2", "1.20.5-rc1"), Ordering::Greater);
+        assert_eq!(
+            compare_versions("1.20.5-pre2", "1.20.5-pre1"),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("1.20.5-rc1", "1.20.5-pre1"),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("1.20.5-rc2", "1.20.5-rc1"),
+            Ordering::Greater
+        );
         assert_eq!(
             compare_versions("1.20.5-pre1", "1.20.5-pre1"),
             Ordering::Equal
         );
-        assert_eq!(compare_versions("1.20.5-pre1", "1.20.4-rc2"), Ordering::Greater);
+        assert_eq!(
+            compare_versions("1.20.5-pre1", "1.20.4-rc2"),
+            Ordering::Greater
+        );
     }
 
     #[test]
@@ -167,12 +180,18 @@ mod tests {
 
     #[test]
     fn longer_pre_release_wins() {
-        assert_eq!(compare_versions("1.20.5-pre1-pre", "1.20.5-pre1"), Ordering::Greater);
+        assert_eq!(
+            compare_versions("1.20.5-pre1-pre", "1.20.5-pre1"),
+            Ordering::Greater
+        );
     }
 
     #[test]
     fn snapshot_like_suffixes_fall_back_to_string_compare() {
-        assert_eq!(compare_versions("1.21.4-alpha.1", "1.21.4-beta.2"), Ordering::Less);
+        assert_eq!(
+            compare_versions("1.21.4-alpha.1", "1.21.4-beta.2"),
+            Ordering::Less
+        );
     }
 
     #[test]

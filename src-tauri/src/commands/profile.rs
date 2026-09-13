@@ -10,7 +10,9 @@ use crate::minecraft::manifest::VERSION_MANIFEST_URL;
 use crate::minecraft::mod_loader::fabric::Fabric;
 use crate::minecraft::mod_loader::forge::manifest::get_manifest_index as forge_manifest_index;
 use crate::minecraft::mod_loader::neoforge::manifest::get_manifest_index as neoforge_manifest_index;
-use crate::minecraft::structs::{ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES};
+use crate::minecraft::structs::{
+    ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
+};
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
 use crate::state::config::load_config;
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
@@ -20,12 +22,10 @@ use crate::utils::env_info::{launcher_path, normalize_server_url};
 use crate::utils::http::http_client;
 use crate::utils::tauri_err::CommandResult;
 
-
 async fn register_project(state: &State<'_, Mutex<GlobalState>>, project_name: &str) -> Result<()> {
     update_launcher_config(state, |config| config.add_project(project_name)).await?;
     Ok(())
 }
-
 
 async fn validate_new_project_name(
     state: &State<'_, Mutex<GlobalState>>,
@@ -55,7 +55,6 @@ async fn validate_new_project_name(
     Ok(())
 }
 
-
 async fn persist_new_project(config: &ProjectConfig) -> Result<()> {
     let project_dir = launcher_path(Some(&config.project_name))?;
     fs::create_dir_all(&project_dir)
@@ -64,7 +63,6 @@ async fn persist_new_project(config: &ProjectConfig) -> Result<()> {
     config.save_config().await?;
     Ok(())
 }
-
 
 async fn activate_project(state: &State<'_, Mutex<GlobalState>>, config: &ProjectConfig) {
     let mut guard = state.lock().await;
@@ -80,7 +78,10 @@ async fn add_server_profile(
     }
     let base_url = normalize_server_url(server_url);
 
-    log_info!("[profile] Запрос конфига сервера: {}/v1/launcher/config", base_url);
+    log_info!(
+        "[profile] Запрос конфига сервера: {}/v1/launcher/config",
+        base_url
+    );
     let response = http_client()
         .get(format!("{}/v1/launcher/config", base_url))
         .send()
@@ -151,7 +152,10 @@ async fn add_offline_profile(
     register_project(state, &config.project_name).await?;
     activate_project(state, &config).await;
 
-    log_info!("[profile] Одиночный профиль создан: {}", config.project_name);
+    log_info!(
+        "[profile] Одиночный профиль создан: {}",
+        config.project_name
+    );
     Ok(config)
 }
 
@@ -199,13 +203,11 @@ async fn loader_versions(mod_loader: ModLoader, mc_version: &str) -> Result<Vec<
     Ok(versions)
 }
 
-
 fn pick_maven_versions(index: HashMap<String, Vec<String>>, mc_version: &str) -> Vec<String> {
     let mut versions = index.get(mc_version).cloned().unwrap_or_default();
     versions.sort_by(|a, b| compare_versions(b, a));
     versions
 }
-
 
 #[tauri::command]
 pub async fn create_server_profile(
@@ -214,7 +216,6 @@ pub async fn create_server_profile(
 ) -> CommandResult<ProjectConfig> {
     Ok(add_server_profile(&state, &server_url).await?)
 }
-
 
 #[tauri::command]
 pub async fn create_offline_profile(
@@ -226,7 +227,6 @@ pub async fn create_offline_profile(
 ) -> CommandResult<ProjectConfig> {
     Ok(add_offline_profile(&state, &name, &mc_version, mod_loader, loader_version).await?)
 }
-
 
 #[tauri::command]
 pub async fn save_current_project(
@@ -240,12 +240,10 @@ pub async fn save_current_project(
     Ok(())
 }
 
-
 #[tauri::command]
 pub async fn get_minecraft_versions(include_snapshots: bool) -> CommandResult<Vec<String>> {
     Ok(minecraft_versions(include_snapshots).await?)
 }
-
 
 #[tauri::command]
 pub async fn get_loader_versions(
@@ -254,10 +252,6 @@ pub async fn get_loader_versions(
 ) -> CommandResult<Vec<String>> {
     Ok(loader_versions(mod_loader, &mc_version).await?)
 }
-
-
-
-
 
 #[tauri::command]
 pub async fn refresh_manifests() -> CommandResult<String> {
@@ -286,7 +280,10 @@ pub async fn refresh_manifests() -> CommandResult<String> {
         }
     }
 
-    log_info!("[manifests] Удалено файлов: {}, перекачивание индексов", removed);
+    log_info!(
+        "[manifests] Удалено файлов: {}, перекачивание индексов",
+        removed
+    );
 
     minecraft_versions(false).await?;
     forge_manifest_index().await?;

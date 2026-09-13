@@ -1,6 +1,5 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, useProjectSettingsStore } from '@/05-entities'
-import type { ProjectSettingsForm } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm } from '@/05-entities'
 import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecraftConfig } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -40,6 +39,23 @@ export function useProjectSettings(): {
     if (Number.isNaN(num)) return fallback
     const mb = val.toUpperCase().includes('G') ? num * 1024 : num
     return Number.isFinite(mb) ? mb : fallback
+  }
+
+  const splitJvmArgs = (raw: string): string[] => {
+    const args: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (const char of raw) {
+      if (char === '"') inQuotes = !inQuotes
+      if (char === ',' && !inQuotes) {
+        args.push(current.trim())
+        current = ''
+        continue
+      }
+      current += char
+    }
+    args.push(current.trim())
+    return args.filter(Boolean)
   }
 
   const selectJavaFolder = async (): Promise<void> => {
@@ -88,7 +104,7 @@ export function useProjectSettings(): {
         modLoader: config.value.modLoader,
         loaderVersion: config.value.loaderVersion || null,
         javaPath: config.value.javaPath || null,
-        jvmArgs: config.value.jvmArgs ? config.value.jvmArgs.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+        jvmArgs: config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : [],
         minMemory: `-Xms${config.value.memoryRange[0]}M`,
         maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
         online: config.value.online,

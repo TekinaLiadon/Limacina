@@ -42,23 +42,8 @@ const versionInput = defineModel<string>('versionInput', { default: '' })
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .alt-java-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-12);
-
-  &__text {
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    color: var(--login-text-secondary);
-    text-align: left;
-  }
-
-  &__btn {
-    min-height: var(--control-height);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+  @include mixins.settings-row-body;
 }
 </style>

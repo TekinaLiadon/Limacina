@@ -21,8 +21,8 @@ pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
     let path = launcher_path(Some("config"))?;
     let file_path = path.join(format!("{}.toml", project_name));
     let content = read_to_string(&file_path).await?;
-    let config: ProjectConfig = from_str(&content)
-        .with_context(|| format!("Повреждён конфиг профиля {:?}", file_path))?;
+    let config: ProjectConfig =
+        from_str(&content).with_context(|| format!("Повреждён конфиг профиля {:?}", file_path))?;
     Ok(config)
 }
 

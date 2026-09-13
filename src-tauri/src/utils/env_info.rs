@@ -1,12 +1,11 @@
 use crate::log_info;
 use anyhow::{Context, Result};
+use std::env;
 use std::env::consts;
 use std::path::{Component, PathBuf};
-use std::env;
 
 pub fn get_launcher_name() -> String {
-    let raw = env::var("LAUNCHER_NAME")
-        .unwrap_or_else(|_| "Limacina".to_string());
+    let raw = env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string());
     let mut chars = raw.chars();
 
     match chars.next() {
@@ -18,12 +17,9 @@ pub fn get_launcher_name() -> String {
     }
 }
 
-
 pub fn default_server_url() -> String {
     env!("LAUNCHER_SERVER_URL").to_string()
 }
-
-
 
 pub fn normalize_server_url(raw: &str) -> String {
     let trimmed = raw.trim().trim_end_matches('/');
@@ -34,9 +30,6 @@ pub fn normalize_server_url(raw: &str) -> String {
         format!("https://{}", trimmed)
     }
 }
-
-
-
 
 fn is_drive_letter(component: &str) -> bool {
     let bytes = component.as_bytes();
@@ -49,10 +42,10 @@ pub fn is_safe_relative_path(key: &str) -> bool {
         return false;
     }
     !normalized.components().any(|c| {
-        matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_))
-            || c.as_os_str()
-                .to_str()
-                .is_some_and(is_drive_letter)
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        ) || c.as_os_str().to_str().is_some_and(is_drive_letter)
     })
 }
 
@@ -69,15 +62,6 @@ pub fn launcher_path(project: Option<&str>) -> Result<PathBuf> {
 
 pub fn get_home_dir() -> Result<PathBuf> {
     env::home_dir().context("Не найдена домашняя директория")
-
-
-
-
-
-
-
-
-
 }
 
 pub fn get_current_os() -> &'static str {
@@ -106,15 +90,30 @@ mod tests {
 
     #[test]
     fn normalize_adds_scheme_and_strips_trailing_slash() {
-        assert_eq!(normalize_server_url("mc.example.com"), "https://mc.example.com");
-        assert_eq!(normalize_server_url("mc.example.com:3000/"), "https://mc.example.com:3000");
-        assert_eq!(normalize_server_url("  192.168.0.10:8080  "), "https://192.168.0.10:8080");
+        assert_eq!(
+            normalize_server_url("mc.example.com"),
+            "https://mc.example.com"
+        );
+        assert_eq!(
+            normalize_server_url("mc.example.com:3000/"),
+            "https://mc.example.com:3000"
+        );
+        assert_eq!(
+            normalize_server_url("  192.168.0.10:8080  "),
+            "https://192.168.0.10:8080"
+        );
     }
 
     #[test]
     fn normalize_keeps_explicit_scheme() {
-        assert_eq!(normalize_server_url("https://mc.example.com/"), "https://mc.example.com");
-        assert_eq!(normalize_server_url("http://mc.example.com"), "http://mc.example.com");
+        assert_eq!(
+            normalize_server_url("https://mc.example.com/"),
+            "https://mc.example.com"
+        );
+        assert_eq!(
+            normalize_server_url("http://mc.example.com"),
+            "http://mc.example.com"
+        );
     }
 
     #[test]

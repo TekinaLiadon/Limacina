@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
+import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
 
 const props = withDefaults(defineProps<{
   options: DropdownOption[]
@@ -18,48 +19,21 @@ const emit = defineEmits<{
 }>()
 
 const rootRef = ref<HTMLDivElement | null>(null)
-const shown = ref(false)
-const openUp = ref(false)
-const maxHeight = computed((): string => `${props.maxVisible * 40 + 12}px`)
+const { shown, openUp, maxHeight, toggle, close } = useDropdownPanel(
+  rootRef,
+  (): boolean => props.disabled,
+  (): number => props.maxVisible,
+)
 
 const selectedTitle = computed((): string => {
   const selected = props.options.find((option) => option.value === props.modelValue)
   return selected?.title ?? props.modelValue
 })
 
-function computeDirection(): void {
-  if (!rootRef.value) return
-  const rect = rootRef.value.getBoundingClientRect()
-  const optionsHeight = props.maxVisible * 40 + 12
-  const spaceBelow = window.innerHeight - rect.bottom
-  openUp.value = spaceBelow < optionsHeight && rect.top > spaceBelow
-}
-
-function toggle(): void {
-  if (props.disabled) return
-  if (!shown.value) computeDirection()
-  shown.value = !shown.value
-}
-
 function selectOption(value: string): void {
   emit('update:modelValue', value)
-  shown.value = false
+  close()
 }
-
-function handleClickOutside(e: MouseEvent): void {
-  if (rootRef.value && !rootRef.value.contains(e.target as Node)) {
-    shown.value = false
-  }
-}
-
-onMounted((): void => {
-  document.addEventListener('click', handleClickOutside)
-})
-
-onBeforeUnmount((): void => {
-  document.removeEventListener('click', handleClickOutside)
-})
-
 </script>
 
 <template>
@@ -92,33 +66,27 @@ onBeforeUnmount((): void => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .dropdown {
   position: relative;
   cursor: pointer;
 
   &__value {
-    border: none;
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-input);
-    transition: border-radius 0.25s ease-out, background-color 0.2s ease;
-    height: var(--control-height);
+    @include mixins.dropdown-trigger;
+
     align-content: center;
-    text-align: left;
-    padding: 0 var(--control-padding-x);
-    color: var(--login-text-primary);
-    background-color: var(--surface-input);
-    font-size: var(--text-body-sm);
   }
 
-  &:not(.disabled):hover .dropdown__value {
+  &:not(.disabled):hover &__value {
     background-color: var(--surface-hover);
   }
 
-  &.shown .dropdown__value {
+  &.shown &__value {
     border-radius: var(--radius-input) var(--radius-input) 0 0;
   }
 
-  &.shown.dropdown--up .dropdown__value {
+  &.shown.dropdown--up &__value {
     border-radius: 0 0 var(--radius-input) var(--radius-input);
   }
 
@@ -129,9 +97,7 @@ onBeforeUnmount((): void => {
 }
 
 .dropdown--up .dropdown-options {
-  top: auto;
-  bottom: 100%;
-  border-radius: var(--radius-input) var(--radius-input) 0 0;
+  @include mixins.options-panel-up;
 }
 
 .dropdown--up .dropdown-options-enter-from,
@@ -140,59 +106,6 @@ onBeforeUnmount((): void => {
 }
 
 .dropdown-options {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background-color: var(--login-bg-form);
-  border-radius: 0 0 var(--radius-input) var(--radius-input);
-  padding: var(--space-4) 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  z-index: 100;
-  box-shadow: var(--elevation-modal);
-  overflow-y: auto;
-
-  &__item {
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: var(--space-8);
-    padding: var(--space-8) var(--control-padding-x);
-    transition: background 0.15s;
-
-    &:hover {
-      background: var(--surface-hover);
-    }
-  }
-
-  &__img {
-    width: 20px;
-    height: 20px;
-  }
-
-  &__item-title {
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    color: var(--login-text-secondary);
-  }
-
-  &-enter-active,
-  &-leave-active {
-    transition: all 0.2s ease;
-  }
-
-  &-enter-from,
-  &-leave-to {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-
-  &-enter-to,
-  &-leave-from {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  @include mixins.options-panel;
 }
 </style>

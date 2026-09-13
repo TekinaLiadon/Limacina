@@ -2,7 +2,7 @@
 import { ref, computed, toRef } from 'vue'
 import { useCpmViewer } from '@/04-features'
 import type { CPMData, CPMAnimation } from '@/05-entities/core/types'
-import { useViewerControls } from './viewerControls'
+import { useStagePaused, useViewerControls } from './viewerControls'
 
 const props = defineProps<{
   cpmData: CPMData | null
@@ -36,6 +36,7 @@ useCpmViewer(
   isAnimationPlaying,
   animationSpeed,
   isAnimationLooped,
+  useStagePaused(),
   {
     onAnimationsChanged: (playing: boolean) => emit('animations-changed', playing),
     onAnimationFinished: () => emit('animation-finished'),

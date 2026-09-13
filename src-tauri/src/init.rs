@@ -19,7 +19,8 @@ pub struct InitPaths {
 impl InitPaths {
     pub fn new(parent_path: &str) -> Result<Self> {
         let name = get_launcher_name();
-        let base = PathBuf::from(parent_path.replace('/', std::path::MAIN_SEPARATOR_STR)).join(&name);
+        let base =
+            PathBuf::from(parent_path.replace('/', std::path::MAIN_SEPARATOR_STR)).join(&name);
         Ok(Self {
             project: base.join("project"),
             config: base.join("project").join("config"),
@@ -38,8 +39,7 @@ impl InitPaths {
             .with_context(|| "Не удалось создать папку \"config\"")?;
         std::fs::create_dir_all(&self.manifest)
             .with_context(|| "Не удалось создать папку \"manifest\"")?;
-        std::fs::create_dir_all(&self.java)
-            .with_context(|| "Не удалось создать папку \"java\"")?;
+        std::fs::create_dir_all(&self.java).with_context(|| "Не удалось создать папку \"java\"")?;
         Ok(())
     }
 }
@@ -54,7 +54,6 @@ pub fn init_launcher(parent_path: &str) -> Result<LauncherConfig> {
 
     Ok(config)
 }
-
 
 pub async fn init_project_config(
     launcher_path: &str,
@@ -88,7 +87,11 @@ pub async fn init_project_config(
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
-        anyhow::bail!("Сервер {} вернул {} при запросе конфига проекта", base_url, status);
+        anyhow::bail!(
+            "Сервер {} вернул {} при запросе конфига проекта",
+            base_url,
+            status
+        );
     }
 
     let mut config: ProjectConfig = response

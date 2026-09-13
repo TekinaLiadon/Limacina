@@ -1,14 +1,17 @@
+use crate::state::dto::GlobalState;
 use crate::updater::{
-    apply_update, check_for_update, download_update,
-    get_launcher_versions as fetch_launcher_versions, retain_current_platform, UpdateInfo,
-    UpdateVersions,
+    apply_update, check_for_update, check_for_update_with_timeout, download_update,
+    get_launcher_versions as fetch_launcher_versions, is_timeout_error, retain_current_platform,
+    UpdateInfo, UpdateVersions,
 };
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
+use std::time::Duration;
 use tauri::AppHandle;
 use tauri::State;
 use tokio::sync::Mutex;
-use crate::state::dto::GlobalState;
+
+const STARTUP_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[tauri::command]
 pub async fn check_update(
@@ -19,8 +22,17 @@ pub async fn check_update(
         return Ok(None);
     }
     let version = state.lock().await.app_version.clone();
-    let info = check_for_update(&version).await?;
-    Ok(info)
+    match check_for_update_with_timeout(&version, STARTUP_CHECK_TIMEOUT).await {
+        Ok(info) => Ok(info),
+        Err(e) => {
+            if is_timeout_error(&e) {
+                log_info!("Проверка обновлений прервана по таймауту, пропуск");
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -31,10 +43,7 @@ pub async fn get_launcher_versions() -> CommandResult<UpdateVersions> {
 }
 
 #[tauri::command]
-pub async fn apply_update_cmd(
-    app: AppHandle,
-    version: Option<String>,
-) -> CommandResult<()> {
+pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> CommandResult<()> {
     if cfg!(debug_assertions) {
         log_info!("Режим разработки, скачивание и применение обновления пропущены");
         return Ok(());

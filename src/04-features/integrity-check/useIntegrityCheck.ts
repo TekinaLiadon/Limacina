@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import type { IntegrityReport, StepEvent, StepProgressItem } from '@/05-entities/core/types'
 import { checkFilesIntegrity, listenIntegritySteps } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { applyStepEvent, computeStepProgress, reportError } from '@/06-shared'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 
 export function useIntegrityCheck(): {
@@ -19,19 +19,7 @@ export function useIntegrityCheck(): {
   const report = ref<IntegrityReport | null>(null)
   const errorMessage = ref<string>('')
 
-  const progress = computed((): number => {
-    if (steps.value.length === 0) return 0
-    let done = 0
-    let fraction = 0
-    for (const step of steps.value) {
-      if (step.status !== 'active') {
-        done++
-      } else if (step.total > 0) {
-        fraction = Math.min(step.current / step.total, 1)
-      }
-    }
-    return ((done + fraction) / steps.value.length) * 100
-  })
+  const progress = computed((): number => computeStepProgress(steps.value))
 
   const hasResult = computed((): boolean => report.value !== null || errorMessage.value !== '')
 
@@ -46,55 +34,7 @@ export function useIntegrityCheck(): {
   })
 
   const apply = (event: StepEvent): void => {
-    switch (event.type) {
-      case 'started': {
-        const active = steps.value.find((step) => step.status === 'active')
-        if (active) active.status = 'done'
-        steps.value.push({
-          key: event.id,
-          label: event.label,
-          status: 'active',
-          skipped: false,
-          current: 0,
-          total: 0,
-          detail: '',
-          error: '',
-          shownAt: Date.now(),
-        })
-        break
-      }
-      case 'progress': {
-        const step = steps.value.find((s) => s.key === event.id)
-        if (step) {
-          step.current = event.current
-          step.total = event.total
-        }
-        break
-      }
-      case 'detail': {
-        const step = steps.value.find((s) => s.key === event.id)
-        if (step) step.detail = event.text
-        break
-      }
-      case 'finished': {
-        const step = steps.value.find((s) => s.key === event.id)
-        if (step) {
-          step.status = 'done'
-          step.skipped = event.skipped
-          step.detail = ''
-        }
-        break
-      }
-      case 'failed': {
-        const step = steps.value.find((s) => s.key === event.id)
-        if (step) {
-          step.status = 'error'
-          step.error = event.message
-          step.detail = ''
-        }
-        break
-      }
-    }
+    applyStepEvent(steps.value, event)
   }
 
   const handleCheck = async (): Promise<void> => {

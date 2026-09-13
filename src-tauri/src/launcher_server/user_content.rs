@@ -16,14 +16,15 @@ pub struct UserContentItem {
     pub active: bool,
 }
 
-
 async fn require_api_context(state: &Mutex<GlobalState>) -> Result<(String, String)> {
     crate::launcher_server::api_context(state, "Нет активной сессии. Войдите в аккаунт.").await
 }
 
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
     request_json(
-        crate::utils::http::http_client().get(url).bearer_auth(token),
+        crate::utils::http::http_client()
+            .get(url)
+            .bearer_auth(token),
         "Не удалось подключиться к серверу",
         "Не удалось распарсить ответ сервера",
     )
@@ -46,6 +47,38 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
     Ok(())
 }
 
+async fn upload_multipart(
+    url: &str,
+    token: &str,
+    file_data: Vec<u8>,
+    file_name: &str,
+    mime: &str,
+    send_context: &'static str,
+    parse_context: &'static str,
+) -> Result<UserContentItem> {
+    let part = reqwest::multipart::Part::bytes(file_data)
+        .file_name(file_name.to_string())
+        .mime_str(mime)
+        .context("Не удалось создать multipart part")?;
+
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let client = crate::utils::http::http_client();
+    let response = require_success(
+        client
+            .post(url)
+            .bearer_auth(token)
+            .multipart(form)
+            .send()
+            .await
+            .context(send_context)?,
+    )
+    .await?;
+
+    let item: UserContentItem = response.json().await.context(parse_context)?;
+    Ok(item)
+}
+
 pub async fn upload_skin(
     state: &Mutex<GlobalState>,
     file_data: Vec<u8>,
@@ -58,29 +91,16 @@ pub async fn upload_skin(
         url.push_str(model);
     }
 
-    let part = reqwest::multipart::Part::bytes(file_data)
-        .file_name("skin.png")
-        .mime_str("image/png")
-        .context("Не удалось создать multipart part")?;
-
-    let form = reqwest::multipart::Form::new().part("file", part);
-
-    let client = crate::utils::http::http_client();
-    let response = require_success(
-        client
-            .post(&url)
-            .bearer_auth(&token)
-            .multipart(form)
-            .send()
-            .await
-            .context("Не удалось загрузить скин")?,
+    let item = upload_multipart(
+        &url,
+        &token,
+        file_data,
+        "skin.png",
+        "image/png",
+        "Не удалось загрузить скин",
+        "Не удалось распарсить ответ загрузки скина",
     )
     .await?;
-
-    let item: UserContentItem = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ загрузки скина")?;
 
     log_info!("Скин загружен: {:?}", item.url);
 
@@ -134,39 +154,23 @@ pub async fn upload_model(
     let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/v1/common/content/models", server_url);
 
-    let part = reqwest::multipart::Part::bytes(file_content.into_bytes())
-        .file_name("model.txt")
-        .mime_str("text/plain")
-        .context("Не удалось создать multipart part")?;
-
-    let form = reqwest::multipart::Form::new().part("file", part);
-
-    let client = crate::utils::http::http_client();
-    let response = require_success(
-        client
-            .post(&url)
-            .bearer_auth(&token)
-            .multipart(form)
-            .send()
-            .await
-            .context("Не удалось загрузить модель")?,
+    let item = upload_multipart(
+        &url,
+        &token,
+        file_content.into_bytes(),
+        "model.txt",
+        "text/plain",
+        "Не удалось загрузить модель",
+        "Не удалось распарсить ответ загрузки модели",
     )
     .await?;
-
-    let item: UserContentItem = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ загрузки модели")?;
 
     log_info!("Модель загружена: {:?}", item.url);
 
     Ok(item)
 }
 
-pub async fn list_models(
-    state: &Mutex<GlobalState>,
-    uuid: String,
-) -> Result<Vec<UserContentItem>> {
+pub async fn list_models(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
     let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/v1/common/content/models/{}", server_url, uuid);
 

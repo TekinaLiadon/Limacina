@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0a0a15"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4a843"/>
+      <stop offset="50%" stop-color="#f0d68a"/>
+      <stop offset="100%" stop-color="#b8922e"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8a8a9a"/>
+      <stop offset="50%" stop-color="#c8c8d8"/>
+      <stop offset="100%" stop-color="#6a6a7a"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="256" cy="256" r="256" fill="url(#bg)"/>
+
+  <circle cx="256" cy="256" r="232" fill="none" stroke="url(#gold)" stroke-width="2" opacity="0.3"/>
+
+  <circle cx="256" cy="256" r="216" fill="none" stroke="url(#gold)" stroke-width="6" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#gold)" stroke-width="1" opacity="0.5"/>
+
+  <g fill="url(#gold)" filter="url(#glow)">
+    <circle cx="256" cy="40" r="5"/>
+    <circle cx="256" cy="472" r="5"/>
+    <circle cx="40" cy="256" r="5"/>
+    <circle cx="472" cy="256" r="5"/>
+    <circle cx="90.3" cy="90.3" r="4.5"/>
+    <circle cx="421.7" cy="90.3" r="4.5"/>
+    <circle cx="90.3" cy="421.7" r="4.5"/>
+    <circle cx="421.7" cy="421.7" r="4.5"/>
+    <circle cx="148" cy="52" r="3.5"/>
+    <circle cx="364" cy="52" r="3.5"/>
+    <circle cx="148" cy="460" r="3.5"/>
+    <circle cx="364" cy="460" r="3.5"/>
+    <circle cx="52" cy="148" r="3.5"/>
+    <circle cx="460" cy="148" r="3.5"/>
+    <circle cx="52" cy="364" r="3.5"/>
+    <circle cx="460" cy="364" r="3.5"/>
+  </g>
+
+  <circle cx="256" cy="256" r="180" fill="none" stroke="url(#gold)" stroke-width="4" opacity="0.6"/>
+  <circle cx="256" cy="256" r="168" fill="none" stroke="url(#silver)" stroke-width="1.5" opacity="0.4"/>
+
+  <g stroke="url(#gold)" stroke-width="2.5" fill="none" opacity="0.7" filter="url(#glow)">
+    <line x1="256" y1="76" x2="256" y2="96"/>
+    <line x1="246" y1="86" x2="266" y2="86"/>
+    <line x1="256" y1="416" x2="256" y2="436"/>
+    <line x1="246" y1="426" x2="266" y2="426"/>
+    <line x1="76" y1="256" x2="96" y2="256"/>
+    <line x1="86" y1="246" x2="86" y2="266"/>
+    <line x1="416" y1="256" x2="436" y2="256"/>
+    <line x1="426" y1="246" x2="426" y2="266"/>
+  </g>
+
+  <g stroke="url(#gold)" stroke-width="2" fill="none" opacity="0.5" filter="url(#glow)">
+    <line x1="122" y1="122" x2="136" y2="136"/>
+    <line x1="128" y1="116" x2="116" y2="128"/>
+    <line x1="390" y1="122" x2="376" y2="136"/>
+    <line x1="384" y1="116" x2="396" y2="128"/>
+    <line x1="122" y1="390" x2="136" y2="376"/>
+    <line x1="116" y1="384" x2="128" y2="396"/>
+    <line x1="390" y1="390" x2="376" y2="376"/>
+    <line x1="396" y1="384" x2="384" y2="396"/>
+  </g>
+
+  <circle cx="256" cy="256" r="130" fill="none" stroke="url(#gold)" stroke-width="5" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="118" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.4"/>
+  <circle cx="256" cy="256" r="108" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.4"/>
+
+  <g stroke="url(#gold)" stroke-width="3" fill="none" filter="url(#glow)">
+    <line x1="256" y1="196" x2="256" y2="316"/>
+    <line x1="256" y1="316" x2="302" y2="316"/>
+    <path d="M256 196 Q236 182 240 200" stroke-linecap="round"/>
+    <circle cx="256" cy="191" r="3.5" fill="url(#gold)" stroke="none"/>
+    <circle cx="302" cy="316" r="2.5" fill="url(#gold)" stroke="none"/>
+  </g>
+
+  <g stroke="url(#gold)" stroke-width="1.5" fill="none" opacity="0.3">
+    <path d="M105 105 Q130 108 125 133"/>
+    <path d="M407 105 Q382 108 387 133"/>
+    <path d="M105 407 Q130 404 125 379"/>
+    <path d="M407 407 Q382 404 387 379"/>
+  </g>
+</svg>

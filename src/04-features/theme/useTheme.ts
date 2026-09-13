@@ -1,12 +1,24 @@
 import { ref, watch, type Ref } from 'vue'
 import { useSettingsStore, parseThemeId } from '@/05-entities'
-import { saveTheme } from '@/06-shared/api'
+import { saveTheme, setWindowBackgroundColor } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
 const SWITCH_DURATION = 1500
 
 const isSwitching = ref<boolean>(false)
 const switchDirection = ref<'to-light' | 'to-dark'>('to-light')
+
+function applyWindowBackground(theme: string): void {
+  const probe = document.createElement('div')
+  probe.setAttribute('data-theme', theme)
+  document.documentElement.appendChild(probe)
+  const color = getComputedStyle(probe).getPropertyValue('--html-bg').trim()
+  probe.remove()
+  if (!color) return
+  setWindowBackgroundColor(color).catch((e: unknown): void => {
+    reportError('Не удалось применить цвет окна', e)
+  })
+}
 
 export function useThemeSwitchState(): {
   isSwitching: Ref<boolean>
@@ -26,6 +38,7 @@ export function useTheme(): {
   }
 
   applyTheme(settingsStore.theme)
+  applyWindowBackground(settingsStore.theme)
 
   watch(() => settingsStore.theme, (newTheme: string, oldTheme: string | undefined): void => {
     if (!oldTheme || newTheme === oldTheme) return
@@ -40,11 +53,13 @@ export function useTheme(): {
 
     if (!modeChanged || !settingsStore.animationsEnabled) {
       applyTheme(newTheme)
+      applyWindowBackground(newTheme)
       return
     }
 
     switchDirection.value = newMode === 'light' ? 'to-light' : 'to-dark'
     isSwitching.value = true
+    applyWindowBackground(newTheme)
 
     setTimeout(() => {
       applyTheme(newTheme)

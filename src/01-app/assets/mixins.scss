@@ -1,0 +1,184 @@
+@mixin error-box {
+  padding: var(--space-12);
+  border-radius: var(--radius-badge);
+  background: var(--error-bg);
+  box-shadow: inset 0 0 0 1px var(--error-border);
+  color: var(--error);
+  font-size: var(--text-body-sm);
+  text-align: left;
+  word-break: break-word;
+}
+
+@mixin caption-hint {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--login-text-muted);
+  text-align: center;
+}
+
+@mixin segmented {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--surface-light);
+  box-shadow: var(--elevation-inset);
+}
+
+@mixin segmented-active {
+  background: var(--surface-active);
+  box-shadow: var(--elevation-inset);
+  color: var(--login-text-primary);
+}
+
+@mixin tool-panel {
+  padding: var(--space-4);
+  background: var(--surface-subtle);
+  box-shadow: var(--elevation-inset);
+  border-radius: var(--radius-card);
+}
+
+@mixin tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  border: none;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--login-text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--login-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &--active {
+    background: var(--accent-active-bg);
+    color: var(--accent-text);
+    box-shadow: var(--elevation-inset);
+  }
+}
+
+@mixin dropdown-trigger {
+  border: none;
+  box-shadow: var(--elevation-inset);
+  border-radius: var(--radius-input);
+  transition: border-radius 0.25s ease-out, background-color 0.2s ease;
+  height: var(--control-height);
+  text-align: left;
+  padding: 0 var(--control-padding-x);
+  color: var(--login-text-primary);
+  background-color: var(--surface-input);
+  font-size: var(--text-body-sm);
+}
+
+@mixin options-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background-color: var(--login-bg-form);
+  border-radius: 0 0 var(--radius-input) var(--radius-input);
+  padding: var(--space-4) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  z-index: 100;
+  box-shadow: var(--elevation-modal);
+  overflow-y: auto;
+
+  &__item {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--control-padding-x);
+    transition: background 0.15s;
+
+    &:hover {
+      background: var(--surface-hover);
+    }
+  }
+
+  &__img {
+    width: 20px;
+    height: 20px;
+  }
+
+  &__item-title {
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
+  }
+
+  &-enter-active,
+  &-leave-active {
+    transition: all 0.2s ease;
+  }
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  &-enter-to,
+  &-leave-from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@mixin options-panel-up {
+  top: auto;
+  bottom: 100%;
+  border-radius: var(--radius-input) var(--radius-input) 0 0;
+}
+
+@mixin form-subtitle {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  color: var(--login-text-muted);
+}
+
+@mixin form-head {
+  &__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  &__title {
+    font-size: var(--text-heading);
+  }
+}
+
+@mixin settings-row-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+
+  &__text {
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
+    text-align: left;
+  }
+
+  &__btn {
+    min-height: var(--control-height);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+}

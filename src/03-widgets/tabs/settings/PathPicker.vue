@@ -2,7 +2,9 @@
 import { Button, Input } from '@/06-shared'
 
 defineProps<{
-  launcherPath: string
+  label: string
+  modelValue: string
+  placeholder?: string
 }>()
 
 const emit = defineEmits<{
@@ -11,14 +13,14 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="launcher-path">
-    <span class="launcher-path__label eyebrow">Путь к лаунчеру</span>
-    <div class="launcher-path__row">
+  <div class="path-picker">
+    <span class="path-picker__label eyebrow">{{ label }}</span>
+    <div class="path-picker__row">
       <Input
-        :model-value="launcherPath"
-        :options="{ placeholder: 'Путь не установлен', disabled: true }"
+        :model-value="modelValue"
+        :options="{ placeholder: placeholder ?? '', disabled: true }"
       />
-      <Button class="btn-secondary launcher-path__browse-btn" @click="emit('browse')">
+      <Button class="btn-secondary path-picker__browse-btn" @click="emit('browse')">
         Обзор
       </Button>
     </div>
@@ -26,7 +28,7 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
-.launcher-path {
+.path-picker {
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
