@@ -29,6 +29,7 @@ export interface AppInitData {
   launcherConfig: LauncherConfig | null
   version: string
   totalMemoryMb: number
+  offlineBuild: boolean
 }
 
 export interface AuthUserData extends LoginForm {
@@ -56,7 +57,13 @@ export interface UpdateVersions {
   versions: UpdateVersionInfo[]
 }
 
-export type TabKey = 'accounts' | 'add-profile' | 'settings' | 'debug'
+export interface ServerStatus {
+  online: number
+  max: number
+  version: string
+}
+
+export type TabKey = 'accounts' | 'add-profile' | 'mods' | 'settings' | 'debug'
 
 export type AuthSubTab = 'login' | 'register'
 
@@ -103,6 +110,7 @@ export interface StepProgressItem {
   defaultParentPath: string
   launcherConfig: LauncherConfig | null
   version: string
+  offlineBuild: boolean
   activeTab: TabKey
   currentProject: string
   projects: string[]
@@ -113,6 +121,7 @@ export interface StepProgressItem {
   loginProgress: number
   loginError: string
   projectConfig: ProjectConfig | null
+  serverStatus: ServerStatus | null
 }
 
 export interface ProjectConfig {
@@ -121,6 +130,7 @@ export interface ProjectConfig {
   modLoader: ModLoaderKind
   loaderVersion: string | null
   javaPath: string | null
+  javaVersion: number | null
   jvmArgs: string[]
   minMemory: string
   maxMemory: string

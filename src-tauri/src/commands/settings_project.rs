@@ -13,10 +13,20 @@ pub async fn save_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     config: ProjectConfig,
 ) -> CommandResult<()> {
+    let mut config = config;
+    config.java_version = resolve_saved_java_version(&config).await;
     config.save_config().await?;
     let mut state = state.lock().await;
     state.project_config = config;
     Ok(())
+}
+
+async fn resolve_saved_java_version(config: &ProjectConfig) -> Option<u32> {
+    let stored = load_config(&config.project_name).await.ok()?;
+    if stored.java_path == config.java_path {
+        return stored.java_version;
+    }
+    None
 }
 
 #[tauri::command]

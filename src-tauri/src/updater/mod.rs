@@ -20,7 +20,8 @@ pub async fn download_update(version: &str) -> Result<PathBuf> {
         anyhow::bail!("Некорректная версия: {}", version);
     }
 
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let server_url = crate::utils::env_info::default_server_url()
+        .ok_or_else(|| anyhow::anyhow!("Офлайн-сборка: сервер обновлений не настроен"))?;
     let os = get_current_os();
     let arch = get_arch();
     let url = format!("{}/v1/launcher/update/{}/{}/download", server_url, os, arch);

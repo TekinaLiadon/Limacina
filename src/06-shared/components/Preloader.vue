@@ -1,5 +1,5 @@
 <template>
-  <div class="preloader">
+  <div class="preloader" :class="{ 'preloader--local': props.local }">
     <img src="./preloader.svg" alt="" />
     <div class="preloader__text">{{ props.text }}</div>
   </div>
@@ -8,8 +8,10 @@
 <script setup lang="ts">
 const props = withDefaults(defineProps<{
   text?: string
+  local?: boolean
 }>(), {
   text: 'Получение данных',
+  local: false,
 })
 </script>
 
@@ -33,6 +35,11 @@ const props = withDefaults(defineProps<{
     max-width: 150px;
     width: 100%;
     height: auto;
+  }
+
+  &--local {
+    position: absolute;
+    background: var(--login-bg-form);
   }
 
   &__text {

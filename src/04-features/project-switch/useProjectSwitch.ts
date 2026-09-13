@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useAccountsStore, useCoreStore, useNotificationStore } from '@/05-entities'
-import { authLogins, loadSettingsProject, logoutAccount, saveCurrentProject } from '@/06-shared/api'
+import { authLogins, clearSession, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import { useLaunchStepsStream } from '@/04-features'
 import type { DropdownOption } from '@/06-shared/types'
 
@@ -43,7 +43,7 @@ export function useProjectSwitch() {
     resetAccountsState()
 
     try {
-      await logoutAccount()
+      await clearSession()
       await saveCurrentProject(projectName)
       coreStore.projectConfig = await loadSettingsProject(projectName)
       accountsStore.logins = await authLogins(projectName)

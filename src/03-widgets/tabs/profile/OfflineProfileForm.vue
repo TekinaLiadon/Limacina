@@ -14,6 +14,7 @@ defineProps<{
   isSubmitting: boolean
   isValid: boolean
   errorMessage: string
+  canGoBack: boolean
 }>()
 
 const emit = defineEmits<{
@@ -85,7 +86,11 @@ const emit = defineEmits<{
       >
         Создать профиль
       </Button>
-      <Button class="btn-quiet btn-block" @click="emit('back')">Назад</Button>
+      <Button
+        v-if="canGoBack"
+        class="btn-quiet btn-block"
+        @click="emit('back')"
+      >Назад</Button>
     </div>
   </div>
 </template>

@@ -145,7 +145,7 @@ pub async fn download_alt_java(
     distribution: &str,
     java_version: Option<&str>,
     mc_version: &str,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, String)> {
     let version = match java_version {
         Some(v) => v.to_string(),
         None => resolve_java_version(mc_version).await,
@@ -208,5 +208,5 @@ pub async fn download_alt_java(
     }
 
     let exe = find_java_executable(&java_path)?;
-    Ok(exe)
+    Ok((exe, version))
 }

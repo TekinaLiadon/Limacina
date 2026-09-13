@@ -75,7 +75,9 @@ pub async fn init_project_config(
 
     let base_url = match server_url {
         Some(url) => normalize_server_url(url),
-        None => default_server_url(),
+        None => default_server_url().ok_or_else(|| {
+            anyhow::anyhow!("Офлайн-сборка: конфиг проекта доступен только с сервера")
+        })?,
     };
     let response = http_client()
         .get(format!("{}/v1/launcher/config", base_url))

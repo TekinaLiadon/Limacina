@@ -7,8 +7,9 @@ use tokio::sync::Mutex;
 use crate::state::dto::GlobalState;
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::blocking;
-use crate::utils::env_info::{get_home_dir, get_launcher_name};
-use crate::utils::http::http_client;
+use crate::utils::env_info::{
+    default_server_url, get_default_project_name, get_home_dir, get_launcher_name, is_offline_build,
+};
 use crate::utils::tauri_err::CommandResult;
 
 #[derive(Serialize)]
@@ -19,6 +20,7 @@ pub struct AppInitData {
     pub launcher_config: Option<LauncherConfig>,
     pub version: String,
     pub total_memory_mb: u64,
+    pub offline_build: bool,
 }
 
 pub(crate) async fn update_launcher_config(
@@ -64,22 +66,16 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
         .flatten();
 
     if let Some(ref mut cfg) = config {
-        if cfg.project_names.is_empty() {
-            let server_url = env!("LAUNCHER_SERVER_URL");
-            let url = format!("{}/v1/launcher/config", server_url);
-            if let Ok(response) = http_client().get(&url).send().await {
-                if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await
-                {
-                    if !server_config.project_name.is_empty() {
-                        cfg.project_names = vec![server_config.project_name];
-                        let cfg_clone = cfg.clone();
-                        let _ = blocking(
-                            "Не удалось выполнить запись конфига",
-                            move || cfg_clone.save(),
-                        )
-                        .await?;
-                    }
-                }
+        if cfg.project_names.is_empty() && !is_offline_build() {
+            let default_project = get_default_project_name();
+            if !default_project.is_empty() {
+                cfg.project_names = vec![default_project];
+                let cfg_clone = cfg.clone();
+                let _ = blocking(
+                    "Не удалось выполнить запись конфига",
+                    move || cfg_clone.save(),
+                )
+                .await?;
             }
         }
     }
@@ -105,6 +101,7 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
         launcher_config: config,
         version,
         total_memory_mb,
+        offline_build: default_server_url().is_none(),
     })
 }
 

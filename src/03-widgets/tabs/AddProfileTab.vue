@@ -67,6 +67,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
       :is-submitting="isSubmitting"
       :is-valid="isOfflineValid"
       :error-message="errorMessage"
+      :can-go-back="true"
       @submit="handleOfflineSubmit"
       @back="goBack"
     />

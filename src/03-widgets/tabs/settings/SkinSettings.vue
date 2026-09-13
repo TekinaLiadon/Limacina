@@ -99,7 +99,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
       <template #item-actions="{ item }">
         <Button
           v-if="item.id != null && item.active !== true"
-          class="btn-primary skin-settings__activate-btn"
+          class="btn-primary"
           @click="handleActivate(item.id!)"
         >
           Активировать
@@ -200,18 +200,11 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__active-badge {
-    padding: var(--space-4) var(--control-padding-x);
     border-radius: var(--radius-badge);
     background: var(--accent-active-bg);
     color: var(--accent-text);
-    font-size: var(--text-caption);
     font-weight: var(--weight-medium);
     white-space: nowrap;
-  }
-
-  &__activate-btn {
-    padding: var(--space-4) var(--control-padding-x);
-    font-size: var(--text-caption);
   }
 }
 

@@ -4,19 +4,51 @@ use crate::updater::{
     get_launcher_versions as fetch_launcher_versions, is_timeout_error, retain_current_platform,
     UpdateInfo, UpdateVersions,
 };
+use crate::utils::env_info::default_server_url;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
+use serde::Deserialize;
 use std::time::Duration;
 use tauri::AppHandle;
 use tauri::State;
 use tokio::sync::Mutex;
 
 const STARTUP_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct ServerStatus {
+    pub online: u32,
+    pub max: u32,
+    pub version: String,
+}
+
+#[tauri::command]
+pub async fn get_server_status() -> CommandResult<ServerStatus> {
+    let server_url = default_server_url().ok_or_else(|| {
+        anyhow::anyhow!("Офлайн-сборка: статус игрового сервера недоступен")
+    })?;
+    let url = format!("{}/v1/common/status", server_url);
+    let request = crate::utils::http::http_client()
+        .get(&url)
+        .timeout(STATUS_REQUEST_TIMEOUT);
+    let status: ServerStatus = crate::utils::http::request_json(
+        request,
+        "Не удалось подключиться к серверу статуса",
+        "Не удалось разобрать статус игрового сервера",
+    )
+    .await?;
+    Ok(status)
+}
 
 #[tauri::command]
 pub async fn check_update(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Option<UpdateInfo>> {
+    if crate::utils::env_info::is_offline_build() {
+        log_info!("Офлайн-сборка, проверка обновлений пропущена");
+        return Ok(None);
+    }
     if cfg!(debug_assertions) {
         log_info!("Режим разработки, проверка обновлений пропущена");
         return Ok(None);

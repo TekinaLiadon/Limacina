@@ -5,6 +5,7 @@ mod init;
 mod java;
 mod launcher_server;
 mod minecraft;
+mod modrinth;
 mod offline;
 mod state;
 mod updater;
@@ -23,11 +24,16 @@ use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
+use commands::download::get_java_version;
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
 use commands::integrity::check_files_integrity;
 use commands::launcher_config::{
     get_app_init_data, save_animations_enabled, save_launcher_config, save_launcher_settings,
     save_theme,
+};
+use commands::modrinth::{
+    modrinth_check_updates, modrinth_install, modrinth_installed, modrinth_project,
+    modrinth_search, modrinth_uninstall,
 };
 use commands::profile::{
     create_offline_profile, create_server_profile, get_loader_versions, get_minecraft_versions,
@@ -38,11 +44,11 @@ use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
 use commands::start::start_minecraft;
-use commands::update::{apply_update_cmd, check_update, get_launcher_versions};
+use commands::update::{apply_update_cmd, check_update, get_launcher_versions, get_server_status};
 use commands::user_content::{
-    delete_model, delete_offline_skin, delete_skin, get_offline_skin, get_offline_skin_model,
-    get_profile_skin, get_session_info, list_models, list_skins, logout_account, save_offline_skin,
-    select_account, set_active_skin, upload_model, upload_skin,
+    clear_session, delete_model, delete_offline_skin, delete_skin, get_offline_skin,
+    get_offline_skin_model, get_profile_skin, get_session_info, list_models, list_skins,
+    save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
 };
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -179,6 +185,7 @@ pub fn run() {
             download_java,
             download_alternative_java,
             get_java_distributions,
+            get_java_version,
             start_minecraft,
             exit_launcher,
             save_settings_project,
@@ -187,11 +194,12 @@ pub fn run() {
             check_update,
             apply_update_cmd,
             get_launcher_versions,
+            get_server_status,
             get_startup_logs,
             logger_utils::send_frontend_log,
             select_account,
             get_session_info,
-            logout_account,
+            clear_session,
             upload_skin,
             save_offline_skin,
             get_offline_skin,
@@ -207,6 +215,12 @@ pub fn run() {
             save_player_model,
             read_cpm_project_file,
             take_cpm_project_path,
+            modrinth_search,
+            modrinth_project,
+            modrinth_installed,
+            modrinth_check_updates,
+            modrinth_install,
+            modrinth_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

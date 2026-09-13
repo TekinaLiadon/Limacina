@@ -3,7 +3,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus } from '@/05-entities/core/types'
+import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
 import type { SkinModelMode } from '@/03-widgets/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
@@ -42,6 +43,10 @@ export async function getLauncherVersions(): Promise<UpdateVersions> {
 
 export async function applyUpdateCmd(version: string | null = null): Promise<void> {
   return invoke('apply_update_cmd', { version })
+}
+
+export async function getServerStatus(): Promise<ServerStatus> {
+  return invoke<ServerStatus>('get_server_status')
 }
 
 export async function loadSettingsProject(projectName: string): Promise<ProjectConfig> {
@@ -258,8 +263,8 @@ export async function getSessionInfo(): Promise<SessionInfo | null> {
   return invoke<SessionInfo | null>('get_session_info')
 }
 
-export async function logoutAccount(): Promise<void> {
-  return invoke('logout_account')
+export async function clearSession(): Promise<void> {
+  return invoke('clear_session')
 }
 
 export async function uploadSkin(fileData: Uint8Array, model: SkinModelMode): Promise<UserContentItem> {
@@ -348,10 +353,43 @@ export async function getJavaDistributions(): Promise<JavaDistribution[]> {
   return invoke<JavaDistribution[]>('get_java_distributions')
 }
 
+export async function getJavaVersion(mcVersion: string): Promise<string> {
+  return invoke('get_java_version', { mcVersion })
+}
+
 export async function downloadAlternativeJava(
   distribution: string,
   javaVersion: string | null,
   replaceDefault: boolean
 ): Promise<void> {
   return invoke('download_alternative_java', { distribution, javaVersion, replaceDefault })
+}
+
+export async function modrinthSearch(payload: {
+  query: string
+  index: string
+  categories: string[]
+  offset: number
+}): Promise<ModrinthSearchResult> {
+  return invoke('modrinth_search', { ...payload })
+}
+
+export async function modrinthProject(id: string): Promise<ModrinthProjectDetails> {
+  return invoke('modrinth_project', { id })
+}
+
+export async function modrinthInstalled(): Promise<ModrinthInstalledMod[]> {
+  return invoke('modrinth_installed')
+}
+
+export async function modrinthCheckUpdates(): Promise<ModrinthUpdateCheck[]> {
+  return invoke('modrinth_check_updates')
+}
+
+export async function modrinthInstall(projectId: string): Promise<ModrinthInstallResult> {
+  return invoke('modrinth_install', { projectId })
+}
+
+export async function modrinthUninstall(projectId: string): Promise<void> {
+  return invoke('modrinth_uninstall', { projectId })
 }

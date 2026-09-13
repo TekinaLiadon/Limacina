@@ -6,6 +6,8 @@ use crate::java::alternative_java::{
     download_alt_java, get_java_distributions_list, JavaDistribution,
 };
 use crate::java::install_java;
+use crate::java::parse_java_major;
+use crate::java::resolve_java_version;
 use crate::launcher_server::downloader::{download_all_files, download_mods};
 use crate::minecraft::structs::MinecraftLoader;
 use crate::state::dto::ModLoader as ConfigModLoader;
@@ -82,8 +84,9 @@ pub async fn download_server_file(
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
     update_project_config(&state, async |project_config: &mut ProjectConfig| {
-        let java_path = install_java(project_config).await?;
+        let (java_path, java_version) = install_java(project_config).await?;
         project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+        project_config.java_version = Some(parse_java_major(&java_version)?);
         Ok(())
     })
     .await?;
@@ -105,6 +108,11 @@ pub async fn get_java_distributions() -> CommandResult<Vec<JavaDistribution>> {
 }
 
 #[tauri::command]
+pub async fn get_java_version(mc_version: String) -> CommandResult<String> {
+    Ok(resolve_java_version(&mc_version).await)
+}
+
+#[tauri::command]
 pub async fn download_alternative_java(
     state: tauri::State<'_, Mutex<GlobalState>>,
     distribution: String,
@@ -115,10 +123,12 @@ pub async fn download_alternative_java(
         let state = state.lock().await;
         state.project_config.mc_version.clone()
     };
-    let java_path = download_alt_java(&distribution, java_version.as_deref(), &mc_version).await?;
+    let (java_path, alt_java_version) =
+        download_alt_java(&distribution, java_version.as_deref(), &mc_version).await?;
     if replace_default {
         update_project_config(&state, async |project_config: &mut ProjectConfig| {
             project_config.java_path = Some(java_path.to_string_lossy().into_owned());
+            project_config.java_version = Some(parse_java_major(&alt_java_version)?);
             Ok(())
         })
         .await?;

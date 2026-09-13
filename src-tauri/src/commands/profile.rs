@@ -214,6 +214,9 @@ pub async fn create_server_profile(
     state: State<'_, Mutex<GlobalState>>,
     server_url: String,
 ) -> CommandResult<ProjectConfig> {
+    if crate::utils::env_info::is_offline_build() {
+        return Err(anyhow::anyhow!("Офлайн-сборка: серверные профили недоступны").into());
+    }
     Ok(add_server_profile(&state, &server_url).await?)
 }
 

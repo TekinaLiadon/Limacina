@@ -6,6 +6,7 @@ import type { TabItem, TabKey } from '@/03-widgets/types'
 const props = defineProps<{
   activeTab: TabKey
   showDebug?: boolean
+  showMods?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,6 +19,9 @@ const items = computed<TabItem[]>((): TabItem[] => {
     { key: 'add-profile', icon: 'referals', label: 'Новый профиль' },
     { key: 'settings', icon: 'settings', label: 'Настройки' },
   ]
+  if (props.showMods === true) {
+    base.splice(2, 0, { key: 'mods', icon: 'puzzle', label: 'Моды' })
+  }
   if (props.showDebug) {
     base.push({ key: 'debug', icon: 'settings', label: 'Дебаг' })
   }

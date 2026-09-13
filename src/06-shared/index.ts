@@ -8,6 +8,7 @@ export { default as ProgressBar } from './components/ProgressBar.vue'
 export { default as PushNotification } from './components/PushNotification.vue'
 export { default as ConfirmPopup } from './components/ConfirmPopup.vue'
 export { default as Checkbox } from './components/Checkbox.vue'
+export { default as Preloader } from './components/Preloader.vue'
 
 export * from './api'
 

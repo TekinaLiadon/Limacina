@@ -17,8 +17,22 @@ pub fn get_launcher_name() -> String {
     }
 }
 
-pub fn default_server_url() -> String {
-    env!("LAUNCHER_SERVER_URL").to_string()
+pub fn get_default_project_name() -> String {
+    env::var("LAUNCHER_PROJECT_NAME")
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+pub fn default_server_url() -> Option<String> {
+    option_env!("LAUNCHER_SERVER_URL")
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
+}
+
+pub fn is_offline_build() -> bool {
+    default_server_url().is_none()
 }
 
 pub fn normalize_server_url(raw: &str) -> String {

@@ -12,7 +12,7 @@ use crate::{
         vanilla::rules::is_rule_allowed,
         vanilla::structs::{ArgumentValue, Library, StringOrVec, VersionDetailsManifest},
     },
-    utils::{compare_versions, get_classpath_separator},
+    utils::{compare_versions, env_info::get_launcher_name, get_classpath_separator},
 };
 
 pub struct ArgumentsMap {
@@ -23,10 +23,7 @@ impl ArgumentsMap {
     pub fn new(config: &LaunchConfig, assets_index: &str) -> Self {
         let map = [
             ("${auth_player_name}", config.username.clone()),
-            (
-                "${version_name}",
-                config.loader_version.clone().unwrap_or("1".to_string()),
-            ),
+            ("${version_name}", config.mc_version.clone()),
             (
                 "${game_directory}",
                 config.game_dir.to_string_lossy().to_string(),
@@ -44,7 +41,7 @@ impl ArgumentsMap {
                 "${natives_directory}",
                 config.natives_dir.to_string_lossy().to_string(),
             ),
-            ("${launcher_name}", "Limacina".to_string()),
+            ("${launcher_name}", get_launcher_name()),
             ("${launcher_version}", "1.0".to_string()),
             ("${width}", config.window_width.to_string()),
             ("${height}", config.window_height.to_string()),
@@ -320,7 +317,6 @@ mod tests {
             uuid: "test-uuid".to_string(),
             access_token: "token".to_string(),
             mc_version: "1.18.2".to_string(),
-            loader_version: None,
             game_dir: root.clone(),
             assets_dir: root.join("assets"),
             libraries_dir: libraries_dir.clone(),
@@ -494,7 +490,6 @@ mod args_pipeline_tests {
             uuid: "uuid-1".to_string(),
             access_token: "token-1".to_string(),
             mc_version: "1.20.1".to_string(),
-            loader_version: None,
             game_dir: PathBuf::from("/game"),
             assets_dir: PathBuf::from("/game/assets"),
             libraries_dir: PathBuf::from("/game/libraries"),
@@ -559,7 +554,7 @@ mod args_pipeline_tests {
         assert!(game_args.contains(&"--username".to_string()));
         assert!(game_args.contains(&"Cordelia".to_string()));
         assert!(game_args.contains(&"--version".to_string()));
-        assert!(game_args.contains(&"1".to_string()));
+        assert!(game_args.contains(&"1.20.1".to_string()));
     }
 
     #[test]
@@ -593,7 +588,7 @@ mod args_pipeline_tests {
 
         let game_args = get_game_args(&manifest, &args_map);
         assert!(game_args.contains(&"Cordelia".to_string()));
-        assert!(game_args.contains(&"1".to_string()));
+        assert!(game_args.contains(&"1.20.1".to_string()));
     }
 
     #[test]

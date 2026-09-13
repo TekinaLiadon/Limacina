@@ -1,13 +1,10 @@
 @font-face {
   font-family: "icomoon";
-  src: url("@/01-app/assets/fonts/icomoon/icomoon.eot?s1qcio");
   src:
-    url("@/01-app/assets/fonts/icomoon/icomoon.eot?s1qcio#iefix")
-      format("embedded-opentype"),
-    url("@/01-app/assets/fonts/icomoon/icomoon.ttf?s1qcio")
+    url("@/01-app/assets/fonts/icomoon/icomoon.ttf?4mk2v1")
       format("truetype"),
-    url("@/01-app/assets/fonts/icomoon/icomoon.woff?s1qcio") format("woff"),
-    url("@/01-app/assets/fonts/icomoon/icomoon.svg?s1qcio#icomoon")
+    url("@/01-app/assets/fonts/icomoon/icomoon.woff?4mk2v1") format("woff"),
+    url("@/01-app/assets/fonts/icomoon/icomoon.svg?4mk2v1#icomoon")
       format("svg");
   font-weight: normal;
   font-style: normal;
@@ -42,4 +39,7 @@
 }
 .icon-home:before {
   content: "\e90c";
+}
+.icon-puzzle:before {
+  content: "\e916";
 }

@@ -20,6 +20,8 @@ pub struct ProjectConfig {
     pub mod_loader: ModLoader,
     pub loader_version: Option<String>,
     pub java_path: Option<String>,
+    #[serde(default)]
+    pub java_version: Option<u32>,
     pub jvm_args: Vec<String>,
     pub min_memory: String,
     pub max_memory: String,
@@ -47,6 +49,7 @@ impl Default for ProjectConfig {
             mod_loader: ModLoader::Vanilla,
             loader_version: None,
             java_path: None,
+            java_version: None,
             jvm_args: Vec::new(),
             min_memory: "-Xms512M".to_string(),
             max_memory: "-Xmx4G".to_string(),
@@ -59,9 +62,9 @@ impl Default for ProjectConfig {
 }
 
 impl ProjectConfig {
-    pub fn resolved_server_url(&self) -> String {
+    pub fn resolved_server_url(&self) -> Option<String> {
         match self.server_url.as_deref() {
-            Some(url) if !url.trim().is_empty() => normalize_server_url(url),
+            Some(url) if !url.trim().is_empty() => Some(normalize_server_url(url)),
             _ => default_server_url(),
         }
     }
@@ -94,6 +97,7 @@ mod tests {
             mc_version: "1.21.1".to_string(),
             mod_loader: ModLoader::NeoForge,
             loader_version: Some("21.1.234".to_string()),
+            java_version: Some(21),
             jvm_args: vec!["-XX:+UseG1GC".to_string()],
             server_url: Some("http://mc.example.com:3000".to_string()),
             ..ProjectConfig::default()
@@ -104,6 +108,7 @@ mod tests {
 
         assert_eq!(parsed.project_name, "Cordelia");
         assert_eq!(parsed.mod_loader, ModLoader::NeoForge);
+        assert_eq!(parsed.java_version, Some(21));
         assert_eq!(parsed.jvm_args, vec!["-XX:+UseG1GC".to_string()]);
         assert_eq!(
             parsed.server_url.as_deref(),
@@ -160,6 +165,7 @@ maxMemory = "-Xmx4G"
         let parsed: ProjectConfig = toml::from_str(toml_string).expect("разбор старого TOML");
         assert!(parsed.online);
         assert!(!parsed.initialized);
+        assert_eq!(parsed.java_version, None);
         assert_eq!(parsed.server_url, None);
     }
 
@@ -169,7 +175,10 @@ maxMemory = "-Xmx4G"
             server_url: Some("mc.example.com:3000/".to_string()),
             ..ProjectConfig::default()
         };
-        assert_eq!(config.resolved_server_url(), "https://mc.example.com:3000");
+        assert_eq!(
+            config.resolved_server_url().as_deref(),
+            Some("https://mc.example.com:3000")
+        );
 
         let empty = ProjectConfig {
             server_url: Some("   ".to_string()),

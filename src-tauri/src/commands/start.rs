@@ -78,7 +78,7 @@ pub async fn start_minecraft(
 
     let mut offline_skin_server: Option<offline::SkinServer> = None;
     let authlib_server_url = if project_config.online {
-        Some(project_config.resolved_server_url())
+        project_config.resolved_server_url()
     } else {
         match offline::start_offline_skin_server(&project, &username, &uuid).await {
             Ok(Some(server)) => {

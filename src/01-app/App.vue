@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import Preloader from '@/01-app/preloader/Preloader.vue'
-import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
+import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
 import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useCpmProjectOpen } from '@/04-features'
-import { Sidebar } from '@/03-widgets'
+import { Sidebar, ServerStatus } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
 const router = useRouter()
@@ -32,10 +31,19 @@ interface Tab {
 
 const isDebugTabVisible = computed((): boolean => coreStore.launcherConfig?.debugMode ?? false)
 
+const isOfflineProject = computed((): boolean => coreStore.projectConfig?.online === false)
+
+watch(isOfflineProject, (offline) => {
+  if (!offline && route.name === 'Mods') {
+    router.push({ name: 'Accounts' })
+  }
+})
+
 const tabs = computed((): Tab[] => {
   const items: Tab[] = [
     { key: 'accounts', name: 'Accounts' },
     { key: 'add-profile', name: 'AddProfile' },
+    { key: 'mods', name: 'Mods' },
     { key: 'settings', name: 'SettingsLauncher' },
   ]
   if (isDebugTabVisible.value) {
@@ -46,7 +54,20 @@ const tabs = computed((): Tab[] => {
 
 const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel', 'SettingsAccount']
 
-const showLayout = computed((): boolean => route.name !== 'Setup')
+const fullscreenRouteNames: string[] = ['Setup', 'OfflineSetup']
+
+const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
+
+const needsOfflineSetup = computed((): boolean =>
+  coreStore.offlineBuild && coreStore.projects.length === 0
+)
+
+watch(needsOfflineSetup, (needed: boolean): void => {
+  const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
+  if (needed && !isFullscreenRoute) {
+    router.replace({ name: 'OfflineSetup' })
+  }
+})
 
 const currentTab = computed((): TabKey => {
   const name = route.name as string
@@ -97,6 +118,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
                 :disabled="!canSwitch"
               />
             </div>
+            <ServerStatus />
             <div class="app__theme-switch" role="group" aria-label="Тема оформления">
               <button
                 class="app__theme-segment"
@@ -136,7 +158,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
           </div>
 
           <div class="app__body">
-            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" @navigate="navigateTo" />
+            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" :show-mods="isOfflineProject" @navigate="navigateTo" />
 
             <div class="app__content">
               <div class="app__content-inner">
@@ -162,8 +184,8 @@ watch(isDebugTabVisible, (visible: boolean): void => {
 
   &__version {
     position: fixed;
-    bottom: 4px;
-    left: 8px;
+    top: 4px;
+    right: 8px;
     font-family: var(--font-eyebrow);
     font-size: var(--text-caption);
     letter-spacing: var(--tracking-eyebrow);

@@ -5,6 +5,7 @@ import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
 import type { LauncherConfig, ProjectConfig, UpdateInfo } from '@/05-entities/core/types'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
+import { useServerStatus } from '@/04-features/server-status/useServerStatus'
 
 const STARTUP_ERROR_DURATION = 5000
 
@@ -54,6 +55,7 @@ export function useAppInit() {
       coreStore.hasLauncherConfig = !!initData.launcherConfig
       coreStore.version = initData.version
       coreStore.totalMemoryMb = initData.totalMemoryMb
+      coreStore.offlineBuild = initData.offlineBuild
 
       if (initData.launcherConfig) {
         applyProjects(initData.launcherConfig)
@@ -64,11 +66,12 @@ export function useAppInit() {
       }
 
       const autoUpdate = initData.launcherConfig?.autoUpdate ?? true
+      const isUpdateCheckEnabled = autoUpdate && !coreStore.offlineBuild
 
       const loadedProject: string | null = coreStore.currentProject
       let projectLoad: Promise<void> = loadedProject ? loadProject(loadedProject) : Promise.resolve()
 
-      if (autoUpdate) {
+      if (isUpdateCheckEnabled) {
         preloaderText.value = 'Проверка обновлений...'
         let updateInfo: UpdateInfo | null = null
         try {
@@ -103,8 +106,17 @@ export function useAppInit() {
         }
       }
 
+      if (!coreStore.offlineBuild) {
+        useServerStatus().startServerStatusPolling()
+      }
+
       if (!coreStore.launcherConfig) {
         router.replace('/setup')
+        return
+      }
+
+      if (coreStore.offlineBuild && coreStore.projects.length === 0) {
+        router.replace({ name: 'OfflineSetup' })
         return
       }
 

@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::time::Duration;
 
 use crate::utils::compare_versions;
-use crate::utils::env_info::{get_arch, get_current_os};
+use crate::utils::env_info::{default_server_url, get_arch, get_current_os};
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Platform {
@@ -43,7 +43,8 @@ pub async fn get_launcher_versions() -> Result<UpdateVersions> {
 }
 
 async fn fetch_update_versions(timeout: Option<Duration>) -> Result<UpdateVersions> {
-    let server_url = env!("LAUNCHER_SERVER_URL");
+    let server_url = default_server_url()
+        .ok_or_else(|| anyhow::anyhow!("Офлайн-сборка: сервер обновлений не настроен"))?;
     let url = format!("{}/v1/launcher/update/version", server_url);
 
     let client = crate::utils::http::http_client();

@@ -1,4 +1,5 @@
 export { default as Sidebar } from './dashboard/Sidebar.vue'
+export { default as ServerStatus } from './dashboard/ServerStatus.vue'
 
 export { default as AccountList } from './tabs/accounts/AccountList.vue'
 export { default as CurrentAccount } from './tabs/accounts/CurrentAccount.vue'
@@ -9,6 +10,7 @@ export { default as AuthForm } from './tabs/login/AuthForm.vue'
 export { default as StepProgress } from './tabs/login/StepProgress.vue'
 
 export { default as AddProfileTab } from './tabs/AddProfileTab.vue'
+export { default as OfflineProfileForm } from './tabs/profile/OfflineProfileForm.vue'
 export { default as DebugTab } from './tabs/DebugTab.vue'
 
 export { default as PathPicker } from './tabs/settings/PathPicker.vue'
@@ -21,6 +23,7 @@ export { default as AlternativeJavaButton } from './tabs/settings/AlternativeJav
 export { default as MemorySlider } from './tabs/settings/MemorySlider.vue'
 export { default as IntegrityCheck } from './tabs/settings/IntegrityCheck.vue'
 export { default as SkinSettings } from './tabs/settings/SkinSettings.vue'
+export { default as ModrinthTab } from './tabs/ModrinthTab.vue'
 export { default as CpmSettings } from './tabs/settings/CpmSettings.vue'
 export { default as AccountSettings } from './tabs/settings/AccountSettings.vue'
 

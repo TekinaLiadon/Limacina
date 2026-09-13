@@ -17,5 +17,9 @@ pub(crate) async fn api_context(
         .with_context(|| auth_error.to_string())?
         .access_token
         .clone();
-    Ok((token, guard.project_config.resolved_server_url()))
+    let server_url = guard
+        .project_config
+        .resolved_server_url()
+        .context("Для текущего проекта не указан адрес сервера")?;
+    Ok((token, server_url))
 }

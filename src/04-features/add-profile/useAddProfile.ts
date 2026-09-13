@@ -3,9 +3,9 @@ import { useCoreStore, useNotificationStore } from '@/05-entities'
 import {
   createOfflineProfile,
   createServerProfile,
+  clearSession,
   getLoaderVersions,
   getMinecraftVersions,
-  logoutAccount,
 } from '@/06-shared/api'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { reportError } from '@/06-shared'
@@ -141,7 +141,7 @@ export function useAddProfile() {
     resetAccountsState()
 
     try {
-      await logoutAccount()
+      await clearSession()
     } catch (e: unknown) {
       reportError('Не удалось выйти из аккаунта', e)
     }

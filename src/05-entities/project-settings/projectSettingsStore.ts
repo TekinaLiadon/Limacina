@@ -7,6 +7,7 @@ export interface ProjectSettingsForm {
   modLoader: ModLoaderKind
   loaderVersion: string
   javaPath: string
+  javaVersion: number | null
   jvmArgs: string
   memoryRange: [number, number]
   online: boolean
@@ -30,6 +31,7 @@ function defaultForm(): ProjectSettingsForm {
     modLoader: 'vanilla',
     loaderVersion: '',
     javaPath: '',
+    javaVersion: null,
     jvmArgs: '',
     memoryRange: [512, 4096],
     online: true,

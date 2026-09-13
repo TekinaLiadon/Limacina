@@ -4,7 +4,7 @@ use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth::{self, storage};
+use crate::auth;
 use crate::commands::auth::{persist_session_credentials, restore_session};
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
@@ -73,32 +73,7 @@ pub async fn get_session_info(
 }
 
 #[tauri::command]
-pub async fn logout_account(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let (project_name, username, online, server_url) = {
-        let state = state.lock().await;
-        match state.session.as_ref() {
-            Some(session) => (
-                session.project_name.clone(),
-                session.username.clone(),
-                state.project_config.online,
-                state.project_config.resolved_server_url(),
-            ),
-            None => (String::new(), String::new(), false, String::new()),
-        }
-    };
-
-    if online && !project_name.is_empty() && !username.is_empty() {
-        match storage::get_credential(&project_name, &username, "refresh_token").await {
-            Ok(refresh_token) if !refresh_token.is_empty() => {
-                if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
-                }
-                let _ = storage::delete_credential(&project_name, &username, "refresh_token").await;
-            }
-            _ => {}
-        }
-    }
-
+pub async fn clear_session(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
     let mut state = state.lock().await;
     state.session = None;
     Ok(())

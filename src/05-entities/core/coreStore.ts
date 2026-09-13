@@ -9,6 +9,7 @@ export const useCoreStore = defineStore('core', {
     defaultParentPath: '',
     launcherConfig: null,
     version: '',
+    offlineBuild: false,
     activeTab: 'accounts',
     currentProject: '',
     projects: [],
@@ -19,5 +20,6 @@ export const useCoreStore = defineStore('core', {
     loginProgress: 0,
     loginError: '',
     projectConfig: null,
+    serverStatus: null,
   }),
 })
