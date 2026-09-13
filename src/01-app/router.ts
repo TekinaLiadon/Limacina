@@ -49,6 +49,11 @@ const router = createRouter({
       ],
     },
     {
+      path: '/mods',
+      name: 'Mods',
+      component: () => import('@/02-pages/Mods.vue'),
+    },
+    {
       path: '/debug',
       name: 'Debug',
       component: () => import('@/02-pages/Debug.vue'),

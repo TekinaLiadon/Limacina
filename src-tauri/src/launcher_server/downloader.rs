@@ -431,6 +431,19 @@ pub async fn download_mods(
         .map(|k| k.strip_prefix("mods/").unwrap_or(k))
         .collect();
 
+    let download_step = StepHandle::start("mods.download", "Проверка и скачивание модов");
+    log_info!("[mods] Путь к папке модов: {:?}", mods_dir);
+    let report = sync_server_files(
+        &ctx,
+        &mods,
+        &mods_dir,
+        true,
+        download_step,
+        &MODS_LABELS,
+        |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
+    )
+    .await?;
+
     let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
     if let Ok(mut entries) = tokio::fs::read_dir(&mods_dir).await {
         while let Some(entry) = entries.next_entry().await? {
@@ -446,19 +459,7 @@ pub async fn download_mods(
         }
     }
     clean_step.finish(false);
-
-    let download_step = StepHandle::start("mods.download", "Проверка и скачивание модов");
-    log_info!("[mods] Путь к папке модов: {:?}", mods_dir);
-    sync_server_files(
-        &ctx,
-        &mods,
-        &mods_dir,
-        true,
-        download_step,
-        &MODS_LABELS,
-        |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
-    )
-    .await
+    Ok(report)
 }
 
 #[cfg(test)]

@@ -37,3 +37,17 @@ export type { AccountsState } from './accounts/accountsStore'
 
 export { useProjectSettingsStore } from './project-settings/projectSettingsStore'
 export type { ProjectSettingsForm, ProjectSettingsState } from './project-settings/projectSettingsStore'
+
+export type {
+  ModrinthSearchHit,
+  ModrinthSearchResult,
+  ModrinthLicense,
+  ModrinthProject,
+  ModrinthVersionFile,
+  ModrinthDependency,
+  ModrinthVersion,
+  ModrinthProjectDetails,
+  ModrinthInstalledMod,
+  ModrinthUpdateCheck,
+  ModrinthInstallResult,
+} from './modrinth/types'

@@ -4,6 +4,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
 import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport } from '@/05-entities/core/types'
+import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
 import type { SkinModelMode } from '@/03-widgets/types'
 
 export async function getAppInitData(): Promise<AppInitData> {
@@ -358,4 +359,33 @@ export async function downloadAlternativeJava(
   replaceDefault: boolean
 ): Promise<void> {
   return invoke('download_alternative_java', { distribution, javaVersion, replaceDefault })
+}
+
+export async function modrinthSearch(payload: {
+  query: string
+  index: string
+  categories: string[]
+  offset: number
+}): Promise<ModrinthSearchResult> {
+  return invoke('modrinth_search', { ...payload })
+}
+
+export async function modrinthProject(id: string): Promise<ModrinthProjectDetails> {
+  return invoke('modrinth_project', { id })
+}
+
+export async function modrinthInstalled(): Promise<ModrinthInstalledMod[]> {
+  return invoke('modrinth_installed')
+}
+
+export async function modrinthCheckUpdates(): Promise<ModrinthUpdateCheck[]> {
+  return invoke('modrinth_check_updates')
+}
+
+export async function modrinthInstall(projectId: string): Promise<ModrinthInstallResult> {
+  return invoke('modrinth_install', { projectId })
+}
+
+export async function modrinthUninstall(projectId: string): Promise<void> {
+  return invoke('modrinth_uninstall', { projectId })
 }

@@ -26,8 +26,8 @@ const SERVER_FILES_STEPS: StepPlanItem[] = [
 
 const MODS_STEPS: StepPlanItem[] = [
   { key: 'mods.list', label: 'Получение списка модов' },
-  { key: 'mods.clean', label: 'Очистка лишних модов' },
   { key: 'mods.download', label: 'Проверка и скачивание модов' },
+  { key: 'mods.clean', label: 'Очистка лишних модов' },
 ]
 
 const MINECRAFT_STEPS: StepPlanItem[] = [

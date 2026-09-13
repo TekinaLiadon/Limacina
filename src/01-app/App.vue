@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import Preloader from '@/01-app/preloader/Preloader.vue'
-import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
+import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
 import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useCpmProjectOpen } from '@/04-features'
 import { Sidebar } from '@/03-widgets'
@@ -32,10 +31,19 @@ interface Tab {
 
 const isDebugTabVisible = computed((): boolean => coreStore.launcherConfig?.debugMode ?? false)
 
+const isOfflineProject = computed((): boolean => coreStore.projectConfig?.online === false)
+
+watch(isOfflineProject, (offline) => {
+  if (!offline && route.name === 'Mods') {
+    router.push({ name: 'Accounts' })
+  }
+})
+
 const tabs = computed((): Tab[] => {
   const items: Tab[] = [
     { key: 'accounts', name: 'Accounts' },
     { key: 'add-profile', name: 'AddProfile' },
+    { key: 'mods', name: 'Mods' },
     { key: 'settings', name: 'SettingsLauncher' },
   ]
   if (isDebugTabVisible.value) {
@@ -149,7 +157,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
           </div>
 
           <div class="app__body">
-            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" @navigate="navigateTo" />
+            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" :show-mods="isOfflineProject" @navigate="navigateTo" />
 
             <div class="app__content">
               <div class="app__content-inner">

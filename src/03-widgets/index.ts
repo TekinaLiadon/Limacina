@@ -22,6 +22,7 @@ export { default as AlternativeJavaButton } from './tabs/settings/AlternativeJav
 export { default as MemorySlider } from './tabs/settings/MemorySlider.vue'
 export { default as IntegrityCheck } from './tabs/settings/IntegrityCheck.vue'
 export { default as SkinSettings } from './tabs/settings/SkinSettings.vue'
+export { default as ModrinthTab } from './tabs/ModrinthTab.vue'
 export { default as CpmSettings } from './tabs/settings/CpmSettings.vue'
 export { default as AccountSettings } from './tabs/settings/AccountSettings.vue'
 

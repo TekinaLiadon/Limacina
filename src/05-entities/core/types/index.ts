@@ -57,7 +57,7 @@ export interface UpdateVersions {
   versions: UpdateVersionInfo[]
 }
 
-export type TabKey = 'accounts' | 'add-profile' | 'settings' | 'debug'
+export type TabKey = 'accounts' | 'add-profile' | 'mods' | 'settings' | 'debug'
 
 export type AuthSubTab = 'login' | 'register'
 

@@ -66,7 +66,7 @@ const dropdownOptions = () =>
           </template>
           <template v-else>
             <div class="alt-java-popup__loading">
-              <img src="@/01-app/preloader/preloader.svg" alt="" class="alt-java-popup__spinner" />
+              <img src="@/06-shared/components/preloader.svg" alt="" class="alt-java-popup__spinner" />
               <div class="alt-java-popup__loading-text">Загрузка</div>
             </div>
           </template>

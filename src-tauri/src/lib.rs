@@ -5,6 +5,7 @@ mod init;
 mod java;
 mod launcher_server;
 mod minecraft;
+mod modrinth;
 mod offline;
 mod state;
 mod updater;
@@ -29,6 +30,10 @@ use commands::integrity::check_files_integrity;
 use commands::launcher_config::{
     get_app_init_data, save_animations_enabled, save_launcher_config, save_launcher_settings,
     save_theme,
+};
+use commands::modrinth::{
+    modrinth_check_updates, modrinth_install, modrinth_installed, modrinth_project,
+    modrinth_search, modrinth_uninstall,
 };
 use commands::profile::{
     create_offline_profile, create_server_profile, get_loader_versions, get_minecraft_versions,
@@ -209,6 +214,12 @@ pub fn run() {
             save_player_model,
             read_cpm_project_file,
             take_cpm_project_path,
+            modrinth_search,
+            modrinth_project,
+            modrinth_installed,
+            modrinth_check_updates,
+            modrinth_install,
+            modrinth_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
