@@ -175,8 +175,8 @@ watch(isDebugTabVisible, (visible: boolean): void => {
 
   &__version {
     position: fixed;
-    bottom: 4px;
-    left: 8px;
+    top: 4px;
+    right: 8px;
     font-family: var(--font-eyebrow);
     font-size: var(--text-caption);
     letter-spacing: var(--tracking-eyebrow);

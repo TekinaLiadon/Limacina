@@ -32,14 +32,14 @@ const emit = defineEmits<{
           <slot name="item-actions" :item="item" />
           <Button
             v-if="item.id != null"
-            class="btn-quiet user-content-list__btn"
+            class="btn-quiet"
             @click="emit('copy', item.url)"
           >
             Копировать
           </Button>
           <Button
             v-if="item.id != null"
-            class="btn-danger user-content-list__btn"
+            class="btn-danger"
             @click="emit('delete', item.id!)"
           >
             Удалить
@@ -91,11 +91,13 @@ const emit = defineEmits<{
     display: flex;
     gap: var(--space-4);
     flex-shrink: 0;
-  }
 
-  &__btn {
-    padding: var(--space-4) var(--control-padding-x);
-    font-size: var(--text-caption);
+    > * {
+      display: inline-flex;
+      align-items: center;
+      padding: var(--space-4) var(--control-padding-x);
+      font-size: var(--text-caption);
+    }
   }
 }
 </style>

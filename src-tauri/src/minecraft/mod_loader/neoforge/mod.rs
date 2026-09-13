@@ -18,7 +18,11 @@ use crate::{
         vanilla::config::{filter_classpath, strip_classpath_args},
     },
     state::dto::ProjectConfig,
-    utils::{download_file::download_json, env_info::launcher_path, get_classpath_separator},
+    utils::{
+        download_file::download_json,
+        env_info::{get_launcher_name, launcher_path},
+        get_classpath_separator,
+    },
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -86,6 +90,7 @@ impl ModLoader for NeoForge {
             .collect();
         classpath.extend(vanilla_filtered);
         let clean_classpath = filter_classpath(classpath);
+        let launcher_name = get_launcher_name();
 
         let neoforge_jvm: Vec<String> = strip_classpath_args(
             manifest
@@ -96,7 +101,7 @@ impl ModLoader for NeoForge {
                     let mut result = arg.replace("${natives_directory}", &natives_dir);
                     result = result.replace("${library_directory}", &libraries_dir);
                     result = result.replace("${classpath_separator}", get_classpath_separator());
-                    result = result.replace("${launcher_name}", "Limacina");
+                    result = result.replace("${launcher_name}", &launcher_name);
                     result = result.replace("${launcher_version}", "1.0");
                     result
                 })

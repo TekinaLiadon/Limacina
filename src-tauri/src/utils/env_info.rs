@@ -17,6 +17,13 @@ pub fn get_launcher_name() -> String {
     }
 }
 
+pub fn get_default_project_name() -> String {
+    env::var("LAUNCHER_PROJECT_NAME")
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
 pub fn default_server_url() -> Option<String> {
     option_env!("LAUNCHER_SERVER_URL")
         .map(str::trim)

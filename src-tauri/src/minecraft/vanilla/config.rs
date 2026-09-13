@@ -12,7 +12,7 @@ use crate::{
         vanilla::rules::is_rule_allowed,
         vanilla::structs::{ArgumentValue, Library, StringOrVec, VersionDetailsManifest},
     },
-    utils::{compare_versions, get_classpath_separator},
+    utils::{compare_versions, env_info::get_launcher_name, get_classpath_separator},
 };
 
 pub struct ArgumentsMap {
@@ -44,7 +44,7 @@ impl ArgumentsMap {
                 "${natives_directory}",
                 config.natives_dir.to_string_lossy().to_string(),
             ),
-            ("${launcher_name}", "Limacina".to_string()),
+            ("${launcher_name}", get_launcher_name()),
             ("${launcher_version}", "1.0".to_string()),
             ("${width}", config.window_width.to_string()),
             ("${height}", config.window_height.to_string()),
