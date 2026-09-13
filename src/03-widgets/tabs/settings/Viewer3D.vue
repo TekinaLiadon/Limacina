@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { provideViewerControls } from './viewerControls'
+import ViewerStage from './ViewerStage.vue'
 import ViewerToolbar from './ViewerToolbar.vue'
 
 const props = withDefaults(defineProps<{
@@ -38,7 +39,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="viewer-3d">
     <div class="viewer-3d__stage">
-      <slot />
+      <ViewerStage :paused="isFullscreen">
+        <slot />
+      </ViewerStage>
     </div>
     <ViewerToolbar @toggle-fullscreen="openFullscreen" />
     <slot name="bottom" />
@@ -49,7 +52,9 @@ onBeforeUnmount(() => {
       <div v-if="isFullscreen" class="viewer-3d-fullscreen" @click.self="closeFullscreen">
         <div class="viewer-3d-fullscreen__content">
           <div class="viewer-3d-fullscreen__stage">
-            <slot />
+            <ViewerStage>
+              <slot />
+            </ViewerStage>
           </div>
           <ViewerToolbar fullscreen @toggle-fullscreen="closeFullscreen" />
           <slot name="bottom" />

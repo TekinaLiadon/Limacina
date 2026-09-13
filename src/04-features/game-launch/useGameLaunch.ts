@@ -149,6 +149,7 @@ export function useGameLaunch() {
         if (isCancelled?.()) return
         markActiveStepError(String(error))
         coreStore.loginError = String(error)
+        store.isLaunching = false
         return
       }
     }

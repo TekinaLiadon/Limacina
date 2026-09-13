@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useLauncherSettings } from "@/04-features";
-import { LauncherPath, ThemeSelector, LauncherUpdate, LauncherBehavior } from "@/03-widgets";
+import { PathPicker, ThemeSelector, LauncherUpdate, LauncherBehavior } from "@/03-widgets";
 import { Button } from "@/06-shared";
 
 const {
@@ -23,7 +23,13 @@ const {
   <div class="launcher-settings">
     <div class="settings-grid">
       <div class="section-label span-full">Расположение</div>
-      <LauncherPath class="span-full settings-row" :launcher-path="launcherPath" @browse="selectLauncherFolder" />
+      <PathPicker
+        class="span-full settings-row"
+        label="Путь к лаунчеру"
+        placeholder="Путь не установлен"
+        :model-value="launcherPath"
+        @browse="selectLauncherFolder"
+      />
     </div>
 
     <div class="settings-grid">

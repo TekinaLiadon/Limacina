@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
-import { ProjectInfoFields, JavaPathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck } from '@/03-widgets'
+import { ProjectInfoFields, PathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck } from '@/03-widgets'
 import { Button } from '@/06-shared'
 
 const coreStore = useCoreStore()
@@ -76,7 +76,13 @@ const handleDownload = async (): Promise<void> => {
 
     <div class="settings-grid">
       <div class="section-label span-full">Java</div>
-      <JavaPathPicker class="span-full settings-row" :java-path="config.javaPath" @browse="selectJavaFolder" />
+      <PathPicker
+        class="span-full settings-row"
+        label="Путь к Java"
+        placeholder="Выберите папку"
+        :model-value="config.javaPath"
+        @browse="selectJavaFolder"
+      />
       <AlternativeJavaButton
         :distributions="distributions"
         :is-downloading="isAltDownloading"

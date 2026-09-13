@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod cpm_models;
 pub mod download;
 pub mod dto;
 pub mod init;

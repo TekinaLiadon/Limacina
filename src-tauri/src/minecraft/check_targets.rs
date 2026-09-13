@@ -1,14 +1,14 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::future::BoxFuture;
 
 use crate::log_info;
 use crate::minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL};
 use crate::minecraft::vanilla::download::{
-    collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
-    collect_library_targets,
+    collect_asset_targets, collect_install_targets, read_asset_index, PHASE_ASSETS,
+    PHASE_ASSET_INDEX, PHASE_CLIENT, PHASE_LIBRARIES,
 };
 use crate::minecraft::vanilla::manifest::create_manifest_versions;
-use crate::minecraft::vanilla::structs::{AssetIndexContent, VanillaVersionsManifest};
+use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
 use crate::state::dto::ProjectConfig;
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::launcher_path;
@@ -18,12 +18,9 @@ use crate::utils::step_events::{StepChannel, StepHandle};
 pub async fn load_version_manifest(
     project: &ProjectConfig,
 ) -> Result<crate::minecraft::vanilla::structs::VersionDetailsManifest> {
-    let manifest_index = get_manifest_index::<VanillaVersionsManifest>(
-        "vanilla",
-        VERSION_MANIFEST_URL,
-        "index",
-    )
-    .await?;
+    let manifest_index =
+        get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
+            .await?;
 
     let versions = create_manifest_versions(manifest_index.versions)?;
 
@@ -32,8 +29,10 @@ pub async fn load_version_manifest(
 }
 
 fn url_download_fn(
-) -> impl Fn(String, std::path::PathBuf) -> BoxFuture<'static, Result<(), anyhow::Error>> + Send + Sync + 'static
-{
+) -> impl Fn(String, std::path::PathBuf) -> BoxFuture<'static, Result<(), anyhow::Error>>
+       + Send
+       + Sync
+       + 'static {
     |url: String, dest: std::path::PathBuf| {
         Box::pin(async move {
             if dest.exists() {
@@ -47,53 +46,52 @@ fn url_download_fn(
 pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<IntegrityReport> {
     let project_name = project.project_name.clone();
 
-    let manifest_step = StepHandle::start_channel(StepChannel::Integrity, "mc.manifest", "Загрузка манифеста версии");
+    let manifest_step = StepHandle::start_channel(
+        StepChannel::Integrity,
+        "mc.manifest",
+        "Загрузка манифеста версии",
+    );
     let manifest = load_version_manifest(project).await?;
     manifest_step.finish(false);
 
     let base_path = launcher_path(Some(&project_name))?;
+    let targets = collect_install_targets(&manifest);
 
     let jar_report = check_integrity(
         &base_path,
-        vec![collect_client_jar_target(&manifest)],
-        "mc.jar",
-        "Клиент игры",
+        vec![targets.client],
+        PHASE_CLIENT.id,
+        PHASE_CLIENT.label,
         url_download_fn(),
     )
     .await?;
 
     let libs_report = check_integrity(
         &base_path,
-        collect_library_targets(&manifest),
-        "mc.libs",
-        "Библиотеки",
+        targets.libraries,
+        PHASE_LIBRARIES.id,
+        PHASE_LIBRARIES.label,
         url_download_fn(),
     )
     .await?;
 
-    let index_target = collect_asset_index_target(&manifest);
     let index_report = check_integrity(
         &base_path,
-        vec![index_target.clone()],
-        "mc.assets.index",
-        "Индекс ресурсов",
+        vec![targets.asset_index.clone()],
+        PHASE_ASSET_INDEX.id,
+        PHASE_ASSET_INDEX.label,
         url_download_fn(),
     )
     .await?;
 
-    let index_path = base_path.join(&index_target.rel_path);
-    let asset_index: AssetIndexContent = serde_json::from_str(
-        &tokio::fs::read_to_string(&index_path)
-            .await
-            .with_context(|| format!("Не удалось прочитать индекс ресурсов: {:?}", index_path))?,
-    )
-    .context("Не удалось разобрать индекс ресурсов")?;
+    let index_path = base_path.join(&targets.asset_index.rel_path);
+    let asset_index = read_asset_index(&index_path).await?;
 
     let assets_report = check_integrity(
         &base_path,
         collect_asset_targets(&asset_index),
-        "mc.assets",
-        "Ресурсы игры",
+        PHASE_ASSETS.id,
+        PHASE_ASSETS.label,
         url_download_fn(),
     )
     .await?;

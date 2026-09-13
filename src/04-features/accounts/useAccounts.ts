@@ -1,11 +1,13 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
-import { authLogins, authRefresh, getSessionInfo } from '@/06-shared/api'
+import { authRefresh, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
+import { useAccountsList } from './useAccountsList'
 
 export function useAccounts() {
   const coreStore = useCoreStore()
   const store = useAccountsStore()
+  const { logins, loadAccounts } = useAccountsList()
 
   const isLoading = computed({
     get: (): boolean => store.isLoading,
@@ -15,22 +17,10 @@ export function useAccounts() {
     get: (): string => store.errorMessage,
     set: (v: string): void => { store.errorMessage = v },
   })
-  const logins = computed({
-    get: (): string[] => store.logins,
-    set: (v: string[]): void => { store.logins = v },
-  })
   const selectedUsername = computed({
     get: (): string => store.selectedUsername,
     set: (v: string): void => { store.selectedUsername = v },
   })
-
-  const loadAccounts = async (): Promise<void> => {
-    try {
-      store.logins = await authLogins(coreStore.currentProject)
-    } catch (e: unknown) {
-      reportError('Не удалось загрузить аккаунты', e)
-    }
-  }
 
   const checkSession = async (): Promise<void> => {
     try {
@@ -48,6 +38,7 @@ export function useAccounts() {
   const handleSelect = async (username: string): Promise<void> => {
     isLoading.value = true
     errorMessage.value = ''
+    const previousUsername = selectedUsername.value
     selectedUsername.value = username
 
     try {
@@ -58,6 +49,7 @@ export function useAccounts() {
         coreStore.isLoggedIn = true
       }
     } catch (e: unknown) {
+      selectedUsername.value = previousUsername
       errorMessage.value = e instanceof Error ? e.message : String(e)
       coreStore.isLoggedIn = false
       coreStore.session = null

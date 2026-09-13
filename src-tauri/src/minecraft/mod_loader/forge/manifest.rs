@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 use crate::minecraft::{
-    mod_loader::manifest::{get_loader_index, loader_libraries, LoaderIndex, Manifest, Metadata},
-    structs::{LibraryMod, VersionMod},
+    mod_loader::manifest::{get_loader_index, transform_loader_manifest, LoaderIndex, Metadata},
+    structs::VersionMod,
 };
 
 const METADATA_URL: &str =
@@ -31,24 +31,7 @@ fn group_forge_versions(metadata: Metadata) -> LoaderIndex {
 }
 
 pub fn transform_forge_manifest(forge_manifest: LoaderIndex) -> Vec<VersionMod> {
-    let mut manifest: Vec<VersionMod> = Vec::new();
-
-    for (mc_version, forge_versions) in &forge_manifest {
-        for forge_version in forge_versions {
-            let version = format!("{}-{}", mc_version, forge_version);
-            let version_mod = VersionMod {
-                url: format!("{}/net/minecraftforge/forge/{v}/forge-{v}-installer.jar", MAVEN_BASE, v = version),
-                id: version.clone(),
-                main_class: "".to_string(),
-                library: Vec::new(),
-            };
-
-            manifest.push(version_mod);
-        }
-    }
-    manifest
-}
-
-pub fn get_library(manifest: Manifest) -> Result<Vec<LibraryMod>> {
-    loader_libraries(manifest.libraries, MAVEN_BASE)
+    transform_loader_manifest(forge_manifest, |v, _| {
+        format!("{MAVEN_BASE}/net/minecraftforge/forge/{v}/forge-{v}-installer.jar")
+    })
 }

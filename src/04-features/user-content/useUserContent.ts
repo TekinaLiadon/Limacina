@@ -48,16 +48,18 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     }
   }
 
-  const handleUpload = async (payload: T): Promise<void> => {
+  const handleUpload = async (payload: T): Promise<UserContentItem | null> => {
     isUploading.value = true
     errorMessage.value = ''
 
     try {
-      await api.upload(payload)
+      const item = await api.upload(payload)
       notification.show(api.uploadSuccessMessage)
       await loadItems()
+      return item
     } catch (e: unknown) {
       errorMessage.value = String(e)
+      return null
     } finally {
       isUploading.value = false
     }

@@ -1,7 +1,8 @@
-import { inject, provide, ref, type InjectionKey } from 'vue'
+import { inject, provide, ref, type InjectionKey, type Ref } from 'vue'
 import type { ViewerControls } from '@/03-widgets/types'
 
 const VIEWER_CONTROLS_KEY: InjectionKey<ViewerControls> = Symbol('viewer-controls')
+const STAGE_PAUSED_KEY: InjectionKey<Ref<boolean>> = Symbol('viewer-stage-paused')
 
 const ROTATE_STEP = 45
 const ELEVATION_STEP = 15
@@ -63,4 +64,12 @@ export function provideViewerControls(minZoom: number): ViewerControls {
 
 export function useViewerControls(): ViewerControls {
   return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(5), true)
+}
+
+export function provideStagePaused(paused: Ref<boolean>): void {
+  provide(STAGE_PAUSED_KEY, paused)
+}
+
+export function useStagePaused(): Ref<boolean> {
+  return inject(STAGE_PAUSED_KEY, ref(false))
 }

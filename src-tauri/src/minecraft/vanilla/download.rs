@@ -2,21 +2,75 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
-
 use anyhow::{anyhow, Context, Result};
 use std::fs as std_fs;
 use std::io as std_io;
 
 use crate::{
-    log_err,
-    log_info,
+    log_err, log_info,
     minecraft::vanilla::rules::is_rule_allowed,
-    minecraft::vanilla::structs::{AssetIndexContent, VersionDetailsManifest},
+    minecraft::vanilla::structs::{Artifact, AssetIndexContent, Library, VersionDetailsManifest},
     utils::{
         env_info::get_current_os,
         integrity::{HashKind, IntegrityTarget, TargetDownload},
     },
 };
+
+pub struct VanillaPhaseInfo {
+    pub id: &'static str,
+    pub label: &'static str,
+}
+
+pub const PHASE_CLIENT: VanillaPhaseInfo = VanillaPhaseInfo {
+    id: "mc.jar",
+    label: "Клиент игры",
+};
+pub const PHASE_LIBRARIES: VanillaPhaseInfo = VanillaPhaseInfo {
+    id: "mc.libs",
+    label: "Библиотеки игры",
+};
+pub const PHASE_ASSET_INDEX: VanillaPhaseInfo = VanillaPhaseInfo {
+    id: "mc.assets.index",
+    label: "Загрузка индекса ресурсов",
+};
+pub const PHASE_ASSETS: VanillaPhaseInfo = VanillaPhaseInfo {
+    id: "mc.assets",
+    label: "Загрузка ресурсов",
+};
+
+pub struct VanillaTargetSet {
+    pub client: IntegrityTarget,
+    pub libraries: Vec<IntegrityTarget>,
+    pub asset_index: IntegrityTarget,
+}
+
+pub fn collect_install_targets(manifest: &VersionDetailsManifest) -> VanillaTargetSet {
+    VanillaTargetSet {
+        client: collect_client_jar_target(manifest),
+        libraries: collect_library_targets(manifest),
+        asset_index: collect_asset_index_target(manifest),
+    }
+}
+
+fn native_artifact_for_os<'a>(lib: &'a Library, current_os: &str) -> Option<&'a Artifact> {
+    let natives_map = lib.natives.as_ref()?;
+    let classifier_template = natives_map.get(current_os)?;
+    let arch = if cfg!(target_arch = "x86_64") {
+        "64"
+    } else {
+        "32"
+    };
+    let classifier = classifier_template.replace("${arch}", arch);
+    let classifiers = &lib.downloads.as_ref()?.classifiers.as_ref()?;
+    classifiers.get(&classifier)
+}
+
+pub async fn read_asset_index(path: &Path) -> Result<AssetIndexContent> {
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .with_context(|| format!("Не удалось прочитать индекс ресурсов: {:?}", path))?;
+    serde_json::from_str(&content).context("Не удалось разобрать индекс ресурсов")
+}
 
 pub fn collect_natives_to_extract(
     manifest: &VersionDetailsManifest,
@@ -47,26 +101,11 @@ pub fn collect_natives_to_extract(
             continue;
         }
 
-        if let Some(natives_map) = &lib.natives {
-            if let Some(classifier_template) = natives_map.get(current_os) {
-                let arch = if cfg!(target_arch = "x86_64") {
-                    "64"
-                } else {
-                    "32"
-                };
-                let classifier = classifier_template.replace("${arch}", arch);
-
-                if let Some(downloads) = &lib.downloads {
-                    if let Some(classifiers) = &downloads.classifiers {
-                        if let Some(native_artifact) = classifiers.get(&classifier) {
-                            natives_to_extract.push((
-                                PathBuf::from("libraries").join(&native_artifact.path),
-                                lib.extract.as_ref().and_then(|e| e.exclude.clone()),
-                            ));
-                        }
-                    }
-                }
-            }
+        if let Some(native_artifact) = native_artifact_for_os(lib, current_os) {
+            natives_to_extract.push((
+                PathBuf::from("libraries").join(&native_artifact.path),
+                lib.extract.as_ref().and_then(|e| e.exclude.clone()),
+            ));
         }
     }
 
@@ -240,9 +279,7 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
     false
 }
 
-pub fn collect_client_jar_target(
-    manifest: &VersionDetailsManifest,
-) -> IntegrityTarget {
+pub fn collect_client_jar_target(manifest: &VersionDetailsManifest) -> IntegrityTarget {
     IntegrityTarget {
         rel_path: PathBuf::from(format!("{}.jar", manifest.id)),
         hash: manifest.downloads.client.sha1.clone(),
@@ -251,9 +288,7 @@ pub fn collect_client_jar_target(
     }
 }
 
-pub fn collect_library_targets(
-    manifest: &VersionDetailsManifest,
-) -> Vec<IntegrityTarget> {
+pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Vec<IntegrityTarget> {
     let current_os = get_current_os();
     let mut targets = Vec::new();
     let mut queued: HashSet<PathBuf> = HashSet::new();
@@ -281,29 +316,16 @@ pub fn collect_library_targets(
             }
         }
 
-        if let Some(natives_map) = &lib.natives {
-            if let Some(classifier_template) = natives_map.get(current_os) {
-                let arch = if cfg!(target_arch = "x86_64") { "64" } else { "32" };
-                let classifier = classifier_template.replace("${arch}", arch);
-                if let Some(downloads) = &lib.downloads {
-                    if let Some(classifiers) = &downloads.classifiers {
-                        if let Some(native_artifact) = classifiers.get(&classifier) {
-                            if !native_artifact.sha1.is_empty() {
-                                let rel_path = PathBuf::from(format!(
-                                    "libraries/{}",
-                                    native_artifact.path
-                                ));
-                                if queued.insert(rel_path.clone()) {
-                                    targets.push(IntegrityTarget {
-                                        rel_path,
-                                        hash: native_artifact.sha1.clone(),
-                                        hash_kind: HashKind::Sha1,
-                                        download: TargetDownload::Url(native_artifact.url.clone()),
-                                    });
-                                }
-                            }
-                        }
-                    }
+        if let Some(native_artifact) = native_artifact_for_os(lib, current_os) {
+            if !native_artifact.sha1.is_empty() {
+                let rel_path = PathBuf::from(format!("libraries/{}", native_artifact.path));
+                if queued.insert(rel_path.clone()) {
+                    targets.push(IntegrityTarget {
+                        rel_path,
+                        hash: native_artifact.sha1.clone(),
+                        hash_kind: HashKind::Sha1,
+                        download: TargetDownload::Url(native_artifact.url.clone()),
+                    });
                 }
             }
         }
@@ -314,10 +336,7 @@ pub fn collect_library_targets(
 
 pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> IntegrityTarget {
     IntegrityTarget {
-        rel_path: PathBuf::from(format!(
-            "assets/indexes/{}.json",
-            manifest.asset_index.id
-        )),
+        rel_path: PathBuf::from(format!("assets/indexes/{}.json", manifest.asset_index.id)),
         hash: manifest.asset_index.sha1.clone(),
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(manifest.asset_index.url.clone()),
@@ -329,10 +348,7 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTa
     for asset in asset_index.objects.values() {
         let hash_prefix = asset.hash[..2].to_string();
         targets.push(IntegrityTarget {
-            rel_path: PathBuf::from(format!(
-                "assets/objects/{}/{}",
-                hash_prefix, asset.hash
-            )),
+            rel_path: PathBuf::from(format!("assets/objects/{}/{}", hash_prefix, asset.hash)),
             hash: asset.hash.clone(),
             hash_kind: HashKind::Sha1,
             download: TargetDownload::Url(format!(

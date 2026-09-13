@@ -29,7 +29,7 @@ const emit = defineEmits<{
       <Input
           :model-value="username"
           @update:model-value="emit('update:username', $event)"
-          :options="{ placeholder: usernamePlaceholder ?? 'Никнейм', list: usernameList }"
+          :options="{ placeholder: usernamePlaceholder ?? 'Никнейм', list: usernameList ?? [] }"
       />
     </div>
 
@@ -64,6 +64,7 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .auth-form {
   width: 100%;
   display: flex;
@@ -77,14 +78,7 @@ const emit = defineEmits<{
   }
 
   &__error {
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
-    padding: var(--space-12);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    border-radius: var(--radius-badge);
-    word-break: break-word;
+    @include mixins.error-box;
   }
 
   &__back-btn {

@@ -58,7 +58,6 @@ pub struct LauncherConfig {
     #[serde(default)]
     pub project_names: Vec<String>,
 
-
     #[serde(default)]
     pub current_project: Option<String>,
 
@@ -173,6 +172,12 @@ impl LauncherConfig {
         self.update_resolved_path();
     }
 
+    #[cfg(test)]
+    pub(crate) fn override_resolved_launcher_path_for_tests(path: &Path) {
+        let cache = RESOLVED_LAUNCHER_PATH.get_or_init(|| RwLock::new(path.to_path_buf()));
+        *cache.write().unwrap_or_else(|e| e.into_inner()) = path.to_path_buf();
+    }
+
     pub fn save(&self) -> Result<()> {
         let path = Self::config_file_path()?;
         let content = self.serialize_for_save()?;
@@ -212,7 +217,6 @@ impl LauncherConfig {
         self.project_names.iter().any(|p| p == project)
     }
 
-
     pub fn add_project(&mut self, project: &str) {
         if !self.has_project(project) {
             self.project_names.push(project.to_string());
@@ -223,9 +227,9 @@ impl LauncherConfig {
 
 fn write_config_atomic(path: &Path, content: &[u8]) -> Result<()> {
     let tmp = path.with_extension("json.part");
-    fs::write(&tmp, content)
-        .with_context(|| format!("Не удалось записать файл во {:?}", tmp))?;
-    fs::rename(&tmp, path).with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, path))?;
+    fs::write(&tmp, content).with_context(|| format!("Не удалось записать файл во {:?}", tmp))?;
+    fs::rename(&tmp, path)
+        .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, path))?;
     Ok(())
 }
 
@@ -243,8 +247,8 @@ struct LegacyAuthProjectConfig {
 }
 
 fn migrate_flattened_projects(config: &mut LauncherConfig, content: &str) -> Result<bool> {
-    let raw: LegacyLauncherConfig = serde_json::from_str(content)
-        .context("Неверный формат конфигурации")?;
+    let raw: LegacyLauncherConfig =
+        serde_json::from_str(content).context("Неверный формат конфигурации")?;
 
     let mut migrated = false;
     for (key, value) in raw.rest {
@@ -258,11 +262,7 @@ fn migrate_flattened_projects(config: &mut LauncherConfig, content: &str) -> Res
         if project_config.logins.is_empty() {
             continue;
         }
-        config
-            .projects
-            .entry(key)
-            .or_default()
-            .logins = project_config.logins;
+        config.projects.entry(key).or_default().logins = project_config.logins;
         migrated = true;
     }
     Ok(migrated)
@@ -303,8 +303,7 @@ mod tests {
             "projectNames": ["Cordelia"],
             "Cordelia": { "logins": [{ "username": "player" }] }
         }"#;
-        let mut config: LauncherConfig =
-            serde_json::from_str(legacy).expect("разбор старого JSON");
+        let mut config: LauncherConfig = serde_json::from_str(legacy).expect("разбор старого JSON");
 
         assert!(config.projects.is_empty());
         assert!(migrate_flattened_projects(&mut config, legacy).expect("миграция"));
@@ -326,8 +325,7 @@ mod tests {
             "currentProject": "Cordelia",
             "projectNames": ["Cordelia"]
         }"#;
-        let mut config: LauncherConfig =
-            serde_json::from_str(legacy).expect("разбор старого JSON");
+        let mut config: LauncherConfig = serde_json::from_str(legacy).expect("разбор старого JSON");
 
         assert!(!migrate_flattened_projects(&mut config, legacy).expect("миграция"));
         assert!(config.projects.is_empty());

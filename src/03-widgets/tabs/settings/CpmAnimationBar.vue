@@ -91,14 +91,13 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .cpm-anim-bar {
+  @include mixins.tool-panel;
+
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-4);
-  background: var(--surface-subtle);
-  box-shadow: var(--elevation-inset);
-  border-radius: var(--radius-card);
 
   &__select {
     flex: 1;
@@ -113,34 +112,9 @@ const emit = defineEmits<{
   }
 
   &__btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--control-height-sm);
-    height: var(--control-height-sm);
+    @include mixins.tool-button;
+
     flex-shrink: 0;
-    border: none;
-    border-radius: var(--radius-button);
-    background: transparent;
-    color: var(--login-text-secondary);
-    cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-
-    &:hover:not(:disabled) {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
-    }
-
-    &:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    &--active {
-      background: var(--accent-active-bg);
-      color: var(--accent-text);
-      box-shadow: var(--elevation-inset);
-    }
   }
 
   &__speed {

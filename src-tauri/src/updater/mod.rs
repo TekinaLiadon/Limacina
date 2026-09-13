@@ -1,13 +1,12 @@
 pub mod version;
 
 pub use version::{
-    check_for_update, get_launcher_versions, platform_sha256, retain_current_platform, UpdateInfo,
-    UpdateVersions,
+    check_for_update, check_for_update_with_timeout, get_launcher_versions, is_timeout_error,
+    platform_sha256, retain_current_platform, UpdateInfo, UpdateVersions,
 };
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
-
 
 use crate::utils::env_info::{get_arch, get_current_os};
 use crate::utils::zip::extract_zip;
@@ -252,9 +251,13 @@ pub fn cleanup_old_binaries() {
                 .to_string_lossy()
         ));
         if staged_path.exists() {
-            match std::fs::remove_file(&staged_path).context("Не удалось удалить незавершённое обновление")
+            match std::fs::remove_file(&staged_path)
+                .context("Не удалось удалить незавершённое обновление")
             {
-                Ok(()) => log_info!("Удалён незавершённый бинарник обновления: {:?}", staged_path),
+                Ok(()) => log_info!(
+                    "Удалён незавершённый бинарник обновления: {:?}",
+                    staged_path
+                ),
                 Err(e) => log_err!("{:?}", e),
             }
         }

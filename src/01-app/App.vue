@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import Preloader from '@/01-app/preloader/Preloader.vue'
 import { PushNotification, ConfirmPopup, Dropdown } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications } from '@/04-features'
+import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useCpmProjectOpen } from '@/04-features'
 import { Sidebar } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
@@ -23,6 +23,7 @@ const { startLaunchStepsStream } = useLaunchStepsStream()
 void startLaunchStepsStream()
 const { startSystemNotifications } = useSystemNotifications()
 void startSystemNotifications()
+useCpmProjectOpen()
 
 interface Tab {
   key: TabKey
@@ -154,6 +155,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
 <style lang="scss">
 @use '@/01-app/assets/main.scss';
 @use '@/01-app/assets/breakpoints';
+@use '@/01-app/assets/mixins';
 
 .app {
   height: 100%;
@@ -211,12 +213,8 @@ watch(isDebugTabVisible, (visible: boolean): void => {
   }
 
   &__theme-switch {
-    display: flex;
-    gap: var(--space-4);
-    padding: var(--space-4);
-    border-radius: var(--radius-pill);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
+    @include mixins.segmented;
+
     flex-shrink: 0;
   }
 
@@ -238,9 +236,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     }
 
     &--active {
-      background: var(--surface-active);
-      box-shadow: var(--elevation-inset);
-      color: var(--login-text-primary);
+      @include mixins.segmented-active;
     }
 
     &:disabled {

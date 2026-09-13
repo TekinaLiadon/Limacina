@@ -37,7 +37,7 @@ export interface AuthUserData extends LoginForm {
 
 export interface UpdateInfo {
   version: string
-  platforms: UpdatePlatform[]
+  availablePlatforms: UpdatePlatform[]
 }
 
 export interface UpdatePlatform {
@@ -47,12 +47,12 @@ export interface UpdatePlatform {
 
 export interface UpdateVersionInfo {
   version: string
-  platforms: UpdatePlatform[]
+  availablePlatforms: UpdatePlatform[]
 }
 
 export interface UpdateVersions {
   version: string
-  platforms: UpdatePlatform[]
+  availablePlatforms: UpdatePlatform[]
   versions: UpdateVersionInfo[]
 }
 

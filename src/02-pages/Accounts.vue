@@ -20,6 +20,7 @@ const {
   activeProgress,
   loginError,
   sessionUsername,
+  isCancelPending,
   handleLaunch,
   showLoginForm,
   goToAccounts,
@@ -55,6 +56,7 @@ const {
       :progress="activeProgress"
       :steps="launchSteps"
       :error="loginError"
+      :is-cancel-pending="isCancelPending"
       @go-to-accounts="goToAccounts"
     />
 

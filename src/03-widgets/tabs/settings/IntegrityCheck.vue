@@ -21,7 +21,7 @@ const hasErrors = computed((): boolean => props.report !== null && props.report.
 const isClean = computed((): boolean => props.report !== null && props.report.failed.length === 0)
 
 const resultText = computed((): string => {
-  const report = props.report
+  const {report} = props
   if (report === null) return ''
   const parts: string[] = [`проверено: ${report.total}`]
   if (report.broken > 0) parts.push(`повреждено: ${report.broken}`)
@@ -95,24 +95,9 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .integrity-check {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-12);
-
-  &__text {
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    color: var(--login-text-secondary);
-    text-align: left;
-  }
-
-  &__btn {
-    min-height: var(--control-height);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+  @include mixins.settings-row-body;
 }
 
 .integrity-popup-overlay {
@@ -177,14 +162,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
   }
 
   &__error {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
-    word-break: break-word;
+    @include mixins.error-box;
   }
 
   &__failed {

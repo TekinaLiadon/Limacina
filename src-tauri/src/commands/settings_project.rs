@@ -2,11 +2,11 @@ use anyhow::{bail, Context, Result};
 use tokio::sync::Mutex;
 
 use crate::init::init_project_config;
+use crate::log_info;
 use crate::state::config::load_config;
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::env_info::launcher_path;
 use crate::utils::tauri_err::CommandResult;
-use crate::log_info;
 
 #[tauri::command]
 pub async fn save_settings_project(

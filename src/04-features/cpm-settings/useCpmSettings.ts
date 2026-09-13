@@ -1,8 +1,10 @@
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
 import { selectFile } from '@/06-shared'
-import { cpmProjectToBase64 } from '@/04-features'
+import { useNotificationStore } from '@/05-entities'
+import { readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
+import { cpmProjectToBase64, cpmProjectToBytes } from '@/04-features'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
-import { parseCpmProjectFile } from './cpmProjectParser'
+import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
 import type { CPMChild, CPMData, CPMVec3 } from '@/05-entities/core/types'
 
 export interface CpmLayer {
@@ -13,6 +15,12 @@ export interface CpmLayer {
 }
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
+
+const pendingOpenPath = ref<string | null>(null)
+
+export function setPendingCpmProjectPath(path: string): void {
+  pendingOpenPath.value = path
+}
 
 function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolean, result: CpmLayer[]): void {
   if (!children) return
@@ -31,10 +39,15 @@ function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolea
 
 export function useCpmSettings() {
   const content = useModelUserContent()
+  const notification = useNotificationStore()
 
   const cpmData = ref<CPMData | null>(null)
   const cpmFileBytes = ref<ArrayBuffer | null>(null)
+  const cpmFileName = ref<string>('')
+  const isSaving = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
+
+  const modelName = computed((): string => cpmFileName.value.trim() || 'Модель')
 
   const allLayers = computed((): CpmLayer[] => {
     if (!cpmData.value) return []
@@ -57,6 +70,18 @@ export function useCpmSettings() {
       .filter((storeId): storeId is number => storeId !== null),
   )
 
+  function applyCpmProject(project: CpmProject, bytes: ArrayBuffer, name: string): void {
+    const textureUrl = URL.createObjectURL(project.textureBlob)
+    if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
+    cpmData.value = {
+      config: project.config,
+      textureUrl,
+      animations: project.animations,
+    }
+    cpmFileBytes.value = bytes
+    cpmFileName.value = name
+  }
+
   function selectCpmFile(): void {
     content.errorMessage.value = ''
 
@@ -67,18 +92,10 @@ export function useCpmSettings() {
       onError: (msg: string) => {
         content.errorMessage.value = msg
       },
-      onLoad: async (_file: File, result: string | ArrayBuffer) => {
+      onLoad: async (file: File, result: string | ArrayBuffer) => {
         try {
           const project = await parseCpmProjectFile(result as ArrayBuffer)
-          const textureUrl = URL.createObjectURL(project.textureBlob)
-
-          if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
-          cpmData.value = {
-            config: project.config,
-            textureUrl,
-            animations: project.animations,
-          }
-          cpmFileBytes.value = result as ArrayBuffer
+          applyCpmProject(project, result as ArrayBuffer, file.name.replace(/\.cpmproject$/i, ''))
         } catch (e) {
           content.errorMessage.value = e instanceof Error ? e.message : 'Не удалось распаковать файл'
         }
@@ -86,20 +103,79 @@ export function useCpmSettings() {
     })
   }
 
+  const loadFromPath = async (path: string): Promise<void> => {
+    content.errorMessage.value = ''
+    try {
+      const bytes = await readCpmProjectFile(path)
+      const project = await parseCpmProjectFile(bytes)
+      const fileName = path.split(/[\\/]/).pop() ?? path
+      applyCpmProject(project, bytes, fileName.replace(/\.cpmproject$/i, ''))
+    } catch (e: unknown) {
+      content.errorMessage.value = e instanceof Error ? e.message : 'Не удалось открыть файл модели'
+    }
+  }
+
+  watch(pendingOpenPath, (path: string | null): void => {
+    if (!path) return
+    pendingOpenPath.value = null
+    void loadFromPath(path)
+  }, { immediate: true })
+
   function resetCpm(): void {
     if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
 
     cpmData.value = null
     cpmFileBytes.value = null
+    cpmFileName.value = ''
     content.errorMessage.value = ''
   }
 
   const handleUploadModel = async (): Promise<void> => {
-    if (!cpmFileBytes.value) return
+    if (!cpmFileBytes.value || !cpmData.value) return
 
     const base64 = await cpmProjectToBase64(cpmFileBytes.value)
-    await content.handleUpload(base64)
+    const item = await content.handleUpload(base64)
+    if (!item) return
+
+    try {
+      await savePlayerModel({
+        name: modelName.value,
+        url: item.url,
+        modelId: item.id ?? null,
+        slim: cpmData.value.config.skinType === 'slim',
+        data: null,
+      })
+      notification.show('Модель добавлена в игру')
+    } catch (e: unknown) {
+      content.errorMessage.value = String(e)
+    }
   }
+
+  const handleSaveModelOffline = async (): Promise<void> => {
+    if (!cpmFileBytes.value || !cpmData.value) return
+
+    isSaving.value = true
+    content.errorMessage.value = ''
+    try {
+      const bytes = await cpmProjectToBytes(cpmFileBytes.value)
+      await savePlayerModel({
+        name: modelName.value,
+        url: null,
+        modelId: null,
+        slim: cpmData.value.config.skinType === 'slim',
+        data: Array.from(bytes),
+      })
+      notification.show('Модель сохранена в игру')
+    } catch (e: unknown) {
+      content.errorMessage.value = String(e)
+    } finally {
+      isSaving.value = false
+    }
+  }
+
+  onScopeDispose((): void => {
+    resetCpm()
+  })
 
   return {
     cpmData,
@@ -108,11 +184,14 @@ export function useCpmSettings() {
     displayLayers,
     activeLayerIds,
     isUploading: content.isUploading,
+    isSaving,
     isOffline: content.isOffline,
     uploadedModels: content.items,
     selectCpmFile,
     resetCpm,
+    loadFromPath,
     handleUploadModel,
+    handleSaveModelOffline,
     handleDeleteModel: content.handleDelete,
     handleCopyUrl: content.handleCopyUrl,
   }

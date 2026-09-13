@@ -93,6 +93,7 @@ const modes: ModeOption[] = [
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 .theme-selector {
   display: flex;
   flex-direction: column;
@@ -106,12 +107,7 @@ const modes: ModeOption[] = [
   }
 
   &__modes {
-    display: flex;
-    gap: var(--space-4);
-    padding: var(--space-4);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-pill);
+    @include mixins.segmented;
   }
 
   &__mode {
@@ -131,9 +127,7 @@ const modes: ModeOption[] = [
     }
 
     &--active {
-      background: var(--surface-active);
-      box-shadow: var(--elevation-inset);
-      color: var(--login-text-primary);
+      @include mixins.segmented-active;
     }
 
     &:disabled {

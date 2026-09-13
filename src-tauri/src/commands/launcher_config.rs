@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::Serialize;
+use std::path::PathBuf;
 use sysinfo::System;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -20,9 +20,6 @@ pub struct AppInitData {
     pub version: String,
     pub total_memory_mb: u64,
 }
-
-
-
 
 pub(crate) async fn update_launcher_config(
     state: &State<'_, Mutex<GlobalState>>,
@@ -49,9 +46,10 @@ pub(crate) async fn update_launcher_config(
 
     let content_clone = content.clone();
     let path_clone = path.clone();
-    blocking("Не удалось выполнить запись конфига", move || {
-        LauncherConfig::write_serialized(&path_clone, &content_clone)
-    })
+    blocking(
+        "Не удалось выполнить запись конфига",
+        move || LauncherConfig::write_serialized(&path_clone, &content_clone),
+    )
     .await??;
 
     config.on_saved_update_path();
@@ -59,9 +57,7 @@ pub(crate) async fn update_launcher_config(
 }
 
 #[tauri::command]
-pub async fn get_app_init_data(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<AppInitData> {
+pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandResult<AppInitData> {
     let mut config = blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
         .await?
         .ok()
@@ -72,12 +68,16 @@ pub async fn get_app_init_data(
             let server_url = env!("LAUNCHER_SERVER_URL");
             let url = format!("{}/v1/launcher/config", server_url);
             if let Ok(response) = http_client().get(&url).send().await {
-                if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await {
+                if let Ok(server_config) = response.json::<crate::state::dto::ProjectConfig>().await
+                {
                     if !server_config.project_name.is_empty() {
                         cfg.project_names = vec![server_config.project_name];
                         let cfg_clone = cfg.clone();
-                        let _ = blocking("Не удалось выполнить запись конфига", move || cfg_clone.save())
-                            .await?;
+                        let _ = blocking(
+                            "Не удалось выполнить запись конфига",
+                            move || cfg_clone.save(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -125,14 +125,23 @@ pub async fn save_launcher_config(
     .await?;
 
     let base = PathBuf::from(&config.launcher_path);
-    let dirs_to_create = [base.clone(), base.join("project"), base.join("manifest"), base.join("java")];
-    blocking("Не удалось выполнить создание папок", move || {
-        for dir in dirs_to_create {
-            std::fs::create_dir_all(&dir)
-                .map_err(|e| anyhow::anyhow!("Не удалось создать папку \"{}\": {}", dir.display(), e))?;
-        }
-        Ok::<(), anyhow::Error>(())
-    })
+    let dirs_to_create = [
+        base.clone(),
+        base.join("project"),
+        base.join("manifest"),
+        base.join("java"),
+    ];
+    blocking(
+        "Не удалось выполнить создание папок",
+        move || {
+            for dir in dirs_to_create {
+                std::fs::create_dir_all(&dir).map_err(|e| {
+                    anyhow::anyhow!("Не удалось создать папку \"{}\": {}", dir.display(), e)
+                })?;
+            }
+            Ok::<(), anyhow::Error>(())
+        },
+    )
     .await??;
 
     Ok(config)

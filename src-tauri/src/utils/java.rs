@@ -9,14 +9,18 @@ pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
     }
 
     if let Ok(java_home) = env::var("JAVA_HOME") {
-        let java_bin = if cfg!(windows) { "java.exe" } else { "java" };
+        let java_bin = if cfg!(target_os = "windows") {
+            "java.exe"
+        } else {
+            "java"
+        };
         let java_path = PathBuf::from(java_home).join("bin").join(java_bin);
         if java_path.exists() {
             return Ok(java_path);
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(not(target_os = "windows"))]
     if let Ok(output) = Command::new("which").arg("java").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -26,7 +30,7 @@ pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     if let Ok(output) = Command::new("where").arg("java").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout)

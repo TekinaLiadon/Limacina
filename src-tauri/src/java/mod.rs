@@ -1,6 +1,6 @@
 pub mod alternative_java;
 
-use anyhow::{bail,Result};
+use anyhow::{bail, Result};
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
@@ -14,7 +14,9 @@ use crate::{
     state::dto::ProjectConfig,
     step_try,
     utils::{
-        compare_versions, download_file::download_file, env_info::{get_arch, get_current_os, launcher_path},
+        compare_versions,
+        download_file::download_file,
+        env_info::{get_arch, get_current_os, launcher_path},
         step_events::StepHandle,
     },
 };
@@ -29,18 +31,28 @@ pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
 
     let check_step = StepHandle::start("java.check", "Проверка Java");
     if let Ok(executable_path) = find_java_executable(&java_dir) {
-        log_info!("[java] Java {} уже установлена: {:?}", java_version, executable_path);
+        log_info!(
+            "[java] Java {} уже установлена: {:?}",
+            java_version,
+            executable_path
+        );
         check_step.finish(true);
         return Ok(executable_path);
     }
     check_step.finish(false);
 
     let download_step = StepHandle::start("java.download", "Скачивание Java");
-    let archive_path = step_try!(download_step, download_archive(&java_dir, &java_version).await);
+    let archive_path = step_try!(
+        download_step,
+        download_archive(&java_dir, &java_version).await
+    );
     download_step.finish(false);
 
     let extract_step = StepHandle::start("java.extract", "Распаковка Java");
-    step_try!(extract_step, working_archive(&java_dir, &archive_path, "eclipse").await);
+    step_try!(
+        extract_step,
+        working_archive(&java_dir, &archive_path, "eclipse").await
+    );
     extract_step.finish(false);
 
     let executable_path = find_java_executable(&java_dir)?;
@@ -82,9 +94,10 @@ pub(crate) fn get_java_version(mc_version: &str) -> String {
 }
 
 async fn manifest_java_major(mc_version: &str) -> Option<u32> {
-    let index = get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
-        .await
-        .ok()?;
+    let index =
+        get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
+            .await
+            .ok()?;
     let versions = create_manifest_versions(index.versions).ok()?;
     let manifest = get_manifest_version(mc_version, versions).await.ok()?;
     manifest.java_version.map(|j| j.major_version)
@@ -93,7 +106,11 @@ async fn manifest_java_major(mc_version: &str) -> Option<u32> {
 pub(crate) async fn resolve_java_version(mc_version: &str) -> String {
     match manifest_java_major(mc_version).await {
         Some(major) => {
-            log_info!("[java] Для Minecraft {} по манифесту требуется Java {}", mc_version, major);
+            log_info!(
+                "[java] Для Minecraft {} по манифесту требуется Java {}",
+                mc_version,
+                major
+            );
             major.to_string()
         }
         None => {
@@ -108,7 +125,11 @@ pub(crate) async fn resolve_java_version(mc_version: &str) -> String {
     }
 }
 
-pub(crate) async fn working_archive(java_path: &PathBuf, archive_path: &PathBuf, vendor: &str) -> Result<()> {
+pub(crate) async fn working_archive(
+    java_path: &PathBuf,
+    archive_path: &PathBuf,
+    vendor: &str,
+) -> Result<()> {
     let java_path_extract = java_path.clone();
     let archive_path_extract = archive_path.clone();
     task::spawn_blocking(move || extract_archive(&archive_path_extract, &java_path_extract))

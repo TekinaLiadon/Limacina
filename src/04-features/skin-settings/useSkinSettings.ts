@@ -1,37 +1,33 @@
 import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
 import { selectFile, reportError } from '@/06-shared'
-import { getProfileSkin } from '@/06-shared/api'
+import {
+  getProfileSkin, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
+} from '@/06-shared/api'
+import { useNotificationStore } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
 import type { UserContentItem } from '@/05-entities/core/types'
 import type { SkinModelMode } from '@/03-widgets/types'
 
-function decodeImage(dataUrl: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve()
-    img.onerror = () => reject(new Error('Не удалось декодировать изображение'))
-    img.src = dataUrl
-  })
-}
-
-function loadBlobUrl(bytes: Uint8Array): Promise<string> {
-  const dataUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }))
-  return decodeImage(dataUrl).then(
-    () => dataUrl,
-    (e) => {
-      URL.revokeObjectURL(dataUrl)
-      throw e
-    },
-  )
+async function loadBlobUrl(bytes: Uint8Array): Promise<string> {
+  const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+  try {
+    const bitmap = await createImageBitmap(blob)
+    bitmap.close()
+  } catch {
+    throw new Error('Не удалось декодировать изображение')
+  }
+  return URL.createObjectURL(blob)
 }
 
 export function useSkinSettings() {
   const content = useSkinUserContent()
+  const notification = useNotificationStore()
 
   const skinUrl = ref<string>('')
   const skinFileBytes = ref<Uint8Array>(new Uint8Array())
   const isSkinLoading = ref<boolean>(false)
   const modelMode = ref<SkinModelMode>('classic')
+  let restoringOfflineModel = false
 
   const hasSkin = computed((): boolean => skinUrl.value !== '')
 
@@ -56,6 +52,22 @@ export function useSkinSettings() {
     skinUrl.value = url
   }
 
+  const persistOfflineSkin = async (notify: boolean): Promise<void> => {
+    if (!content.isOffline.value || skinFileBytes.value.length === 0) return
+    try {
+      await saveOfflineSkin(skinFileBytes.value, modelMode.value)
+      if (notify) notification.show('Скин сохранён')
+    } catch (e: unknown) {
+      content.errorMessage.value = 'Не удалось сохранить скин на диск'
+      reportError('Не удалось сохранить локальный скин', e)
+    }
+  }
+
+  watch(modelMode, () => {
+    if (restoringOfflineModel) return
+    void persistOfflineSkin(false)
+  })
+
   const loadCurrentSkin = async (): Promise<void> => {
     const current = activeSkin.value
     if (!current || skinUrl.value !== '' || skinFileBytes.value.length > 0) return
@@ -65,6 +77,26 @@ export function useSkinSettings() {
       setSkinUrl(await loadBlobUrl(bytes))
     } catch (e: unknown) {
       reportError('Не удалось загрузить текущий скин', e)
+    }
+  }
+
+  const loadOfflineSkin = async (): Promise<void> => {
+    let dataUrl: string | null = null
+    try {
+      const bytes = await getOfflineSkin()
+      if (bytes.length === 0) return
+      dataUrl = await loadBlobUrl(bytes)
+      skinFileBytes.value = bytes
+      restoringOfflineModel = true
+      const model = await getOfflineSkinModel()
+      if (model === 'slim' || model === 'classic') modelMode.value = model
+      restoringOfflineModel = false
+      setSkinUrl(dataUrl)
+      dataUrl = null
+    } catch (e: unknown) {
+      restoringOfflineModel = false
+      if (dataUrl) URL.revokeObjectURL(dataUrl)
+      reportError('Не удалось загрузить локальный скин', e)
     }
   }
 
@@ -84,6 +116,9 @@ export function useSkinSettings() {
           const dataUrl = await loadBlobUrl(bytes)
           skinFileBytes.value = bytes
           setSkinUrl(dataUrl)
+          if (content.isOffline.value) {
+            await persistOfflineSkin(true)
+          }
         } catch {
           content.errorMessage.value = 'Не удалось загрузить изображение'
         }
@@ -96,14 +131,21 @@ export function useSkinSettings() {
     await content.handleUpload({ fileData: skinFileBytes.value, model: modelMode.value })
   }
 
-  const resetSkin = (): void => {
+  const resetSkin = async (): Promise<void> => {
     resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
     content.errorMessage.value = ''
+    if (content.isOffline.value) {
+      try {
+        await deleteOfflineSkin()
+      } catch (e: unknown) {
+        reportError('Не удалось удалить локальный скин', e)
+      }
+    }
   }
 
   const reloadSkinPreview = async (): Promise<void> => {
-    resetSkin()
+    await resetSkin()
     await loadCurrentSkin()
   }
 
@@ -121,7 +163,11 @@ export function useSkinSettings() {
     isSkinLoading.value = true
     try {
       await content.loadItems()
-      await loadCurrentSkin()
+      if (content.isOffline.value) {
+        await loadOfflineSkin()
+      } else {
+        await loadCurrentSkin()
+      }
     } finally {
       isSkinLoading.value = false
     }

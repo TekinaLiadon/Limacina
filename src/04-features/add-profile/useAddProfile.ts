@@ -49,8 +49,8 @@ export function useAddProfile() {
   const isLoadingMcVersions = ref<boolean>(false)
   const isLoadingLoaderVersions = ref<boolean>(false)
 
-  let mcVersionsAbort: AbortController | null = null
-  let loaderVersionsAbort: AbortController | null = null
+  let mcVersionsGeneration = 0
+  let loaderVersionsGeneration = 0
 
   const loaderOptions = computed((): DropdownOption[] => LOADER_OPTIONS)
 
@@ -74,26 +74,24 @@ export function useAddProfile() {
   })
 
   const loadMcVersions = async (): Promise<void> => {
-    mcVersionsAbort?.abort()
-    const controller = new AbortController()
-    mcVersionsAbort = controller
+    const generation = ++mcVersionsGeneration
 
     isLoadingMcVersions.value = true
     errorMessage.value = ''
 
     try {
       const versions = await getMinecraftVersions(offlineForm.value.includeSnapshots)
-      if (controller.signal.aborted) return
+      if (generation !== mcVersionsGeneration) return
       mcVersions.value = versions
       if (!mcVersions.value.includes(offlineForm.value.mcVersion)) {
         offlineForm.value.mcVersion = mcVersions.value[0] ?? ''
       }
     } catch (e: unknown) {
-      if (controller.signal.aborted) return
+      if (generation !== mcVersionsGeneration) return
       errorMessage.value = String(e)
       mcVersions.value = []
     } finally {
-      if (!controller.signal.aborted) isLoadingMcVersions.value = false
+      if (generation === mcVersionsGeneration) isLoadingMcVersions.value = false
     }
   }
 
@@ -104,9 +102,7 @@ export function useAddProfile() {
       return
     }
 
-    loaderVersionsAbort?.abort()
-    const controller = new AbortController()
-    loaderVersionsAbort = controller
+    const generation = ++loaderVersionsGeneration
 
     isLoadingLoaderVersions.value = true
     errorMessage.value = ''
@@ -116,19 +112,19 @@ export function useAddProfile() {
         offlineForm.value.modLoader,
         offlineForm.value.mcVersion
       )
-      if (controller.signal.aborted) return
+      if (generation !== loaderVersionsGeneration) return
       loaderVersions.value = versions
       offlineForm.value.loaderVersion = loaderVersions.value[0] ?? ''
       if (loaderVersions.value.length === 0) {
         errorMessage.value = `Нет версий ${offlineForm.value.modLoader} для Minecraft ${offlineForm.value.mcVersion}`
       }
     } catch (e: unknown) {
-      if (controller.signal.aborted) return
+      if (generation !== loaderVersionsGeneration) return
       errorMessage.value = String(e)
       loaderVersions.value = []
       offlineForm.value.loaderVersion = ''
     } finally {
-      if (!controller.signal.aborted) isLoadingLoaderVersions.value = false
+      if (generation === loaderVersionsGeneration) isLoadingLoaderVersions.value = false
     }
   }
 

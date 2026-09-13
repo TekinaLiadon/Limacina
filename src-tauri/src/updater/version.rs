@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-
-use crate::utils::env_info::{get_arch, get_current_os};
-use crate::utils::compare_versions;
 use std::cmp::Ordering;
+use std::time::Duration;
+
+use crate::utils::compare_versions;
+use crate::utils::env_info::{get_arch, get_current_os};
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Platform {
@@ -38,12 +39,19 @@ fn arch_matches(server_arch: &str, local_arch: &str) -> bool {
 }
 
 pub async fn get_launcher_versions() -> Result<UpdateVersions> {
+    fetch_update_versions(None).await
+}
+
+async fn fetch_update_versions(timeout: Option<Duration>) -> Result<UpdateVersions> {
     let server_url = env!("LAUNCHER_SERVER_URL");
     let url = format!("{}/v1/launcher/update/version", server_url);
 
     let client = crate::utils::http::http_client();
-    let resp = client
-        .get(&url)
+    let mut request = client.get(&url);
+    if let Some(timeout) = timeout {
+        request = request.timeout(timeout);
+    }
+    let resp = request
         .send()
         .await
         .context("Не удалось подключиться к серверу обновлений")?
@@ -70,10 +78,21 @@ pub fn retain_current_platform(versions: &mut UpdateVersions) {
 }
 
 pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo>> {
-    let data = get_launcher_versions().await?;
+    let data = fetch_update_versions(None).await?;
+    Ok(evaluate_update(&data, current_version))
+}
 
+pub async fn check_for_update_with_timeout(
+    current_version: &str,
+    timeout: Duration,
+) -> Result<Option<UpdateInfo>> {
+    let data = fetch_update_versions(Some(timeout)).await?;
+    Ok(evaluate_update(&data, current_version))
+}
+
+fn evaluate_update(data: &UpdateVersions, current_version: &str) -> Option<UpdateInfo> {
     if compare_versions(&data.version, current_version) != Ordering::Greater {
-        return Ok(None);
+        return None;
     }
 
     let os = get_current_os();
@@ -85,17 +104,27 @@ pub async fn check_for_update(current_version: &str) -> Result<Option<UpdateInfo
     if !supported {
         crate::log_info!(
             "Обновление v{} доступно, но не поддерживает platform {}:{}",
-            data.version, os, arch
+            data.version,
+            os,
+            arch
         );
-        return Ok(None);
+        return None;
     }
 
     let sha256 = platform_sha256(&data.platforms, os, arch);
-    Ok(Some(UpdateInfo {
-        version: data.version,
-        platforms: data.platforms,
+    Some(UpdateInfo {
+        version: data.version.clone(),
+        platforms: data.platforms.clone(),
         sha256,
-    }))
+    })
+}
+
+pub fn is_timeout_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(|e| e.is_timeout())
+    })
 }
 
 pub fn platform_sha256(platforms: &[Platform], os: &str, arch: &str) -> Option<String> {
@@ -144,5 +173,35 @@ mod tests {
     fn sha256_empty_string_treated_as_missing() {
         let platforms = vec![platform("linux", "x86_64", Some("   "))];
         assert_eq!(platform_sha256(&platforms, "linux", "x86_64"), None);
+    }
+
+    fn update_versions(version: &str, platforms: Vec<Platform>) -> UpdateVersions {
+        UpdateVersions {
+            version: version.to_string(),
+            platforms,
+            versions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn evaluate_no_update_for_same_or_older_version() {
+        let data = update_versions("1.3.0", vec![platform("linux", "x86_64", None)]);
+        assert!(evaluate_update(&data, "1.3.0").is_none());
+        assert!(evaluate_update(&data, "1.3.1").is_none());
+    }
+
+    #[test]
+    fn evaluate_update_for_newer_supported_platform() {
+        let data = update_versions("1.4.0", vec![platform("linux", "x86_64", Some("hash"))]);
+        let info = evaluate_update(&data, "1.3.0").expect("update expected");
+        assert_eq!(info.version, "1.4.0");
+        assert_eq!(info.sha256.as_deref(), Some("hash"));
+        assert_eq!(info.platforms.len(), 1);
+    }
+
+    #[test]
+    fn evaluate_skips_update_without_supported_platform() {
+        let data = update_versions("1.4.0", vec![platform("windows", "x86_64", None)]);
+        assert!(evaluate_update(&data, "1.3.0").is_none());
     }
 }

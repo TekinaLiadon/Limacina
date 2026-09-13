@@ -33,9 +33,11 @@ mod tests {
 
     #[test]
     fn targets_map_maven_coordinates_to_rel_paths() {
-        let targets = library_targets(&[
-            lib("net.fabricmc:fabric-loader:0.16.9", "https://maven.fabricmc.net", "abc"),
-        ])
+        let targets = library_targets(&[lib(
+            "net.fabricmc:fabric-loader:0.16.9",
+            "https://maven.fabricmc.net",
+            "abc",
+        )])
         .expect("валидные библиотеки");
 
         assert_eq!(targets.len(), 1);

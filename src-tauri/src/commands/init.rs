@@ -11,11 +11,11 @@ pub async fn initialize_launcher(
     state: State<'_, Mutex<GlobalState>>,
     parent_path: String,
 ) -> CommandResult<LauncherConfig> {
-    let config =
-        crate::utils::blocking("Не удалось выполнить инициализацию лаунчера", move || {
-            init::init_launcher(&parent_path)
-        })
-        .await??;
+    let config = crate::utils::blocking(
+        "Не удалось выполнить инициализацию лаунчера",
+        move || init::init_launcher(&parent_path),
+    )
+    .await??;
 
     {
         let mut state = state.lock().await;
@@ -30,7 +30,9 @@ pub async fn initialize_project(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    let launcher_path = LauncherConfig::resolved_launcher_path().to_string_lossy().to_string();
+    let launcher_path = LauncherConfig::resolved_launcher_path()
+        .to_string_lossy()
+        .to_string();
 
     let config = init::init_project_config(&launcher_path, &project_name, None).await?;
 
@@ -43,9 +45,7 @@ pub async fn initialize_project(
 }
 
 #[tauri::command]
-pub async fn set_initialized(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<ProjectConfig> {
+pub async fn set_initialized(state: State<'_, Mutex<GlobalState>>) -> CommandResult<ProjectConfig> {
     let config = {
         let mut state = state.lock().await;
         state.project_config.initialized = true;

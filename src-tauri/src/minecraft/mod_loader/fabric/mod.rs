@@ -1,29 +1,23 @@
-pub mod structs;
 pub mod manifest;
+pub mod structs;
 
-use anyhow::Result;
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::path::PathBuf;
 
 use crate::{
     log_info,
     minecraft::{
-        structs::{GameConfig, ModLoader, VersionMod},
         manifest::get_manifest_index,
         mod_loader::{
             config::merge_classpath,
-            download::library_targets,
-            fabric::{structs::FabricManifest, manifest::transform_fabric_manifest},
+            fabric::{manifest::transform_fabric_manifest, structs::FabricManifest},
+            installer::install_loader_files,
+            manifest::loader_version_or_err,
         },
+        structs::{GameConfig, ModLoader, VersionMod},
     },
     state::dto::ProjectConfig,
-    step_try,
-    utils::{
-        env_info::launcher_path,
-        integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
-        step_events::StepHandle,
-    },
+    utils::{compare_versions, env_info::launcher_path, step_events::StepHandle},
 };
 
 const MOD_LOADER_NAME: &str = "fabric";
@@ -40,31 +34,32 @@ impl ModLoader for Fabric {
         let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric)?;
         Ok(manifest)
     }
-    async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
-        let versions_list = self.versions(state).await?;
-        let version = state
-            .loader_version
-            .as_deref()
-            .ok_or(anyhow!("Лоадер не выбран"))?;
+    async fn version_current(
+        &self,
+        state: &ProjectConfig,
+        versions: &[VersionMod],
+    ) -> Result<VersionMod> {
+        let version = loader_version_or_err(state)?;
 
-        if let Some(fabric_item) = versions_list.into_iter().find(|m| m.id == version) {
-            return Ok(fabric_item);
-        }
-        bail!("Версия не найдена")
+        versions
+            .iter()
+            .find(|m| m.id == version)
+            .cloned()
+            .ok_or_else(|| anyhow!("Версия не найдена"))
     }
-    async fn latest_version(&self, state: &ProjectConfig) -> Result<String> {
-        let versions_list = self.versions(state).await?;
-        versions_list
-            .into_iter()
-            .next()
-            .map(|v| v.id)
+    async fn latest_version(
+        &self,
+        _state: &ProjectConfig,
+        versions: &[VersionMod],
+    ) -> Result<String> {
+        versions
+            .iter()
+            .map(|v| v.id.clone())
+            .max_by(|a, b| compare_versions(a, b))
             .ok_or_else(|| anyhow!("Нет доступных версий Fabric"))
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        let target_version = state
-            .loader_version
-            .as_deref()
-            .ok_or(anyhow!("Лоадер не выбран"))?;
+        let target_version = loader_version_or_err(state)?;
         let version_info = manifest
             .iter()
             .find(|v| v.id == target_version)
@@ -72,25 +67,15 @@ impl ModLoader for Fabric {
 
         let step = StepHandle::start("loader", "Установка Fabric");
         let base_path = launcher_path(Some(&state.project_name))?;
-        let project_name = &state.project_name;
-
-        let mut targets = library_targets(&version_info.library)?;
-        targets.push(IntegrityTarget {
-            rel_path: PathBuf::from(format!("{}.jar", version_info.id)),
-            hash: String::new(),
-            hash_kind: HashKind::Sha1,
-            download: TargetDownload::Url(version_info.url.clone()),
-        });
-
-        step_try!(step, ensure_files(&step, &base_path, project_name, targets).await);
-
-        step_try!(step, record_installed_hash(
-            project_name,
+        install_loader_files(
+            step.clone(),
             &base_path,
-            &PathBuf::from(format!("{}.jar", version_info.id)),
+            &state.project_name,
+            &version_info.id,
+            &version_info.library,
+            &version_info.url,
         )
-        .await);
-
+        .await?;
         step.finish(false);
         Ok(())
     }
@@ -101,10 +86,7 @@ impl ModLoader for Fabric {
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath");
-        let target_version = state
-            .loader_version
-            .as_deref()
-            .ok_or(anyhow!("Лоадер не выбран"))?;
+        let target_version = loader_version_or_err(state)?;
         let classpath = merge_classpath(
             &state.project_name,
             target_version,
@@ -112,16 +94,6 @@ impl ModLoader for Fabric {
             &vanilla_config.classpath,
         )?;
 
-        let main_class = version.main_class.clone();
-        let game_dir = launcher_path(Some(&state.project_name))?;
-        let game_config = GameConfig {
-            java_path: vanilla_config.java_path,
-            jvm_args: vanilla_config.jvm_args,
-            game_args: vanilla_config.game_args,
-            classpath,
-            main_class,
-            game_dir,
-        };
-        Ok(game_config)
+        Ok(vanilla_config.with_loader(classpath, version.main_class.clone()))
     }
 }

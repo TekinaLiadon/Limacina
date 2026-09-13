@@ -105,8 +105,9 @@ function vecNear(v: { x: number; y: number; z: number } | undefined, base: numbe
 }
 
 function pngSize(png: Uint8Array): { w: number; h: number } {
-  const w = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19]
-  const h = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23]
+  const byte = (i: number): number => png[i] ?? 0
+  const w = (byte(16) << 24) | (byte(17) << 16) | (byte(18) << 8) | byte(19)
+  const h = (byte(20) << 24) | (byte(21) << 16) | (byte(22) << 8) | byte(23)
   return { w, h }
 }
 
@@ -132,7 +133,7 @@ function flatten(config: CPMConfig): FlatModel {
             pos: root.pos ?? { x: 0, y: 0, z: 0 },
             offset: { x: 0, y: 0, z: 0 },
             rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
-            parentId: PLAYER_PART_INDEX.custom_part,
+            parentId: PLAYER_PART_INDEX.custom_part ?? 0,
             id: fakeId,
             texSize: 0,
             u: 0,
@@ -170,17 +171,21 @@ function flatten(config: CPMConfig): FlatModel {
   return { cubes, elementIds }
 }
 
-export async function cpmProjectToBase64(data: ArrayBuffer): Promise<string> {
+export async function cpmProjectToBytes(data: ArrayBuffer): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(data)
   const configFile = zip.file('config.json')
   if (!configFile) throw new Error('ZIP не содержит config.json')
   const config: CPMConfig = JSON.parse(await configFile.async('string'))
   const skinFile = zip.file('skin.png')
   const skinPng = skinFile ? new Uint8Array(await skinFile.async('arraybuffer')) : null
-  return cpmConfigToBase64(config, skinPng)
+  return cpmConfigToBytes(config, skinPng)
 }
 
-export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null = null): string {
+export async function cpmProjectToBase64(data: ArrayBuffer): Promise<string> {
+  return bytesToBase64(await cpmProjectToBytes(data))
+}
+
+export function cpmConfigToBytes(config: CPMConfig, skinPng: Uint8Array | null = null): Uint8Array {
   const { cubes, elementIds } = flatten(config)
 
   const def = new CpmBinaryWriter()
@@ -375,12 +380,16 @@ export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null 
 
   const raw = w.toArray()
   let checksum = 0
-  for (let i = 1; i < raw.length; i++) checksum = (checksum + raw[i]) & 0xFFFF
+  for (let i = 1; i < raw.length; i++) checksum = (checksum + (raw[i] ?? 0)) & 0xFFFF
 
   const result = new Uint8Array(raw.length + 2)
   result.set(raw)
   result[raw.length] = (checksum >>> 8) & 0xFF
   result[raw.length + 1] = checksum & 0xFF
 
-  return bytesToBase64(result)
+  return result
+}
+
+export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null = null): string {
+  return bytesToBase64(cpmConfigToBytes(config, skinPng))
 }

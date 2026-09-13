@@ -11,14 +11,11 @@ use super::bandwidth;
 use super::hex;
 use super::http::http_client;
 
-
 fn part_path(dest: &Path) -> PathBuf {
     let mut name = dest.as_os_str().to_os_string();
     name.push(".part");
     PathBuf::from(name)
 }
-
-
 
 pub async fn write_atomic(dest: &Path, content: &[u8]) -> Result<()> {
     let tmp = part_path(dest);
@@ -131,8 +128,9 @@ pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) 
                 continue;
             }
             Err(e) => {
-                return Err(anyhow::Error::new(e)
-                    .context(format!("Некорректный кэш манифеста {:?}", dest)));
+                return Err(
+                    anyhow::Error::new(e).context(format!("Некорректный кэш манифеста {:?}", dest))
+                );
             }
         }
     }
@@ -150,7 +148,6 @@ pub async fn download_xml<T: DeserializeOwned>(url: &str) -> Result<T> {
     let xml_struct: T = from_str(&xml)?;
     Ok(xml_struct)
 }
-
 
 fn hash_file_blocking<D: md5::Digest>(path: &Path) -> Result<String> {
     let mut file =
@@ -170,7 +167,6 @@ fn hash_file_blocking<D: md5::Digest>(path: &Path) -> Result<String> {
 
     Ok(hex::digest_hex(hasher.finalize()))
 }
-
 
 pub async fn file_sha1(path: &Path) -> Result<String> {
     let path = path.to_path_buf();

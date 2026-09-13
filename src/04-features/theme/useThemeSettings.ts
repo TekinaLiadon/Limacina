@@ -1,6 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import { useSettingsStore, THEME_FAMILIES } from '@/05-entities'
-import type { ThemeFamily, ThemeMode, ThemePreview } from '@/05-entities'
+import { useSettingsStore, THEME_FAMILIES, type ThemeFamily, type ThemeMode, type ThemePreview } from '@/05-entities'
 import { useThemeSwitchState } from './useTheme'
 
 export function useThemeSettings(): {

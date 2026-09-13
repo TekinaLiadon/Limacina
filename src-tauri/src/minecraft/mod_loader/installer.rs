@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 use tokio::{fs, process::Command};
 
 use crate::{
-    log_err,
-    log_info,
+    log_err, log_info,
     minecraft::{
-        mod_loader::{download::library_targets, manifest::Manifest},
+        mod_loader::{
+            download::library_targets,
+            manifest::{loader_libraries, loader_version_or_err, Manifest},
+        },
         structs::{LibraryMod, VersionMod},
     },
     state::dto::ProjectConfig,
@@ -15,7 +17,9 @@ use crate::{
     utils::{
         download_file::{download_file, download_json},
         env_info::launcher_path,
-        integrity::{ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload},
+        integrity::{
+            ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload,
+        },
         step_events::StepHandle,
     },
 };
@@ -35,11 +39,16 @@ pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
             }
         });
 
-        let profiles_str = serde_json::to_string_pretty(&profiles)
-            .context("Не удалось сериализовать profiles")?;
+        let profiles_str =
+            serde_json::to_string_pretty(&profiles).context("Не удалось сериализовать profiles")?;
         fs::write(&launcher_profiles_path, profiles_str)
             .await
-            .with_context(|| format!("Не удалось создать launcher_profiles.json: {:?}", launcher_profiles_path))?;
+            .with_context(|| {
+                format!(
+                    "Не удалось создать launcher_profiles.json: {:?}",
+                    launcher_profiles_path
+                )
+            })?;
     }
     Ok(())
 }
@@ -50,10 +59,7 @@ pub async fn run_loader_installer(
     vanilla_dir: &Path,
     state_project: &ProjectConfig,
 ) -> Result<()> {
-    let java_cmd = state_project
-        .java_path
-        .as_deref()
-        .unwrap_or("java");
+    let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
     let mut command = Command::new(java_cmd);
     command
         .arg("-jar")
@@ -123,9 +129,10 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
         }
     }
 
-    let source = inner_candidates.first().cloned().ok_or_else(|| {
-        anyhow!("Jar версии {} не найден в {:?}", mc_version, versions_dir)
-    })?;
+    let source = inner_candidates
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow!("Jar версии {} не найден в {:?}", mc_version, versions_dir))?;
 
     fs::rename(&source, &target_jar)
         .await
@@ -190,10 +197,7 @@ pub async fn locate_installed_manifest(
 }
 
 pub fn manifest_paths(state_project: &ProjectConfig, prefix: &str) -> Result<(PathBuf, PathBuf)> {
-    let version = state_project
-        .loader_version
-        .as_deref()
-        .ok_or_else(|| anyhow!("Лоадер не выбран"))?;
+    let version = loader_version_or_err(state_project)?;
     let manifest_path = launcher_path(None)?
         .join("manifest")
         .join(format!("{}_{}.json", prefix, version));
@@ -226,7 +230,8 @@ pub async fn start_installer(
     let source = if fast_manifest.exists() {
         fast_manifest
     } else {
-        locate_installed_manifest(&versions_dir, &state_project.mc_version, &loader_manifest).await?
+        locate_installed_manifest(&versions_dir, &state_project.mc_version, &loader_manifest)
+            .await?
     };
 
     move_version_jar(&base_url, &state_project.mc_version).await?;
@@ -239,7 +244,12 @@ pub async fn start_installer(
         }
         fs::rename(&source, &loader_manifest)
             .await
-            .with_context(|| format!("Не удалось переместить {:?} в {:?}", source, loader_manifest))?;
+            .with_context(|| {
+                format!(
+                    "Не удалось переместить {:?} в {:?}",
+                    source, loader_manifest
+                )
+            })?;
     }
 
     let _ = fs::remove_dir_all(versions_dir).await;
@@ -247,7 +257,7 @@ pub async fn start_installer(
     download_json::<Manifest>(None, &loader_manifest).await
 }
 
-async fn install_loader_files(
+pub(crate) async fn install_loader_files(
     step: StepHandle,
     base: &Path,
     project: &str,
@@ -263,12 +273,15 @@ async fn install_loader_files(
         download: TargetDownload::Url(installer_url.to_string()),
     });
     step_try!(step, ensure_files(&step, base, project, targets).await);
-    step_try!(step, record_installed_hash(
-        project,
-        base,
-        &PathBuf::from(format!("{}.jar", target_version)),
-    )
-    .await);
+    step_try!(
+        step,
+        record_installed_hash(
+            project,
+            base,
+            &PathBuf::from(format!("{}.jar", target_version)),
+        )
+        .await
+    );
     Ok(())
 }
 
@@ -277,13 +290,10 @@ pub async fn setup_loader(
     manifest_prefix: &str,
     state: &ProjectConfig,
     manifest: &[VersionMod],
-    library_from: fn(Manifest) -> Result<Vec<LibraryMod>>,
+    maven_base: &str,
 ) -> Result<()> {
     let base_url = launcher_path(Some(&state.project_name))?;
-    let loader_version = state
-        .loader_version
-        .as_deref()
-        .ok_or_else(|| anyhow!("Лоадер не выбран"))?;
+    let loader_version = loader_version_or_err(state)?;
     let target_version = format!("{}-{}", &state.mc_version, loader_version);
     let version_info = manifest
         .iter()
@@ -298,7 +308,7 @@ pub async fn setup_loader(
 
     if loader_manifest_path.exists() {
         let version_manifest = download_json::<Manifest>(None, &loader_manifest_path).await?;
-        let library = library_from(version_manifest)?;
+        let library = loader_libraries(version_manifest.libraries, maven_base)?;
         install_loader_files(
             step.clone(),
             &base_url,
@@ -316,7 +326,10 @@ pub async fn setup_loader(
     step.detail("Скачивание инсталлера");
     step.set_total(1);
     let installer_path = base_url.join(format!("{}.jar", &target_version));
-    step_try!(step, download_file(&version_info.url, &installer_path).await);
+    step_try!(
+        step,
+        download_file(&version_info.url, &installer_path).await
+    );
     step.inc();
 
     step_try!(step, create_installer_manifest(&base_url).await);
@@ -325,9 +338,19 @@ pub async fn setup_loader(
     log_info!("Запуск инсталлера {}", loader_name);
     let loader_manifest = step_try!(
         step,
-        start_installer(loader_name, manifest_prefix, &installer_path, &base_url, state).await
+        start_installer(
+            loader_name,
+            manifest_prefix,
+            &installer_path,
+            &base_url,
+            state
+        )
+        .await
     );
-    let library = step_try!(step, library_from(loader_manifest));
+    let library = step_try!(
+        step,
+        loader_libraries(loader_manifest.libraries, maven_base)
+    );
 
     step.detail("Скачивание библиотек");
     log_info!("Скачивание библиотек {}", loader_name);
@@ -344,4 +367,206 @@ pub async fn setup_loader(
     log_info!("Установка {} завершена", loader_name);
     step.finish(false);
     Ok(())
+}
+
+#[cfg(test)]
+mod loader_install_tests {
+    use super::*;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use mockito::Server;
+    use serde_json::json;
+    use std::fs;
+
+    fn project_config(project: &str) -> ProjectConfig {
+        ProjectConfig {
+            project_name: project.to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("0.16.9".to_string()),
+            ..ProjectConfig::default()
+        }
+    }
+
+    fn loader_manifest_json(
+        lib_hash: &str,
+        extra_hash: &str,
+        lib_size: i64,
+        extra_size: i64,
+    ) -> serde_json::Value {
+        json!({
+            "id": "1.20.1-forge-0.16.9",
+            "time": "2023-01-01T00:00:00+00:00",
+            "releaseTime": "2023-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
+            "inheritsFrom": "1.20.1",
+            "libraries": [
+                {
+                    "name": "net.fabricmc:fabric-loader:0.16.9",
+                    "downloads": { "artifact": { "path": "", "url": "", "sha1": lib_hash, "size": lib_size } }
+                },
+                {
+                    "name": "org.ow2.asm:asm:9.7",
+                    "downloads": { "artifact": { "path": "", "url": "", "sha1": extra_hash, "size": extra_size } }
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn setup_loader_fast_path_downloads_loader_and_libraries() {
+        let dir = LauncherDirGuard::acquire("loader_setup").await;
+        let mut server = Server::new_async().await;
+
+        let loader_jar = b"loader jar bytes".to_vec();
+        let asm_jar = b"asm lib bytes".to_vec();
+        let installer_jar = b"installer bytes".to_vec();
+
+        server
+            .mock(
+                "GET",
+                "/maven/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
+            )
+            .with_status(200)
+            .with_body(loader_jar.clone())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/maven/org/ow2/asm/asm/9.7/asm-9.7.jar")
+            .with_status(200)
+            .with_body(asm_jar.clone())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/installer/1.20.1-0.16.9.jar")
+            .with_status(200)
+            .with_body(installer_jar.clone())
+            .create_async()
+            .await;
+
+        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            loader_manifest_json(
+                &sha1_hex(b"loader jar bytes"),
+                &sha1_hex(b"asm lib bytes"),
+                b"loader jar bytes".len() as i64,
+                b"asm lib bytes".len() as i64,
+            )
+            .to_string(),
+        )
+        .unwrap();
+
+        let state = project_config("LoaderProj");
+        let manifest = vec![VersionMod {
+            url: format!("{}/installer/1.20.1-0.16.9.jar", server.url()),
+            id: "1.20.1-0.16.9".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+        let maven_base = format!("{}/maven", server.url());
+
+        setup_loader("Forge", "forge", &state, &manifest, &maven_base)
+            .await
+            .expect("установка лоадера");
+
+        let project = dir.project_dir("LoaderProj");
+        assert_eq!(
+            fs::read(project.join("1.20.1-0.16.9.jar")).unwrap(),
+            b"installer bytes"
+        );
+        assert_eq!(
+            fs::read(project.join("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"))
+                .unwrap(),
+            b"loader jar bytes"
+        );
+        assert_eq!(
+            fs::read(project.join("org/ow2/asm/asm/9.7/asm-9.7.jar")).unwrap(),
+            b"asm lib bytes"
+        );
+
+        let installed = crate::utils::install_manifest::load_install_manifest("LoaderProj")
+            .await
+            .expect("install-манифест");
+        assert!(installed.files.contains_key("1.20.1-0.16.9.jar"));
+        assert!(installed
+            .files
+            .contains_key("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"));
+        assert!(installed
+            .files
+            .contains_key("org/ow2/asm/asm/9.7/asm-9.7.jar"));
+    }
+
+    #[tokio::test]
+    async fn move_version_jar_lifts_jar_from_version_dir() {
+        let dir = LauncherDirGuard::acquire("move_jar").await;
+        let base = dir.root().join("game");
+        fs::create_dir_all(base.join("versions/1.20.1")).unwrap();
+        fs::write(base.join("versions/1.20.1/1.20.1.jar"), b"jar").unwrap();
+
+        move_version_jar(&base, "1.20.1")
+            .await
+            .expect("перенос jar");
+
+        assert_eq!(fs::read(base.join("1.20.1.jar")).unwrap(), b"jar");
+        assert!(!base.join("versions/1.20.1/1.20.1.jar").exists());
+    }
+
+    #[tokio::test]
+    async fn move_version_jar_errors_when_jar_missing() {
+        let dir = LauncherDirGuard::acquire("move_jar_missing").await;
+        let base = dir.root().join("game");
+        fs::create_dir_all(&base).unwrap();
+
+        let result = move_version_jar(&base, "1.20.1").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn create_installer_manifest_writes_profiles_once() {
+        let dir = LauncherDirGuard::acquire("installer_manifest").await;
+        let base = dir.root().join("game");
+        fs::create_dir_all(&base).unwrap();
+
+        create_installer_manifest(&base).await.unwrap();
+        create_installer_manifest(&base).await.unwrap();
+
+        let content = fs::read_to_string(base.join("launcher_profiles.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(parsed["profiles"].is_object());
+        assert!(parsed["clientToken"].is_string());
+    }
+
+    #[tokio::test]
+    async fn locate_installed_manifest_finds_json_with_inherits_from() {
+        let dir = LauncherDirGuard::acquire("locate_manifest").await;
+        let versions = dir.root().join("game/versions/forge");
+        fs::create_dir_all(&versions).unwrap();
+        fs::write(
+            versions.join("1.20.1-forge.json"),
+            r#"{"inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+        let dest = dir.root().join("fallback.json");
+
+        let found = locate_installed_manifest(&versions, "1.20.1", &dest)
+            .await
+            .expect("поиск манифеста");
+
+        assert_eq!(found, versions.join("1.20.1-forge.json"));
+    }
+
+    #[tokio::test]
+    async fn locate_installed_manifest_falls_back_to_dest() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_fallback").await;
+        let versions = dir.root().join("game/versions");
+        fs::create_dir_all(&versions).unwrap();
+        let dest = dir.root().join("fallback.json");
+
+        let found = locate_installed_manifest(&versions, "1.20.1", &dest)
+            .await
+            .expect("фолбэк");
+
+        assert_eq!(found, dest);
+    }
 }

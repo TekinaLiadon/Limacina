@@ -17,7 +17,7 @@ const isDisabled = computed((): boolean => props.isClearing ?? false)
   <Button
     class="btn-secondary"
     :is-disabled="isDisabled"
-    :is-loading="isClearing"
+    :is-loading="isClearing ?? false"
     @click="emit('clear')"
   >
     Очистить конфиги игры

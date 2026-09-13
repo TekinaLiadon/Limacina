@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -9,9 +9,9 @@ use tokio::fs;
 use crate::{
     log_err,
     minecraft::{
+        mod_loader::utils::maven_to_url,
         rules::is_json_rules_allowed,
         structs::{LibraryMod, VersionMod},
-        mod_loader::utils::maven_to_url,
     },
     state::dto::ProjectConfig,
     utils::{
@@ -41,8 +41,7 @@ pub struct Manifest {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Logging {
-}
+pub struct Logging {}
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -203,35 +202,61 @@ pub async fn apply_installed_manifest(
     Ok(())
 }
 
-pub fn current_loader_version(
-    state: &ProjectConfig,
-    versions: Vec<VersionMod>,
-) -> Result<VersionMod> {
-    let version = state
+pub fn loader_version_or_err(state: &ProjectConfig) -> Result<&str> {
+    state
         .loader_version
         .as_deref()
-        .ok_or_else(|| anyhow!("Лоадер не выбран"))?;
+        .ok_or_else(|| anyhow!("Лоадер не выбран"))
+}
+
+pub fn current_loader_version(
+    state: &ProjectConfig,
+    versions: &[VersionMod],
+) -> Result<VersionMod> {
+    let version = loader_version_or_err(state)?;
     let target_id = format!("{}-{}", state.mc_version, version);
 
     versions
-        .into_iter()
+        .iter()
         .find(|m| m.id == target_id)
+        .cloned()
         .ok_or_else(|| anyhow!("Версия не найдена"))
 }
 
-pub fn latest_index_version(
-    index: &LoaderIndex,
+pub fn transform_loader_manifest(
+    index: LoaderIndex,
+    installer_url: impl Fn(&str, &str) -> String,
+) -> Vec<VersionMod> {
+    let mut manifest: Vec<VersionMod> = Vec::new();
+
+    for (mc_version, loader_versions) in &index {
+        for loader_version in loader_versions {
+            let id = format!("{}-{}", mc_version, loader_version);
+            let version_mod = VersionMod {
+                url: installer_url(&id, loader_version),
+                id,
+                main_class: "".to_string(),
+                library: Vec::new(),
+            };
+
+            manifest.push(version_mod);
+        }
+    }
+    manifest
+}
+
+pub fn latest_list_version(
+    versions: &[VersionMod],
     mc_version: &str,
     loader_name: &str,
 ) -> Result<String> {
-    let versions = index
-        .get(mc_version)
-        .ok_or_else(|| anyhow!("Нет версий {} для MC {}", loader_name, mc_version))?;
-    let latest = versions
+    let prefix = format!("{}-", mc_version);
+    versions
         .iter()
+        .filter_map(|v| v.id.strip_prefix(&prefix))
         .max_by(|a, b| compare_versions(a, b))
-        .ok_or_else(|| anyhow!("Нет доступных версий {}", loader_name))?;
-    Ok(latest.to_string())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("Нет версий {} для MC {}", loader_name, mc_version))
 }
 
 pub async fn read_or_fetch_index<T: DeserializeOwned>(
@@ -300,3 +325,39 @@ pub struct LoaderArtifact {
 }
 
 pub type LoaderIndex = HashMap<String, Vec<String>>;
+
+#[cfg(test)]
+mod latest_version_tests {
+    use super::*;
+
+    fn version_mod(id: &str) -> VersionMod {
+        VersionMod {
+            url: String::new(),
+            id: id.to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn latest_list_version_picks_max_for_mc_version() {
+        let versions = vec![
+            version_mod("1.20.1-47.1.0"),
+            version_mod("1.20.1-47.2.0"),
+            version_mod("1.20.4-49.0.0"),
+        ];
+
+        let latest = latest_list_version(&versions, "1.20.1", "Forge").expect("последняя версия");
+
+        assert_eq!(latest, "47.2.0");
+    }
+
+    #[test]
+    fn latest_list_version_errors_when_mc_version_missing() {
+        let versions = vec![version_mod("1.20.1-47.1.0")];
+
+        let result = latest_list_version(&versions, "1.19.4", "Forge");
+
+        assert!(result.is_err());
+    }
+}

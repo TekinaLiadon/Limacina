@@ -70,10 +70,13 @@ function shortestDelta(from: number, to: number): number {
 }
 
 function unwrapChannel(values: number[]): number[] {
-  if (values.length === 0) return values
-  const result: number[] = [values[0]]
-  for (let i = 1; i < values.length; i++) {
-    result.push(result[i - 1] + shortestDelta(values[i - 1], values[i]))
+  const result: number[] = []
+  let unwrapped = 0
+  let previousRaw = 0
+  for (const value of values) {
+    unwrapped = result.length === 0 ? value : unwrapped + shortestDelta(previousRaw, value)
+    result.push(unwrapped)
+    previousRaw = value
   }
   return result
 }
@@ -91,31 +94,32 @@ function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): 
 function sampleChannel(values: number[], framePos: number, loop: boolean, poly: boolean): number {
   const count = values.length
   if (count === 0) return 0
-  if (count === 1) return values[0]
+  if (count === 1) return values[0] ?? 0
 
+  const at = (index: number): number => values[index] ?? 0
   const idx = Math.floor(framePos)
   const t = framePos - idx
 
-  if (!poly) return lerp(values[Math.min(idx, count - 1)], values[Math.min(idx + 1, count - 1)], t)
+  if (!poly) return lerp(at(Math.min(idx, count - 1)), at(Math.min(idx + 1, count - 1)), t)
 
   if (loop) {
     const i0 = ((idx - 1) % count + count) % count
     const i1 = idx % count
     const i2 = (idx + 1) % count
     const i3 = (idx + 2) % count
-    return catmullRom(values[i0], values[i1], values[i2], values[i3], t)
+    return catmullRom(at(i0), at(i1), at(i2), at(i3), t)
   }
 
   const clamped = Math.min(idx, count - 2)
   const i0 = Math.max(clamped - 1, 0)
   const i3 = Math.min(clamped + 2, count - 1)
-  return catmullRom(values[i0], values[clamped], values[clamped + 1], values[i3], t)
+  return catmullRom(at(i0), at(clamped), at(clamped + 1), at(i3), t)
 }
 
 function sampleStep(values: number[], framePos: number): number {
   if (values.length === 0) return 0
   const idx = Math.floor(framePos)
-  return values[Math.min(idx, values.length - 1)]
+  return values[Math.min(idx, values.length - 1)] ?? 0
 }
 
 type AxisTracks = [number[], number[], number[]]
@@ -147,7 +151,7 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
     return track
   }
 
-  const additive = animation.additive
+  const {additive} = animation
 
   const fillFor = (node: AnimatedNode | undefined): NodeFill => {
     if (!node) return { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: 1 }
@@ -309,7 +313,7 @@ export class CpmAnimationPlayer {
 
   setPlaying(playing: boolean): void {
     this.entries.forEach((entry) => {
-      const clock = entry.clock
+      const {clock} = entry
       if (clock.playing === playing) return
 
       const duration = Math.max(entry.animation.duration, 1)
@@ -332,7 +336,7 @@ export class CpmAnimationPlayer {
     if (this.entries.length === 0) return
 
     this.entries.forEach((entry) => {
-      const clock = entry.clock
+      const {clock} = entry
       if (!clock.playing) return
 
       const duration = Math.max(entry.animation.duration, 1)
@@ -353,7 +357,7 @@ export class CpmAnimationPlayer {
   }
 
   private clockElapsed(entry: AnimationEntry): number {
-    const clock = entry.clock
+    const {clock} = entry
     if (!clock.playing) return clock.pausedAt
     return (performance.now() - clock.startedAt) * clock.speed
   }
@@ -383,14 +387,14 @@ export class CpmAnimationPlayer {
   }
 
   private applyEntryFrame(entry: AnimationEntry, elapsed: number): void {
-    const animation = entry.animation
+    const {animation} = entry
     const frameCount = animation.frames.length
     if (frameCount === 0) return
 
     const loop = isLoopInterpolator(animation.interpolator, animation.loop)
     const poly = isPolyInterpolator(animation.interpolator)
     const stepped = animation.interpolator === 'no'
-    const additive = animation.additive
+    const {additive} = animation
     const duration = Math.max(animation.duration, 1)
 
     const loops = animation.loop || entry.clock.forceLoop

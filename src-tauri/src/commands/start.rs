@@ -6,11 +6,15 @@ use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
 use crate::discord;
+use crate::minecraft::autojoin::{auto_join_args, first_server_address};
+use crate::minecraft::process::spawn_game_process;
 use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
-use crate::minecraft::mod_loader::utils::{auto_join_args, first_server_address, spawn_game_process};
 use crate::state::dto::{GlobalState, ModLoader};
 use crate::utils::step_events::StepHandle;
-use crate::{log_info, minecraft::vanilla::Vanilla, step_try, utils::tauri_err::CommandResult};
+use crate::{
+    log_err, log_info, minecraft::vanilla::Vanilla, offline, step_try,
+    utils::tauri_err::CommandResult,
+};
 
 const GAME_WINDOW_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -21,27 +25,30 @@ pub async fn start_minecraft(
 ) -> CommandResult<()> {
     let config_step = StepHandle::start("launch.config", "Подготовка конфигурации");
 
-    let (username, uuid, access_token, project, mc_version, authlib_server_url, project_config, discord_enabled) = {
+    let (username, uuid, access_token, project, mc_version, project_config, discord_enabled) = {
         let state = state.lock().await;
-        let session = step_try!(config_step, state
-            .session
-            .as_ref()
-            .ok_or(anyhow!("Необходима авторизация для запуска. Сессия не найдена в состоянии.")));
+        let session = step_try!(
+            config_step,
+            state.session.as_ref().ok_or(anyhow!(
+                "Необходима авторизация для запуска. Сессия не найдена в состоянии."
+            ))
+        );
 
         let project = state.project_config.project_name.clone();
-        step_try!(config_step, if session.project_name != project {
-            Err(anyhow!("Сессия принадлежит проекту «{}», а запускается «{}». Перезайдите в аккаунт.", session.project_name, project))
-        } else {
-            Ok(())
-        });
+        step_try!(
+            config_step,
+            if session.project_name != project {
+                Err(anyhow!(
+                    "Сессия принадлежит проекту «{}», а запускается «{}». Перезайдите в аккаунт.",
+                    session.project_name,
+                    project
+                ))
+            } else {
+                Ok(())
+            }
+        );
         let mc_version = state.project_config.mc_version.clone();
         let mod_loader = state.project_config.mod_loader.clone();
-
-        let authlib_server_url = if state.project_config.online {
-            Some(state.project_config.resolved_server_url())
-        } else {
-            None
-        };
 
         let discord_enabled = state
             .launcher_config
@@ -49,7 +56,14 @@ pub async fn start_minecraft(
             .map(|c| c.discord_activity)
             .unwrap_or(true);
 
-        log_info!("[start] Запуск для проекта={}, версия={}, лоадер={:?}, пользователь={}, онлайн={}", project, mc_version, mod_loader, session.username, state.project_config.online);
+        log_info!(
+            "[start] Запуск для проекта={}, версия={}, лоадер={:?}, пользователь={}, онлайн={}",
+            project,
+            mc_version,
+            mod_loader,
+            session.username,
+            state.project_config.online
+        );
 
         (
             session.username.clone(),
@@ -57,35 +71,98 @@ pub async fn start_minecraft(
             session.access_token.clone(),
             project,
             mc_version,
-            authlib_server_url,
             state.project_config.clone(),
             discord_enabled,
         )
     };
 
-    let config = step_try!(config_step, new_launch_config(&username, &uuid, &access_token, &project_config).await
-        .with_context(|| format!("Не удалось создать конфиг запуска (проект: {})", project)));
-    let vanilla_config = step_try!(config_step, Vanilla.config(&project_config, &config).await
-        .with_context(|| format!("Не удалось получить Vanilla конфиг (проект: {})", project)));
+    let mut offline_skin_server: Option<offline::SkinServer> = None;
+    let authlib_server_url = if project_config.online {
+        Some(project_config.resolved_server_url())
+    } else {
+        match offline::start_offline_skin_server(&project, &username, &uuid).await {
+            Ok(Some(server)) => {
+                let url = server.url().to_string();
+                offline_skin_server = Some(server);
+                Some(url)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                log_err!(
+                    "[start] Офлайн-скин недоступен, запуск без скина ({}): {}",
+                    project,
+                    e
+                );
+                None
+            }
+        }
+    };
+
+    if project_config.online {
+        if let Err(e) = crate::commands::cpm_models::sync_player_models(&state).await {
+            log_err!("Не удалось синхронизировать модели CPM: {}", e);
+        }
+    }
+
+    let config = step_try!(
+        config_step,
+        new_launch_config(&username, &uuid, &access_token, &project_config)
+            .await
+            .with_context(|| format!("Не удалось создать конфиг запуска (проект: {})", project))
+    );
+    let vanilla_config = step_try!(
+        config_step,
+        Vanilla
+            .config(&project_config, &config)
+            .await
+            .with_context(|| format!("Не удалось получить Vanilla конфиг (проект: {})", project))
+    );
 
     let mut game_config = if matches!(project_config.mod_loader, ModLoader::Vanilla) {
         vanilla_config
     } else {
         let loader = step_try!(config_step, create_mod_loader(&project_config.mod_loader));
-        let version = step_try!(config_step, loader.version_current(&project_config).await
-            .with_context(|| format!("Не удалось получить текущую версию лоадера (проект: {})", project)));
-        step_try!(config_step, loader
-            .config(&project_config, vanilla_config, &version)
-            .await
-            .with_context(|| format!("Не удалось собрать конфиг игры (проект: {})", project)))
+        let versions = step_try!(
+            config_step,
+            loader
+                .versions(&project_config)
+                .await
+                .with_context(|| format!(
+                    "Не удалось получить список версий лоадера (проект: {})",
+                    project
+                ))
+        );
+        let version = step_try!(
+            config_step,
+            loader
+                .version_current(&project_config, &versions)
+                .await
+                .with_context(|| format!(
+                    "Не удалось получить текущую версию лоадера (проект: {})",
+                    project
+                ))
+        );
+        step_try!(
+            config_step,
+            loader
+                .config(&project_config, vanilla_config, &version)
+                .await
+                .with_context(|| format!("Не удалось собрать конфиг игры (проект: {})", project))
+        )
     };
 
     if project_config.auto_join_server {
-        let address = step_try!(config_step, first_server_address(&game_config.game_dir)
-            .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project))
-            .and_then(|address| address.ok_or_else(|| {
-                anyhow!("Автозаход включён, но в servers.dat нет серверов (проект: {})", project)
-            })));
+        let address = step_try!(
+            config_step,
+            first_server_address(&game_config.game_dir)
+                .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project))
+                .and_then(|address| address.ok_or_else(|| {
+                    anyhow!(
+                        "Автозаход включён, но в servers.dat нет серверов (проект: {})",
+                        project
+                    )
+                }))
+        );
         let join_args = auto_join_args(&address, &project_config.mc_version);
         if !join_args.is_empty() {
             log_info!("[start] Автозаход на сервер: {}", address);
@@ -96,15 +173,41 @@ pub async fn start_minecraft(
     config_step.finish(false);
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
-    let process = step_try!(process_step, spawn_game_process(app, game_config, authlib_server_url.as_deref())
-        .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project)));
+    let spawn_result = spawn_game_process(app, game_config, authlib_server_url.as_deref())
+        .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project));
+    let process = match spawn_result {
+        Ok(process) => process,
+        Err(e) => {
+            if let Some(server) = offline_skin_server.take() {
+                server.stop();
+            }
+            process_step.fail(e.to_string());
+            return Err(e.into());
+        }
+    };
     process_step.finish(false);
 
+    if let Some(server) = offline_skin_server.take() {
+        let exited = process.exited_flag();
+        tauri::async_runtime::spawn_blocking(move || {
+            loop {
+                if exited.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            server.stop();
+        });
+    }
+
     let window_step = StepHandle::start("launch.window", "Ожидание окна игры");
-    step_try!(window_step, process
-        .wait_for_window(GAME_WINDOW_TIMEOUT)
-        .await
-        .with_context(|| format!("Проект: {}", project)));
+    step_try!(
+        window_step,
+        process
+            .wait_for_window(GAME_WINDOW_TIMEOUT)
+            .await
+            .with_context(|| format!("Проект: {}", project))
+    );
     if !process.window_opened() {
         window_step.detail("Окно игры не обнаружено за 120 сек — оно может открыться позже");
     }

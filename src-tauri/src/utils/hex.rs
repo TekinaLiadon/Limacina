@@ -18,8 +18,8 @@ pub fn from_hex(s: &str) -> Result<Vec<u8>> {
     let mut chars = s.chars();
     while let Some(hi) = chars.next() {
         let lo = chars.next().context("Нечётная длина hex строки")?;
-        let byte = u8::from_str_radix(&format!("{}{}", hi, lo), 16)
-            .context("Неверный hex символ")?;
+        let byte =
+            u8::from_str_radix(&format!("{}{}", hi, lo), 16).context("Неверный hex символ")?;
         result.push(byte);
     }
     Ok(result)

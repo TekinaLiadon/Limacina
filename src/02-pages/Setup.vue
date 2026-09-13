@@ -29,6 +29,7 @@ const selectFolder = async (): Promise<void> => {
 }
 
 const save = async (): Promise<void> => {
+  if (isLoading.value) return
   isLoading.value = true
   try {
     const config = await initializeLauncher(selectedPath.value)

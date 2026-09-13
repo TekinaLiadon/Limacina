@@ -3,11 +3,13 @@ import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entit
 import { authLogins, authLogin, authRegister, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import type { AuthUserData } from '@/05-entities/core/types'
+import { useAccountsList } from './useAccountsList'
 
 export function useAuth() {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const store = useAccountsStore()
+  const { logins, loadAccounts } = useAccountsList()
 
   const isLoading = computed({
     get: (): boolean => store.authLoading,
@@ -16,10 +18,6 @@ export function useAuth() {
   const errorMessage = computed({
     get: (): string => store.authError,
     set: (v: string): void => { store.authError = v },
-  })
-  const logins = computed({
-    get: (): string[] => store.logins,
-    set: (v: string[]): void => { store.logins = v },
   })
 
   const loginFormData = computed({
@@ -56,22 +54,15 @@ export function useAuth() {
     )
   })
 
-  const loadAccounts = async (): Promise<void> => {
-    try {
-      store.logins = await authLogins(coreStore.currentProject)
-    } catch (e: unknown) {
-      reportError('Не удалось загрузить аккаунты', e)
-    }
-  }
-
   const loadSavedCredentials = async (): Promise<void> => {
     if (coreStore.isLoggedIn) return
 
     try {
-      const logins = await authLogins(coreStore.currentProject)
-      store.logins = logins
-      if (logins.length > 0 && !store.loginFormData.username) {
-        store.loginFormData.username = logins[0]
+      const savedLogins = await authLogins(coreStore.currentProject)
+      store.logins = savedLogins
+      const [firstLogin] = savedLogins
+      if (firstLogin !== undefined && !store.loginFormData.username) {
+        store.loginFormData.username = firstLogin
       }
     } catch (e: unknown) {
       reportError('Не удалось загрузить сохранённые учётные данные', e)
@@ -79,7 +70,7 @@ export function useAuth() {
   }
 
   const handleLogin = async (): Promise<void> => {
-    if (!isLoginValid.value) return
+    if (!isLoginValid.value || isLoading.value) return
 
     isLoading.value = true
     errorMessage.value = ''
@@ -111,13 +102,13 @@ export function useAuth() {
   }
 
   const handleRegister = async (): Promise<void> => {
-    if (!isRegisterValid.value) return
+    if (!isRegisterValid.value || isLoading.value) return
 
     isLoading.value = true
     errorMessage.value = ''
 
-    const login = store.registerFormData.login
-    const password = store.registerFormData.password
+    const {login} = store.registerFormData
+    const {password} = store.registerFormData
 
     try {
       await authRegister(

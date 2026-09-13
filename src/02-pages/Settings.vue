@@ -86,6 +86,7 @@ watch(isOfflineProject, (offline) => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
 @use '@/01-app/assets/breakpoints';
 
 .settings-page {
@@ -104,13 +105,9 @@ watch(isOfflineProject, (offline) => {
   }
 
   &__tabs {
-    display: flex;
-    gap: var(--space-4);
+    @include mixins.segmented;
+
     margin-bottom: var(--tabs-gap);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-pill);
-    padding: var(--space-4);
   }
 
   &__tab {
@@ -128,9 +125,7 @@ watch(isOfflineProject, (offline) => {
     }
 
     &--active {
-      background: var(--surface-active);
-      box-shadow: var(--elevation-inset);
-      color: var(--login-text-primary);
+      @include mixins.segmented-active;
     }
 
     &.disabled {

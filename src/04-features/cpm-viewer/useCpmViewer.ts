@@ -1,11 +1,10 @@
 import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene, configurePixelTexture, disposeObjectTree } from '@/06-shared'
+import { useThreeScene, removeGroupFromScene, createManagedTextureLoader } from '@/06-shared'
 import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
-import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities/core/types'
+import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities/core/types'
 import type { ViewerControls } from '@/03-widgets/types'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS } from './cpmAnimationPlayer'
-import type { CPMAnimation } from '@/05-entities/core/types'
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -131,11 +130,15 @@ function applyBoxUVs(
 
   if (mirror) {
     quads.forEach((quad, i) => {
-      quads[i] = [quad[1], quad[0], quad[3], quad[2]]
+      const fallback: [number, number] = [0, 0]
+      const [q0 = fallback, q1 = fallback, q2 = fallback, q3 = fallback] = quad
+      quads[i] = [q1, q0, q3, q2]
     })
-    const east = quads[0]
-    quads[0] = quads[1]
-    quads[1] = east
+    const [east, west] = quads
+    if (east !== undefined && west !== undefined) {
+      quads[0] = west
+      quads[1] = east
+    }
   }
 
   quads.forEach((quad, threeFace) => {
@@ -153,7 +156,7 @@ function pushQuad(
 ): void {
   const indices = [0, 1, 2, 0, 2, 3]
   indices.forEach((i) => {
-    const [x, y, z, u, v] = corners[i]
+    const [x = 0, y = 0, z = 0, u = 0, v = 0] = corners[i] ?? []
     positions.push(x, y, z)
     normals.push(normal[0], normal[1], normal[2])
     uvs.push(u, v)
@@ -165,7 +168,7 @@ function buildExtrudedGeometry(
     mcScale: number,
     skinW: number, skinH: number,
 ): THREE.BufferGeometry {
-  const size = child.size
+  const {size} = child
   const meshScale = child.scale || { x: 1, y: 1, z: 1 }
   const w = size.x * meshScale.x + mcScale * 2
   const h = size.y * meshScale.y + mcScale * 2
@@ -286,7 +289,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
       group.visible = defaultVisible
       group.userData.defaultVisible = defaultVisible
 
-      const size = child.size
+      const {size} = child
       const hasSize = size && (size.x > 0 || size.y > 0 || size.z > 0)
 
       if (hasSize) {
@@ -375,8 +378,8 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
       return
     }
     if (element.dup) {
-      dupIndex[element.id] = (dupIndex[element.id] || 0) + 1
-      if (seenVanilla.has(element.id) || dupIndex[element.id] > 1) return
+      dupIndex[element.id] = (dupIndex[element.id] ?? 0) + 1
+      if (seenVanilla.has(element.id) || (dupIndex[element.id] ?? 0) > 1) return
     }
     rootGroup.add(buildNode(element, true, element.id))
   })
@@ -405,14 +408,15 @@ export function useCpmViewer(
     isAnimationPlaying: Ref<boolean>,
     animationSpeed: Ref<number>,
     isAnimationLooped: Ref<boolean>,
+    paused?: Ref<boolean>,
     options: CpmViewerOptions = {},
 ) {
-  const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
+  const { scene, camera, getOrbitControls, setPaused: setScenePaused } = useThreeScene(container, { enableZoom: false, autoRotate: false })
   const modelGroup = shallowRef<THREE.Group | null>(null)
-  let loadGeneration = 0
+  const textureLoader = createManagedTextureLoader(scene)
   let player: CpmAnimationPlayer | null = null
-  let currentTexture: THREE.Texture | null = null
   let tickId = 0
+  let renderPaused = false
 
   const { setFitDistance, modelBoundingSphereRadius } = useViewerCamera(
       { camera, getOrbitControls },
@@ -420,31 +424,12 @@ export function useCpmViewer(
       controls,
   )
 
-  function removeCurrentModel(): void {
-    if (!modelGroup.value || !scene.value) return
-
-    scene.value.remove(modelGroup.value)
-    disposeObjectTree(modelGroup.value)
-    modelGroup.value = null
-  }
-
   function loadModel(data: CPMData): void {
-    if (!scene.value) return
+    removeGroupFromScene(scene, modelGroup)
 
-    removeCurrentModel()
-
-    const generation = ++loadGeneration
-
-    const loader = new THREE.TextureLoader()
-    loader.load(data.textureUrl, (texture) => {
-      if (generation !== loadGeneration || !scene.value) return
-
-      configurePixelTexture(texture)
-      if (currentTexture) currentTexture.dispose()
-      currentTexture = texture
-
+    textureLoader.load(data.textureUrl, (texture, targetScene) => {
       const model = buildCpmModel(data.config, texture)
-      scene.value.add(model)
+      targetScene.add(model)
       modelGroup.value = model
 
       player = new CpmAnimationPlayer(indexModelNodes(model), {
@@ -496,6 +481,15 @@ export function useCpmViewer(
     tickId = requestAnimationFrame(tickAnimation)
   }
 
+  function setPaused(value: boolean): void {
+    if (value === renderPaused) return
+    renderPaused = value
+    setScenePaused(value)
+    cancelAnimationFrame(tickId)
+    tickId = 0
+    if (!value) tickId = requestAnimationFrame(tickAnimation)
+  }
+
   watch(cpmData, (data) => {
     if (data) loadModel(data)
   }, { immediate: true })
@@ -526,15 +520,16 @@ export function useCpmViewer(
     updateVisibility()
   })
 
-  tickId = requestAnimationFrame(tickAnimation)
+  if (!renderPaused) tickId = requestAnimationFrame(tickAnimation)
+
+  if (paused) {
+    watch(paused, (value: boolean) => setPaused(value), { immediate: true })
+  }
 
   onBeforeUnmount(() => {
     cancelAnimationFrame(tickId)
-    removeCurrentModel()
-    if (currentTexture) {
-      currentTexture.dispose()
-      currentTexture = null
-    }
+    removeGroupFromScene(scene, modelGroup)
+    textureLoader.dispose()
   })
 
   return {}

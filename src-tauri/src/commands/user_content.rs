@@ -7,13 +7,14 @@ use tokio::sync::Mutex;
 use crate::auth::{self, storage};
 use crate::commands::auth::{persist_session_credentials, restore_session};
 use crate::launcher_server::user_content::{self, UserContentItem};
-use crate::{log_err, log_info};
+use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
-use crate::utils::download_file::download_file;
+use crate::utils::download_file::{download_file, write_atomic};
 use crate::utils::env_info::launcher_path;
 use crate::utils::hex::digest_hex;
 use crate::utils::tauri_err::CommandResult;
+use crate::{log_err, log_info};
 
 #[derive(Serialize)]
 pub struct SessionInfo {
@@ -28,8 +29,6 @@ pub async fn select_account(
     username: String,
 ) -> CommandResult<SessionInfo> {
     let project = load_config_or_default(&project_name).await?;
-
-
 
     let auth_data = if project.online {
         restore_session(&project_name, &username, None).await?
@@ -74,9 +73,7 @@ pub async fn get_session_info(
 }
 
 #[tauri::command]
-pub async fn logout_account(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<()> {
+pub async fn logout_account(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
     let (project_name, username, online, server_url) = {
         let state = state.lock().await;
         match state.session.as_ref() {
@@ -143,19 +140,13 @@ pub async fn list_skins(
 }
 
 #[tauri::command]
-pub async fn delete_skin(
-    state: State<'_, Mutex<GlobalState>>,
-    id: i64,
-) -> CommandResult<()> {
+pub async fn delete_skin(state: State<'_, Mutex<GlobalState>>, id: i64) -> CommandResult<()> {
     user_content::delete_skin(&state, id).await?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn set_active_skin(
-    state: State<'_, Mutex<GlobalState>>,
-    id: i64,
-) -> CommandResult<()> {
+pub async fn set_active_skin(state: State<'_, Mutex<GlobalState>>, id: i64) -> CommandResult<()> {
     user_content::set_active_skin(&state, id).await?;
     Ok(())
 }
@@ -188,31 +179,37 @@ async fn get_profile_skin_inner(
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
-    crate::utils::blocking("Не удалось выполнить очистку кэша скинов", {
-        let cache_dir = cache_dir.clone();
-        let file_name = file_name.clone();
-        let prefix = prefix.clone();
-        move || {
-            if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-                for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if name.starts_with(&prefix) && name != file_name {
-                            let _ = std::fs::remove_file(entry.path());
+    crate::utils::blocking(
+        "Не удалось выполнить очистку кэша скинов",
+        {
+            let cache_dir = cache_dir.clone();
+            let file_name = file_name.clone();
+            let prefix = prefix.clone();
+            move || {
+                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.starts_with(&prefix) && name != file_name {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
                         }
                     }
                 }
             }
-        }
-    })
+        },
+    )
     .await?;
 
     download_file(url, &cache_path).await?;
 
     let cache_path_clone = cache_path.clone();
-    let bytes = crate::utils::blocking("Не удалось выполнить чтение кэша скина", move || {
-        std::fs::read(&cache_path_clone)
-            .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))
-    })
+    let bytes = crate::utils::blocking(
+        "Не удалось выполнить чтение кэша скина",
+        move || {
+            std::fs::read(&cache_path_clone)
+                .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))
+        },
+    )
     .await??;
     Ok(bytes)
 }
@@ -246,10 +243,115 @@ pub async fn list_models(
 }
 
 #[tauri::command]
-pub async fn delete_model(
-    state: State<'_, Mutex<GlobalState>>,
-    id: i64,
-) -> CommandResult<()> {
+pub async fn delete_model(state: State<'_, Mutex<GlobalState>>, id: i64) -> CommandResult<()> {
     user_content::delete_model(&state, id).await?;
+    Ok(())
+}
+
+async fn current_project_name(state: &State<'_, Mutex<GlobalState>>) -> Result<String> {
+    let project_name = {
+        let guard = state.lock().await;
+        guard.project_config.project_name.clone()
+    };
+    if project_name.trim().is_empty() {
+        bail!("Проект не выбран");
+    }
+    Ok(project_name)
+}
+
+#[tauri::command]
+pub async fn save_offline_skin(
+    state: State<'_, Mutex<GlobalState>>,
+    request: tauri::ipc::Request<'_>,
+) -> CommandResult<()> {
+    let model = request
+        .headers()
+        .get("Skin-Model")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| match value {
+            "slim" => Some("slim".to_string()),
+            "classic" => Some("classic".to_string()),
+            _ => None,
+        })
+        .context("Некорректная модель скина")?;
+
+    let file_data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
+            .context("Некорректное тело запроса сохранения скина")?,
+    };
+
+    let project_name = current_project_name(&state).await?;
+    let (png_path, meta_path) = offline_skin_paths(&project_name)?;
+    let png_parent = png_path.parent().map(|p| p.to_path_buf());
+
+    crate::utils::blocking(
+        "Не удалось подготовить каталог скинов",
+        move || -> Result<()> {
+            if let Some(parent) = png_parent {
+                std::fs::create_dir_all(&parent)
+                    .with_context(|| format!("Не удалось создать каталог {:?}", parent))?;
+            }
+            Ok(())
+        },
+    )
+    .await??;
+
+    write_atomic(&png_path, &file_data)
+        .await
+        .context("Не удалось записать локальный скин")?;
+
+    let meta = serde_json::json!({ "model": model });
+    write_atomic(&meta_path, meta.to_string().as_bytes())
+        .await
+        .context("Не удалось записать метаданные локального скина")?;
+
+    log_info!("Локальный скин сохранён: {}", png_path.display());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_offline_skin(
+    state: State<'_, Mutex<GlobalState>>,
+) -> CommandResult<tauri::ipc::Response> {
+    let project_name = current_project_name(&state).await?;
+    let (png_path, _) = offline_skin_paths(&project_name)?;
+    let bytes = crate::utils::blocking(
+        "Не удалось прочитать локальный скин",
+        move || match std::fs::read(&png_path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                log_err!("Не удалось прочитать локальный скин {:?}: {}", png_path, e);
+                Vec::new()
+            }
+        },
+    )
+    .await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+pub async fn get_offline_skin_model(
+    state: State<'_, Mutex<GlobalState>>,
+) -> CommandResult<Option<String>> {
+    let project_name = current_project_name(&state).await?;
+    let (_, meta_path) = offline_skin_paths(&project_name)?;
+    let model = crate::utils::blocking(
+        "Не удалось прочитать модель локального скина",
+        move || {
+            std::fs::read(&meta_path)
+                .ok()
+                .and_then(|bytes| parse_offline_skin_model(&bytes))
+        },
+    )
+    .await?;
+    Ok(model)
+}
+
+#[tauri::command]
+pub async fn delete_offline_skin(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
+    let project_name = current_project_name(&state).await?;
+    delete_offline_skin_files(&project_name).await?;
     Ok(())
 }

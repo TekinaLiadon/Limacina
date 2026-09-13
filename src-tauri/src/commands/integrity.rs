@@ -4,10 +4,12 @@ use crate::launcher_server::downloader::{
     download_launcher_server_file, fetch_file_list, fetch_mods_list, require_api_client, ApiContext,
 };
 use crate::log_info;
-use crate::minecraft::integrity::check_minecraft_integrity;
+use crate::minecraft::check_targets::check_minecraft_integrity;
 use crate::state::dto::GlobalState;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
-use crate::utils::integrity::{check_integrity, HashKind, IntegrityReport, IntegrityTarget, TargetDownload};
+use crate::utils::integrity::{
+    check_integrity, HashKind, IntegrityReport, IntegrityTarget, TargetDownload,
+};
 use crate::utils::tauri_err::CommandResult;
 
 #[tauri::command]

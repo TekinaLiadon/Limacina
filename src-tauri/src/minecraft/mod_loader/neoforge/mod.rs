@@ -7,20 +7,20 @@ use crate::{
             config::merge_classpath,
             installer::setup_loader,
             manifest::{
-                apply_installed_manifest, current_loader_version, latest_index_version, Manifest,
+                apply_installed_manifest, current_loader_version, latest_list_version,
+                loader_libraries, loader_version_or_err, Manifest,
             },
             neoforge::manifest::{
-                get_library, get_manifest_index, transform_neoforge_manifest, MAVEN_BASE,
-                MANIFEST_PREFIX,
+                get_manifest_index, transform_neoforge_manifest, MANIFEST_PREFIX, MAVEN_BASE,
             },
-            utils::{filter_classpath, strip_classpath_args},
         },
         structs::{GameConfig, ModLoader, VersionMod},
+        vanilla::config::{filter_classpath, strip_classpath_args},
     },
     state::dto::ProjectConfig,
     utils::{download_file::download_json, env_info::launcher_path, get_classpath_separator},
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 
 pub struct NeoForge;
@@ -31,16 +31,22 @@ impl ModLoader for NeoForge {
         apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest).await?;
         Ok(manifest)
     }
-    async fn version_current(&self, state: &ProjectConfig) -> Result<VersionMod> {
-        let versions_list = self.versions(state).await?;
-        current_loader_version(state, versions_list)
+    async fn version_current(
+        &self,
+        state: &ProjectConfig,
+        versions: &[VersionMod],
+    ) -> Result<VersionMod> {
+        current_loader_version(state, versions)
     }
-    async fn latest_version(&self, state: &ProjectConfig) -> Result<String> {
-        let index = get_manifest_index().await?;
-        latest_index_version(&index, &state.mc_version, "NeoForge")
+    async fn latest_version(
+        &self,
+        state: &ProjectConfig,
+        versions: &[VersionMod],
+    ) -> Result<String> {
+        latest_list_version(versions, &state.mc_version, "NeoForge")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        setup_loader("NeoForge", MANIFEST_PREFIX, state, manifest, get_library).await
+        setup_loader("NeoForge", MANIFEST_PREFIX, state, manifest, MAVEN_BASE).await
     }
     async fn config(
         &self,
@@ -49,15 +55,11 @@ impl ModLoader for NeoForge {
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath NeoForge");
-        let target_version = state
-            .loader_version
-            .as_deref()
-            .ok_or(anyhow!("Лоадер не выбран"))?;
+        let target_version = loader_version_or_err(state)?;
 
-        let neoforge_manifest = launcher_path(None)?.join("manifest").join(format!(
-            "neoforge_{}.json",
-            target_version
-        ));
+        let neoforge_manifest = launcher_path(None)?
+            .join("manifest")
+            .join(format!("neoforge_{}.json", target_version));
         let manifest = download_json::<Manifest>(None, &neoforge_manifest).await?;
 
         let base_path = launcher_path(Some(&state.project_name))?;
@@ -65,7 +67,7 @@ impl ModLoader for NeoForge {
         let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
 
         let neoforge_libraries = if version.library.is_empty() {
-            get_library(manifest.clone())?
+            loader_libraries(manifest.libraries.clone(), MAVEN_BASE)?
         } else {
             version.library.clone()
         };
@@ -76,7 +78,8 @@ impl ModLoader for NeoForge {
             &Vec::new(),
         )?;
         let vanilla_client_jar = format!("{}.jar", state.mc_version);
-        let vanilla_filtered: Vec<String> = vanilla_config.classpath
+        let vanilla_filtered: Vec<String> = vanilla_config
+            .classpath
             .iter()
             .filter(|p| !p.ends_with(&vanilla_client_jar))
             .cloned()
@@ -101,7 +104,7 @@ impl ModLoader for NeoForge {
         );
         let jvm_args = [&vanilla_config.jvm_args[..], &neoforge_jvm[..]].concat();
 
-        let mut game_args = vanilla_config.game_args;
+        let mut game_args = vanilla_config.game_args.clone();
         let neoforge_game = manifest.arguments.game_strings();
         let mut i = 0;
         while i < neoforge_game.len() {
@@ -122,16 +125,8 @@ impl ModLoader for NeoForge {
             i += 1;
         }
 
-        let main_class = manifest.main_class.clone();
-        let game_dir = launcher_path(Some(&state.project_name))?;
-        let game_config = GameConfig {
-            java_path: vanilla_config.java_path,
-            jvm_args,
-            game_args,
-            classpath: clean_classpath,
-            main_class,
-            game_dir,
-        };
-        Ok(game_config)
+        Ok(vanilla_config
+            .with_args(jvm_args, game_args)
+            .with_loader(clean_classpath, manifest.main_class.clone()))
     }
 }

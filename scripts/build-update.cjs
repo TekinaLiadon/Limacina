@@ -5,10 +5,10 @@ const { execSync } = require("child_process");
 const tauriConf = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../src-tauri/tauri.conf.json"), "utf-8")
 );
-const version = tauriConf.version;
-const productName = tauriConf.productName;
+const {version} = tauriConf;
+const {productName} = tauriConf;
 
-const platform = process.platform;
+const {platform} = process;
 const archMapping = {
   x64: "x86_64",
   arm64: "aarch64",

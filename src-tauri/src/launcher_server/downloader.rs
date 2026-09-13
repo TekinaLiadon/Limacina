@@ -71,8 +71,19 @@ async fn download_file(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        log_err!("[download] Ошибка сервера {} при скачивании {}: {}", status, url, body);
-        anyhow::bail!("Сервер вернул {} при скачивании {}: {} (путь: {:?})", status, url, body, file_path);
+        log_err!(
+            "[download] Ошибка сервера {} при скачивании {}: {}",
+            status,
+            url,
+            body
+        );
+        anyhow::bail!(
+            "Сервер вернул {} при скачивании {}: {} (путь: {:?})",
+            status,
+            url,
+            body,
+            file_path
+        );
     }
 
     let total_bytes = write_stream_to_atomic(response, file_path, url).await?;
@@ -86,23 +97,42 @@ pub(crate) async fn fetch_file_list(
     project_name: &str,
 ) -> Result<HashMap<String, String>> {
     let list_step = StepHandle::start("files.list", "Получение списка файлов");
-    log_info!("[files] Запрос списка файлов: {}/v1/launcher/files/list", server_url);
-    let response = step_try!(list_step, client
-        .get(format!("{}/v1/launcher/files/list", server_url))
-        .send()
-        .await
-        .with_context(|| format!("Не удалось отправить запрос на {}/v1/launcher/files/list", server_url)));
+    log_info!(
+        "[files] Запрос списка файлов: {}/v1/launcher/files/list",
+        server_url
+    );
+    let response = step_try!(
+        list_step,
+        client
+            .get(format!("{}/v1/launcher/files/list", server_url))
+            .send()
+            .await
+            .with_context(|| format!(
+                "Не удалось отправить запрос на {}/v1/launcher/files/list",
+                server_url
+            ))
+    );
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_err!("[files] Сервер вернул {}: {}", status, body);
         list_step.fail(format!("Сервер файлов вернул {}", status));
-        anyhow::bail!("Сервер файлов вернул {} (проект: {}): {}", status, project_name, body);
+        anyhow::bail!(
+            "Сервер файлов вернул {} (проект: {}): {}",
+            status,
+            project_name,
+            body
+        );
     }
 
-    let file_list: HashMap<String, String> = step_try!(list_step, response.json().await
-        .with_context(|| format!("Не удалось распарсить JSON списка файлов (проект: {})", project_name)));
+    let file_list: HashMap<String, String> = step_try!(
+        list_step,
+        response.json().await.with_context(|| format!(
+            "Не удалось распарсить JSON списка файлов (проект: {})",
+            project_name
+        ))
+    );
     list_step.finish(false);
     Ok(file_list)
 }
@@ -113,27 +143,51 @@ pub(crate) async fn fetch_mods_list(
     project_name: &str,
 ) -> Result<HashMap<String, String>> {
     let list_step = StepHandle::start("mods.list", "Получение списка модов");
-    log_info!("[mods] Запрос списка модов: {}/v1/launcher/files/mods", server_url);
-    let response = step_try!(list_step, client
-        .get(format!("{}/v1/launcher/files/mods", server_url))
-        .send()
-        .await
-        .with_context(|| format!("Не удалось отправить запрос на {}/v1/launcher/files/mods", server_url)));
+    log_info!(
+        "[mods] Запрос списка модов: {}/v1/launcher/files/mods",
+        server_url
+    );
+    let response = step_try!(
+        list_step,
+        client
+            .get(format!("{}/v1/launcher/files/mods", server_url))
+            .send()
+            .await
+            .with_context(|| format!(
+                "Не удалось отправить запрос на {}/v1/launcher/files/mods",
+                server_url
+            ))
+    );
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         log_err!("[mods] Сервер вернул ошибку {}: {}", status, body);
         list_step.fail(format!("Сервер модов вернул {}", status));
-        anyhow::bail!("Сервер модов вернул {} (проект: {}): {}", status, project_name, body);
+        anyhow::bail!(
+            "Сервер модов вернул {} (проект: {}): {}",
+            status,
+            project_name,
+            body
+        );
     }
 
-    let response_text = step_try!(list_step, response.text().await
-        .with_context(|| format!("Не удалось прочитать ответ от {}/v1/launcher/files/mods", server_url)));
+    let response_text = step_try!(
+        list_step,
+        response.text().await.with_context(|| format!(
+            "Не удалось прочитать ответ от {}/v1/launcher/files/mods",
+            server_url
+        ))
+    );
     log_info!("[mods] Ответ сервера: {}", response_text);
 
-    let mods: HashMap<String, String> = step_try!(list_step, serde_json::from_str(&response_text)
-        .with_context(|| format!("Не удалось распарсить JSON списка модов (проект: {})", project_name)));
+    let mods: HashMap<String, String> = step_try!(
+        list_step,
+        serde_json::from_str(&response_text).with_context(|| format!(
+            "Не удалось распарсить JSON списка модов (проект: {})",
+            project_name
+        ))
+    );
     list_step.finish(false);
     Ok(mods)
 }
@@ -148,9 +202,7 @@ pub(crate) fn download_launcher_server_file(
     move |url: String, dest: PathBuf| {
         let client = client.clone();
         let server_url = server_url.clone();
-        Box::pin(async move {
-            download_file(&client, &dest, &url, &server_url).await
-        })
+        Box::pin(async move { download_file(&client, &dest, &url, &server_url).await })
     }
 }
 
@@ -219,7 +271,12 @@ async fn sync_server_files(
                     files_to_download.push(key.clone());
                 }
                 Err(e) => {
-                    log_info!("{} Ошибка чтения {}: {}", prefix, dest_for(key).display(), e);
+                    log_info!(
+                        "{} Ошибка чтения {}: {}",
+                        prefix,
+                        dest_for(key).display(),
+                        e
+                    );
                     files_to_download.push(key.clone());
                 }
             }
@@ -259,13 +316,16 @@ async fn sync_server_files(
         labels.noun
     );
     let step_counter = step.clone();
-    let download_futures = semaphore_core(base_dir.to_path_buf(), semaphore_list, move |url, dest| {
-        let client = client.clone();
-        let server_url = server_url.clone();
-        async move {
-            download_file(&client, &dest, &url, &server_url).await
-        }
-    }, Some(move |_: &str| step_counter.inc()));
+    let download_futures = semaphore_core(
+        base_dir.to_path_buf(),
+        semaphore_list,
+        move |url, dest| {
+            let client = client.clone();
+            let server_url = server_url.clone();
+            async move { download_file(&client, &dest, &url, &server_url).await }
+        },
+        Some(move |_: &str| step_counter.inc()),
+    );
 
     let results = futures::future::join_all(download_futures).await;
 
@@ -281,7 +341,13 @@ async fn sync_server_files(
         }
     }
 
-    log_info!("{} Итого: скачано {}, ошибок: {}, всего: {}", prefix, downloaded, errors, total);
+    log_info!(
+        "{} Итого: скачано {}, ошибок: {}, всего: {}",
+        prefix,
+        downloaded,
+        errors,
+        total
+    );
 
     if errors > 0 {
         step.fail(format!("Не удалось скачать {}: {}", labels.noun, errors));
@@ -300,10 +366,17 @@ async fn sync_server_files(
     })
 }
 
-pub async fn download_all_files(project_name: String, check_hashes: bool, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
+pub async fn download_all_files(
+    project_name: String,
+    check_hashes: bool,
+    state: &Mutex<GlobalState>,
+) -> Result<FilesSyncReport> {
     let online = state.lock().await.project_config.online;
     if !online {
-        log_info!("[files] Одиночный профиль {} — синхронизация с сервером не нужна", project_name);
+        log_info!(
+            "[files] Одиночный профиль {} — синхронизация с сервером не нужна",
+            project_name
+        );
         return Ok(FilesSyncReport::default());
     }
 
@@ -328,10 +401,16 @@ pub async fn download_all_files(project_name: String, check_hashes: bool, state:
     .await
 }
 
-pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> Result<FilesSyncReport> {
+pub async fn download_mods(
+    project_name: String,
+    state: &Mutex<GlobalState>,
+) -> Result<FilesSyncReport> {
     let online = state.lock().await.project_config.online;
     if !online {
-        log_info!("[mods] Одиночный профиль {} — моды с сервера не скачиваются", project_name);
+        log_info!(
+            "[mods] Одиночный профиль {} — моды с сервера не скачиваются",
+            project_name
+        );
         return Ok(FilesSyncReport::default());
     }
 
@@ -347,7 +426,8 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
 
     tokio::fs::create_dir_all(&mods_dir).await?;
 
-    let server_mods: HashSet<&str> = mods.keys()
+    let server_mods: HashSet<&str> = mods
+        .keys()
         .map(|k| k.strip_prefix("mods/").unwrap_or(k))
         .collect();
 
@@ -379,4 +459,171 @@ pub async fn download_mods(project_name: String, state: &Mutex<GlobalState>) -> 
         |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
     )
     .await
+}
+
+#[cfg(test)]
+mod mock_server_tests {
+    use super::*;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::utils::http::http_client;
+    use mockito::{Matcher, Server};
+    use serde_json::json;
+
+    async fn api_context(server: &Server) -> ApiContext {
+        ApiContext {
+            client: build_auth_client("test-token").expect("клиент"),
+            server_url: server.url(),
+        }
+    }
+
+    #[tokio::test]
+    async fn sync_downloads_missing_and_changed_files_and_skips_intact() {
+        let dir = LauncherDirGuard::acquire("files_sync").await;
+        let mut server = Server::new_async().await;
+
+        let alpha = b"alpha config".to_vec();
+        let beta = b"beta jar".to_vec();
+        let gamma = b"gamma".to_vec();
+
+        let alpha_mock = server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_body(Matcher::PartialJsonString(
+                json!({"url": "configs/settings.json"}).to_string(),
+            ))
+            .match_header("authorization", "Bearer test-token")
+            .with_status(200)
+            .with_body(alpha.clone())
+            .create_async()
+            .await;
+        let beta_mock = server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_body(Matcher::PartialJsonString(
+                json!({"url": "mods/a.jar"}).to_string(),
+            ))
+            .match_header("authorization", "Bearer test-token")
+            .with_status(200)
+            .with_body(beta.clone())
+            .create_async()
+            .await;
+
+        let list = HashMap::from([
+            ("configs/settings.json".to_string(), sha1_hex(&alpha)),
+            ("mods/a.jar".to_string(), sha1_hex(&beta)),
+            ("configs/ok.json".to_string(), sha1_hex(&gamma)),
+        ]);
+
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("configs")).unwrap();
+        std::fs::create_dir_all(base.join("mods")).unwrap();
+        std::fs::write(base.join("configs/ok.json"), &gamma).unwrap();
+        std::fs::write(base.join("mods/a.jar"), b"stale").unwrap();
+
+        let ctx = api_context(&server).await;
+        let step = StepHandle::start("files.download", "Скачивание файлов");
+        let report = sync_server_files(
+            &ctx,
+            &list,
+            &base,
+            true,
+            step,
+            &FILES_LABELS,
+            |key: &str| PathBuf::from(key),
+        )
+        .await
+        .expect("синхронизация файлов");
+
+        assert_eq!(report.total, 2);
+        assert_eq!(report.downloaded, 2);
+        assert!(!report.skipped);
+        assert_eq!(
+            std::fs::read(base.join("configs/settings.json")).unwrap(),
+            alpha
+        );
+        assert_eq!(std::fs::read(base.join("mods/a.jar")).unwrap(), beta);
+        assert_eq!(std::fs::read(base.join("configs/ok.json")).unwrap(), gamma);
+
+        alpha_mock.assert_async().await;
+        beta_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn sync_rejects_unsafe_paths_from_server() {
+        let dir = LauncherDirGuard::acquire("files_unsafe").await;
+        let server = Server::new_async().await;
+
+        let list = HashMap::from([("../evil.jar".to_string(), "hash".to_string())]);
+        let ctx = api_context(&server).await;
+        let step = StepHandle::start("files.download", "Скачивание файлов");
+        let result = sync_server_files(
+            &ctx,
+            &list,
+            &dir.project_dir("Cordelia"),
+            true,
+            step,
+            &FILES_LABELS,
+            |key: &str| PathBuf::from(key),
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetch_file_list_parses_server_response() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/files/list")
+            .with_status(200)
+            .with_body(json!({"mods/a.jar": "hash1", "config.json": "hash2"}).to_string())
+            .create_async()
+            .await;
+
+        let ctx = api_context(&server).await;
+        let list = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+            .await
+            .expect("список файлов");
+
+        assert_eq!(list.get("mods/a.jar").map(String::as_str), Some("hash1"));
+        assert_eq!(list.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn fetch_file_list_fails_on_server_error() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/files/list")
+            .with_status(500)
+            .with_body("boom")
+            .create_async()
+            .await;
+
+        let ctx = api_context(&server).await;
+        let error = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+            .await
+            .expect_err("сервер вернул 500");
+
+        assert!(error.to_string().contains("500"), "{}", error);
+    }
+
+    #[tokio::test]
+    async fn download_file_overwrites_existing_content() {
+        let dir = LauncherDirGuard::acquire("files_overwrite").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .with_status(200)
+            .with_body("fresh")
+            .create_async()
+            .await;
+
+        let dest = dir.project_dir("Cordelia").join("mods/a.jar");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::write(&dest, b"old").unwrap();
+
+        download_file(http_client(), &dest, "mods/a.jar", &server.url())
+            .await
+            .expect("скачивание");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"fresh");
+    }
 }

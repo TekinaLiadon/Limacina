@@ -4,6 +4,7 @@ import { Button, Checkbox } from '@/06-shared'
 import { useCpmSettings, useCpmAnimations } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
+import UserContentList from './UserContentList.vue'
 import Viewer3D from './Viewer3D.vue'
 
 const {
@@ -13,11 +14,13 @@ const {
   displayLayers,
   activeLayerIds,
   isUploading,
+  isSaving,
   isOffline,
   uploadedModels,
   selectCpmFile,
   resetCpm,
   handleUploadModel,
+  handleSaveModelOffline,
   handleDeleteModel,
   handleCopyUrl,
 } = useCpmSettings()
@@ -47,7 +50,7 @@ const setPlaying = (playing: boolean): void => {
 <template>
   <div class="cpm-settings">
     <div v-if="isOffline" class="cpm-settings__notice">
-      Локальный профиль: модель доступна только для предпросмотра и не отправляется на сервер
+      Локальный профиль: модель сохраняется в игру без отправки на сервер
     </div>
 
     <Viewer3D v-if="hasModel" :min-zoom="8">
@@ -114,6 +117,15 @@ const setPlaying = (playing: boolean): void => {
         Отправить
       </Button>
       <Button
+        v-if="hasModel && isOffline"
+        class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
+        :is-loading="isSaving"
+        :is-disabled="isSaving"
+        @click="handleSaveModelOffline"
+      >
+        Сохранить в игру
+      </Button>
+      <Button
         v-if="hasModel"
         class="btn-danger cpm-settings__btn cpm-settings__btn--reset"
         @click="resetCpm"
@@ -126,50 +138,26 @@ const setPlaying = (playing: boolean): void => {
       Формат: .cpmproject, не более 2 МБ
     </p>
 
-    <div v-if="!isOffline && uploadedModels.length > 0" class="cpm-settings__content-list">
-      <div class="cpm-settings__content-title section-label">Загруженные модели</div>
-      <div class="cpm-settings__content-items">
-        <div
-          v-for="item in uploadedModels"
-          :key="item.id ?? item.url"
-          class="cpm-settings__content-item"
-        >
-          <span class="cpm-settings__content-url">{{ item.url }}</span>
-          <div class="cpm-settings__content-actions">
-            <Button
-              class="btn-quiet cpm-settings__copy-btn"
-              @click="handleCopyUrl(item.url)"
-            >
-              Копировать
-            </Button>
-            <Button
-              v-if="item.id != null"
-              class="btn-danger cpm-settings__delete-btn"
-              @click="handleDeleteModel(item.id!)"
-            >
-              Удалить
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <UserContentList
+      v-if="!isOffline && uploadedModels.length > 0"
+      title="Загруженные модели"
+      :items="uploadedModels"
+      @copy="handleCopyUrl"
+      @delete="handleDeleteModel"
+    />
   </div>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .cpm-settings {
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
 
   &__error {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--error-bg);
-    box-shadow: inset 0 0 0 1px var(--error-border);
-    color: var(--error);
-    font-size: var(--text-body-sm);
-    text-align: left;
+    @include mixins.error-box;
   }
 
   &__notice {
@@ -218,55 +206,7 @@ const setPlaying = (playing: boolean): void => {
   }
 
   &__hint {
-    margin: 0;
-    font-size: var(--text-caption);
-    color: var(--login-text-muted);
-    text-align: center;
-  }
-
-  &__content-list {
-    margin-top: var(--space-8);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-12);
-  }
-
-  &__content-items {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-  }
-
-  &__content-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-12);
-    padding: var(--space-12);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-card);
-  }
-
-  &__content-url {
-    flex: 1;
-    font-size: var(--text-caption);
-    color: var(--login-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: left;
-  }
-
-  &__content-actions {
-    display: flex;
-    gap: var(--space-4);
-    flex-shrink: 0;
-  }
-
-  &__copy-btn,
-  &__delete-btn {
-    padding: var(--space-4) var(--control-padding-x);
-    font-size: var(--text-caption);
+    @include mixins.caption-hint;
   }
 }
 </style>
