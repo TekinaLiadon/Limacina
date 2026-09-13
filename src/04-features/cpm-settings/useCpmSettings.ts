@@ -2,7 +2,7 @@ import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
 import { selectFile } from '@/06-shared'
 import { useNotificationStore } from '@/05-entities'
 import { readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
-import { cpmProjectToBase64, cpmProjectToBytes } from '@/04-features'
+import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
 import type { CPMChild, CPMData, CPMVec3 } from '@/05-entities/core/types'
@@ -133,7 +133,7 @@ export function useCpmSettings() {
   const handleUploadModel = async (): Promise<void> => {
     if (!cpmFileBytes.value || !cpmData.value) return
 
-    const base64 = await cpmProjectToBase64(cpmFileBytes.value)
+    const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value)
     const item = await content.handleUpload(base64)
     if (!item) return
 

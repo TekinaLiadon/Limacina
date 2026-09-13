@@ -171,21 +171,58 @@ function flatten(config: CPMConfig): FlatModel {
   return { cubes, elementIds }
 }
 
-export async function cpmProjectToBytes(data: ArrayBuffer): Promise<Uint8Array> {
+async function parseCpmProject(data: ArrayBuffer): Promise<{ config: CPMConfig; skinPng: Uint8Array | null }> {
   const zip = await JSZip.loadAsync(data)
   const configFile = zip.file('config.json')
   if (!configFile) throw new Error('ZIP не содержит config.json')
   const config: CPMConfig = JSON.parse(await configFile.async('string'))
   const skinFile = zip.file('skin.png')
   const skinPng = skinFile ? new Uint8Array(await skinFile.async('arraybuffer')) : null
+  return { config, skinPng }
+}
+
+export async function cpmProjectToBytes(data: ArrayBuffer): Promise<Uint8Array> {
+  const { config, skinPng } = await parseCpmProject(data)
   return cpmConfigToBytes(config, skinPng)
 }
 
-export async function cpmProjectToBase64(data: ArrayBuffer): Promise<string> {
-  return bytesToBase64(await cpmProjectToBytes(data))
+export async function cpmProjectToLinkBase64(data: ArrayBuffer): Promise<string> {
+  const { config, skinPng } = await parseCpmProject(data)
+  return bytesToBase64(cpmConfigToLinkBytes(config, skinPng))
+}
+
+function appendChecksum(raw: Uint8Array): Uint8Array {
+  let checksum = 0
+  for (let i = 1; i < raw.length; i++) checksum = (checksum + (raw[i] ?? 0)) & 0xFFFF
+  const result = new Uint8Array(raw.length + 2)
+  result.set(raw)
+  result[raw.length] = (checksum >>> 8) & 0xFF
+  result[raw.length + 1] = checksum & 0xFF
+  return result
 }
 
 export function cpmConfigToBytes(config: CPMConfig, skinPng: Uint8Array | null = null): Uint8Array {
+  const definition = buildDefinitionBytes(config, skinPng)
+  const w = new CpmBinaryWriter()
+  w.writeByte(HEADER)
+  w.writeObjectBlock(PT.SKIN_TYPE, (ww) => {
+    ww.writeByte(config.skinType === 'slim' ? 0 : 1)
+  })
+  w.writeObjectBlock(PT.DEFINITION, (ww) => {
+    ww.writeBytes(definition)
+  })
+  w.writeObjectBlock(PT.END, () => {})
+  return appendChecksum(w.toArray())
+}
+
+export function cpmConfigToLinkBytes(config: CPMConfig, skinPng: Uint8Array | null = null): Uint8Array {
+  const w = new CpmBinaryWriter()
+  w.writeByte(HEADER)
+  w.writeBytes(buildDefinitionBytes(config, skinPng))
+  return appendChecksum(w.toArray())
+}
+
+function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Uint8Array {
   const { cubes, elementIds } = flatten(config)
 
   const def = new CpmBinaryWriter()
@@ -368,26 +405,7 @@ export function cpmConfigToBytes(config: CPMConfig, skinPng: Uint8Array | null =
 
   def.writeObjectBlock(PT.END, () => {})
 
-  const w = new CpmBinaryWriter()
-  w.writeByte(HEADER)
-  w.writeObjectBlock(PT.SKIN_TYPE, (ww) => {
-    ww.writeByte(config.skinType === 'slim' ? 0 : 1)
-  })
-  w.writeObjectBlock(PT.DEFINITION, (ww) => {
-    ww.writeBytes(def.toArray())
-  })
-  w.writeObjectBlock(PT.END, () => {})
-
-  const raw = w.toArray()
-  let checksum = 0
-  for (let i = 1; i < raw.length; i++) checksum = (checksum + (raw[i] ?? 0)) & 0xFFFF
-
-  const result = new Uint8Array(raw.length + 2)
-  result.set(raw)
-  result[raw.length] = (checksum >>> 8) & 0xFF
-  result[raw.length + 1] = checksum & 0xFF
-
-  return result
+  return def.toArray()
 }
 
 export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null = null): string {

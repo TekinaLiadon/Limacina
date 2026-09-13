@@ -15,7 +15,7 @@ use crate::utils::tauri_err::CommandResult;
 const MODEL_HEADER: u8 = 0x53;
 const PART_END: u8 = 0;
 const PART_SKIN_TYPE: u8 = 11;
-const PART_PACKAGE_LINK: u8 = 20;
+const PART_DEFINITION_LINK: u8 = 3;
 const SKIN_TYPE_SLIM: u8 = 0;
 const SKIN_TYPE_DEFAULT: u8 = 1;
 const LINK_MAX_LEN: usize = 255;
@@ -135,7 +135,7 @@ fn build_link_definition(url: &str, skin_type: u8) -> Result<Vec<u8>> {
     body.push(PART_SKIN_TYPE);
     write_varint(&mut body, 1);
     body.push(skin_type);
-    body.push(PART_PACKAGE_LINK);
+    body.push(PART_DEFINITION_LINK);
     write_varint(&mut body, link_bytes.len() as u32 + 1);
     body.push(link_bytes.len() as u8);
     body.extend_from_slice(link_bytes);
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(data[0], MODEL_HEADER);
         assert_eq!(&data[1..4], &[PART_SKIN_TYPE, 1, SKIN_TYPE_SLIM]);
         let link = b"raw:https://example.com/m/1";
-        assert_eq!(data[4], PART_PACKAGE_LINK);
+        assert_eq!(data[4], PART_DEFINITION_LINK);
         assert_eq!(data[5] as usize, link.len() + 1);
         assert_eq!(data[6] as usize, link.len());
         assert_eq!(&data[7..7 + link.len()], link);
