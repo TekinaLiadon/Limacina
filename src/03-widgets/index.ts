@@ -9,6 +9,7 @@ export { default as AuthForm } from './tabs/login/AuthForm.vue'
 export { default as StepProgress } from './tabs/login/StepProgress.vue'
 
 export { default as AddProfileTab } from './tabs/AddProfileTab.vue'
+export { default as OfflineProfileForm } from './tabs/profile/OfflineProfileForm.vue'
 export { default as DebugTab } from './tabs/DebugTab.vue'
 
 export { default as PathPicker } from './tabs/settings/PathPicker.vue'

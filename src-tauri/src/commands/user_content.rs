@@ -83,15 +83,17 @@ pub async fn logout_account(state: State<'_, Mutex<GlobalState>>) -> CommandResu
                 state.project_config.online,
                 state.project_config.resolved_server_url(),
             ),
-            None => (String::new(), String::new(), false, String::new()),
+            None => (String::new(), String::new(), false, None),
         }
     };
 
     if online && !project_name.is_empty() && !username.is_empty() {
         match storage::get_credential(&project_name, &username, "refresh_token").await {
             Ok(refresh_token) if !refresh_token.is_empty() => {
-                if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                if let Some(server_url) = server_url {
+                    if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
+                        log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                    }
                 }
                 let _ = storage::delete_credential(&project_name, &username, "refresh_token").await;
             }

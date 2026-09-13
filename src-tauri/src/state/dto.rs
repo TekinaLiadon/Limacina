@@ -59,9 +59,9 @@ impl Default for ProjectConfig {
 }
 
 impl ProjectConfig {
-    pub fn resolved_server_url(&self) -> String {
+    pub fn resolved_server_url(&self) -> Option<String> {
         match self.server_url.as_deref() {
-            Some(url) if !url.trim().is_empty() => normalize_server_url(url),
+            Some(url) if !url.trim().is_empty() => Some(normalize_server_url(url)),
             _ => default_server_url(),
         }
     }
@@ -169,7 +169,10 @@ maxMemory = "-Xmx4G"
             server_url: Some("mc.example.com:3000/".to_string()),
             ..ProjectConfig::default()
         };
-        assert_eq!(config.resolved_server_url(), "https://mc.example.com:3000");
+        assert_eq!(
+            config.resolved_server_url().as_deref(),
+            Some("https://mc.example.com:3000")
+        );
 
         let empty = ProjectConfig {
             server_url: Some("   ".to_string()),

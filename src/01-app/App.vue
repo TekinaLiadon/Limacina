@@ -46,7 +46,20 @@ const tabs = computed((): Tab[] => {
 
 const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel', 'SettingsAccount']
 
-const showLayout = computed((): boolean => route.name !== 'Setup')
+const fullscreenRouteNames: string[] = ['Setup', 'OfflineSetup']
+
+const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
+
+const needsOfflineSetup = computed((): boolean =>
+  coreStore.offlineBuild && coreStore.projects.length === 0
+)
+
+watch(needsOfflineSetup, (needed: boolean): void => {
+  const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
+  if (needed && !isFullscreenRoute) {
+    router.replace({ name: 'OfflineSetup' })
+  }
+})
 
 const currentTab = computed((): TabKey => {
   const name = route.name as string

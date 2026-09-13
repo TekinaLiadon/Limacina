@@ -29,6 +29,7 @@ export interface AppInitData {
   launcherConfig: LauncherConfig | null
   version: string
   totalMemoryMb: number
+  offlineBuild: boolean
 }
 
 export interface AuthUserData extends LoginForm {
@@ -103,6 +104,7 @@ export interface StepProgressItem {
   defaultParentPath: string
   launcherConfig: LauncherConfig | null
   version: string
+  offlineBuild: boolean
   activeTab: TabKey
   currentProject: string
   projects: string[]

@@ -2,6 +2,9 @@
 import { useLauncherSettings } from "@/04-features";
 import { PathPicker, ThemeSelector, LauncherUpdate, LauncherBehavior } from "@/03-widgets";
 import { Button } from "@/06-shared";
+import { useCoreStore } from "@/05-entities";
+
+const coreStore = useCoreStore();
 
 const {
   launcherPath,
@@ -63,7 +66,7 @@ const {
       Сохранить
     </Button>
 
-    <LauncherUpdate class="settings-row" />
+    <LauncherUpdate v-if="!coreStore.offlineBuild" class="settings-row" />
 
     <div class="settings-grid">
       <div class="section-label span-full">Внешний вид</div>

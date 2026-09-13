@@ -35,6 +35,10 @@ const save = async (): Promise<void> => {
     const config = await initializeLauncher(selectedPath.value)
     coreStore.launcherConfig = config
     coreStore.hasLauncherConfig = true
+    if (coreStore.offlineBuild && coreStore.projects.length === 0) {
+      router.replace({ name: 'OfflineSetup' })
+      return
+    }
     router.push('/')
   } catch (e: unknown) {
     notificationStore.show(String(e))

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use tauri::State;
 use tokio::sync::Mutex;
 
@@ -78,7 +78,9 @@ pub(crate) async fn restore_session(
             project_name
         );
     }
-    let server_url = project.resolved_server_url();
+    let server_url = project
+        .resolved_server_url()
+        .ok_or_else(|| anyhow!("Для проекта «{}» не указан адрес сервера", project_name))?;
 
     if let Ok(refresh_token) =
         storage::get_credential(project_name, username, "refresh_token").await
@@ -126,8 +128,11 @@ async fn register_account(
     if !project.online {
         bail!("Регистрация недоступна для одиночного профиля");
     }
+    let server_url = project
+        .resolved_server_url()
+        .ok_or_else(|| anyhow!("Для проекта «{}» не указан адрес сервера", project_name))?;
 
-    auth::register(&project.resolved_server_url(), username, password).await?;
+    auth::register(&server_url, username, password).await?;
 
     remember_login(state, project_name, username, true).await?;
 
@@ -249,7 +254,9 @@ async fn change_password_flow(
     if !project.online {
         bail!("Смена пароля недоступна для одиночного профиля");
     }
-    let server_url = project.resolved_server_url();
+    let server_url = project
+        .resolved_server_url()
+        .ok_or_else(|| anyhow!("Для проекта «{}» не указан адрес сервера", project_name))?;
 
     let data = auth::change_password(&server_url, &access_token, old_password, new_password)
         .await

@@ -17,6 +17,10 @@ const STARTUP_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 pub async fn check_update(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Option<UpdateInfo>> {
+    if crate::utils::env_info::is_offline_build() {
+        log_info!("Офлайн-сборка, проверка обновлений пропущена");
+        return Ok(None);
+    }
     if cfg!(debug_assertions) {
         log_info!("Режим разработки, проверка обновлений пропущена");
         return Ok(None);
