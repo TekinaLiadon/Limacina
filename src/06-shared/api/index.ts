@@ -348,6 +348,10 @@ export async function getJavaDistributions(): Promise<JavaDistribution[]> {
   return invoke<JavaDistribution[]>('get_java_distributions')
 }
 
+export async function getJavaVersion(mcVersion: string): Promise<string> {
+  return invoke('get_java_version', { mcVersion })
+}
+
 export async function downloadAlternativeJava(
   distribution: string,
   javaVersion: string | null,

@@ -23,6 +23,7 @@ use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
+use commands::download::get_java_version;
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
 use commands::integrity::check_files_integrity;
 use commands::launcher_config::{
@@ -179,6 +180,7 @@ pub fn run() {
             download_java,
             download_alternative_java,
             get_java_distributions,
+            get_java_version,
             start_minecraft,
             exit_launcher,
             save_settings_project,

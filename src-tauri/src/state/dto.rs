@@ -20,6 +20,8 @@ pub struct ProjectConfig {
     pub mod_loader: ModLoader,
     pub loader_version: Option<String>,
     pub java_path: Option<String>,
+    #[serde(default)]
+    pub java_version: Option<u32>,
     pub jvm_args: Vec<String>,
     pub min_memory: String,
     pub max_memory: String,
@@ -47,6 +49,7 @@ impl Default for ProjectConfig {
             mod_loader: ModLoader::Vanilla,
             loader_version: None,
             java_path: None,
+            java_version: None,
             jvm_args: Vec::new(),
             min_memory: "-Xms512M".to_string(),
             max_memory: "-Xmx4G".to_string(),
@@ -94,6 +97,7 @@ mod tests {
             mc_version: "1.21.1".to_string(),
             mod_loader: ModLoader::NeoForge,
             loader_version: Some("21.1.234".to_string()),
+            java_version: Some(21),
             jvm_args: vec!["-XX:+UseG1GC".to_string()],
             server_url: Some("http://mc.example.com:3000".to_string()),
             ..ProjectConfig::default()
@@ -104,6 +108,7 @@ mod tests {
 
         assert_eq!(parsed.project_name, "Cordelia");
         assert_eq!(parsed.mod_loader, ModLoader::NeoForge);
+        assert_eq!(parsed.java_version, Some(21));
         assert_eq!(parsed.jvm_args, vec!["-XX:+UseG1GC".to_string()]);
         assert_eq!(
             parsed.server_url.as_deref(),
@@ -160,6 +165,7 @@ maxMemory = "-Xmx4G"
         let parsed: ProjectConfig = toml::from_str(toml_string).expect("разбор старого TOML");
         assert!(parsed.online);
         assert!(!parsed.initialized);
+        assert_eq!(parsed.java_version, None);
         assert_eq!(parsed.server_url, None);
     }
 

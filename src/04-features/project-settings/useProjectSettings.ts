@@ -4,6 +4,7 @@ import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecr
 import { reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { ProjectConfig } from '@/05-entities/core/types'
+import { splitJvmArgs } from './jvmPresets'
 
 export function useProjectSettings(): {
   config: ComputedRef<ProjectSettingsForm>
@@ -41,23 +42,6 @@ export function useProjectSettings(): {
     return Number.isFinite(mb) ? mb : fallback
   }
 
-  const splitJvmArgs = (raw: string): string[] => {
-    const args: string[] = []
-    let current = ''
-    let inQuotes = false
-    for (const char of raw) {
-      if (char === '"') inQuotes = !inQuotes
-      if (char === ',' && !inQuotes) {
-        args.push(current.trim())
-        current = ''
-        continue
-      }
-      current += char
-    }
-    args.push(current.trim())
-    return args.filter(Boolean)
-  }
-
   const selectJavaFolder = async (): Promise<void> => {
     const selected = await open({ directory: true })
     if (selected) config.value.javaPath = selected
@@ -76,6 +60,7 @@ export function useProjectSettings(): {
         modLoader: loaded.modLoader,
         loaderVersion: loaded.loaderVersion ?? '',
         javaPath: loaded.javaPath ?? '',
+        javaVersion: loaded.javaVersion ?? null,
         jvmArgs: (loaded.jvmArgs ?? []).join(', '),
         memoryRange: [parseMemory(loaded.minMemory, DEFAULT_MIN_MEMORY), parseMemory(loaded.maxMemory, DEFAULT_MAX_MEMORY)],
         online: loaded.online,
@@ -104,6 +89,7 @@ export function useProjectSettings(): {
         modLoader: config.value.modLoader,
         loaderVersion: config.value.loaderVersion || null,
         javaPath: config.value.javaPath || null,
+        javaVersion: config.value.javaVersion,
         jvmArgs: config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : [],
         minMemory: `-Xms${config.value.memoryRange[0]}M`,
         maxMemory: `-Xmx${config.value.memoryRange[1]}M`,

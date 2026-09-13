@@ -123,6 +123,7 @@ export interface ProjectConfig {
   modLoader: ModLoaderKind
   loaderVersion: string | null
   javaPath: string | null
+  javaVersion: number | null
   jvmArgs: string[]
   minMemory: string
   maxMemory: string

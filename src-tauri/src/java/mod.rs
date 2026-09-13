@@ -1,6 +1,6 @@
 pub mod alternative_java;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
@@ -25,7 +25,7 @@ use tokio::{
     task,
 };
 
-pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
+pub async fn install_java(config: &ProjectConfig) -> Result<(PathBuf, String)> {
     let java_version = resolve_java_version(&config.mc_version).await;
     let java_dir = launcher_path(None)?.join("java").join(&java_version);
 
@@ -37,7 +37,7 @@ pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
             executable_path
         );
         check_step.finish(true);
-        return Ok(executable_path);
+        return Ok((executable_path, java_version));
     }
     check_step.finish(false);
 
@@ -56,7 +56,15 @@ pub async fn install_java(config: &ProjectConfig) -> Result<PathBuf> {
     extract_step.finish(false);
 
     let executable_path = find_java_executable(&java_dir)?;
-    Ok(executable_path)
+    Ok((executable_path, java_version))
+}
+
+pub(crate) fn parse_java_major(version: &str) -> Result<u32> {
+    let major = version.split('.').next().unwrap_or(version);
+    major
+        .trim()
+        .parse::<u32>()
+        .with_context(|| format!("Не удалось определить мажорную версию Java: {version}"))
 }
 
 async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf> {
@@ -84,7 +92,9 @@ async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf
 pub(crate) fn get_java_version(mc_version: &str) -> String {
     let base_version = mc_version.split('-').next().unwrap_or(mc_version);
 
-    if compare_versions(base_version, "1.20.5") != Ordering::Less {
+    if compare_versions(base_version, "26.1") != Ordering::Less {
+        "25".to_string()
+    } else if compare_versions(base_version, "1.20.5") != Ordering::Less {
         "21".to_string()
     } else if compare_versions(base_version, "1.16.5") == Ordering::Greater {
         "17".to_string()
@@ -220,6 +230,8 @@ mod tests {
         assert_eq!(get_java_version("1.20.5"), "21");
         assert_eq!(get_java_version("1.21.1"), "21");
         assert_eq!(get_java_version("1.21.8"), "21");
+        assert_eq!(get_java_version("26.1"), "25");
+        assert_eq!(get_java_version("26.2"), "25");
     }
 
     #[test]
