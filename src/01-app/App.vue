@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
 import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useCpmProjectOpen } from '@/04-features'
-import { Sidebar } from '@/03-widgets'
+import { Sidebar, ServerStatus } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
 const router = useRouter()
@@ -118,6 +118,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
                 :disabled="!canSwitch"
               />
             </div>
+            <ServerStatus />
             <div class="app__theme-switch" role="group" aria-label="Тема оформления">
               <button
                 class="app__theme-segment"

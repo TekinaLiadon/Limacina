@@ -15,7 +15,7 @@ use crate::utils::tauri_err::CommandResult;
 const MODEL_HEADER: u8 = 0x53;
 const PART_END: u8 = 0;
 const PART_SKIN_TYPE: u8 = 11;
-const PART_DEFINITION_LINK: u8 = 3;
+const PART_DEFINITION_LINK: u8 = 4;
 const SKIN_TYPE_SLIM: u8 = 0;
 const SKIN_TYPE_DEFAULT: u8 = 1;
 const LINK_MAX_LEN: usize = 255;
@@ -515,6 +515,10 @@ mod tests {
     #[test]
     fn link_definition_encodes_stub_block() {
         let data = build_link_definition("https://example.com/m/1", SKIN_TYPE_SLIM).unwrap();
+        assert_eq!(
+            PART_DEFINITION_LINK, 4,
+            "ModelPartType.DEFINITION_LINK ordinal"
+        );
         assert_eq!(data[0], MODEL_HEADER);
         assert_eq!(&data[1..4], &[PART_SKIN_TYPE, 1, SKIN_TYPE_SLIM]);
         let link = b"raw:https://example.com/m/1";

@@ -1,4 +1,5 @@
 export { default as Sidebar } from './dashboard/Sidebar.vue'
+export { default as ServerStatus } from './dashboard/ServerStatus.vue'
 
 export { default as AccountList } from './tabs/accounts/AccountList.vue'
 export { default as CurrentAccount } from './tabs/accounts/CurrentAccount.vue'

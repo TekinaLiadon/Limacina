@@ -20,5 +20,6 @@ export const useCoreStore = defineStore('core', {
     loginProgress: 0,
     loginError: '',
     projectConfig: null,
+    serverStatus: null,
   }),
 })

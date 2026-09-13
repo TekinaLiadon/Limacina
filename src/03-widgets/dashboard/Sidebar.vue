@@ -20,7 +20,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
     { key: 'settings', icon: 'settings', label: 'Настройки' },
   ]
   if (props.showMods === true) {
-    base.splice(2, 0, { key: 'mods', icon: 'referals', label: 'Моды' })
+    base.splice(2, 0, { key: 'mods', icon: 'puzzle', label: 'Моды' })
   }
   if (props.showDebug) {
     base.push({ key: 'debug', icon: 'settings', label: 'Дебаг' })

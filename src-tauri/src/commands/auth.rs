@@ -302,6 +302,22 @@ pub async fn delete_account(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
+    if let Ok(refresh_token) =
+        storage::get_credential(&project_name, &username, "refresh_token").await
+    {
+        if !refresh_token.is_empty() {
+            if let Ok(project) = load_config_or_default(&project_name).await {
+                if project.online {
+                    if let Some(server_url) = project.resolved_server_url() {
+                        if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
+                            log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let _ = storage::delete_credential(&project_name, &username, "password").await;
     let _ = storage::delete_credential(&project_name, &username, "refresh_token").await;
     let _ = storage::delete_credential(&project_name, &username, "uuid").await;

@@ -8,6 +8,7 @@ export type {
   UpdatePlatform,
   UpdateVersionInfo,
   UpdateVersions,
+  ServerStatus,
   TabKey,
   ConsoleLog,
   StepEvent,

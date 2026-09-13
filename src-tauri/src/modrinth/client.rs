@@ -257,7 +257,13 @@ mod tests {
             .await;
 
         let project: ModrinthProject = get_project("AANobbMI").await.expect("проект");
-        assert_eq!(project.date_created.as_deref(), Some("2021-01-03T00:53:34.185936Z"));
-        assert_eq!(project.date_modified.as_deref(), Some("2026-09-12T22:49:42.621484Z"));
+        assert_eq!(
+            project.date_created.as_deref(),
+            Some("2021-01-03T00:53:34.185936Z")
+        );
+        assert_eq!(
+            project.date_modified.as_deref(),
+            Some("2026-09-12T22:49:42.621484Z")
+        );
     }
 }

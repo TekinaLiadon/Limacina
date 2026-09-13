@@ -44,11 +44,11 @@ use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
 use commands::start::start_minecraft;
-use commands::update::{apply_update_cmd, check_update, get_launcher_versions};
+use commands::update::{apply_update_cmd, check_update, get_launcher_versions, get_server_status};
 use commands::user_content::{
-    delete_model, delete_offline_skin, delete_skin, get_offline_skin, get_offline_skin_model,
-    get_profile_skin, get_session_info, list_models, list_skins, logout_account, save_offline_skin,
-    select_account, set_active_skin, upload_model, upload_skin,
+    clear_session, delete_model, delete_offline_skin, delete_skin, get_offline_skin,
+    get_offline_skin_model, get_profile_skin, get_session_info, list_models, list_skins,
+    save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
 };
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -194,11 +194,12 @@ pub fn run() {
             check_update,
             apply_update_cmd,
             get_launcher_versions,
+            get_server_status,
             get_startup_logs,
             logger_utils::send_frontend_log,
             select_account,
             get_session_info,
-            logout_account,
+            clear_session,
             upload_skin,
             save_offline_skin,
             get_offline_skin,

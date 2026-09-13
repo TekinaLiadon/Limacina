@@ -57,6 +57,12 @@ export interface UpdateVersions {
   versions: UpdateVersionInfo[]
 }
 
+export interface ServerStatus {
+  online: number
+  max: number
+  version: string
+}
+
 export type TabKey = 'accounts' | 'add-profile' | 'mods' | 'settings' | 'debug'
 
 export type AuthSubTab = 'login' | 'register'
@@ -115,6 +121,7 @@ export interface StepProgressItem {
   loginProgress: number
   loginError: string
   projectConfig: ProjectConfig | null
+  serverStatus: ServerStatus | null
 }
 
 export interface ProjectConfig {

@@ -51,6 +51,12 @@ const categoryOptions = MODRINTH_CATEGORIES.map((option) => ({
 
 const mcVersionText = computed((): string => coreStore.projectConfig?.mcVersion ?? '')
 
+const isTabLoading = computed((): boolean =>
+  isLoadingInstalled.value || (isSearching.value && hits.value.length === 0),
+)
+
+const tabLoadingText = computed((): string => (isLoadingInstalled.value ? 'Загрузка модов' : 'Поиск модов'))
+
 const paginationItems = computed((): Array<number | 'gap'> => {
   const pages = totalPages.value
   const current = currentPage.value
@@ -133,8 +139,7 @@ onMounted(() => {
         </Button>
       </div>
 
-      <Preloader v-if="isLoadingInstalled" text="Загрузка модов" />
-      <p v-else-if="installed.length === 0" class="modrinth-tab__empty">
+      <p v-if="installed.length === 0" class="modrinth-tab__empty">
         Пока ничего не установлено — найдите моды поиском ниже
       </p>
       <div v-else class="modrinth-tab__list">
@@ -207,8 +212,7 @@ onMounted(() => {
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
 
-      <Preloader v-if="isSearching && hits.length === 0" text="Поиск модов" />
-      <p v-else-if="hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
+      <p v-if="hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
       <div v-else class="modrinth-tab__list">
         <article v-for="hit in hits" :key="hit.project_id" class="modrinth-tab__row">
           <ModrinthIcon :src="hit.icon_url" :title="hit.title" />
@@ -284,6 +288,8 @@ onMounted(() => {
       :hit="activeHit"
       @close="popupVisible = false"
     />
+
+    <Preloader v-if="isTabLoading" local :text="tabLoadingText" />
   </div>
 </template>
 
@@ -292,6 +298,8 @@ onMounted(() => {
 @use '@/01-app/assets/breakpoints';
 
 .modrinth-tab {
+  position: relative;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
@@ -428,11 +436,6 @@ onMounted(() => {
 
   &__page-gap {
     color: var(--login-text-muted);
-  }
-
-  &__loading {
-    @include mixins.caption-hint;
-    text-align: left;
   }
 
   &__empty {

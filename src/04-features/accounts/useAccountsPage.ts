@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { useAccounts, useGameLaunch } from '@/04-features'
-import { deleteAccount, logoutAccount } from '@/06-shared/api'
+import { clearSession, deleteAccount } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
 export function useAccountsPage() {
@@ -62,7 +62,7 @@ export function useAccountsPage() {
     store.isLaunching = false
     store.showAuthForm = false
     try {
-      await logoutAccount()
+      await clearSession()
     } catch (e: unknown) {
       reportError('Не удалось завершить сессию на стороне лаунчера', e)
     }
