@@ -5,7 +5,6 @@ import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
 import type { LauncherConfig, ProjectConfig, UpdateInfo } from '@/05-entities/core/types'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
-import { useServerStatus } from '@/04-features/server-status/useServerStatus'
 
 const STARTUP_ERROR_DURATION = 5000
 
@@ -56,6 +55,7 @@ export function useAppInit() {
       coreStore.version = initData.version
       coreStore.totalMemoryMb = initData.totalMemoryMb
       coreStore.offlineBuild = initData.offlineBuild
+      coreStore.envProjectName = initData.envProjectName ?? ''
 
       if (initData.launcherConfig) {
         applyProjects(initData.launcherConfig)
@@ -104,10 +104,6 @@ export function useAppInit() {
             projectLoad = loadProject(coreStore.currentProject)
           }
         }
-      }
-
-      if (!coreStore.offlineBuild) {
-        useServerStatus().startServerStatusPolling()
       }
 
       if (!coreStore.launcherConfig) {

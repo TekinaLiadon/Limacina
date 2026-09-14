@@ -42,7 +42,8 @@ function selectOption(value: string): void {
          @click="toggle"
          :style="`width: ${width}`"
     >
-      {{ selectedTitle }}
+      <span class="dropdown__title">{{ selectedTitle }}</span>
+      <slot name="trailing" />
     </div>
     <Transition name="dropdown-options">
       <div v-if="shown" class="dropdown-options" :style="{ maxHeight }">
@@ -76,6 +77,18 @@ function selectOption(value: string): void {
     @include mixins.dropdown-trigger;
 
     align-content: center;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+  }
+
+  &__title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &:not(.disabled):hover &__value {

@@ -13,6 +13,7 @@ const {
   keepOldConfigs,
   startWithSystem,
   closeAfterLaunch,
+  minimizeToTray,
   systemNotifications,
   debugMode,
   downloadSpeedLimitInput,
@@ -43,6 +44,7 @@ const {
         :keep-old-configs="keepOldConfigs"
         :start-with-system="startWithSystem"
         :close-after-launch="closeAfterLaunch"
+        :minimize-to-tray="minimizeToTray"
         :system-notifications="systemNotifications"
         :debug-mode="debugMode"
         :download-speed-limit="downloadSpeedLimitInput"
@@ -51,6 +53,7 @@ const {
         @update:keep-old-configs="keepOldConfigs = $event"
         @update:start-with-system="startWithSystem = $event"
         @update:close-after-launch="closeAfterLaunch = $event"
+        @update:minimize-to-tray="minimizeToTray = $event"
         @update:system-notifications="systemNotifications = $event"
         @update:debug-mode="debugMode = $event"
         @update:download-speed-limit="downloadSpeedLimitInput = $event"

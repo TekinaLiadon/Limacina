@@ -8,6 +8,7 @@ mod minecraft;
 mod modrinth;
 mod offline;
 mod state;
+mod tray;
 mod updater;
 mod utils;
 
@@ -36,8 +37,8 @@ use commands::modrinth::{
     modrinth_search, modrinth_uninstall,
 };
 use commands::profile::{
-    create_offline_profile, create_server_profile, get_loader_versions, get_minecraft_versions,
-    refresh_manifests, save_current_project,
+    create_offline_profile, create_server_profile, delete_project, get_loader_versions,
+    get_minecraft_versions, get_server_connect_url, refresh_manifests, save_current_project,
 };
 use commands::settings_project::clear_minecraft_config;
 use commands::settings_project::load_settings_project;
@@ -116,6 +117,17 @@ pub fn run() {
                 .map(|c| c.discord_activity)
                 .unwrap_or(true);
 
+            tray::set_minimize_to_tray(
+                app.handle(),
+                launcher_config
+                    .as_ref()
+                    .map(|c| c.minimize_to_tray)
+                    .unwrap_or(false),
+            );
+            if let Err(e) = tray::init(app.handle()) {
+                log_err!("Не удалось инициализировать иконку трея: {}", e);
+            }
+
             let gs = GlobalState {
                 launcher_config,
                 app_version: app.package_info().version.to_string(),
@@ -157,6 +169,14 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if tray::minimize_to_tray_enabled() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             auth_login,
             auth_register,
@@ -174,6 +194,8 @@ pub fn run() {
             set_initialized,
             create_server_profile,
             create_offline_profile,
+            delete_project,
+            get_server_connect_url,
             save_current_project,
             get_minecraft_versions,
             get_loader_versions,

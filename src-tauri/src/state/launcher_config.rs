@@ -48,6 +48,8 @@ pub struct LauncherConfig {
     pub start_with_system: bool,
     #[serde(default)]
     pub close_after_launch: bool,
+    #[serde(default)]
+    pub minimize_to_tray: bool,
 
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -77,6 +79,7 @@ impl Default for LauncherConfig {
             debug_mode: false,
             start_with_system: false,
             close_after_launch: false,
+            minimize_to_tray: false,
             theme: default_theme(),
             animations_enabled: true,
             project_names: Vec::new(),
@@ -223,6 +226,12 @@ impl LauncherConfig {
         }
         self.current_project = Some(project.to_string());
     }
+
+    pub fn remove_project(&mut self, project: &str) {
+        self.project_names.retain(|p| p != project);
+        self.projects.remove(project);
+        self.current_project = self.project_names.first().cloned();
+    }
 }
 
 fn write_config_atomic(path: &Path, content: &[u8]) -> Result<()> {
@@ -352,6 +361,35 @@ mod tests {
     }
 
     #[test]
+    fn remove_project_switches_current_and_drops_logins() {
+        let mut config = LauncherConfig::default();
+        config.add_project("Cordelia");
+        config.add_login("Cordelia", "player");
+        config.add_project("Sandbox");
+        config.add_login("Sandbox", "builder");
+
+        config.remove_project("Sandbox");
+
+        assert_eq!(config.project_names, vec!["Cordelia"]);
+        assert_eq!(config.current_project.as_deref(), Some("Cordelia"));
+        assert!(config.get_logins("Sandbox").is_empty());
+        assert_eq!(config.get_logins("Cordelia"), vec!["player".to_string()]);
+    }
+
+    #[test]
+    fn remove_last_project_clears_current() {
+        let mut config = LauncherConfig::default();
+        config.add_project("Cordelia");
+        config.add_login("Cordelia", "player");
+
+        config.remove_project("Cordelia");
+
+        assert!(config.project_names.is_empty());
+        assert_eq!(config.current_project, None);
+        assert!(config.get_logins("Cordelia").is_empty());
+    }
+
+    #[test]
     fn behavior_flags_default_to_disabled() {
         let json = r#"{ "launcherPath": "/home/user/Limacina" }"#;
         let parsed: LauncherConfig = serde_json::from_str(json).expect("разбор JSON");
@@ -359,6 +397,7 @@ mod tests {
         assert!(!parsed.debug_mode);
         assert!(!parsed.start_with_system);
         assert!(!parsed.close_after_launch);
+        assert!(!parsed.minimize_to_tray);
         assert!(parsed.keep_old_configs);
     }
 }

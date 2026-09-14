@@ -13,8 +13,10 @@ export interface DropdownOption {
   img?: string
 }
 
+export type IconType = 'home' | 'referals' | 'settings' | 'puzzle' | 'chevron-down' | 'arrow-right'
+
 export interface IconProps {
-  type?: string
+  type?: IconType
   up?: boolean
   down?: boolean
   left?: boolean
@@ -22,7 +24,7 @@ export interface IconProps {
 }
 
 export interface IconButtonProps {
-  icon: string
+  icon: IconType
   tag?: string
   up?: boolean
   down?: boolean

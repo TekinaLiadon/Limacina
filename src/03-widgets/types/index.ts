@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import type { TabKey } from '@/05-entities/core/types'
+import type { IconType } from '@/06-shared/types'
 
 export type { TabKey }
 
@@ -9,7 +10,7 @@ export type SkinModelMode = 'classic' | 'slim'
 
 export interface TabItem {
   key: TabKey
-  icon: string
+  icon: IconType
   label: string
   disabled?: boolean
 }

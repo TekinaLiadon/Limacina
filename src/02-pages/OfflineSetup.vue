@@ -1,35 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { OfflineProfileForm } from '@/03-widgets'
-import { useAddProfile } from '@/04-features'
-import type { ProjectConfig } from '@/05-entities/core/types'
-
-const router = useRouter()
-
-const {
-  offlineForm,
-  mcVersionOptions,
-  loaderOptions,
-  loaderVersionOptions,
-  needsLoaderVersion,
-  isLoadingMcVersions,
-  isLoadingLoaderVersions,
-  isSubmitting,
-  isOfflineValid,
-  errorMessage,
-  selectKind,
-  submitOffline,
-} = useAddProfile()
-
-onMounted(() => {
-  void selectKind('offline')
-})
-
-const handleOfflineSubmit = async (): Promise<void> => {
-  const config: ProjectConfig | null = await submitOffline()
-  if (config) router.push({ name: 'Accounts' })
-}
+import { AddProfileTab } from '@/03-widgets'
 </script>
 
 <template>
@@ -37,25 +7,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
     <div class="offline-setup__container">
       <div class="offline-setup__form">
         <span class="offline-setup__eyebrow eyebrow">Первый запуск</span>
-        <h1 class="offline-setup__title heading-display">Создание профиля</h1>
-        <p class="offline-setup__description">
-          Офлайн-сборка: создайте профиль одиночной игры, чтобы продолжить
-        </p>
-
-        <OfflineProfileForm
-          :form="offlineForm"
-          :mc-version-options="mcVersionOptions"
-          :loader-options="loaderOptions"
-          :loader-version-options="loaderVersionOptions"
-          :needs-loader-version="needsLoaderVersion"
-          :is-loading-mc-versions="isLoadingMcVersions"
-          :is-loading-loader-versions="isLoadingLoaderVersions"
-          :is-submitting="isSubmitting"
-          :is-valid="isOfflineValid"
-          :error-message="errorMessage"
-          :can-go-back="false"
-          @submit="handleOfflineSubmit"
-        />
+        <AddProfileTab embedded />
       </div>
     </div>
   </div>
@@ -111,18 +63,6 @@ const handleOfflineSubmit = async (): Promise<void> => {
 .offline-setup__eyebrow {
   display: block;
   margin-bottom: var(--space-12);
-}
-
-.offline-setup__title {
-  font-size: var(--text-heading);
-  margin: 0 0 var(--space-12) 0;
-}
-
-.offline-setup__description {
-  color: var(--login-text-muted);
-  margin: 0 0 var(--title-gap) 0;
-  font-size: var(--text-body-sm);
-  line-height: var(--leading-body-sm);
 }
 
 @include breakpoints.media-under-md {

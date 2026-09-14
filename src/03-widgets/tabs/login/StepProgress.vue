@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import anime from 'animejs'
 import type { StepProgressItem } from '@/05-entities/core/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   steps: StepProgressItem[]
-}>()
+  hideCompleted?: boolean
+}>(), {
+  hideCompleted: false,
+})
 
+const rootRef = ref<HTMLDivElement | null>(null)
 const activeRef = ref<HTMLDivElement | null>(null)
 
 watch(() => props.steps.map(s => s.status).join(','), () => {
@@ -21,12 +25,66 @@ watch(() => props.steps.map(s => s.status).join(','), () => {
 })
 
 const visibleSteps = computed((): StepProgressItem[] => {
-  const hasError = props.steps.some((s) => s.status === 'error')
-  if (hasError) return props.steps
+  if (!props.hideCompleted) return props.steps
   const firstActive = props.steps.findIndex((s) => s.status === 'active')
-  if (firstActive === -1) return props.steps
-  return props.steps.slice(firstActive)
+  if (firstActive !== -1) return props.steps.slice(firstActive)
+  const firstError = props.steps.findIndex((s) => s.status === 'error')
+  if (firstError !== -1) return props.steps.slice(firstError)
+  let lastSettled = -1
+  for (let i = props.steps.length - 1; i >= 0; i -= 1) {
+    const step = props.steps[i]
+    if (step !== undefined && step.status !== 'pending') {
+      lastSettled = i
+      break
+    }
+  }
+  if (lastSettled === -1) return props.steps
+  return props.steps.slice(lastSettled)
 })
+
+const onBeforeLeave = (el: Element): void => {
+  const item = el as HTMLElement
+  item.style.left = `${item.offsetLeft}px`
+  item.style.top = `${item.offsetTop}px`
+  item.style.width = `${item.offsetWidth}px`
+}
+
+let heightRun = 0
+
+const animateHeight = async (): Promise<void> => {
+  const el = rootRef.value
+  if (el === null) return
+  const run = ++heightRun
+  const from = el.offsetHeight
+  await nextTick()
+  const current = rootRef.value
+  if (run !== heightRun || current === null) return
+  current.style.transition = 'none'
+  current.style.height = ''
+  current.getBoundingClientRect()
+  const target = current.offsetHeight
+  current.style.height = `${from}px`
+  current.getBoundingClientRect()
+  if (from === target) {
+    current.style.height = ''
+    current.style.transition = ''
+    return
+  }
+  current.style.transition = 'height 0.4s cubic-bezier(0.25, 0.1, 0.25, 1)'
+  current.style.height = `${target}px`
+  const onEnd = (event: TransitionEvent): void => {
+    if (run !== heightRun || event.propertyName !== 'height') return
+    current.style.height = ''
+    current.style.transition = ''
+    current.removeEventListener('transitionend', onEnd)
+  }
+  current.addEventListener('transitionend', onEnd)
+}
+
+watch(
+  () => props.steps.map(s => `${s.status}|${s.detail}|${s.error}`).join(';'),
+  () => { void animateHeight() },
+)
 
 const getIndicatorClass = (status: StepProgressItem['status']): string => {
   const map: Record<StepProgressItem['status'], string> = {
@@ -62,8 +120,8 @@ const subLabel = (step: StepProgressItem): string => {
 </script>
 
 <template>
-  <div class="step-progress">
-    <TransitionGroup name="step-progress-fade">
+  <div ref="rootRef" class="step-progress">
+    <TransitionGroup name="step-progress-fade" @before-leave="onBeforeLeave">
       <div
         v-for="step in visibleSteps"
         :key="step.key"

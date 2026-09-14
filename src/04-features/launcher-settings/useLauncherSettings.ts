@@ -12,6 +12,7 @@ export function useLauncherSettings(): {
   keepOldConfigs: Ref<boolean>
   startWithSystem: Ref<boolean>
   closeAfterLaunch: Ref<boolean>
+  minimizeToTray: Ref<boolean>
   systemNotifications: Ref<boolean>
   debugMode: Ref<boolean>
   downloadSpeedLimitInput: Ref<string>
@@ -29,6 +30,7 @@ export function useLauncherSettings(): {
   const keepOldConfigs = ref<boolean>(false)
   const startWithSystem = ref<boolean>(false)
   const closeAfterLaunch = ref<boolean>(false)
+  const minimizeToTray = ref<boolean>(false)
   const systemNotifications = ref<boolean>(true)
   const debugMode = ref<boolean>(false)
   const downloadSpeedLimitInput = ref<string>('')
@@ -49,6 +51,7 @@ export function useLauncherSettings(): {
     debugMode: config?.debugMode ?? false,
     startWithSystem: config?.startWithSystem ?? false,
     closeAfterLaunch: config?.closeAfterLaunch ?? false,
+    minimizeToTray: config?.minimizeToTray ?? false,
   })
 
   const settings = computed<LauncherSettingsPayload>(() => ({
@@ -58,6 +61,7 @@ export function useLauncherSettings(): {
     keepOldConfigs: keepOldConfigs.value,
     startWithSystem: startWithSystem.value,
     closeAfterLaunch: closeAfterLaunch.value,
+    minimizeToTray: minimizeToTray.value,
     systemNotifications: systemNotifications.value,
     debugMode: debugMode.value,
     downloadSpeedLimit: parseSpeedLimit(downloadSpeedLimitInput.value),
@@ -93,6 +97,7 @@ export function useLauncherSettings(): {
       keepOldConfigs.value = config.keepOldConfigs
       startWithSystem.value = config.startWithSystem
       closeAfterLaunch.value = config.closeAfterLaunch
+      minimizeToTray.value = config.minimizeToTray
       systemNotifications.value = config.systemNotifications
       debugMode.value = config.debugMode
       downloadSpeedLimitInput.value =
@@ -136,6 +141,7 @@ export function useLauncherSettings(): {
     keepOldConfigs,
     startWithSystem,
     closeAfterLaunch,
+    minimizeToTray,
     systemNotifications,
     debugMode,
     downloadSpeedLimitInput,

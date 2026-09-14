@@ -7,6 +7,7 @@ defineProps<{
   keepOldConfigs: boolean
   startWithSystem: boolean
   closeAfterLaunch: boolean
+  minimizeToTray: boolean
   systemNotifications: boolean
   debugMode: boolean
   downloadSpeedLimit: string
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   'update:keepOldConfigs': [value: boolean]
   'update:startWithSystem': [value: boolean]
   'update:closeAfterLaunch': [value: boolean]
+  'update:minimizeToTray': [value: boolean]
   'update:systemNotifications': [value: boolean]
   'update:debugMode': [value: boolean]
   'update:downloadSpeedLimit': [value: string]
@@ -52,6 +54,11 @@ const emit = defineEmits<{
       @update:model-value="emit('update:closeAfterLaunch', $event)"
     />
     <Checkbox
+      :model-value="minimizeToTray"
+      label="Сворачывать в трей при закрытии"
+      @update:model-value="emit('update:minimizeToTray', $event)"
+    />
+    <Checkbox
       :model-value="systemNotifications"
       label="Системные уведомления при свёрнутом лаунчере"
       @update:model-value="emit('update:systemNotifications', $event)"
@@ -74,7 +81,7 @@ const emit = defineEmits<{
 <style lang="scss">
 .launcher-behavior {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width)), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width-wide)), 1fr));
   gap: var(--element-gap);
   align-items: center;
   grid-column: 1 / -1;

@@ -6,7 +6,6 @@ const coreStore = useCoreStore()
 
 const isVisible = computed((): boolean => {
   if (!coreStore.serverStatus) return false
-  if (coreStore.offlineBuild) return false
   return coreStore.projectConfig?.online !== false
 })
 
@@ -24,27 +23,25 @@ const title = computed((): string => {
 </script>
 
 <template>
-  <div v-if="isVisible" class="server-status" :title="title">
+  <span v-if="isVisible" class="server-status" :title="title">
     <span class="server-status__dot"></span>
     <span class="server-status__players">{{ playersLabel }}</span>
-  </div>
+  </span>
 </template>
 
 <style lang="scss">
 .server-status {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-8);
-  height: var(--control-height-sm);
-  padding: 0 var(--space-12);
-  border-radius: var(--radius-pill);
-  background: var(--surface-light);
+  gap: var(--space-4);
   color: var(--login-text-secondary);
   font-family: var(--font-eyebrow);
   font-size: var(--text-caption);
+  line-height: 1;
   letter-spacing: var(--tracking-eyebrow);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+  white-space: nowrap;
 
   &__dot {
     width: 8px;
@@ -52,6 +49,11 @@ const title = computed((): string => {
     border-radius: var(--radius-circle);
     background: var(--accent-text);
     flex-shrink: 0;
+  }
+
+  &__players {
+    display: inline-flex;
+    align-items: center;
   }
 }
 </style>

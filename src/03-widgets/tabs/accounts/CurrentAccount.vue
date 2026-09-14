@@ -19,19 +19,19 @@ defineEmits<{
 
     <div class="current-account__actions">
       <Button
-        class="btn-primary btn-lg btn-block"
+        class="btn-secondary btn-lg btn-block"
         @click="$emit('launch')"
       >
         Войти
       </Button>
       <Button
-        class="btn-secondary btn-block current-account__btn"
+        class="btn-secondary btn-lg btn-block"
         @click="$emit('show-login')"
       >
         Ввести новый
       </Button>
       <Button
-        class="btn-quiet btn-block current-account__btn"
+        class="btn-secondary btn-lg btn-block"
         @click="$emit('go-to-accounts')"
       >
         Выбрать другой
@@ -63,12 +63,8 @@ defineEmits<{
   &__actions {
     display: flex;
     flex-direction: column;
-    gap: var(--space-8);
+    gap: var(--space-12);
     width: 100%;
-  }
-
-  &__btn {
-    min-height: var(--control-height);
   }
 }
 </style>

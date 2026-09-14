@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use tauri::State;
 use tokio::fs;
@@ -14,8 +14,9 @@ use crate::minecraft::structs::{
     ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
 };
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
-use crate::state::config::load_config;
+use crate::state::config::{load_config, load_config_or_default};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+use crate::state::launcher_config::LauncherConfig;
 use crate::utils::compare_versions;
 use crate::utils::download_file::download_json;
 use crate::utils::env_info::{launcher_path, normalize_server_url};
@@ -40,6 +41,9 @@ async fn validate_new_project_name(
     }
     if trimmed.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.']) {
         bail!("Название профиля не должно содержать символы / \\ : * ? \" < > | и точку");
+    }
+    if trimmed.eq_ignore_ascii_case("config") {
+        bail!("Название «config» зарезервировано");
     }
 
     let already_registered = {
@@ -214,10 +218,27 @@ pub async fn create_server_profile(
     state: State<'_, Mutex<GlobalState>>,
     server_url: String,
 ) -> CommandResult<ProjectConfig> {
-    if crate::utils::env_info::is_offline_build() {
-        return Err(anyhow::anyhow!("Офлайн-сборка: серверные профили недоступны").into());
-    }
     Ok(add_server_profile(&state, &server_url).await?)
+}
+
+#[tauri::command]
+pub async fn get_server_connect_url(state: State<'_, Mutex<GlobalState>>) -> CommandResult<String> {
+    let (project_name, online, server_url) = {
+        let guard = state.lock().await;
+        (
+            guard.project_config.project_name.clone(),
+            guard.project_config.online,
+            guard.project_config.resolved_server_url(),
+        )
+    };
+    if project_name.trim().is_empty() {
+        return Err(anyhow!("Проект не выбран").into());
+    }
+    if !online {
+        return Err(anyhow!("Ссылка для подключения доступна только у серверных профилей").into());
+    }
+    let url = server_url.ok_or_else(|| anyhow!("Не указан адрес сервера"))?;
+    Ok(url)
 }
 
 #[tauri::command]
@@ -241,6 +262,93 @@ pub async fn save_current_project(
     })
     .await?;
     Ok(())
+}
+
+async fn delete_project_files(project_name: &str) -> Result<()> {
+    let project_dir = launcher_path(Some(project_name))?;
+    if project_dir.exists() {
+        fs::remove_dir_all(&project_dir)
+            .await
+            .with_context(|| format!("Не удалось удалить папку проекта {:?}", project_dir))?;
+    }
+
+    let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
+    let _ = fs::remove_file(&config_path).await;
+
+    let manifest_path = launcher_path(None)?
+        .join("manifest")
+        .join(format!("installed_{}.json", project_name));
+    let _ = fs::remove_file(&manifest_path).await;
+
+    Ok(())
+}
+
+async fn delete_project_credentials(project_name: &str, logins: Vec<String>) {
+    for username in logins {
+        for key_suffix in ["password", "refresh_token", "uuid"] {
+            let _ =
+                crate::auth::storage::delete_credential(project_name, &username, key_suffix).await;
+        }
+    }
+}
+
+async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result<LauncherConfig> {
+    let project_name = {
+        let guard = state.lock().await;
+        guard.project_config.project_name.clone()
+    };
+    if project_name.trim().is_empty() {
+        bail!("Проект не выбран");
+    }
+    if project_name.eq_ignore_ascii_case("config") {
+        bail!("Недопустимое имя проекта");
+    }
+    let env_project = crate::utils::env_info::get_default_project_name();
+    if !crate::utils::env_info::is_offline_build()
+        && !env_project.is_empty()
+        && project_name == env_project
+    {
+        bail!(
+            "Проект «{}» прописан в сборке лаунчера и не может быть удалён",
+            project_name
+        );
+    }
+
+    let saved_logins = {
+        let guard = state.lock().await;
+        guard
+            .launcher_config
+            .as_ref()
+            .map(|c| c.get_logins(&project_name))
+            .unwrap_or_default()
+    };
+    delete_project_credentials(&project_name, saved_logins).await;
+
+    delete_project_files(&project_name).await?;
+
+    let config = update_launcher_config(state, |config| {
+        config.remove_project(&project_name);
+    })
+    .await?;
+
+    let next_project = config.current_project.clone();
+    let next_config = match next_project.as_deref() {
+        Some(name) if !name.is_empty() => load_config_or_default(name).await?,
+        _ => ProjectConfig::default(),
+    };
+    {
+        let mut guard = state.lock().await;
+        guard.session = None;
+        guard.project_config = next_config;
+    }
+
+    log_info!("[profile] Проект {} удалён", project_name);
+    Ok(config)
+}
+
+#[tauri::command]
+pub async fn delete_project(state: State<'_, Mutex<GlobalState>>) -> CommandResult<LauncherConfig> {
+    Ok(delete_current_project(&state).await?)
 }
 
 #[tauri::command]
@@ -293,4 +401,39 @@ pub async fn refresh_manifests() -> CommandResult<String> {
     neoforge_manifest_index().await?;
 
     Ok(format!("Манифесты обновлены (удалено кешей: {})", removed))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::LauncherDirGuard;
+
+    use super::delete_project_files;
+
+    #[tokio::test]
+    async fn delete_project_files_removes_dir_toml_and_manifest() {
+        let guard = LauncherDirGuard::acquire("delete_project_files").await;
+        let project_dir = guard.root().join("project").join("Test");
+        std::fs::create_dir_all(project_dir.join("mods")).expect("создание папки проекта");
+        std::fs::write(project_dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+
+        let config_dir = guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("создание папки конфигов");
+        std::fs::write(config_dir.join("Test.toml"), b"toml").expect("создание TOML");
+        std::fs::write(config_dir.join("Other.toml"), b"toml").expect("создание чужого TOML");
+
+        let manifest_dir = guard.root().join("manifest");
+        std::fs::create_dir_all(&manifest_dir).expect("создание папки манифестов");
+        std::fs::write(manifest_dir.join("installed_Test.json"), b"{}")
+            .expect("создание манифеста");
+
+        delete_project_files("Test")
+            .await
+            .expect("удаление файлов проекта");
+
+        assert!(!project_dir.exists());
+        assert!(!config_dir.join("Test.toml").exists());
+        assert!(!manifest_dir.join("installed_Test.json").exists());
+        assert!(config_dir.exists());
+        assert!(config_dir.join("Other.toml").exists());
+    }
 }

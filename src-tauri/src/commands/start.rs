@@ -1,6 +1,7 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail, Context};
 use tauri::AppHandle;
 use tokio::sync::Mutex;
 
@@ -9,11 +10,12 @@ use crate::discord;
 use crate::minecraft::autojoin::{auto_join_args, first_server_address};
 use crate::minecraft::process::spawn_game_process;
 use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
-use crate::state::dto::{GlobalState, ModLoader};
+use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+use crate::utils::download_file::write_atomic;
 use crate::utils::step_events::StepHandle;
 use crate::{
     log_err, log_info, minecraft::vanilla::Vanilla, offline, step_try,
-    utils::tauri_err::CommandResult,
+    utils::java::repair_java_path, utils::tauri_err::CommandResult,
 };
 
 const GAME_WINDOW_TIMEOUT: Duration = Duration::from_secs(120);
@@ -75,6 +77,8 @@ pub async fn start_minecraft(
             discord_enabled,
         )
     };
+
+    let project_config = repair_stale_java_path(&state, project_config).await;
 
     let mut offline_skin_server: Option<offline::SkinServer> = None;
     let authlib_server_url = if project_config.online {
@@ -172,6 +176,10 @@ pub async fn start_minecraft(
 
     config_step.finish(false);
 
+    if let Err(e) = force_narrator_off(&game_config.game_dir).await {
+        log_err!("[start] Не удалось выключить нарратор: {}", e);
+    }
+
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
     let spawn_result = spawn_game_process(app, game_config, authlib_server_url.as_deref())
         .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project));
@@ -228,4 +236,126 @@ pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
     log_info!("Закрытие лаунчера после запуска игры");
     app.exit(0);
     Ok(())
+}
+
+async fn repair_stale_java_path(
+    state: &tauri::State<'_, Mutex<GlobalState>>,
+    mut config: ProjectConfig,
+) -> ProjectConfig {
+    let Some(stored) = config.java_path.clone() else {
+        return config;
+    };
+    let stored_path = PathBuf::from(stored);
+    if stored_path.exists() {
+        return config;
+    }
+    let Some(repaired) = repair_java_path(&stored_path) else {
+        return config;
+    };
+    log_info!(
+        "[start] Сохранённый путь Java {:?} не найден, одноразово заменён на {:?}",
+        stored_path,
+        repaired
+    );
+    config.java_path = Some(repaired.to_string_lossy().into_owned());
+    if let Err(e) = config.save_config().await {
+        log_err!("[start] Не удалось сохранить исправленный путь Java: {}", e);
+        return config;
+    }
+    state.lock().await.project_config = config.clone();
+    config
+}
+
+async fn force_narrator_off(game_dir: &Path) -> anyhow::Result<()> {
+    let path = game_dir.join("options.txt");
+    let existing = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => bail!("Не удалось прочитать {:?}: {}", path, e),
+    };
+
+    let mut found = false;
+    let mut lines: Vec<String> = existing
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("narrator:") {
+                found = true;
+                "narrator:0".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    if !found {
+        lines.push("narrator:0".to_string());
+    }
+
+    let mut content = lines.join("\n");
+    content.push('\n');
+    write_atomic(&path, content.as_bytes())
+        .await
+        .with_context(|| format!("Не удалось записать {:?}", path))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod narrator_tests {
+    use super::force_narrator_off;
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct TempDirGuard(PathBuf);
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_root(label: &str) -> (TempDirGuard, PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("limacina_narrator_{label}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("создание тестовой папки");
+        (TempDirGuard(root.clone()), root)
+    }
+
+    #[tokio::test]
+    async fn force_narrator_off_replaces_existing_line() {
+        let (_guard, root) = temp_root("replace");
+        fs::write(
+            root.join("options.txt"),
+            "musicVolume:0.5\nnarrator:2\nfov:70\n",
+        )
+        .expect("запись options.txt");
+
+        force_narrator_off(&root).await.expect("патч options.txt");
+
+        let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
+        let lines: Vec<&str> = patched.lines().collect();
+        assert_eq!(lines, vec!["musicVolume:0.5", "narrator:0", "fov:70"]);
+    }
+
+    #[tokio::test]
+    async fn force_narrator_off_appends_missing_line() {
+        let (_guard, root) = temp_root("append");
+        fs::write(root.join("options.txt"), "musicVolume:0.5\nfov:70\n")
+            .expect("запись options.txt");
+
+        force_narrator_off(&root).await.expect("патч options.txt");
+
+        let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
+        let lines: Vec<&str> = patched.lines().collect();
+        assert_eq!(lines, vec!["musicVolume:0.5", "fov:70", "narrator:0"]);
+    }
+
+    #[tokio::test]
+    async fn force_narrator_off_creates_missing_file() {
+        let (_guard, root) = temp_root("create");
+
+        force_narrator_off(&root).await.expect("патч options.txt");
+
+        let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
+        assert_eq!(patched, "narrator:0\n");
+    }
 }

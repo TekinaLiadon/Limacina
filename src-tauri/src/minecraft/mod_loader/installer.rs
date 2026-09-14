@@ -476,12 +476,15 @@ mod loader_install_tests {
             b"installer bytes"
         );
         assert_eq!(
-            fs::read(project.join("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"))
-                .unwrap(),
+            fs::read(
+                project
+                    .join("libraries/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar")
+            )
+            .unwrap(),
             b"loader jar bytes"
         );
         assert_eq!(
-            fs::read(project.join("org/ow2/asm/asm/9.7/asm-9.7.jar")).unwrap(),
+            fs::read(project.join("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar")).unwrap(),
             b"asm lib bytes"
         );
 
@@ -491,10 +494,10 @@ mod loader_install_tests {
         assert!(installed.files.contains_key("1.20.1-0.16.9.jar"));
         assert!(installed
             .files
-            .contains_key("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"));
+            .contains_key("libraries/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"));
         assert!(installed
             .files
-            .contains_key("org/ow2/asm/asm/9.7/asm-9.7.jar"));
+            .contains_key("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar"));
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@ pub struct AppInitData {
     pub version: String,
     pub total_memory_mb: u64,
     pub offline_build: bool,
+    pub env_project_name: Option<String>,
 }
 
 pub(crate) async fn update_launcher_config(
@@ -95,6 +96,13 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
     sys.refresh_memory();
     let total_memory_mb = sys.total_memory() / 1024 / 1024;
 
+    let env_project_name = if is_offline_build() {
+        None
+    } else {
+        let name = get_default_project_name();
+        (!name.is_empty()).then_some(name)
+    };
+
     Ok(AppInitData {
         launcher_name: get_launcher_name(),
         default_parent_path,
@@ -102,6 +110,7 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
         version,
         total_memory_mb,
         offline_build: default_server_url().is_none(),
+        env_project_name,
     })
 }
 
@@ -155,10 +164,12 @@ pub struct LauncherSettingsPayload {
     pub debug_mode: bool,
     pub start_with_system: bool,
     pub close_after_launch: bool,
+    pub minimize_to_tray: bool,
 }
 
 #[tauri::command]
 pub async fn save_launcher_settings(
+    app: tauri::AppHandle,
     state: State<'_, Mutex<GlobalState>>,
     settings: LauncherSettingsPayload,
 ) -> CommandResult<LauncherConfig> {
@@ -171,6 +182,7 @@ pub async fn save_launcher_settings(
         config.debug_mode = settings.debug_mode;
         config.start_with_system = settings.start_with_system;
         config.close_after_launch = settings.close_after_launch;
+        config.minimize_to_tray = settings.minimize_to_tray;
     })
     .await?;
 
@@ -178,6 +190,8 @@ pub async fn save_launcher_settings(
 
     crate::utils::logger_utils::set_console_emit_enabled(config.debug_mode);
     crate::utils::logger_utils::set_game_output_enabled(config.debug_mode);
+
+    crate::tray::set_minimize_to_tray(&app, config.minimize_to_tray);
 
     let discord_enabled = config.discord_activity;
     tauri::async_runtime::spawn_blocking(move || {

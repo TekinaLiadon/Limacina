@@ -56,7 +56,6 @@ watch(() => props.progress, (val: number) => {
     height: 100%;
     background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
     border-radius: var(--radius-pill);
-    transition: width 0.3s ease;
   }
 
   &__label {

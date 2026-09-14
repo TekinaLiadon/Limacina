@@ -6,6 +6,10 @@ import ServerProfileForm from '@/03-widgets/tabs/profile/ServerProfileForm.vue'
 import OfflineProfileForm from '@/03-widgets/tabs/profile/OfflineProfileForm.vue'
 import type { ProjectConfig } from '@/05-entities/core/types'
 
+const props = defineProps<{
+  embedded?: boolean
+}>()
+
 const router = useRouter()
 
 const {
@@ -42,7 +46,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
 </script>
 
 <template>
-  <div class="add-profile-tab">
+  <div class="add-profile-tab" :class="{ 'add-profile-tab--embedded': props.embedded ?? false }">
     <ProfileKindChoice v-if="kind === null" @select="selectKind" />
 
     <ServerProfileForm
@@ -83,5 +87,12 @@ const handleOfflineSubmit = async (): Promise<void> => {
   display: flex;
   flex-direction: column;
   height: 100%;
+
+  &--embedded {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    height: auto;
+  }
 }
 </style>

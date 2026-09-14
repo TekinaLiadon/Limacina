@@ -3,7 +3,7 @@ import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useCpmProjectOpen } from '@/04-features'
+import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useCpmProjectOpen } from '@/04-features'
 import { Sidebar, ServerStatus } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
@@ -22,6 +22,8 @@ const { startLaunchStepsStream } = useLaunchStepsStream()
 void startLaunchStepsStream()
 const { startSystemNotifications } = useSystemNotifications()
 void startSystemNotifications()
+const { startServerStatusSync } = useServerStatus()
+void startServerStatusSync()
 useCpmProjectOpen()
 
 interface Tab {
@@ -113,12 +115,15 @@ watch(isDebugTabVisible, (visible: boolean): void => {
                 :options="projectOptions"
                 :model-value="coreStore.currentProject"
                 @update:model-value="selectProject"
-                :width="'220px'"
+                :width="'260px'"
                 :max-visible="6"
                 :disabled="!canSwitch"
-              />
+              >
+                <template #trailing>
+                  <ServerStatus />
+                </template>
+              </Dropdown>
             </div>
-            <ServerStatus />
             <div class="app__theme-switch" role="group" aria-label="Тема оформления">
               <button
                 class="app__theme-segment"

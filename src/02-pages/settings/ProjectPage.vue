@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
-import { ProjectInfoFields, PathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck } from '@/03-widgets'
+import { ProjectInfoFields, PathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck, JvmPreset, ServerConnect, ProjectDelete } from '@/03-widgets'
 import { Button } from '@/06-shared'
 
 const coreStore = useCoreStore()
@@ -13,10 +13,17 @@ const {
   isSaving,
   isClearingConfig,
   isRefreshingManifests,
+  isDeleting,
+  canDeleteProject,
+  serverConnectUrl,
+  isLoadingConnectUrl,
   selectJavaFolder,
   handleSave,
   handleClearMinecraftConfig,
   handleRefreshManifests,
+  handleDeleteProject,
+  handleGetConnectUrl,
+  handleCopyConnectUrl,
   loadConfig,
 } = useProjectSettings()
 
@@ -75,6 +82,11 @@ const handleDownload = async (): Promise<void> => {
     </div>
 
     <div class="settings-grid">
+      <div class="section-label span-full">Оптимизация</div>
+      <JvmPreset class="span-full settings-row" :config="config" />
+    </div>
+
+    <div class="settings-grid">
       <div class="section-label span-full">Java</div>
       <PathPicker
         class="span-full settings-row"
@@ -112,6 +124,17 @@ const handleDownload = async (): Promise<void> => {
       <ConfigCleanup :is-clearing="isClearingConfig" @clear="handleClearMinecraftConfig" />
     </div>
 
+    <div v-if="config.online" class="settings-grid">
+      <div class="section-label span-full">Подключение к серверу</div>
+      <ServerConnect
+        class="span-full"
+        :url="serverConnectUrl"
+        :is-loading="isLoadingConnectUrl"
+        @get="handleGetConnectUrl"
+        @copy="handleCopyConnectUrl"
+      />
+    </div>
+
     <Button
       class="btn-primary btn-lg project-settings__save"
       :is-loading="isSaving"
@@ -120,6 +143,11 @@ const handleDownload = async (): Promise<void> => {
     >
       Сохранить
     </Button>
+
+    <div v-if="canDeleteProject" class="settings-grid">
+      <div class="section-label span-full">Удаление проекта</div>
+      <ProjectDelete :is-deleting="isDeleting" @delete="handleDeleteProject" />
+    </div>
   </div>
 </template>
 

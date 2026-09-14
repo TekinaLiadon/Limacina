@@ -10,6 +10,7 @@ export const useCoreStore = defineStore('core', {
     launcherConfig: null,
     version: '',
     offlineBuild: false,
+    envProjectName: '',
     activeTab: 'accounts',
     currentProject: '',
     projects: [],

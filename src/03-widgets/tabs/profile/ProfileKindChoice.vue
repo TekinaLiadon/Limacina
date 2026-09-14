@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { Icon } from '@/06-shared'
-import { useCoreStore } from '@/05-entities'
 import type { ProfileKind } from '@/05-entities/core/types'
+import type { IconType } from '@/06-shared/types'
 
 const emit = defineEmits<{
   select: [kind: ProfileKind]
@@ -10,30 +9,25 @@ const emit = defineEmits<{
 
 interface KindCard {
   kind: ProfileKind
-  icon: string
+  icon: IconType
   title: string
   description: string
 }
 
-const coreStore = useCoreStore()
-
-const cards = computed<KindCard[]>((): KindCard[] => {
-  const all: KindCard[] = [
-    {
-      kind: 'server',
-      icon: 'referals',
-      title: 'Добавить сервер',
-      description: 'Подключение по адресу сервера. Версия, сборка и моды приходят с сервера.',
-    },
-    {
-      kind: 'offline',
-      icon: 'home',
-      title: 'Одиночная игра',
-      description: 'Локальный профиль без сети: сами выбираете версию и загрузчик модов.',
-    },
-  ]
-  return coreStore.offlineBuild ? all.filter((card) => card.kind === 'offline') : all
-})
+const cards: KindCard[] = [
+  {
+    kind: 'server',
+    icon: 'referals',
+    title: 'Добавить сервер',
+    description: 'Подключение по адресу сервера. Версия, сборка и моды приходят с сервера.',
+  },
+  {
+    kind: 'offline',
+    icon: 'home',
+    title: 'Одиночная игра',
+    description: 'Локальный профиль без сети: сами выбираете версию и загрузчик модов.',
+  },
+]
 </script>
 
 <template>

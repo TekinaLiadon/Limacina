@@ -32,7 +32,7 @@ defineEmits<{
       <ProgressBar :progress="progress" />
     </div>
 
-    <StepProgress :steps="steps" />
+    <StepProgress :steps="steps" hide-completed />
 
     <p v-if="isLaunchingGame" class="launch-progress__hint">
       Игра запускается — окно откроется автоматически

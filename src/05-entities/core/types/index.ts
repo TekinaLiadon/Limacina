@@ -16,6 +16,7 @@ export interface LauncherConfig {
   debugMode: boolean
   startWithSystem: boolean
   closeAfterLaunch: boolean
+  minimizeToTray: boolean
   theme: string
   animationsEnabled: boolean
   projectNames: string[]
@@ -30,6 +31,7 @@ export interface AppInitData {
   version: string
   totalMemoryMb: number
   offlineBuild: boolean
+  envProjectName: string | null
 }
 
 export interface AuthUserData extends LoginForm {
@@ -111,6 +113,7 @@ export interface StepProgressItem {
   launcherConfig: LauncherConfig | null
   version: string
   offlineBuild: boolean
+  envProjectName: string
   activeTab: TabKey
   currentProject: string
   projects: string[]

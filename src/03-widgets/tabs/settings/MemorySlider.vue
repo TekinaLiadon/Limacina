@@ -22,7 +22,11 @@ const clampToRange = (v: number, minVal: number, maxVal: number, fallback: numbe
 const minVal = computed({
   get: () => props.modelValue[0],
   set: (v: number) => {
-    const clamped = clampToRange(v, min, minValMax(), fallbackMin)
+    const clamped = clampToRange(v, min, maxLimit.value, fallbackMin)
+    if (clamped > props.modelValue[1]) {
+      emit('update:modelValue', [clamped, clamped])
+      return
+    }
     emit('update:modelValue', [clamped, props.modelValue[1]])
   },
 })
@@ -30,7 +34,11 @@ const minVal = computed({
 const maxVal = computed({
   get: () => props.modelValue[1],
   set: (v: number) => {
-    const clamped = clampToRange(v, props.modelValue[0] + step, props.max, fallbackMax)
+    const clamped = clampToRange(v, min, maxLimit.value, fallbackMax)
+    if (clamped < props.modelValue[0]) {
+      emit('update:modelValue', [clamped, clamped])
+      return
+    }
     emit('update:modelValue', [props.modelValue[0], clamped])
   },
 })
@@ -53,10 +61,6 @@ const maxPercent = computed((): number => {
 const maxLimit = computed((): number => {
   return Math.max(props.max, min + step * 2)
 })
-
-const minValMax = (): number => {
-  return Math.max(props.modelValue[1] - step, min + step)
-}
 
 const fallbackMin = 512
 
