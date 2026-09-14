@@ -20,11 +20,10 @@ pub fn maven_to_path(name: &str) -> Result<PathBuf> {
     let (group_path, artifact_id, version) = parse_maven(name)?;
     let file_name = format!("{}-{}.jar", artifact_id, version);
 
-    Ok(PathBuf::new()
-        .join(&group_path)
-        .join(&artifact_id)
-        .join(&version)
-        .join(&file_name))
+    Ok(PathBuf::from(format!(
+        "{}/{}/{}/{}",
+        group_path, artifact_id, version, file_name
+    )))
 }
 
 pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {

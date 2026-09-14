@@ -70,6 +70,7 @@ export interface LauncherSettingsPayload {
   debugMode: boolean
   startWithSystem: boolean
   closeAfterLaunch: boolean
+  minimizeToTray: boolean
 }
 
 export async function saveLauncherSettings(settings: LauncherSettingsPayload): Promise<LauncherConfig> {
@@ -129,6 +130,10 @@ export async function createServerProfile(serverUrl: string): Promise<ProjectCon
   return invoke<ProjectConfig>('create_server_profile', { serverUrl })
 }
 
+export async function getServerConnectUrl(): Promise<string> {
+  return invoke<string>('get_server_connect_url')
+}
+
 export async function createOfflineProfile(
   name: string,
   mcVersion: string,
@@ -145,6 +150,10 @@ export async function createOfflineProfile(
 
 export async function saveCurrentProject(projectName: string): Promise<void> {
   return invoke('save_current_project', { projectName })
+}
+
+export async function deleteProject(): Promise<LauncherConfig> {
+  return invoke<LauncherConfig>('delete_project')
 }
 
 export async function getMinecraftVersions(includeSnapshots: boolean): Promise<string[]> {

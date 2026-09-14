@@ -189,6 +189,13 @@ onUnmounted((): void => {
       }
     }
 
+    &[type='password'] {
+      &::-ms-reveal,
+      &::-ms-clear {
+        display: none;
+      }
+    }
+
     &:hover:not(&--disabled) {
       background-color: var(--surface-hover);
     }

@@ -1,7 +1,9 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm } from '@/05-entities'
-import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecraftConfig } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { useRouter } from 'vue-router'
+import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm } from '@/05-entities'
+import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecraftConfig, getServerConnectUrl, deleteProject, authLogins } from '@/06-shared/api'
+import { copyToClipboard, reportError } from '@/06-shared'
+import { useProjectSwitch } from '@/04-features'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { ProjectConfig } from '@/05-entities/core/types'
 import { splitJvmArgs } from './jvmPresets'
@@ -13,15 +15,25 @@ export function useProjectSettings(): {
   isSaving: ComputedRef<boolean>
   isClearingConfig: Ref<boolean>
   isRefreshingManifests: Ref<boolean>
+  isDeleting: Ref<boolean>
+  canDeleteProject: ComputedRef<boolean>
+  serverConnectUrl: Ref<string>
+  isLoadingConnectUrl: Ref<boolean>
   selectJavaFolder: () => Promise<void>
   handleSave: () => Promise<void>
   handleClearMinecraftConfig: () => Promise<void>
   handleRefreshManifests: () => Promise<void>
+  handleDeleteProject: () => Promise<void>
+  handleGetConnectUrl: () => Promise<void>
+  handleCopyConnectUrl: () => Promise<void>
   loadConfig: (project: string, force?: boolean) => Promise<void>
 } {
   const coreStore = useCoreStore()
+  const accountsStore = useAccountsStore()
   const notification = useNotificationStore()
   const store = useProjectSettingsStore()
+  const router = useRouter()
+  const { resetAccountsState } = useProjectSwitch()
 
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
@@ -75,7 +87,11 @@ export function useProjectSettings(): {
     }
   }
 
+  const serverConnectUrl = ref<string>('')
+  const isLoadingConnectUrl = ref<boolean>(false)
+
   watch(() => coreStore.currentProject, (project: string) => {
+    serverConnectUrl.value = ''
     loadConfig(project)
   }, { immediate: true })
 
@@ -109,6 +125,28 @@ export function useProjectSettings(): {
 
   const isRefreshingManifests = ref<boolean>(false)
 
+  const handleGetConnectUrl = async (): Promise<void> => {
+    if (isLoadingConnectUrl.value) return
+    isLoadingConnectUrl.value = true
+    try {
+      serverConnectUrl.value = await getServerConnectUrl()
+    } catch (e: unknown) {
+      notification.show(String(e))
+    } finally {
+      isLoadingConnectUrl.value = false
+    }
+  }
+
+  const handleCopyConnectUrl = async (): Promise<void> => {
+    if (!serverConnectUrl.value) return
+    try {
+      await copyToClipboard(serverConnectUrl.value)
+      notification.show('Ссылка скопирована')
+    } catch (e: unknown) {
+      notification.show(String(e))
+    }
+  }
+
   const isClearingConfig = ref<boolean>(false)
 
   const handleClearMinecraftConfig = async (): Promise<void> => {
@@ -141,6 +179,52 @@ export function useProjectSettings(): {
     }
   }
 
+  const isDeleting = ref<boolean>(false)
+
+  const canDeleteProject = computed((): boolean =>
+    coreStore.envProjectName === '' || coreStore.currentProject !== coreStore.envProjectName
+  )
+
+  const handleDeleteProject = async (): Promise<void> => {
+    if (isDeleting.value) return
+    const projectName = coreStore.currentProject
+    if (!projectName) return
+    if (accountsStore.isLaunching) {
+      notification.show('Дождитесь завершения запуска игры')
+      return
+    }
+
+    const confirmed = await notification.confirm(
+      `Удалить проект «${projectName}»? Папка с игрой, модами, конфигами и сохранениями будет удалена безвозвратно`
+    )
+    if (!confirmed) return
+
+    isDeleting.value = true
+    try {
+      const launcherConfig = await deleteProject()
+      coreStore.launcherConfig = launcherConfig
+      coreStore.projects = [...launcherConfig.projectNames]
+      resetAccountsState()
+      notification.show('Проект удалён')
+
+      const [next] = coreStore.projects
+      if (next === undefined) {
+        coreStore.currentProject = ''
+        coreStore.projectConfig = null
+        await router.push({ name: 'AddProfile' })
+        return
+      }
+
+      coreStore.currentProject = next
+      coreStore.projectConfig = await loadSettingsProject(next)
+      accountsStore.logins = await authLogins(next)
+    } catch (e: unknown) {
+      notification.show(String(e))
+    } finally {
+      isDeleting.value = false
+    }
+  }
+
   return {
     config,
     isLoaded,
@@ -148,10 +232,17 @@ export function useProjectSettings(): {
     isSaving,
     isClearingConfig,
     isRefreshingManifests,
+    isDeleting,
+    canDeleteProject,
+    serverConnectUrl,
+    isLoadingConnectUrl,
     selectJavaFolder,
     handleSave,
     handleClearMinecraftConfig,
     handleRefreshManifests,
+    handleDeleteProject,
+    handleGetConnectUrl,
+    handleCopyConnectUrl,
     loadConfig,
   }
 }

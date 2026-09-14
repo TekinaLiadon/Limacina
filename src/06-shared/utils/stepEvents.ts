@@ -19,13 +19,23 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
     case 'started': {
       const active = steps.find((step) => step.status === 'active')
       if (active) active.status = 'done'
-      const step = steps.find((item) => item.key === event.id)
+      const index = steps.findIndex((item) => item.key === event.id)
+      if (index === -1) {
+        steps.push(createStepItem(event.id, event.label, Date.now()))
+        break
+      }
+      const step = steps[index]
       if (step) {
         step.status = 'active'
         step.label = event.label
         step.shownAt = Date.now()
-      } else {
-        steps.push(createStepItem(event.id, event.label, Date.now()))
+      }
+      for (let i = 0; i < index; i += 1) {
+        const before = steps[i]
+        if (before !== undefined && before.status === 'pending') {
+          before.status = 'done'
+          before.skipped = true
+        }
       }
       break
     }
@@ -68,9 +78,9 @@ export function computeStepProgress(steps: StepProgressItem[]): number {
   let done = 0
   let fraction = 0
   for (const step of steps) {
-    if (step.status !== 'active') {
+    if (step.status === 'done' || step.status === 'error') {
       done++
-    } else if (step.total > 0) {
+    } else if (step.status === 'active' && step.total > 0) {
       fraction = Math.min(step.current / step.total, 1)
     }
   }

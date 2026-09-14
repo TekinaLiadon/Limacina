@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::path::PathBuf;
 
 use crate::minecraft::mod_loader::utils::maven_to_path;
 use crate::minecraft::structs::LibraryMod;
@@ -9,7 +10,7 @@ pub fn library_targets(libraries: &[LibraryMod]) -> Result<Vec<IntegrityTarget>>
         .iter()
         .map(|lib| {
             Ok(IntegrityTarget {
-                rel_path: maven_to_path(&lib.name)?,
+                rel_path: PathBuf::from("libraries").join(maven_to_path(&lib.name)?),
                 hash: lib.hash.clone(),
                 hash_kind: HashKind::Sha1,
                 download: TargetDownload::Url(lib.url.clone()),
@@ -43,7 +44,9 @@ mod tests {
         assert_eq!(targets.len(), 1);
         assert_eq!(
             targets[0].rel_path,
-            std::path::PathBuf::from("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar")
+            std::path::PathBuf::from(
+                "libraries/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"
+            )
         );
         assert_eq!(targets[0].hash, "abc");
     }

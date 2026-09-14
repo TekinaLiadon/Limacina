@@ -109,7 +109,7 @@ function buildLaunchActions(config: ProjectConfig): StepAction[] {
 export function useGameLaunch() {
   const coreStore = useCoreStore()
   const store = useAccountsStore()
-  const { resetLaunchSteps, prefillLaunchSteps } = useLaunchStepsStream()
+  const { resetLaunchSteps, prefillLaunchSteps, flushLaunchSteps } = useLaunchStepsStream()
 
   const launchSteps = computed((): StepProgressItem[] => store.launchSteps)
   const activeProgress = computed((): number => store.activeProgress)
@@ -147,6 +147,7 @@ export function useGameLaunch() {
         await action()
       } catch (error: unknown) {
         if (isCancelled?.()) return
+        await flushLaunchSteps()
         markActiveStepError(String(error))
         coreStore.loginError = String(error)
         store.isLaunching = false
@@ -165,6 +166,7 @@ export function useGameLaunch() {
       return
     }
 
+    await flushLaunchSteps()
     resetLaunchSteps()
     store.isLaunching = false
   }

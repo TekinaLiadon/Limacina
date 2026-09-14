@@ -65,16 +65,13 @@ pub async fn start_offline_skin_server(
     username: &str,
     uuid: &str,
 ) -> Result<Option<SkinServer>> {
-    let Some((skin_bytes, model)) = read_offline_skin(project_name).await? else {
-        return Ok(None);
-    };
-
+    let skin = read_offline_skin(project_name).await?;
     let game_dir = launcher_path(Some(project_name))?;
     let jar = match ensure_authlib_jar(&game_dir).await {
         Ok(jar) => jar,
         Err(e) => {
             log_err!(
-                "Офлайн-скин: не удалось подготовить authlib-injector: {}",
+                "Офлайн-запуск: не удалось подготовить authlib-injector ({}), мультиплеер и скин могут быть недоступны",
                 e
             );
             return Ok(None);
@@ -82,8 +79,8 @@ pub async fn start_offline_skin_server(
     };
     log_info!("authlib-injector готов: {}", jar.display());
 
-    let server = SkinServer::start(skin_bytes, model, uuid.to_string(), username.to_string())?;
-    log_info!("Локальный Yggdrasil-шим скина: {}", server.url());
+    let server = SkinServer::start(skin, uuid.to_string(), username.to_string())?;
+    log_info!("Локальный authlib-шим: {}", server.url());
     Ok(Some(server))
 }
 
@@ -112,18 +109,19 @@ async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
     let version_path = game_dir.join("authlib-injector.json");
     let scratch_path = std::env::temp_dir().join("limacina-authlib-latest.json");
 
-    download_file(AUTHLIB_LATEST_URL, &scratch_path)
-        .await
-        .context("Не удалось скачать манифест authlib-injector")?;
-
-    let latest: AuthlibLatest = blocking(
-        "Не удалось разобрать манифест authlib-injector",
-        move || -> Result<AuthlibLatest> {
-            let bytes = std::fs::read(&scratch_path)?;
-            Ok(serde_json::from_slice(&bytes)?)
-        },
-    )
-    .await??;
+    let latest = match fetch_authlib_latest(&scratch_path).await {
+        Ok(latest) => latest,
+        Err(e) => {
+            if jar_path.exists() {
+                log_err!(
+                    "authlib-injector: манифест версии недоступен ({}), используется скачанный jar",
+                    e
+                );
+                return Ok(jar_path);
+            }
+            return Err(e.context("Не удалось скачать манифест authlib-injector"));
+        }
+    };
 
     if jar_path.exists() {
         let installed_version = installed_authlib_version(version_path.clone()).await?;
@@ -164,6 +162,19 @@ async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
         .context("Не удалось записать версию authlib-injector")?;
 
     Ok(jar_path)
+}
+
+async fn fetch_authlib_latest(scratch_path: &Path) -> Result<AuthlibLatest> {
+    download_file(AUTHLIB_LATEST_URL, scratch_path).await?;
+    let scratch = scratch_path.to_path_buf();
+    blocking(
+        "Не удалось разобрать манифест authlib-injector",
+        move || -> Result<AuthlibLatest> {
+            let bytes = std::fs::read(&scratch)?;
+            Ok(serde_json::from_slice(&bytes)?)
+        },
+    )
+    .await?
 }
 
 async fn installed_authlib_version(version_path: PathBuf) -> Result<Option<String>> {

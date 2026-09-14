@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import Icon from '@/06-shared/components/Icon.vue'
+import type { IconType } from '@/06-shared/types'
 
 const props = withDefaults(defineProps<{
-  icon: string
+  icon: IconType
   tag?: string
   up?: boolean
   down?: boolean

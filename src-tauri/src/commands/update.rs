@@ -4,7 +4,6 @@ use crate::updater::{
     get_launcher_versions as fetch_launcher_versions, is_timeout_error, retain_current_platform,
     UpdateInfo, UpdateVersions,
 };
-use crate::utils::env_info::default_server_url;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 use serde::Deserialize;
@@ -24,10 +23,20 @@ pub struct ServerStatus {
 }
 
 #[tauri::command]
-pub async fn get_server_status() -> CommandResult<ServerStatus> {
-    let server_url = default_server_url().ok_or_else(|| {
-        anyhow::anyhow!("Офлайн-сборка: статус игрового сервера недоступен")
-    })?;
+pub async fn get_server_status(
+    state: State<'_, Mutex<GlobalState>>,
+) -> CommandResult<ServerStatus> {
+    let (online, server_url) = {
+        let guard = state.lock().await;
+        (
+            guard.project_config.online,
+            guard.project_config.resolved_server_url(),
+        )
+    };
+    if !online {
+        return Err(anyhow::anyhow!("Статус доступен только для серверных профилей").into());
+    }
+    let server_url = server_url.ok_or_else(|| anyhow::anyhow!("Не указан адрес сервера"))?;
     let url = format!("{}/v1/common/status", server_url);
     let request = crate::utils::http::http_client()
         .get(&url)

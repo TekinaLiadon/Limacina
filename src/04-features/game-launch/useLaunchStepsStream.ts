@@ -3,18 +3,24 @@ import { listenLaunchSteps } from '@/06-shared/api'
 import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
 import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
 
-const MIN_DISPLAY_MS = 1000
-const DONE_SETTLE_MS = 200
+const MIN_DISPLAY_MS = 500
+const FLUSH_TIMEOUT_MS = 5000
+const FLUSH_POLL_MS = 50
 
 let streamStarted = false
 let eventQueue: StepEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let lastFinishedAt = 0
+let failedSeen = false
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => { setTimeout(resolve, ms) })
 
 export function useLaunchStepsStream(): {
   startLaunchStepsStream: () => Promise<void>
   prefillLaunchSteps: (plan: { key: string; label: string }[]) => void
   resetLaunchSteps: () => void
+  flushLaunchSteps: () => Promise<void>
 } {
   const store = useAccountsStore()
 
@@ -29,42 +35,66 @@ export function useLaunchStepsStream(): {
     applyStepEvent(store.launchSteps, event)
   }
 
+  const holdForEvent = (event: StepEvent): number => {
+    if (event.type === 'started') {
+      if (lastFinishedAt === 0) return 0
+      const elapsed = Date.now() - lastFinishedAt
+      return elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
+    }
+    if (event.type === 'finished' || event.type === 'failed') {
+      const step = findStep(event.id)
+      if (step === undefined) return 0
+      const elapsed = Date.now() - step.shownAt
+      return elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
+    }
+    return 0
+  }
+
   const processQueue = (): void => {
+    if (failedSeen) {
+      eventQueue = []
+      return
+    }
     if (flushTimer !== null) return
 
     while (eventQueue.length > 0) {
       const [event] = eventQueue
       if (event === undefined) break
 
-      if (event.type === 'finished') {
-        const step = findStep(event.id)
-        const elapsed =
-          step && step.status === 'active' ? Date.now() - step.shownAt : MIN_DISPLAY_MS
-        const hold =
-          elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : DONE_SETTLE_MS - (Date.now() - lastFinishedAt)
-        if (hold > 0) {
-          flushTimer = setTimeout((): void => {
-            flushTimer = null
-            processQueue()
-          }, hold)
-          return
-        }
-        lastFinishedAt = Date.now()
+      const hold = holdForEvent(event)
+      if (hold > 0) {
+        flushTimer = setTimeout((): void => {
+          flushTimer = null
+          processQueue()
+        }, hold)
+        return
       }
 
+      if (event.type === 'finished') lastFinishedAt = Date.now()
       eventQueue.shift()
       apply(event)
+      if (event.type === 'failed') {
+        failedSeen = true
+        eventQueue = []
+        break
+      }
     }
 
     recomputeProgress()
   }
 
-  const prefillLaunchSteps = (plan: { key: string; label: string }[]): void => {
+  const clearQueueState = (): void => {
     eventQueue = []
     if (flushTimer !== null) {
       clearTimeout(flushTimer)
       flushTimer = null
     }
+    lastFinishedAt = 0
+    failedSeen = false
+  }
+
+  const prefillLaunchSteps = (plan: { key: string; label: string }[]): void => {
+    clearQueueState()
     store.launchSteps = plan.map((item) => ({
       ...createStepItem(item.key, item.label, 0),
       status: 'pending',
@@ -73,13 +103,36 @@ export function useLaunchStepsStream(): {
   }
 
   const resetLaunchSteps = (): void => {
-    eventQueue = []
+    clearQueueState()
+    store.launchSteps = []
+    store.activeProgress = 0
+  }
+
+  const flushLaunchSteps = async (): Promise<void> => {
+    const deadline = Date.now() + FLUSH_TIMEOUT_MS
+    for (;;) {
+      if (Date.now() >= deadline) break
+      if (eventQueue.length === 0 && flushTimer === null) break
+      if (flushTimer === null) processQueue()
+      await delay(FLUSH_POLL_MS)
+    }
     if (flushTimer !== null) {
       clearTimeout(flushTimer)
       flushTimer = null
     }
-    store.launchSteps = []
-    store.activeProgress = 0
+    while (eventQueue.length > 0) {
+      const [event] = eventQueue
+      if (event === undefined) break
+      if (event.type === 'finished') lastFinishedAt = Date.now()
+      eventQueue.shift()
+      apply(event)
+      if (event.type === 'failed') {
+        failedSeen = true
+        eventQueue = []
+        break
+      }
+    }
+    recomputeProgress()
   }
 
   const startLaunchStepsStream = async (): Promise<void> => {
@@ -101,5 +154,6 @@ export function useLaunchStepsStream(): {
     startLaunchStepsStream,
     prefillLaunchSteps,
     resetLaunchSteps,
+    flushLaunchSteps,
   }
 }

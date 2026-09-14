@@ -25,6 +25,7 @@ export { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES, MODRINTH_CATEGORY_LAB
 export { useViewerCamera } from './viewer/useViewerCamera'
 export { useAlternativeJava } from './alternative-java/useAlternativeJava'
 export { useSystemNotifications } from './system-notifications/useSystemNotifications'
+export { useServerStatus } from './server-status/useServerStatus'
 export { useProjectConfig } from './project-config/useProjectConfig'
 export { useAddProfile } from './add-profile/useAddProfile'
 export { useProjectSwitch } from './project-switch/useProjectSwitch'

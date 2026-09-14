@@ -11,12 +11,16 @@ use crate::log_err;
 
 const PROFILE_PREFIX: &str = "/sessionserver/session/minecraft/profile/";
 const TEXTURE_PATH: &str = "/textures/skin.png";
+const PRIVILEGES_PATH: &str = "/privileges";
+const BLOCKLIST_PATH: &str = "/privacy/blocklist";
+const NOT_FOUND_BODY: &[u8] = br#"{"error":"NotFoundException","errorMessage":"Not found"}"#;
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+type Skin = Option<(Vec<u8>, Option<String>)>;
+
 struct SkinState {
-    skin_bytes: Vec<u8>,
-    model: Option<String>,
+    skin: Skin,
     uuid: String,
     username: String,
     base_url: String,
@@ -29,19 +33,13 @@ pub struct SkinServer {
 }
 
 impl SkinServer {
-    pub fn start(
-        skin_bytes: Vec<u8>,
-        model: Option<String>,
-        uuid: String,
-        username: String,
-    ) -> Result<Self> {
+    pub fn start(skin: Skin, uuid: String, username: String) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")
             .context("Не удалось занять порт для локального Yggdrasil-шима")?;
         let port = listener.local_addr()?.port();
         let url = format!("http://127.0.0.1:{port}");
         let state = Arc::new(SkinState {
-            skin_bytes,
-            model,
+            skin,
             uuid: normalize_uuid(&uuid),
             username,
             base_url: url.clone(),
@@ -118,8 +116,27 @@ fn handle_connection(mut stream: TcpStream, state: &SkinState) -> std::io::Resul
             &metadata_body(),
         );
     }
+    if path == PRIVILEGES_PATH {
+        return respond(
+            &mut stream,
+            "200 OK",
+            "application/json; charset=utf-8",
+            &privileges_body(),
+        );
+    }
+    if path == BLOCKLIST_PATH {
+        return respond(
+            &mut stream,
+            "200 OK",
+            "application/json; charset=utf-8",
+            br#"{"blocked":[]}"#,
+        );
+    }
     if path == TEXTURE_PATH {
-        return respond(&mut stream, "200 OK", "image/png", &state.skin_bytes);
+        return match state.skin.as_ref().map(|(bytes, _)| bytes.as_slice()) {
+            Some(bytes) => respond(&mut stream, "200 OK", "image/png", bytes),
+            None => respond_not_found(&mut stream),
+        };
     }
     if profile_uuid(path).as_deref() == Some(state.uuid.as_str()) {
         return respond(
@@ -129,11 +146,15 @@ fn handle_connection(mut stream: TcpStream, state: &SkinState) -> std::io::Resul
             &profile_body(state),
         );
     }
+    respond_not_found(&mut stream)
+}
+
+fn respond_not_found(stream: &mut TcpStream) -> std::io::Result<()> {
     respond(
-        &mut stream,
+        stream,
         "404 Not Found",
         "application/json; charset=utf-8",
-        br#"{"error":"NotFoundException","errorMessage":"Not found"}"#,
+        NOT_FOUND_BODY,
     )
 }
 
@@ -187,7 +208,30 @@ fn metadata_body() -> Vec<u8> {
     .into_bytes()
 }
 
+fn privileges_body() -> Vec<u8> {
+    serde_json::json!({
+        "privileges": {
+            "onlineChat": { "enabled": true },
+            "multiplayerServer": { "enabled": true },
+            "multiplayerRealms": { "enabled": true }
+        }
+    })
+    .to_string()
+    .into_bytes()
+}
+
 fn profile_body(state: &SkinState) -> Vec<u8> {
+    let model = state.skin.as_ref().and_then(|(_, model)| model.clone());
+    if state.skin.is_none() {
+        return serde_json::json!({
+            "id": state.uuid,
+            "name": state.username,
+            "properties": []
+        })
+        .to_string()
+        .into_bytes();
+    }
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as u64)
@@ -196,7 +240,7 @@ fn profile_body(state: &SkinState) -> Vec<u8> {
     let mut skin = serde_json::json!({
         "url": format!("{}/textures/skin.png", state.base_url),
     });
-    if state.model.as_deref() == Some("slim") {
+    if model.as_deref() == Some("slim") {
         skin["metadata"] = serde_json::json!({ "model": "slim" });
     }
 
@@ -357,8 +401,7 @@ mod tests {
     #[test]
     fn skin_server_serves_skin_endpoints() {
         let server = SkinServer::start(
-            b"png-bytes".to_vec(),
-            Some("slim".to_string()),
+            Some((b"png-bytes".to_vec(), Some("slim".to_string()))),
             "069A79F4-44E9-4726-A5BE-FCA90E38ABAF".to_string(),
             "Steve".to_string(),
         )
@@ -400,6 +443,61 @@ mod tests {
             port,
             "/sessionserver/session/minecraft/profile/ffffffffffffffffffffffffffffffff",
         ));
+        assert!(head.contains("404"));
+
+        server.stop();
+    }
+
+    #[test]
+    fn skin_server_serves_privileges_and_blocklist() {
+        let server = SkinServer::start(
+            None,
+            "069a79f444e94726a5befca90e38abaf".to_string(),
+            "Steve".to_string(),
+        )
+        .expect("шим должен стартовать");
+        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+
+        let (head, body) = split_response(&send_request(port, "/privileges"));
+        assert!(head.contains("200 OK"));
+        let privileges: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            privileges["privileges"]["multiplayerServer"]["enabled"],
+            true
+        );
+        assert_eq!(
+            privileges["privileges"]["multiplayerRealms"]["enabled"],
+            true
+        );
+        assert_eq!(privileges["privileges"]["onlineChat"]["enabled"], true);
+
+        let (head, body) = split_response(&send_request(port, "/privacy/blocklist"));
+        assert!(head.contains("200 OK"));
+        let blocklist: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(blocklist["blocked"], serde_json::json!([]));
+
+        server.stop();
+    }
+
+    #[test]
+    fn skin_server_without_skin_serves_default_profile() {
+        let server = SkinServer::start(
+            None,
+            "069a79f444e94726a5befca90e38abaf".to_string(),
+            "Alex".to_string(),
+        )
+        .expect("шим должен стартовать");
+        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+
+        let profile_path =
+            "/sessionserver/session/minecraft/profile/069a79f444e94726a5befca90e38abaf";
+        let (head, body) = split_response(&send_request(port, profile_path));
+        assert!(head.contains("200 OK"));
+        let profile: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(profile["name"], "Alex");
+        assert_eq!(profile["properties"], serde_json::json!([]));
+
+        let (head, _) = split_response(&send_request(port, "/textures/skin.png"));
         assert!(head.contains("404"));
 
         server.stop();
