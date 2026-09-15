@@ -39,6 +39,7 @@ pub fn set_game_output_enabled(enabled: bool) {
 pub fn send_log(msg: String, is_error: bool) {
     if is_error {
         eprintln!("[ERR] {}", msg);
+        crate::utils::file_logger::write_error(&msg);
     } else {
         println!("[LOG] {}", msg);
     }

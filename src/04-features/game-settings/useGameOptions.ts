@@ -1,6 +1,7 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type GameOptions } from '@/05-entities'
 import {
+  getErrorMessage,
   getGameOptions,
   saveGameOptions,
   saveGlobalGameOptions,
@@ -116,7 +117,7 @@ export function useGameOptions(): {
       options.value = { ...cloneDefaults(), ...global }
       notification.show('Общие настройки подставлены, не забудьте сохранить')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     }
   }
 
@@ -131,7 +132,7 @@ export function useGameOptions(): {
       savedSnapshot.value = optionsSnapshot()
       notification.show('Настройки игры сохранены')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isSaving.value = false
     }
@@ -146,7 +147,7 @@ export function useGameOptions(): {
       hasGlobal.value = true
       notification.show('Настройки сохранены как общие')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isSavingGlobal.value = false
     }

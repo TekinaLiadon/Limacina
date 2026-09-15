@@ -136,7 +136,7 @@ export function useProjectSettings(): {
       initialDirtySnapshot.value = dirtySnapshot()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       store.finishSaving()
     }
@@ -150,7 +150,7 @@ export function useProjectSettings(): {
     try {
       serverConnectUrl.value = await getServerConnectUrl()
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isLoadingConnectUrl.value = false
     }
@@ -162,7 +162,7 @@ export function useProjectSettings(): {
       await copyToClipboard(serverConnectUrl.value)
       notification.show('Ссылка скопирована')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     }
   }
 
@@ -179,7 +179,7 @@ export function useProjectSettings(): {
       const message = await clearMinecraftConfig()
       notification.show(message)
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isClearingConfig.value = false
     }
@@ -208,6 +208,10 @@ export function useProjectSettings(): {
     if (isDeleting.value) return
     const projectName = coreStore.currentProject
     if (!projectName) return
+    if (coreStore.gameUsername) {
+      notification.show('Нельзя удалить проект, пока запущена игра')
+      return
+    }
     if (accountsStore.isLaunching) {
       notification.show('Дождитесь завершения запуска игры')
       return
@@ -238,7 +242,7 @@ export function useProjectSettings(): {
       coreStore.projectConfig = await loadSettingsProject(next)
       accountsStore.logins = await authLogins(next)
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isDeleting.value = false
     }

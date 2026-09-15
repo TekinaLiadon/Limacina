@@ -10,6 +10,7 @@ use crate::log_info;
 use crate::state::dto::GlobalState;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::launcher_path;
+use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 
 const MODEL_HEADER: u8 = 0x53;
@@ -55,21 +56,24 @@ pub async fn take_cpm_project_path() -> CommandResult<Option<String>> {
 #[tauri::command]
 pub async fn read_cpm_project_file(path: String) -> CommandResult<tauri::ipc::Response> {
     if !is_cpm_project_path(&path) {
-        return Err(anyhow!(
+        return Err(LauncherError::InvalidInput(format!(
             "Открывать можно только файлы с расширением .{}",
             CPM_PROJECT_EXT
-        )
+        ))
         .into());
     }
-    let metadata = tokio::fs::metadata(&path)
-        .await
-        .with_context(|| format!("Не удалось прочитать файл модели {:?}", path))?;
+    let metadata = LauncherError::classify(
+        tokio::fs::metadata(&path)
+            .await
+            .with_context(|| format!("Не удалось прочитать файл модели {:?}", path)),
+        LauncherError::DiskIo,
+    )?;
     if metadata.len() > CPM_PROJECT_MAX_BYTES {
-        return Err(anyhow!(
+        return Err(LauncherError::InvalidInput(format!(
             "Файл модели слишком большой: {} МБ, максимум {} МБ",
             metadata.len() / (1024 * 1024),
             CPM_PROJECT_MAX_BYTES / (1024 * 1024)
-        )
+        ))
         .into());
     }
     let bytes = tokio::fs::read(&path)
@@ -293,12 +297,16 @@ pub async fn save_player_model(
         guard.project_config.project_name.clone()
     };
     if project_name.trim().is_empty() {
-        return Err(anyhow!("Проект не выбран").into());
+        return Err(LauncherError::ProjectNotSelected.into());
     }
 
     let (data_block, entry) = match url {
         Some(url) => {
-            let id = model_id.ok_or_else(|| anyhow!("Не указан идентификатор модели"))?;
+            let id = model_id.ok_or_else(|| {
+                anyhow!(LauncherError::InvalidInput(
+                    "Не указан идентификатор модели".to_string()
+                ))
+            })?;
             let skin_type = if slim.unwrap_or(false) {
                 SKIN_TYPE_SLIM
             } else {
@@ -316,7 +324,11 @@ pub async fn save_player_model(
             (data_block, entry)
         }
         None => {
-            let data_block = data.ok_or_else(|| anyhow!("Не переданы данные модели"))?;
+            let data_block = data.ok_or_else(|| {
+                anyhow!(LauncherError::InvalidInput(
+                    "Не переданы данные модели".to_string()
+                ))
+            })?;
             let entry = CpmModelEntry {
                 id: None,
                 file: format!("limacina_local_{}.cpmmodel", sanitize_file_name(&name)),
@@ -330,9 +342,12 @@ pub async fn save_player_model(
     };
 
     let dir = player_models_dir(&project_name)?;
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .context("Не удалось создать папку моделей")?;
+    LauncherError::classify(
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .context("Не удалось создать папку моделей"),
+        LauncherError::DiskIo,
+    )?;
     let container = build_player_model_file(&entry.name, &data_block);
     write_atomic(&dir.join(&entry.file), &container).await?;
     replace_manifest_entry(&project_name, &entry).await?;
@@ -353,11 +368,11 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
             .session
             .as_ref()
             .map(|s| s.uuid.clone())
-            .context("Нет активной сессии. Войдите в аккаунт.")?;
+            .ok_or(LauncherError::NoSession)?;
         (project, uuid)
     };
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
 
     let items = user_content::list_models(state, uuid).await?;
@@ -396,10 +411,11 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
                 changed = true;
             }
         }
-        let url = entry
-            .url
-            .clone()
-            .context("В манифесте моделей нет ссылки на модель")?;
+        let url = entry.url.clone().ok_or_else(|| {
+            anyhow!(LauncherError::PlayerModel(
+                "В манифесте моделей нет ссылки на модель".to_string()
+            ))
+        })?;
         let path = dir.join(&entry.file);
         let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
         if !exists || url_changed {

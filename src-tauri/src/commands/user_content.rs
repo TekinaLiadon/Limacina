@@ -1,5 +1,5 @@
 use crate::utils::errors::LauncherError;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
 use tauri::State;
@@ -75,6 +75,7 @@ pub async fn get_session_info(
 
 #[tauri::command]
 pub async fn clear_session(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
+    crate::state::launch_state::set_launch_in_progress(false);
     let mut state = state.lock().await;
     state.session = None;
     Ok(())
@@ -98,8 +99,11 @@ pub async fn upload_skin(
     let file_data = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
 
-        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
-            .context("Некорректное тело запроса загрузки скина")?,
+        tauri::ipc::InvokeBody::Json(value) => LauncherError::classify(
+            serde_json::from_value(value.clone())
+                .context("Некорректное тело запроса загрузки скина"),
+            LauncherError::InvalidInput,
+        )?,
     };
 
     let item = user_content::upload_skin(&state, file_data, model).await?;
@@ -249,12 +253,19 @@ pub async fn save_offline_skin(
             "classic" => Some("classic".to_string()),
             _ => None,
         })
-        .context("Некорректная модель скина")?;
+        .ok_or_else(|| {
+            anyhow!(LauncherError::InvalidInput(
+                "Некорректная модель скина".to_string()
+            ))
+        })?;
 
     let file_data = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
-        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
-            .context("Некорректное тело запроса сохранения скина")?,
+        tauri::ipc::InvokeBody::Json(value) => LauncherError::classify(
+            serde_json::from_value(value.clone())
+                .context("Некорректное тело запроса сохранения скина"),
+            LauncherError::InvalidInput,
+        )?,
     };
 
     let project_name = current_project_name(&state).await?;
@@ -273,14 +284,20 @@ pub async fn save_offline_skin(
     )
     .await??;
 
-    write_atomic(&png_path, &file_data)
-        .await
-        .context("Не удалось записать локальный скин")?;
+    LauncherError::classify(
+        write_atomic(&png_path, &file_data)
+            .await
+            .context("Не удалось записать локальный скин"),
+        LauncherError::DiskIo,
+    )?;
 
     let meta = serde_json::json!({ "model": model });
-    write_atomic(&meta_path, meta.to_string().as_bytes())
-        .await
-        .context("Не удалось записать метаданные локального скина")?;
+    LauncherError::classify(
+        write_atomic(&meta_path, meta.to_string().as_bytes())
+            .await
+            .context("Не удалось записать метаданные локального скина"),
+        LauncherError::DiskIo,
+    )?;
 
     log_info!("Локальный скин сохранён: {}", png_path.display());
     Ok(())

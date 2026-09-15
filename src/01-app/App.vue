@@ -4,18 +4,18 @@ import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
 import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen } from '@/04-features'
-import { Sidebar, ServerStatus, ServerUnavailableBanner } from '@/03-widgets'
+import { Sidebar, ServerStatus, ServerUnavailableBanner, StartupError } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
 const router = useRouter()
 const route = useRoute()
 const coreStore = useCoreStore()
 const settingsStore = useSettingsStore()
-const { preloaderText } = useAppInit()
+const { preloaderText, startupError, retryInit } = useAppInit()
 const notificationStore = useNotificationStore()
 
 const { isSwitching, switchDirection } = useTheme()
-const { projectOptions, canSwitch, selectProject } = useProjectSwitch()
+const { projectOptions, canSwitch, isSwitching: isProjectSwitching, selectProject } = useProjectSwitch()
 const { startConsoleStream } = useConsoleStream()
 void startConsoleStream()
 const { startLaunchStepsStream } = useLaunchStepsStream()
@@ -88,6 +88,11 @@ const navigateTo = (key: TabKey): void => {
   if (tab) router.push({ name: tab.name })
 }
 
+const goSetupFromError = (): void => {
+  startupError.value = ''
+  router.replace({ name: 'Setup' })
+}
+
 watch(isDebugTabVisible, (visible: boolean): void => {
   if (!visible && route.name === 'Debug') {
     router.push({ name: 'Accounts' })
@@ -111,6 +116,13 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     />
     <transition name="fade">
       <Preloader v-if="coreStore.isLoading" :text="preloaderText" />
+      <StartupError
+        v-else-if="startupError"
+        :message="startupError"
+        :show-setup="!coreStore.hasLauncherConfig"
+        @retry="retryInit"
+        @setup="goSetupFromError"
+      />
       <template v-else>
         <div v-if="showLayout" class="app__layout">
           <div class="app__header">
@@ -121,7 +133,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
                 @update:model-value="selectProject"
                 :width="'260px'"
                 :max-visible="6"
-                :disabled="!canSwitch"
+                :disabled="!canSwitch || isProjectSwitching"
               >
                 <template #trailing>
                   <ServerStatus />

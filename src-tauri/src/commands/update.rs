@@ -7,7 +7,7 @@ use crate::updater::{
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
-use anyhow::Context;
+use anyhow::{bail, Context};
 use serde::Deserialize;
 use std::time::Duration;
 use tauri::AppHandle;
@@ -46,12 +46,15 @@ pub async fn get_server_status(
     let request = crate::utils::http::http_client()
         .get(&url)
         .timeout(STATUS_REQUEST_TIMEOUT);
-    let status: ServerStatus = crate::utils::http::request_json(
-        request,
-        "Не удалось подключиться к серверу статуса",
-        "Не удалось разобрать статус игрового сервера",
-    )
-    .await?;
+    let status: ServerStatus = LauncherError::classify(
+        crate::utils::http::request_json(
+            request,
+            "Не удалось подключиться к серверу статуса",
+            "Не удалось разобрать статус игрового сервера",
+        )
+        .await,
+        LauncherError::LauncherServer,
+    )?;
     Ok(status)
 }
 
@@ -88,32 +91,42 @@ pub async fn check_update(app: AppHandle) -> CommandResult<Option<UpdateInfo>> {
         log_info!("Обновления отключены: не задан TAURI_UPDATER_PUBKEY, проверка пропущена");
         return Ok(None);
     }
-    let updater = updater_builder(&app, None)?
-        .timeout(STARTUP_CHECK_TIMEOUT)
-        .build()
-        .context("Не удалось инициализировать проверку обновлений")?;
-    match updater.check().await {
-        Ok(Some(update)) => Ok(Some(UpdateInfo {
-            version: update.version,
-        })),
-        Ok(None) => Ok(None),
-        Err(e) => {
-            let e = anyhow::Error::new(e);
-            if is_timeout_error(&e) {
-                log_info!("Проверка обновлений прервана по таймауту, пропуск");
-                Ok(None)
-            } else {
-                Err(e.context("Не удалось проверить обновления").into())
+    let result = async {
+        let updater = updater_builder(&app, None)?
+            .timeout(STARTUP_CHECK_TIMEOUT)
+            .build()
+            .context("Не удалось инициализировать проверку обновлений")?;
+        match updater.check().await {
+            Ok(Some(update)) => Ok(Some(UpdateInfo {
+                version: update.version,
+            })),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                let e = anyhow::Error::new(e);
+                if is_timeout_error(&e) {
+                    log_info!("Проверка обновлений прервана по таймауту, пропуск");
+                    Ok(None)
+                } else {
+                    Err(e.context("Не удалось проверить обновления"))
+                }
             }
         }
     }
+    .await;
+
+    Ok(LauncherError::classify(result, LauncherError::Update)?)
 }
 
 #[tauri::command]
 pub async fn get_launcher_versions() -> CommandResult<UpdateVersions> {
-    let mut versions = fetch_launcher_versions().await?;
-    retain_current_platform(&mut versions);
-    Ok(versions)
+    let result = async {
+        let mut versions = fetch_launcher_versions().await?;
+        retain_current_platform(&mut versions);
+        Ok(versions)
+    }
+    .await;
+
+    Ok(LauncherError::classify(result, LauncherError::Update)?)
 }
 
 #[tauri::command]
@@ -125,80 +138,88 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
 
     let current_version = app.package_info().version.to_string();
 
-    let target_version = match version {
-        Some(v) => {
-            if v == current_version {
-                log_err!("Версия v{} уже установлена", v);
-                return Err(anyhow::anyhow!("Версия v{} уже установлена", v).into());
+    let result = async {
+        let target_version = match version {
+            Some(v) => {
+                if v == current_version {
+                    log_err!("Версия v{} уже установлена", v);
+                    bail!(LauncherError::Update(format!(
+                        "Версия v{} уже установлена",
+                        v
+                    )));
+                }
+                let versions = fetch_launcher_versions().await?;
+                if !versions.versions.iter().any(|entry| entry.version == v) {
+                    log_err!("Версия v{} отсутствует на сервере", v);
+                    return Err(anyhow::Error::new(LauncherError::UpdateVersionMissing(
+                        v.clone(),
+                    )));
+                }
+                v
             }
-            let versions = fetch_launcher_versions().await?;
-            if !versions.versions.iter().any(|entry| entry.version == v) {
-                log_err!("Версия v{} отсутствует на сервере", v);
-                return Err(LauncherError::UpdateVersionMissing(v.clone()).into());
-            }
-            v
-        }
-        None => {
-            log_info!("Текущая версия: v{}", current_version);
-            let updater = updater_builder(&app, None)?
-                .build()
-                .context("Не удалось инициализировать проверку обновлений")?;
-            match updater
-                .check()
-                .await
-                .context("Не удалось проверить обновления")?
-            {
-                Some(update) => {
-                    if !compare_with_current(&update.version, &current_version) {
-                        log_info!(
-                            "Сервер предлагает v{}, но она не новее текущей v{}, обновление пропущено",
-                            update.version,
-                            current_version
-                        );
+            None => {
+                log_info!("Текущая версия: v{}", current_version);
+                let updater = updater_builder(&app, None)?
+                    .build()
+                    .context("Не удалось инициализировать проверку обновлений")?;
+                match updater
+                    .check()
+                    .await
+                    .context("Не удалось проверить обновления")?
+                {
+                    Some(update) => {
+                        if !compare_with_current(&update.version, &current_version) {
+                            log_info!(
+                                "Сервер предлагает v{}, но она не новее текущей v{}, обновление пропущено",
+                                update.version,
+                                current_version
+                            );
+                            return Ok(());
+                        }
+                        log_info!("Сервер предлагает обновление до v{}", update.version);
+                        update.version
+                    }
+                    None => {
+                        log_info!("Обновление не требуется");
                         return Ok(());
                     }
-                    log_info!("Сервер предлагает обновление до v{}", update.version);
-                    update.version
-                }
-                None => {
-                    log_info!("Обновление не требуется");
-                    return Ok(());
                 }
             }
+        };
+
+        log_info!("Установка версии лаунчера v{}", target_version);
+
+        let updater = updater_builder(&app, Some(&target_version))?
+            .build()
+            .context("Не удалось инициализировать установку обновления")?;
+        let update = updater
+            .check()
+            .await
+            .with_context(|| format!("Не удалось получить релиз v{target_version}"))?
+            .ok_or_else(|| anyhow::anyhow!("Сервер не отдал релиз v{target_version}"))?;
+
+        if update.version != target_version {
+            bail!(LauncherError::Update(format!(
+                "Сервер вернул релиз v{} вместо v{}",
+                update.version, target_version
+            )));
         }
-    };
 
-    log_info!("Установка версии лаунчера v{}", target_version);
+        log_info!("Скачивание обновления v{}...", update.version);
+        let bytes = update
+            .download(|_chunk, _total| {}, || {})
+            .await
+            .context("Не удалось скачать обновление")?;
 
-    let updater = updater_builder(&app, Some(&target_version))?
-        .build()
-        .context("Не удалось инициализировать установку обновления")?;
-    let update = updater
-        .check()
-        .await
-        .with_context(|| format!("Не удалось получить релиз v{target_version}"))?
-        .ok_or_else(|| anyhow::anyhow!("Сервер не отдал релиз v{target_version}"))?;
+        log_info!("Обновление v{} скачано, установка...", update.version);
+        update
+            .install(bytes)
+            .context("Не удалось установить обновление")?;
 
-    if update.version != target_version {
-        return Err(anyhow::anyhow!(
-            "Сервер вернул релиз v{} вместо v{}",
-            update.version,
-            target_version
-        )
-        .into());
+        log_info!("Обновление применено, перезапуск...");
+        app.restart()
     }
+    .await;
 
-    log_info!("Скачивание обновления v{}...", update.version);
-    let bytes = update
-        .download(|_chunk, _total| {}, || {})
-        .await
-        .context("Не удалось скачать обновление")?;
-
-    log_info!("Обновление v{} скачано, установка...", update.version);
-    update
-        .install(bytes)
-        .context("Не удалось установить обновление")?;
-
-    log_info!("Обновление применено, перезапуск...");
-    app.restart()
+    Ok(LauncherError::classify(result, LauncherError::Update)?)
 }

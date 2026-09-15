@@ -159,7 +159,7 @@ export function useCpmSettings() {
       })
       notification.show('Модель добавлена в игру')
     } catch (e: unknown) {
-      content.errorMessage.value = String(e)
+      content.errorMessage.value = getErrorMessage(e)
     }
   }
 
@@ -179,7 +179,7 @@ export function useCpmSettings() {
       })
       notification.show('Модель сохранена в игру')
     } catch (e: unknown) {
-      content.errorMessage.value = String(e)
+      content.errorMessage.value = getErrorMessage(e)
     } finally {
       isSaving.value = false
     }

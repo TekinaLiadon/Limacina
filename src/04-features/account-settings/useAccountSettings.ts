@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { changePassword, getSessionInfo } from '@/06-shared/api'
+import { changePassword, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
 const MIN_PASSWORD_LENGTH = 6
@@ -66,7 +66,7 @@ export function useAccountSettings() {
       resetForm()
     } catch (e: unknown) {
       reportError('Не удалось сменить пароль', e)
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     } finally {
       isChanging.value = false
     }

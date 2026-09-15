@@ -1,6 +1,6 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type LauncherConfig } from '@/05-entities'
-import { saveLauncherSettings, saveLauncherConfig, type LauncherSettingsPayload } from '@/06-shared/api'
+import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, type LauncherSettingsPayload } from '@/06-shared/api'
 import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
@@ -86,7 +86,7 @@ export function useLauncherSettings(): {
         await disableAutostart()
       }
     } catch (e: unknown) {
-      notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${String(e)}`)
+      notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
     }
   }
 
@@ -168,7 +168,7 @@ export function useLauncherSettings(): {
       refreshDirty()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isSaving.value = false
     }

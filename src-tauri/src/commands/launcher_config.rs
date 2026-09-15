@@ -10,6 +10,7 @@ use crate::utils::blocking;
 use crate::utils::env_info::{
     default_server_url, get_default_project_name, get_home_dir, get_launcher_name, is_offline_build,
 };
+use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 
 #[derive(Serialize)]
@@ -37,11 +38,18 @@ pub(crate) async fn update_launcher_config(
 
         mutate(&mut config);
 
-        let content = config
-            .serialize_for_save()
-            .map_err(|e| anyhow::anyhow!("Не удалось сериализовать конфиг: {}", e))?;
-        let path = LauncherConfig::config_file_path_public()
-            .map_err(|e| anyhow::anyhow!("Не удалось определить путь конфига: {}", e))?;
+        let content = config.serialize_for_save().map_err(|e| {
+            anyhow::Error::new(LauncherError::DiskIo(format!(
+                "Не удалось сериализовать конфиг: {}",
+                e
+            )))
+        })?;
+        let path = LauncherConfig::config_file_path_public().map_err(|e| {
+            anyhow::Error::new(LauncherError::DiskIo(format!(
+                "Не удалось определить путь конфига: {}",
+                e
+            )))
+        })?;
 
         guard.launcher_config = Some(config.clone());
         (config, content, path)
@@ -142,7 +150,11 @@ pub async fn save_launcher_config(
         move || {
             for dir in dirs_to_create {
                 std::fs::create_dir_all(&dir).map_err(|e| {
-                    anyhow::anyhow!("Не удалось создать папку \"{}\": {}", dir.display(), e)
+                    anyhow::Error::new(LauncherError::DiskIo(format!(
+                        "Не удалось создать папку \"{}\": {}",
+                        dir.display(),
+                        e
+                    )))
                 })?;
             }
             Ok::<(), anyhow::Error>(())

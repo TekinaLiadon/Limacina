@@ -858,6 +858,8 @@ SectionEnd
 Section Install
   SetOutPath $INSTDIR
 
+  CreateDirectory "$INSTDIR\logs"
+
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif

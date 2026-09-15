@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::{
     log_err,
     utils::env_info::{get_launcher_name, launcher_path},
+    utils::errors::LauncherError,
     utils::hex::{from_hex, to_hex},
 };
 
@@ -132,11 +133,14 @@ pub async fn save_credential(
         key_suffix.to_string(),
         value.to_string(),
     );
-    tokio::task::spawn_blocking(move || {
-        save_credential_sync(&project, &username, &key_suffix, &value)
-    })
-    .await
-    .context("Не удалось выполнить задачу сохранения credentials")?
+    LauncherError::classify(
+        tokio::task::spawn_blocking(move || {
+            save_credential_sync(&project, &username, &key_suffix, &value)
+        })
+        .await
+        .context("Не удалось выполнить задачу сохранения credentials")?,
+        LauncherError::CredentialsStorage,
+    )
 }
 
 fn save_credential_sync(
@@ -178,9 +182,12 @@ pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> 
         username.to_string(),
         key_suffix.to_string(),
     );
-    tokio::task::spawn_blocking(move || get_credential_sync(&project, &username, &key_suffix))
-        .await
-        .context("Не удалось выполнить задачу чтения credentials")?
+    LauncherError::classify(
+        tokio::task::spawn_blocking(move || get_credential_sync(&project, &username, &key_suffix))
+            .await
+            .context("Не удалось выполнить задачу чтения credentials")?,
+        LauncherError::CredentialsStorage,
+    )
 }
 
 fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<String> {
@@ -210,9 +217,14 @@ pub async fn delete_credential(project: &str, username: &str, key_suffix: &str) 
         username.to_string(),
         key_suffix.to_string(),
     );
-    tokio::task::spawn_blocking(move || delete_credential_sync(&project, &username, &key_suffix))
+    LauncherError::classify(
+        tokio::task::spawn_blocking(move || {
+            delete_credential_sync(&project, &username, &key_suffix)
+        })
         .await
-        .context("Не удалось выполнить задачу удаления credentials")?
+        .context("Не удалось выполнить задачу удаления credentials")?,
+        LauncherError::CredentialsStorage,
+    )
 }
 
 fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<()> {

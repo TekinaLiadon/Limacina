@@ -311,6 +311,10 @@ export async function getGameState(): Promise<string | null> {
   return invoke<string | null>('get_game_state')
 }
 
+export async function getLaunchState(): Promise<boolean> {
+  return invoke<boolean>('get_launch_state')
+}
+
 export async function listenGameStarted(
   callback: (username: string) => void
 ): Promise<UnlistenFn> {

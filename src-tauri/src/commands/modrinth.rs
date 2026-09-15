@@ -10,6 +10,7 @@ use crate::modrinth::structs::{ModrinthManifest, ModrinthProject, ModrinthVersio
 use crate::state::dto::{GlobalState, ModLoader};
 use crate::utils::download_file::file_sha1;
 use crate::utils::env_info::launcher_path;
+use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 
@@ -70,9 +71,9 @@ fn loader_key(loader: &ModLoader) -> Option<String> {
 async fn profile_context(state: &Mutex<GlobalState>) -> Result<ProfileContext> {
     let config = state.lock().await.project_config.clone();
     if config.online {
-        return Err(anyhow!(
-            "Моды Modrinth доступны только в одиночных профилях"
-        ));
+        return Err(anyhow!(LauncherError::OfflineProfile(
+            "моды Modrinth доступны только в одиночных профилях".to_string()
+        )));
     }
     let loaders = loader_key(&config.mod_loader).into_iter().collect();
     Ok(ProfileContext {
@@ -167,9 +168,12 @@ pub async fn modrinth_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ProjectDetails> {
     profile_context(&state).await?;
-    let project = client::get_project(&id)
-        .await
-        .context("Не удалось получить информацию о моде")?;
+    let project = LauncherError::classify(
+        client::get_project(&id)
+            .await
+            .context("Не удалось получить информацию о моде"),
+        LauncherError::Modrinth,
+    )?;
     let versions = client::get_project_versions(&id, &[], &[])
         .await
         .unwrap_or_default();
@@ -210,7 +214,10 @@ pub async fn modrinth_installed(
         }
     }
 
-    let manifest: ModrinthManifest = sync_installed_from_hashes(&ctx, local_hashes).await?;
+    let manifest: ModrinthManifest = LauncherError::classify(
+        sync_installed_from_hashes(&ctx, local_hashes).await,
+        LauncherError::Modrinth,
+    )?;
     let mut mods: Vec<InstalledMod> = manifest
         .mods
         .into_values()
@@ -233,7 +240,7 @@ pub async fn modrinth_check_updates(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Vec<ModrinthUpdate>> {
     let ctx = install_context(&state).await?;
-    let checks = check_updates(&ctx).await?;
+    let checks = LauncherError::classify(check_updates(&ctx).await, LauncherError::Modrinth)?;
     Ok(checks
         .into_iter()
         .map(|c| ModrinthUpdate {
@@ -250,7 +257,10 @@ pub async fn modrinth_install(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<InstallResult> {
     let ctx = install_context(&state).await?;
-    let report = install_project(&ctx, &project_id).await?;
+    let report = LauncherError::classify(
+        install_project(&ctx, &project_id).await,
+        LauncherError::Modrinth,
+    )?;
     log_info!(
         "[modrinth] Установка завершена: установлено {}, пропущено {}",
         report.installed.len(),
@@ -268,6 +278,9 @@ pub async fn modrinth_uninstall(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
     let ctx = install_context(&state).await?;
-    uninstall_project(&ctx, &project_id).await?;
+    LauncherError::classify(
+        uninstall_project(&ctx, &project_id).await,
+        LauncherError::Modrinth,
+    )?;
     Ok(())
 }

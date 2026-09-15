@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import {
+  getErrorMessage,
   modrinthSearch,
   modrinthProject,
   modrinthInstalled,
@@ -106,7 +107,7 @@ export function useModrinth() {
       total.value = result.total
       currentPage.value = Math.floor(newOffset / PAGE_SIZE) + 1
     } catch (e: unknown) {
-      searchError.value = String(e)
+      searchError.value = getErrorMessage(e)
     } finally {
       isSearching.value = false
     }
@@ -122,7 +123,7 @@ export function useModrinth() {
     try {
       installed.value = await modrinthInstalled()
     } catch (e: unknown) {
-      actionError.value = String(e)
+      actionError.value = getErrorMessage(e)
     } finally {
       isLoadingInstalled.value = false
     }
@@ -141,7 +142,7 @@ export function useModrinth() {
       }
       updates.value = next
     } catch (e: unknown) {
-      actionError.value = String(e)
+      actionError.value = getErrorMessage(e)
     } finally {
       isCheckingUpdates.value = false
     }
@@ -155,7 +156,7 @@ export function useModrinth() {
       await loadInstalled()
       return true
     } catch (e: unknown) {
-      actionError.value = String(e)
+      actionError.value = getErrorMessage(e)
       return false
     } finally {
       installingId.value = null
@@ -172,7 +173,7 @@ export function useModrinth() {
       await loadInstalled()
       return true
     } catch (e: unknown) {
-      actionError.value = String(e)
+      actionError.value = getErrorMessage(e)
       return false
     } finally {
       installingId.value = null
@@ -183,7 +184,7 @@ export function useModrinth() {
     try {
       return await modrinthProject(projectId)
     } catch (e: unknown) {
-      actionError.value = String(e)
+      actionError.value = getErrorMessage(e)
       return null
     }
   }

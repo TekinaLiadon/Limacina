@@ -134,6 +134,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  text-align: left;
   background: var(--debug-bg);
   border-radius: var(--radius-card);
   overflow: hidden;

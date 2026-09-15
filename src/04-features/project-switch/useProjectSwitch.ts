@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useAccountsStore, useCoreStore, useNotificationStore } from '@/05-entities'
-import { authLogins, clearSession, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
+import { authLogins, clearSession, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import { useLaunchStepsStream } from '@/04-features'
 import type { DropdownOption } from '@/06-shared/types'
 
@@ -32,9 +32,21 @@ export function useProjectSwitch() {
     resetLaunchSteps()
   }
 
+  const isSwitching = computed((): boolean => accountsStore.isSwitching)
+
   const selectProject = async (projectName: string): Promise<void> => {
     if (!projectName || projectName === coreStore.currentProject) return
+    if (accountsStore.isSwitching) return
+    if (coreStore.gameUsername) {
+      notification.show('Нельзя переключить проект, пока запущена игра')
+      return
+    }
+    if (accountsStore.isLaunching) {
+      notification.show('Дождитесь завершения запуска игры')
+      return
+    }
 
+    accountsStore.isSwitching = true
     const previousProject = coreStore.currentProject
     const previousConfig = coreStore.projectConfig
 
@@ -50,13 +62,16 @@ export function useProjectSwitch() {
     } catch (e: unknown) {
       coreStore.currentProject = previousProject
       coreStore.projectConfig = previousConfig
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
+    } finally {
+      accountsStore.isSwitching = false
     }
   }
 
   return {
     projectOptions,
     canSwitch,
+    isSwitching,
     resetAccountsState,
     selectProject,
   }

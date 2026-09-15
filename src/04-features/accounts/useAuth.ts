@@ -1,6 +1,6 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
-import { authLogins, authLogin, authRegister, getSessionInfo } from '@/06-shared/api'
+import { authLogins, authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import type { AuthUserData } from '@/05-entities/core/types'
 import { useAccountsList } from './useAccountsList'
@@ -95,7 +95,7 @@ export function useAuth() {
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
       reportError('Ошибка авторизации', e)
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     } finally {
       isLoading.value = false
     }
@@ -125,7 +125,7 @@ export function useAuth() {
       store.registerShowForm = false
       store.activeSubTab = 'login'
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     } finally {
       isLoading.value = false
     }

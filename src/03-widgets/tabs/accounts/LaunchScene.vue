@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
   isLoading: boolean
   isLaunching: boolean
   isCancelPending: boolean
+  isInterrupted?: boolean
   progress: number
   steps: StepProgressItem[]
   sessionUsername?: string | null
@@ -27,6 +28,7 @@ const props = withDefaults(defineProps<{
   serverOffline: false,
   loginError: '',
   selectError: '',
+  isInterrupted: false,
 })
 
 const emit = defineEmits<{
@@ -124,6 +126,10 @@ const openLoginForm = (): void => {
           </div>
 
           <StepProgress :steps="steps" hide-completed />
+
+          <p v-if="isInterrupted" class="launch-scene__hint">
+            Запуск был прерван перезагрузкой окна — отмените и запустите заново
+          </p>
 
           <p v-if="isLaunchingGame" class="launch-scene__hint">
             Игра запускается — окно откроется автоматически
@@ -260,6 +266,7 @@ const openLoginForm = (): void => {
   &__account {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-16);
     margin-bottom: var(--title-gap);
   }

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { useAccounts, useGameLaunch, useSystemNotifications } from '@/04-features'
-import { clearSession, deleteAccount } from '@/06-shared/api'
+import { clearSession, deleteAccount, getErrorMessage } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
 export function useAccountsPage() {
@@ -44,7 +44,7 @@ export function useAccountsPage() {
     try {
       await executeSteps(() => launchGeneration !== store.launchGeneration)
     } catch (e: unknown) {
-      coreStore.loginError = String(e)
+      coreStore.loginError = getErrorMessage(e)
     } finally {
       if (launchGeneration === store.launchGeneration) {
         store.isLaunching = false
@@ -63,6 +63,8 @@ export function useAccountsPage() {
 
   const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
 
+  const launchInterrupted = computed((): boolean => store.launchInterrupted)
+
   const showLoginForm = (): void => {
     store.showAuthForm = true
     store.activeSubTab = 'login'
@@ -73,6 +75,7 @@ export function useAccountsPage() {
   const finalizeCancel = async (): Promise<void> => {
     isCancelPending.value = false
     store.isLaunching = false
+    store.launchInterrupted = false
     store.showAuthForm = false
     try {
       await clearSession()
@@ -85,7 +88,7 @@ export function useAccountsPage() {
 
   const goToAccounts = async (): Promise<void> => {
     store.launchGeneration++
-    if (store.isLaunching) {
+    if (store.isLaunching && !store.launchInterrupted) {
       isCancelPending.value = true
       return
     }
@@ -112,7 +115,7 @@ export function useAccountsPage() {
       await loadAccounts()
       notificationStore.show('Аккаунт удалён')
     } catch (e: unknown) {
-      notificationStore.show(String(e))
+      notificationStore.show(getErrorMessage(e))
     }
   }
 
@@ -128,6 +131,7 @@ export function useAccountsPage() {
     activeSubTab,
     launchSteps,
     activeProgress,
+    launchInterrupted,
     loginError,
     sceneUsername,
     isCancelPending,

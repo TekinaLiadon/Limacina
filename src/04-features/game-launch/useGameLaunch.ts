@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
-import { initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
+import { getErrorMessage, initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
 import type { ProjectConfig, StepProgressItem } from '@/05-entities/core/types'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
@@ -128,7 +128,7 @@ export function useGameLaunch() {
       config = await initializeProject(coreStore.currentProject)
     } catch (e: unknown) {
       if (isCancelled?.()) return
-      coreStore.loginError = String(e)
+      coreStore.loginError = getErrorMessage(e)
       store.isLaunching = false
       return
     }
@@ -148,8 +148,8 @@ export function useGameLaunch() {
       } catch (error: unknown) {
         if (isCancelled?.()) return
         await flushLaunchSteps()
-        markActiveStepError(String(error))
-        coreStore.loginError = String(error)
+        markActiveStepError(getErrorMessage(error))
+        coreStore.loginError = getErrorMessage(error)
         store.isLaunching = false
         return
       }

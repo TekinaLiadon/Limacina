@@ -276,7 +276,8 @@ const items = computed<TabItem[]>((): TabItem[] => {
     }
 
     &__group {
-      gap: 0;
+      flex: 1 1 0;
+      min-width: 0;
     }
 
     &__subitems {
@@ -284,11 +285,16 @@ const items = computed<TabItem[]>((): TabItem[] => {
     }
 
     &__item {
+      flex: 1 1 0;
+      min-width: 0;
       flex-direction: column;
       gap: var(--space-4);
       padding: var(--space-8) var(--space-12);
-      min-width: fit-content;
       border-radius: var(--radius-card);
+    }
+
+    &__chevron {
+      display: none;
     }
 
     &__label {

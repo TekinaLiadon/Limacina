@@ -7,6 +7,7 @@ use uuid::{Builder, Variant, Version};
 
 use crate::{
     log_info,
+    utils::errors::LauncherError,
     utils::http::{http_client, request_json},
 };
 
@@ -112,12 +113,15 @@ pub async fn register(server_url: &str, username: &str, password: &str) -> Resul
         password: password.to_string(),
     };
 
-    request_json(
-        http_client().post(&url).json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ авторизации",
+    LauncherError::classify(
+        request_json(
+            http_client().post(&url).json(&body),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ авторизации",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn change_password(
@@ -132,15 +136,18 @@ pub async fn change_password(
         new_password: new_password.to_string(),
     };
 
-    request_json(
-        http_client()
-            .patch(&url)
-            .bearer_auth(access_token)
-            .json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ смены пароля",
+    LauncherError::classify(
+        request_json(
+            http_client()
+                .patch(&url)
+                .bearer_auth(access_token)
+                .json(&body),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ смены пароля",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
@@ -150,12 +157,15 @@ pub async fn login(server_url: &str, username: &str, password: &str) -> Result<A
         password: password.to_string(),
     };
 
-    request_json(
-        http_client().post(&url).json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ авторизации",
+    LauncherError::classify(
+        request_json(
+            http_client().post(&url).json(&body),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ авторизации",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {
@@ -164,12 +174,15 @@ pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> 
         refresh_token: refresh_token.to_string(),
     };
 
-    request_json(
-        http_client().post(&url).json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ авторизации",
+    LauncherError::classify(
+        request_json(
+            http_client().post(&url).json(&body),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ авторизации",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
@@ -180,24 +193,25 @@ pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
         refresh_token: refresh_token.to_string(),
     };
 
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу авторизации")?;
+    let result = async {
+        let response = client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("Не удалось подключиться к серверу авторизации")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!(
-            "Сервер авторизации вернул {} при инвалидации токена: {}",
-            status,
-            body
-        );
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Вернул {} при инвалидации токена: {}", status, body);
+        }
+
+        Ok(())
     }
+    .await;
 
-    Ok(())
+    LauncherError::classify(result, LauncherError::AuthServer)
 }
 
 #[cfg(test)]

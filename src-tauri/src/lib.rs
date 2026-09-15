@@ -48,6 +48,7 @@ use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
 use commands::start::get_game_state;
+use commands::start::get_launch_state;
 use commands::start::start_minecraft;
 use commands::update::{
     apply_update_cmd, check_update, get_launcher_versions, get_server_status, ping_launcher_server,
@@ -66,6 +67,7 @@ use crate::state::dto::GlobalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_hook();
     for line in include_str!("../.env").lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -218,6 +220,7 @@ pub fn run() {
             start_minecraft,
             exit_launcher,
             get_game_state,
+            get_launch_state,
             save_settings_project,
             load_settings_project,
             clear_minecraft_config,
@@ -259,4 +262,13 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn install_panic_hook() {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        utils::file_logger::write_panic(info, &backtrace);
+        previous_hook(info);
+    }));
 }

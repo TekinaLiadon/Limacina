@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { initializeLauncher } from '@/06-shared/api'
+import { getErrorMessage, initializeLauncher } from '@/06-shared/api'
 import { Button, Input, joinPath } from '@/06-shared'
 import { AddProfileTab } from '@/03-widgets'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -57,7 +57,7 @@ const save = async (): Promise<void> => {
     }
     router.push('/')
   } catch (e: unknown) {
-    notificationStore.show(String(e))
+    notificationStore.show(getErrorMessage(e))
   } finally {
     isLoading.value = false
   }

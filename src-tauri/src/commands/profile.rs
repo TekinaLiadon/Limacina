@@ -50,12 +50,16 @@ async fn validate_new_project_name(
 }
 
 async fn persist_new_project(config: &ProjectConfig) -> Result<()> {
-    let project_dir = launcher_path(Some(&config.project_name))?;
-    fs::create_dir_all(&project_dir)
-        .await
-        .with_context(|| format!("Не удалось создать папку профиля {:?}", project_dir))?;
-    config.save_config().await?;
-    Ok(())
+    let result = async {
+        let project_dir = launcher_path(Some(&config.project_name))?;
+        fs::create_dir_all(&project_dir)
+            .await
+            .with_context(|| format!("Не удалось создать папку профиля {:?}", project_dir))?;
+        config.save_config().await?;
+        Ok(())
+    }
+    .await;
+    LauncherError::classify(result, LauncherError::DiskIo)
 }
 
 async fn activate_project(state: &State<'_, Mutex<GlobalState>>, config: &ProjectConfig) {
@@ -68,7 +72,7 @@ async fn add_server_profile(
     server_url: &str,
 ) -> Result<ProjectConfig> {
     if server_url.trim().is_empty() {
-        bail!("Введите адрес сервера");
+        bail!(LauncherError::ServerUrlMissing);
     }
     let base_url = normalize_server_url(server_url);
 
@@ -76,23 +80,35 @@ async fn add_server_profile(
         "[profile] Запрос конфига сервера: {}/v1/launcher/config",
         base_url
     );
-    let response = http_client()
-        .get(format!("{}/v1/launcher/config", base_url))
-        .send()
-        .await
-        .with_context(|| format!("Не удалось подключиться к {}", base_url))?;
+    let response = LauncherError::classify(
+        http_client()
+            .get(format!("{}/v1/launcher/config", base_url))
+            .send()
+            .await
+            .with_context(|| format!("Не удалось подключиться к {}", base_url)),
+        LauncherError::LauncherServer,
+    )?;
 
     if !response.status().is_success() {
-        bail!("Сервер {} вернул {}", base_url, response.status());
+        bail!(LauncherError::LauncherServer(format!(
+            "Сервер {} вернул {}",
+            base_url,
+            response.status()
+        )));
     }
 
-    let mut config: ProjectConfig = response
-        .json()
-        .await
-        .context("Не удалось распарсить конфиг сервера")?;
+    let mut config: ProjectConfig = LauncherError::classify(
+        response
+            .json()
+            .await
+            .context("Не удалось распарсить конфиг сервера"),
+        LauncherError::LauncherServer,
+    )?;
 
     if config.project_name.trim().is_empty() {
-        bail!("Сервер не вернул название проекта");
+        bail!(LauncherError::LauncherServer(
+            "Сервер не вернул название проекта".to_string()
+        ));
     }
 
     validate_new_project_name(state, &config.project_name).await?;
@@ -119,12 +135,14 @@ async fn add_offline_profile(
     validate_new_project_name(state, name).await?;
 
     if mc_version.trim().is_empty() {
-        bail!("Выберите версию Minecraft");
+        bail!(LauncherError::InvalidInput(
+            "Выберите версию Minecraft".to_string()
+        ));
     }
 
     let loader_version = loader_version.filter(|v| !v.trim().is_empty());
     if mod_loader != ModLoader::Vanilla && loader_version.is_none() {
-        bail!("Выберите версию загрузчика модов");
+        bail!(LauncherError::LoaderNotSelected);
     }
 
     let config = ProjectConfig {
@@ -157,10 +175,12 @@ async fn minecraft_versions(include_snapshots: bool) -> Result<Vec<String>> {
     let manifest_path = launcher_path(None)?
         .join("manifest")
         .join("vanilla_index.json");
-    let manifest: VanillaVersionsManifest =
+    let manifest: VanillaVersionsManifest = LauncherError::classify(
         download_json(Some(VERSION_MANIFEST_URL), &manifest_path)
             .await
-            .context("Не удалось получить список версий Minecraft")?;
+            .context("Не удалось получить список версий Minecraft"),
+        LauncherError::ManifestParse,
+    )?;
 
     Ok(manifest
         .versions
@@ -172,7 +192,9 @@ async fn minecraft_versions(include_snapshots: bool) -> Result<Vec<String>> {
 
 async fn loader_versions(mod_loader: ModLoader, mc_version: &str) -> Result<Vec<String>> {
     if mc_version.trim().is_empty() {
-        bail!("Сначала выберите версию Minecraft");
+        bail!(LauncherError::InvalidInput(
+            "Сначала выберите версию Minecraft".to_string()
+        ));
     }
 
     let versions = match mod_loader {
@@ -182,16 +204,28 @@ async fn loader_versions(mod_loader: ModLoader, mc_version: &str) -> Result<Vec<
                 mc_version: mc_version.to_string(),
                 ..ProjectConfig::default()
             };
-            Fabric
-                .versions(&probe)
-                .await
-                .with_context(|| format!("Нет версий Fabric для Minecraft {}", mc_version))?
-                .into_iter()
-                .map(|v| v.id)
-                .collect()
+            LauncherError::classify(
+                Fabric
+                    .versions(&probe)
+                    .await
+                    .with_context(|| format!("Нет версий Fabric для Minecraft {}", mc_version)),
+                LauncherError::ManifestParse,
+            )?
+            .into_iter()
+            .map(|v| v.id)
+            .collect()
         }
-        ModLoader::Forge => pick_maven_versions(forge_manifest_index().await?, mc_version),
-        ModLoader::NeoForge => pick_maven_versions(neoforge_manifest_index().await?, mc_version),
+        ModLoader::Forge => pick_maven_versions(
+            LauncherError::classify(forge_manifest_index().await, LauncherError::ManifestParse)?,
+            mc_version,
+        ),
+        ModLoader::NeoForge => pick_maven_versions(
+            LauncherError::classify(
+                neoforge_manifest_index().await,
+                LauncherError::ManifestParse,
+            )?,
+            mc_version,
+        ),
     };
 
     Ok(versions)
@@ -260,9 +294,12 @@ pub async fn save_current_project(
 async fn delete_project_files(project_name: &str) -> Result<()> {
     let project_dir = launcher_path(Some(project_name))?;
     if project_dir.exists() {
-        fs::remove_dir_all(&project_dir)
-            .await
-            .with_context(|| format!("Не удалось удалить папку проекта {:?}", project_dir))?;
+        LauncherError::classify(
+            fs::remove_dir_all(&project_dir)
+                .await
+                .with_context(|| format!("Не удалось удалить папку проекта {:?}", project_dir)),
+            LauncherError::DiskIo,
+        )?;
     }
 
     let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
@@ -364,14 +401,19 @@ pub async fn refresh_manifests() -> CommandResult<String> {
     let mut removed = 0usize;
 
     if manifest_dir.exists() {
-        let mut entries = fs::read_dir(&manifest_dir)
-            .await
-            .with_context(|| format!("Не удалось прочитать {:?}", manifest_dir))?;
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .context("Не удалось прочитать запись в папке manifest")?
-        {
+        let mut entries = LauncherError::classify(
+            fs::read_dir(&manifest_dir)
+                .await
+                .with_context(|| format!("Не удалось прочитать {:?}", manifest_dir)),
+            LauncherError::DiskIo,
+        )?;
+        while let Some(entry) = LauncherError::classify(
+            entries
+                .next_entry()
+                .await
+                .context("Не удалось прочитать запись в папке manifest"),
+            LauncherError::DiskIo,
+        )? {
             let name = entry.file_name().to_string_lossy().into_owned();
             let is_index = INDEX_CACHE_FILES.contains(&name.as_str())
                 || INDEX_CACHE_PREFIXES
@@ -390,9 +432,15 @@ pub async fn refresh_manifests() -> CommandResult<String> {
         removed
     );
 
-    minecraft_versions(false).await?;
-    forge_manifest_index().await?;
-    neoforge_manifest_index().await?;
+    LauncherError::classify(
+        minecraft_versions(false).await,
+        LauncherError::ManifestParse,
+    )?;
+    LauncherError::classify(forge_manifest_index().await, LauncherError::ManifestParse)?;
+    LauncherError::classify(
+        neoforge_manifest_index().await,
+        LauncherError::ManifestParse,
+    )?;
 
     Ok(format!("Манифесты обновлены (удалено кешей: {})", removed))
 }

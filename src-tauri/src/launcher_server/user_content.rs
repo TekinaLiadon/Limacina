@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::log_info;
 use crate::state::dto::GlobalState;
+use crate::utils::errors::LauncherError;
 use crate::utils::http::{request_json, require_success};
 use tokio::sync::Mutex;
 
@@ -21,30 +22,38 @@ async fn require_api_context(state: &Mutex<GlobalState>) -> Result<(String, Stri
 }
 
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
-    request_json(
-        crate::utils::http::http_client()
-            .get(url)
-            .bearer_auth(token),
-        "Не удалось подключиться к серверу",
-        "Не удалось распарсить ответ сервера",
+    LauncherError::classify(
+        request_json(
+            crate::utils::http::http_client()
+                .get(url)
+                .bearer_auth(token),
+            "Не удалось подключиться к серверу",
+            "Не удалось распарсить ответ сервера",
+        )
+        .await,
+        LauncherError::LauncherServer,
     )
-    .await
 }
 
 async fn api_delete(url: &str, token: &str) -> Result<()> {
-    let client = crate::utils::http::http_client();
-    let response = require_success(
-        client
-            .delete(url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .context("Не удалось подключиться к серверу")?,
-    )
-    .await?;
+    let result = async {
+        let client = crate::utils::http::http_client();
+        let response = require_success(
+            client
+                .delete(url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .context("Не удалось подключиться к серверу")?,
+        )
+        .await?;
 
-    let _ = response;
-    Ok(())
+        let _ = response;
+        Ok(())
+    }
+    .await;
+
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 async fn upload_multipart(
@@ -56,27 +65,32 @@ async fn upload_multipart(
     send_context: &'static str,
     parse_context: &'static str,
 ) -> Result<UserContentItem> {
-    let part = reqwest::multipart::Part::bytes(file_data)
-        .file_name(file_name.to_string())
-        .mime_str(mime)
-        .context("Не удалось создать multipart part")?;
+    let result = async {
+        let part = reqwest::multipart::Part::bytes(file_data)
+            .file_name(file_name.to_string())
+            .mime_str(mime)
+            .context("Не удалось создать multipart part")?;
 
-    let form = reqwest::multipart::Form::new().part("file", part);
+        let form = reqwest::multipart::Form::new().part("file", part);
 
-    let client = crate::utils::http::http_client();
-    let response = require_success(
-        client
-            .post(url)
-            .bearer_auth(token)
-            .multipart(form)
-            .send()
-            .await
-            .context(send_context)?,
-    )
-    .await?;
+        let client = crate::utils::http::http_client();
+        let response = require_success(
+            client
+                .post(url)
+                .bearer_auth(token)
+                .multipart(form)
+                .send()
+                .await
+                .context(send_context)?,
+        )
+        .await?;
 
-    let item: UserContentItem = response.json().await.context(parse_context)?;
-    Ok(item)
+        let item: UserContentItem = response.json().await.context(parse_context)?;
+        Ok(item)
+    }
+    .await;
+
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn upload_skin(
@@ -129,22 +143,27 @@ pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> 
     let (token, server_url) = require_api_context(state).await?;
     let url = format!("{}/v1/common/content/skins/active", server_url);
 
-    let client = crate::utils::http::http_client();
-    let response = require_success(
-        client
-            .patch(&url)
-            .bearer_auth(&token)
-            .json(&serde_json::json!({ "id": id }))
-            .send()
-            .await
-            .context("Не удалось подключиться к серверу")?,
-    )
-    .await?;
+    let result = async {
+        let client = crate::utils::http::http_client();
+        let response = require_success(
+            client
+                .patch(&url)
+                .bearer_auth(&token)
+                .json(&serde_json::json!({ "id": id }))
+                .send()
+                .await
+                .context("Не удалось подключиться к серверу")?,
+        )
+        .await?;
 
-    let _ = response;
-    log_info!("Активный скин изменён: id={}", id);
+        let _ = response;
+        log_info!("Активный скин изменён: id={}", id);
 
-    Ok(())
+        Ok(())
+    }
+    .await;
+
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn upload_model(

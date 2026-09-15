@@ -161,7 +161,7 @@ async fn login_account(
 
     if !project.online {
         if username.trim().is_empty() {
-            bail!("Введите ник");
+            bail!(LauncherError::UsernameEmpty);
         }
         let data = auth::offline(username);
         store_session(state, &data, username, project_name).await;
@@ -228,17 +228,19 @@ async fn change_password_flow(
     new_password: &str,
 ) -> Result<()> {
     if new_password.trim().len() < 6 {
-        bail!("Новый пароль короче 6 символов");
+        bail!(LauncherError::PasswordTooShort);
     }
     if old_password == new_password {
-        bail!("Новый пароль совпадает с текущим");
+        bail!(LauncherError::PasswordUnchanged);
     }
 
     let (username, access_token) = {
         let state = state.lock().await;
         let session = state.session.as_ref().ok_or(LauncherError::NoSession)?;
         if session.access_token == crate::auth::OFFLINE_ACCESS_TOKEN {
-            bail!("Смена пароля недоступна для одиночного профиля");
+            bail!(LauncherError::OfflineProfile(
+                "смена пароля недоступна".to_string()
+            ));
         }
         if project_name != state.project_config.project_name {
             bail!(LauncherError::ProjectNotSelected);

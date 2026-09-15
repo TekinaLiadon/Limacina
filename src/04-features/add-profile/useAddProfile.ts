@@ -4,6 +4,7 @@ import {
   createOfflineProfile,
   createServerProfile,
   clearSession,
+  getErrorMessage,
   getLoaderVersions,
   getMinecraftVersions,
 } from '@/06-shared/api'
@@ -88,7 +89,7 @@ export function useAddProfile() {
       }
     } catch (e: unknown) {
       if (generation !== mcVersionsGeneration) return
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       mcVersions.value = []
     } finally {
       if (generation === mcVersionsGeneration) isLoadingMcVersions.value = false
@@ -120,7 +121,7 @@ export function useAddProfile() {
       }
     } catch (e: unknown) {
       if (generation !== loaderVersionsGeneration) return
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       loaderVersions.value = []
       offlineForm.value.loaderVersion = ''
     } finally {
@@ -169,7 +170,7 @@ export function useAddProfile() {
       notification.show(`Сервер «${config.projectName}» добавлен`)
       return config
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       return null
     } finally {
       isSubmitting.value = false
@@ -194,7 +195,7 @@ export function useAddProfile() {
       notification.show(`Профиль «${config.projectName}» создан`)
       return config
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       return null
     } finally {
       isSubmitting.value = false

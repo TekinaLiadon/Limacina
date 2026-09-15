@@ -2,6 +2,7 @@ pub mod bandwidth;
 pub mod download_file;
 pub mod env_info;
 pub mod errors;
+pub mod file_logger;
 pub mod hex;
 pub mod http;
 pub mod install_manifest;

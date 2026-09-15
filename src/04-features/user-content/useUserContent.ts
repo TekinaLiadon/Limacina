@@ -2,6 +2,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
+  getErrorMessage,
   listSkins, uploadSkin, deleteSkin, setActiveSkin,
   listModels, uploadModel, deleteModel,
 } from '@/06-shared/api'
@@ -58,7 +59,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await loadItems()
       return item
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       return null
     } finally {
       isUploading.value = false
@@ -70,7 +71,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await api.delete(id)
       await loadItems()
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     }
   }
 
@@ -80,7 +81,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await api.activate(id)
       await loadItems()
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     }
   }
 

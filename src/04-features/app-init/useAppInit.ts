@@ -14,6 +14,7 @@ export function useAppInit() {
   const notification = useNotificationStore()
   const router = useRouter()
   const preloaderText = ref<string>('')
+  const startupError = ref<string>('')
 
   const showStartupError = (message: string, e: unknown): void => {
     reportError(message, e)
@@ -118,7 +119,8 @@ export function useAppInit() {
 
       await projectLoad
     } catch (e: unknown) {
-      showStartupError('Ошибка инициализации', e)
+      reportError('Ошибка инициализации', e)
+      startupError.value = getErrorMessage(e)
     } finally {
       const elapsed: number = Date.now() - startTime
       const remaining: number = Math.max(0, 1000 - elapsed)
@@ -128,11 +130,19 @@ export function useAppInit() {
     }
   }
 
+  const retryInit = async (): Promise<void> => {
+    startupError.value = ''
+    coreStore.isLoading = true
+    await init()
+  }
+
   onBeforeMount(() => {
     init()
   })
 
   return {
     preloaderText,
+    startupError,
+    retryInit,
   }
 }

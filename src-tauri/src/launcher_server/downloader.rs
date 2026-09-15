@@ -1,4 +1,4 @@
-use crate::{log_err, log_info, step_try};
+use crate::{log_err, log_info, step_try, utils::errors::LauncherError};
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
@@ -371,95 +371,105 @@ pub async fn download_all_files(
     check_hashes: bool,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
-    let online = state.lock().await.project_config.online;
-    if !online {
-        log_info!(
-            "[files] Одиночный профиль {} — синхронизация с сервером не нужна",
-            project_name
-        );
-        return Ok(FilesSyncReport::default());
+    let result = async {
+        let online = state.lock().await.project_config.online;
+        if !online {
+            log_info!(
+                "[files] Одиночный профиль {} — синхронизация с сервером не нужна",
+                project_name
+            );
+            return Ok(FilesSyncReport::default());
+        }
+
+        let ctx = require_api_client(state, "Необходима авторизация для скачивания файлов").await?;
+        let file_list = fetch_file_list(&ctx.client, &ctx.server_url, &project_name).await?;
+
+        let core = launcher_path(Some(&project_name))?;
+
+        log_info!("[files] Получено файлов от сервера: {}", file_list.len());
+        log_info!("[files] Папка проекта: {:?}", core);
+
+        let download_step = StepHandle::start("files.download", "Скачивание файлов");
+        sync_server_files(
+            &ctx,
+            &file_list,
+            &core,
+            check_hashes,
+            download_step,
+            &FILES_LABELS,
+            |key: &str| PathBuf::from(key),
+        )
+        .await
     }
+    .await;
 
-    let ctx = require_api_client(state, "Необходима авторизация для скачивания файлов").await?;
-    let file_list = fetch_file_list(&ctx.client, &ctx.server_url, &project_name).await?;
-
-    let core = launcher_path(Some(&project_name))?;
-
-    log_info!("[files] Получено файлов от сервера: {}", file_list.len());
-    log_info!("[files] Папка проекта: {:?}", core);
-
-    let download_step = StepHandle::start("files.download", "Скачивание файлов");
-    sync_server_files(
-        &ctx,
-        &file_list,
-        &core,
-        check_hashes,
-        download_step,
-        &FILES_LABELS,
-        |key: &str| PathBuf::from(key),
-    )
-    .await
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn download_mods(
     project_name: String,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
-    let online = state.lock().await.project_config.online;
-    if !online {
-        log_info!(
-            "[mods] Одиночный профиль {} — моды с сервера не скачиваются",
-            project_name
-        );
-        return Ok(FilesSyncReport::default());
-    }
+    let result = async {
+        let online = state.lock().await.project_config.online;
+        if !online {
+            log_info!(
+                "[mods] Одиночный профиль {} — моды с сервера не скачиваются",
+                project_name
+            );
+            return Ok(FilesSyncReport::default());
+        }
 
-    let ctx = require_api_client(state, "Необходима авторизация для скачивания модов").await?;
-    let mods = fetch_mods_list(&ctx.client, &ctx.server_url, &project_name).await?;
+        let ctx = require_api_client(state, "Необходима авторизация для скачивания модов").await?;
+        let mods = fetch_mods_list(&ctx.client, &ctx.server_url, &project_name).await?;
 
-    log_info!("[mods] Получено модов: {}", mods.len());
-    for (name, hash) in &mods {
-        log_info!("  мод: {} (hash: {})", name, hash);
-    }
+        log_info!("[mods] Получено модов: {}", mods.len());
+        for (name, hash) in &mods {
+            log_info!("  мод: {} (hash: {})", name, hash);
+        }
 
-    let mods_dir = launcher_path(Some(&project_name))?.join("mods");
+        let mods_dir = launcher_path(Some(&project_name))?.join("mods");
 
-    tokio::fs::create_dir_all(&mods_dir).await?;
+        tokio::fs::create_dir_all(&mods_dir).await?;
 
-    let server_mods: HashSet<&str> = mods
-        .keys()
-        .map(|k| k.strip_prefix("mods/").unwrap_or(k))
-        .collect();
+        let server_mods: HashSet<&str> = mods
+            .keys()
+            .map(|k| k.strip_prefix("mods/").unwrap_or(k))
+            .collect();
 
-    let download_step = StepHandle::start("mods.download", "Проверка и скачивание модов");
-    log_info!("[mods] Путь к папке модов: {:?}", mods_dir);
-    let report = sync_server_files(
-        &ctx,
-        &mods,
-        &mods_dir,
-        true,
-        download_step,
-        &MODS_LABELS,
-        |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
-    )
-    .await?;
+        let download_step = StepHandle::start("mods.download", "Проверка и скачивание модов");
+        log_info!("[mods] Путь к папке модов: {:?}", mods_dir);
+        let report = sync_server_files(
+            &ctx,
+            &mods,
+            &mods_dir,
+            true,
+            download_step,
+            &MODS_LABELS,
+            |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
+        )
+        .await?;
 
-    let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
-    if let Ok(mut entries) = tokio::fs::read_dir(&mods_dir).await {
-        while let Some(entry) = entries.next_entry().await? {
-            if !entry.file_type().await?.is_file() {
-                continue;
-            }
-            let name_os = entry.file_name();
-            let name = name_os.to_string_lossy();
-            if !server_mods.contains(name.as_ref()) {
-                log_info!("[mods] Удаление лишнего мода: {}", name);
-                let _ = tokio::fs::remove_file(entry.path()).await;
+        let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
+        if let Ok(mut entries) = tokio::fs::read_dir(&mods_dir).await {
+            while let Some(entry) = entries.next_entry().await? {
+                if !entry.file_type().await?.is_file() {
+                    continue;
+                }
+                let name_os = entry.file_name();
+                let name = name_os.to_string_lossy();
+                if !server_mods.contains(name.as_ref()) {
+                    log_info!("[mods] Удаление лишнего мода: {}", name);
+                    let _ = tokio::fs::remove_file(entry.path()).await;
+                }
             }
         }
+        clean_step.finish(false);
+        Ok(report)
     }
-    clean_step.finish(false);
-    Ok(report)
+    .await;
+
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 #[cfg(test)]

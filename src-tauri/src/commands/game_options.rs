@@ -359,14 +359,19 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(packs),
         Err(e) => {
-            return Err(e).with_context(|| format!("Не удалось прочитать {:?}", dir));
+            return LauncherError::classify(
+                Err(e).with_context(|| format!("Не удалось прочитать {:?}", dir)),
+                LauncherError::DiskIo,
+            );
         }
     };
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .context("Не удалось прочитать запись в папке ресурсных пакетов")?
-    {
+    while let Some(entry) = LauncherError::classify(
+        entries
+            .next_entry()
+            .await
+            .context("Не удалось прочитать запись в папке ресурсных пакетов"),
+        LauncherError::DiskIo,
+    )? {
         let path = entry.path();
         if path.is_file() {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -468,21 +473,26 @@ pub async fn save_global_game_options(options: GameOptions) -> CommandResult<()>
 }
 
 async fn save_global_game_options_inner(options: &GameOptions) -> Result<()> {
-    let path = global_options_file_path()?;
-    let dir = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Не определена папка настроек лаунчера"))?;
-    fs::create_dir_all(dir)
-        .await
-        .with_context(|| format!("Не удалось создать папку {:?}", dir))?;
-    let content =
-        serde_json::to_string_pretty(options).context("Не удалось сериализовать настройки")?;
-    fs::write(&path, content)
-        .await
-        .with_context(|| format!("Не удалось записать {:?}", path))?;
+    let result = async {
+        let path = global_options_file_path()?;
+        let dir = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Не определена папка настроек лаунчера"))?;
+        fs::create_dir_all(dir)
+            .await
+            .with_context(|| format!("Не удалось создать папку {:?}", dir))?;
+        let content =
+            serde_json::to_string_pretty(options).context("Не удалось сериализовать настройки")?;
+        fs::write(&path, content)
+            .await
+            .with_context(|| format!("Не удалось записать {:?}", path))?;
 
-    log_info!("[game-options] Общие настройки игры сохранены");
-    Ok(())
+        log_info!("[game-options] Общие настройки игры сохранены");
+        Ok(())
+    }
+    .await;
+
+    LauncherError::classify(result, LauncherError::GameOptions)
 }
 
 #[tauri::command]
@@ -494,8 +504,11 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
     let content = global_options_content().await?;
     match content {
         Some(content) => {
-            let options = serde_json::from_str::<GameOptions>(&content)
-                .context("Повреждён файл общих настроек игры")?;
+            let options = LauncherError::classify(
+                serde_json::from_str::<GameOptions>(&content)
+                    .context("Повреждён файл общих настроек игры"),
+                LauncherError::GameOptions,
+            )?;
             Ok(Some(options))
         }
         None => Ok(None),

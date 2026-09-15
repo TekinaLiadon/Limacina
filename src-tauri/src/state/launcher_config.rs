@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 use crate::state::dto::default_true;
+use crate::utils::errors::LauncherError;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SavedLogin {
@@ -91,8 +92,11 @@ impl Default for LauncherConfig {
 
 impl LauncherConfig {
     fn config_file_path() -> Result<std::path::PathBuf> {
-        let config_dir =
-            dirs::config_dir().context("Не удалось определить директорию конфигурации")?;
+        let config_dir = dirs::config_dir().ok_or_else(|| {
+            anyhow::Error::new(LauncherError::DiskIo(
+                "Не удалось определить директорию конфигурации".to_string(),
+            ))
+        })?;
         let launcher_name = crate::utils::env_info::get_launcher_name();
         let primary = config_dir.join(&launcher_name).join("config.json");
         if primary.exists() {
@@ -161,7 +165,12 @@ impl LauncherConfig {
     }
 
     pub(crate) fn serialize_for_save(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).context("Не удалось сериализовать конфиг")
+        serde_json::to_string_pretty(self).map_err(|e| {
+            anyhow::Error::new(LauncherError::DiskIo(format!(
+                "Не удалось сериализовать конфиг: {}",
+                e
+            )))
+        })
     }
 
     pub(crate) fn write_serialized(path: &Path, content: &str) -> Result<()> {

@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { useAccountsPage, useGameSession, useProjectConfig } from '@/04-features'
+import { useAccountsPage, useGameSession, useProjectConfig, useProjectSwitch } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
+import { Preloader } from '@/06-shared'
 import { LaunchScene } from '@/03-widgets'
 
 useProjectConfig()
 
 const coreStore = useCoreStore()
 const { minimizeToTray } = useGameSession()
+const { isSwitching } = useProjectSwitch()
 const {
   isLoading,
   errorMessage,
@@ -18,6 +20,7 @@ const {
   activeSubTab,
   launchSteps,
   activeProgress,
+  launchInterrupted,
   loginError,
   sceneUsername,
   isCancelPending,
@@ -32,7 +35,8 @@ const {
 
 <template>
   <div class="accounts-page">
-    <LaunchScene
+    <Preloader v-if="isSwitching" text="Смена проекта…" />
+    <LaunchScene v-else
       v-model:active-tab="activeSubTab"
       :username="sceneUsername"
       :selected-username="selectedUsername"
@@ -41,6 +45,7 @@ const {
       :is-loading="isLoading"
       :is-launching="isLaunching"
       :is-cancel-pending="isCancelPending"
+      :is-interrupted="launchInterrupted"
       :progress="activeProgress"
       :steps="launchSteps"
       :session-username="coreStore.gameUsername"

@@ -15,7 +15,7 @@ use crate::utils::download_file::write_atomic;
 use crate::utils::step_events::StepHandle;
 use crate::{
     log_err, log_info, minecraft::vanilla::Vanilla, offline, step_try,
-    utils::java::repair_java_path, utils::tauri_err::CommandResult,
+    utils::errors::LauncherError, utils::java::repair_java_path, utils::tauri_err::CommandResult,
 };
 
 const GAME_WINDOW_TIMEOUT: Duration = Duration::from_secs(120);
@@ -25,26 +25,35 @@ pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
+    let result = start_minecraft_inner(app, state).await;
+    crate::state::launch_state::set_launch_in_progress(false);
+    result
+}
+
+async fn start_minecraft_inner(
+    app: AppHandle,
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> CommandResult<()> {
     let config_step = StepHandle::start("launch.config", "Подготовка конфигурации");
 
     let (username, uuid, access_token, project, mc_version, project_config, discord_enabled) = {
         let state = state.lock().await;
         let session = step_try!(
             config_step,
-            state.session.as_ref().ok_or(anyhow!(
-                "Необходима авторизация для запуска. Сессия не найдена в состоянии."
-            ))
+            state
+                .session
+                .as_ref()
+                .ok_or_else(|| anyhow!(LauncherError::NoSession))
         );
 
         let project = state.project_config.project_name.clone();
         step_try!(
             config_step,
             if session.project_name != project {
-                Err(anyhow!(
-                    "Сессия принадлежит проекту «{}», а запускается «{}». Перезайдите в аккаунт.",
-                    session.project_name,
-                    project
-                ))
+                Err(anyhow!(LauncherError::SessionMismatch(
+                    session.project_name.clone(),
+                    project.clone()
+                )))
             } else {
                 Ok(())
             }
@@ -110,16 +119,28 @@ pub async fn start_minecraft(
 
     let config = step_try!(
         config_step,
-        new_launch_config(&username, &uuid, &access_token, &project_config)
-            .await
-            .with_context(|| format!("Не удалось создать конфиг запуска (проект: {})", project))
+        LauncherError::classify(
+            new_launch_config(&username, &uuid, &access_token, &project_config)
+                .await
+                .with_context(|| format!(
+                    "Не удалось создать конфиг запуска (проект: {})",
+                    project
+                )),
+            LauncherError::ManifestParse
+        )
     );
     let vanilla_config = step_try!(
         config_step,
-        Vanilla
-            .config(&project_config, &config)
-            .await
-            .with_context(|| format!("Не удалось получить Vanilla конфиг (проект: {})", project))
+        LauncherError::classify(
+            Vanilla
+                .config(&project_config, &config)
+                .await
+                .with_context(|| format!(
+                    "Не удалось получить Vanilla конфиг (проект: {})",
+                    project
+                )),
+            LauncherError::ManifestParse
+        )
     );
 
     let mut game_config = if matches!(project_config.mod_loader, ModLoader::Vanilla) {
@@ -128,44 +149,63 @@ pub async fn start_minecraft(
         let loader = step_try!(config_step, create_mod_loader(&project_config.mod_loader));
         let versions = step_try!(
             config_step,
-            loader
-                .versions(&project_config)
-                .await
-                .with_context(|| format!(
-                    "Не удалось получить список версий лоадера (проект: {})",
-                    project
-                ))
+            LauncherError::classify(
+                loader
+                    .versions(&project_config)
+                    .await
+                    .with_context(|| format!(
+                        "Не удалось получить список версий лоадера (проект: {})",
+                        project
+                    )),
+                LauncherError::ManifestParse
+            )
         );
         let version = step_try!(
             config_step,
-            loader
-                .version_current(&project_config, &versions)
-                .await
-                .with_context(|| format!(
-                    "Не удалось получить текущую версию лоадера (проект: {})",
-                    project
-                ))
+            LauncherError::classify(
+                loader
+                    .version_current(&project_config, &versions)
+                    .await
+                    .with_context(|| format!(
+                        "Не удалось получить текущую версию лоадера (проект: {})",
+                        project
+                    )),
+                LauncherError::ManifestParse
+            )
         );
         step_try!(
             config_step,
-            loader
-                .config(&project_config, vanilla_config, &version)
-                .await
-                .with_context(|| format!("Не удалось собрать конфиг игры (проект: {})", project))
+            LauncherError::classify(
+                loader
+                    .config(&project_config, vanilla_config, &version)
+                    .await
+                    .with_context(|| format!(
+                        "Не удалось собрать конфиг игры (проект: {})",
+                        project
+                    )),
+                LauncherError::LoaderSetup
+            )
         )
     };
 
     if project_config.auto_join_server {
         let address = step_try!(
             config_step,
-            first_server_address(&game_config.game_dir)
-                .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project))
-                .and_then(|address| address.ok_or_else(|| {
-                    anyhow!(
+            LauncherError::classify(
+                first_server_address(&game_config.game_dir).with_context(|| format!(
+                    "Не удалось прочитать servers.dat (проект: {})",
+                    project
+                )),
+                LauncherError::DiskIo
+            )
+            .and_then(|address| {
+                address.ok_or_else(|| {
+                    anyhow!(LauncherError::InvalidInput(format!(
                         "Автозаход включён, но в servers.dat нет серверов (проект: {})",
                         project
-                    )
-                }))
+                    )))
+                })
+            })
         );
         let join_args = auto_join_args(&address, &project_config.mc_version);
         if !join_args.is_empty() {
@@ -181,8 +221,11 @@ pub async fn start_minecraft(
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
-    let spawn_result = spawn_game_process(app.clone(), game_config, authlib_server_url.as_deref())
-        .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project));
+    let spawn_result = LauncherError::classify(
+        spawn_game_process(app.clone(), game_config, authlib_server_url.as_deref())
+            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project)),
+        LauncherError::GameProcess,
+    );
     let process = match spawn_result {
         Ok(process) => process,
         Err(e) => {
@@ -213,10 +256,13 @@ pub async fn start_minecraft(
     let window_step = StepHandle::start("launch.window", "Ожидание окна игры");
     step_try!(
         window_step,
-        process
-            .wait_for_window(GAME_WINDOW_TIMEOUT)
-            .await
-            .with_context(|| format!("Проект: {}", project))
+        LauncherError::classify(
+            process
+                .wait_for_window(GAME_WINDOW_TIMEOUT)
+                .await
+                .with_context(|| format!("Проект: {}", project)),
+            LauncherError::GameProcess
+        )
     );
     if !process.window_opened() {
         window_step.detail("Окно игры не обнаружено за 120 сек — оно может открыться позже");
@@ -243,6 +289,11 @@ pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
 #[tauri::command]
 pub async fn get_game_state() -> CommandResult<Option<String>> {
     Ok(crate::tray::game_username())
+}
+
+#[tauri::command]
+pub async fn get_launch_state() -> CommandResult<bool> {
+    Ok(crate::state::launch_state::launch_in_progress())
 }
 
 async fn repair_stale_java_path(

@@ -30,6 +30,15 @@ pub async fn initialize_project(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
+    crate::state::launch_state::set_launch_in_progress(true);
+    let result = initialize_project_inner(state, project_name).await;
+    crate::state::launch_state::clear_on_error(result)
+}
+
+async fn initialize_project_inner(
+    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
+) -> CommandResult<ProjectConfig> {
     let launcher_path = LauncherConfig::resolved_launcher_path()
         .to_string_lossy()
         .to_string();
