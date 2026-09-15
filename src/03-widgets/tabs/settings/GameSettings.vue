@@ -24,6 +24,10 @@ const {
 <template>
   <div class="game-settings">
     <div class="game-settings__head">
+      <p class="game-settings__hint">
+        Настройки применяются после сохранения — лаунчер вписывает их в
+        options.txt проекта при запуске
+      </p>
       <Button
         v-if="hasGlobal"
         class="btn-secondary game-settings__import-btn"
@@ -69,6 +73,8 @@ const {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .game-settings {
   display: flex;
   flex-direction: column;
@@ -76,7 +82,15 @@ const {
 
   &__head {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-16);
+  }
+
+  &__hint {
+    @include mixins.caption-hint;
+
+    text-align: left;
   }
 }
 </style>

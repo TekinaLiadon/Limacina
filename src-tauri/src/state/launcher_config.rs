@@ -38,7 +38,7 @@ pub struct LauncherConfig {
     pub keep_old_configs: bool,
     #[serde(default)]
     pub download_speed_limit: Option<u64>,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub auto_update: bool,
     #[serde(default = "default_true")]
     pub system_notifications: bool,
@@ -74,7 +74,7 @@ impl Default for LauncherConfig {
             discord_activity: true,
             keep_old_configs: true,
             download_speed_limit: None,
-            auto_update: true,
+            auto_update: false,
             system_notifications: true,
             debug_mode: false,
             start_with_system: false,
@@ -348,7 +348,7 @@ mod tests {
 
         assert_eq!(parsed.current_project, None);
         assert!(parsed.has_project("Cordelia"));
-        assert!(parsed.auto_update);
+        assert!(!parsed.auto_update);
     }
 
     #[test]
