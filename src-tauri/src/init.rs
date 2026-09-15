@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tokio::fs;
 
 use crate::log_err;
+use crate::state::config::validate_project_name;
 use crate::state::dto::ProjectConfig;
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
@@ -65,6 +66,7 @@ pub async fn init_project_config(
     fs::create_dir_all(&config_dir).await?;
 
     if !project_name.is_empty() {
+        validate_project_name(project_name)?;
         let toml_path = config_dir.join(format!("{}.toml", project_name));
         if toml_path.exists() {
             let content = fs::read_to_string(&toml_path).await?;
@@ -107,6 +109,8 @@ pub async fn init_project_config(
 
     if !project_name.is_empty() {
         config.project_name = project_name.to_string();
+    } else {
+        validate_project_name(&config.project_name)?;
     }
     config.initialized = false;
     config.server_url = server_url.map(normalize_server_url);
@@ -115,4 +119,28 @@ pub async fn init_project_config(
     let toml_string = toml::to_string_pretty(&config)?;
     fs::write(&toml_path, toml_string).await?;
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::LauncherDirGuard;
+
+    use super::init_project_config;
+
+    #[tokio::test]
+    async fn init_rejects_traversal_name_before_write() {
+        let guard = LauncherDirGuard::acquire("init_traversal_name").await;
+        let base = guard.root().to_string_lossy().to_string();
+
+        let result = init_project_config(&base, "../evil", None).await;
+        assert!(result.is_err(), "traversal-имя должно отклоняться");
+
+        assert!(!guard.root().join("project").join("evil.toml").exists());
+        let config_dir = guard.root().join("project").join("config");
+        let written = config_dir
+            .read_dir()
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+        assert_eq!(written, 0, "в config не должно быть записей");
+    }
 }

@@ -29,5 +29,6 @@ export { default as SkinSettings } from './tabs/settings/SkinSettings.vue'
 export { default as ModrinthTab } from './tabs/ModrinthTab.vue'
 export { default as CpmSettings } from './tabs/settings/CpmSettings.vue'
 export { default as AccountSettings } from './tabs/settings/AccountSettings.vue'
+export { default as GameSettings } from './tabs/settings/GameSettings.vue'
 
 export type { TabItem, TabKey } from './types'

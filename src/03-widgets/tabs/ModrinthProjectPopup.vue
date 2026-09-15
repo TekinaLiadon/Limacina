@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { Button } from '@/06-shared'
+import { Button, MarkdownText } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
-import type { ModrinthSearchHit, ModrinthProjectDetails } from '@/05-entities/modrinth/types'
+import type { ModrinthSearchHit, ModrinthProjectDetails, ModrinthVersion } from '@/05-entities/modrinth/types'
 
 const props = defineProps<{
   visible: boolean
@@ -19,6 +19,7 @@ const { fetchProjectDetails } = useModrinth()
 
 const details = ref<ModrinthProjectDetails | null>(null)
 const isLoading = ref(false)
+const expandedChangelogs = ref<Set<string>>(new Set())
 
 const sideLabels: Record<string, string> = {
   required: 'обязателен',
@@ -84,10 +85,25 @@ async function loadDetails(): Promise<void> {
   if (hit === null) return
   isLoading.value = true
   details.value = null
+  expandedChangelogs.value = new Set()
   await fetchProjectDetails(hit.project_id).then((result) => {
     details.value = result
   })
   isLoading.value = false
+}
+
+function hasChangelog(version: ModrinthVersion): boolean {
+  return version.changelog !== null && version.changelog !== ''
+}
+
+function toggleChangelog(versionId: string): void {
+  const next = new Set(expandedChangelogs.value)
+  if (next.has(versionId)) {
+    next.delete(versionId)
+  } else {
+    next.add(versionId)
+  }
+  expandedChangelogs.value = next
 }
 
 watch(
@@ -143,7 +159,7 @@ function handleLink(url: string): void {
 
             <p class="modrinth-popup__description">{{ details.project.description }}</p>
 
-            <div class="modrinth-popup__body">{{ details.project.body }}</div>
+            <MarkdownText class="modrinth-popup__body" :source="details.project.body" />
 
             <h4 class="modrinth-popup__versions-title">Версии ({{ details.versions.length }})</h4>
             <div class="modrinth-popup__versions">
@@ -155,6 +171,18 @@ function handleLink(url: string): void {
                   {{ formatDate(version.date_published) }} ·
                   {{ formatNumber(version.downloads) }} загрузок
                 </span>
+                <Button
+                  v-if="hasChangelog(version)"
+                  class="btn-quiet modrinth-popup__changelog-toggle"
+                  @click="toggleChangelog(version.id)"
+                >
+                  {{ expandedChangelogs.has(version.id) ? 'Скрыть изменения' : 'Изменения' }}
+                </Button>
+                <MarkdownText
+                  v-if="hasChangelog(version) && expandedChangelogs.has(version.id)"
+                  class="modrinth-popup__changelog"
+                  :source="version.changelog ?? ''"
+                />
               </div>
             </div>
           </div>
@@ -304,8 +332,6 @@ function handleLink(url: string): void {
   }
 
   &__body {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
     font-size: var(--text-caption);
     line-height: var(--leading-body);
     color: var(--login-text-secondary);
@@ -349,6 +375,25 @@ function handleLink(url: string): void {
 
   &__version-meta {
     @include mixins.caption-hint;
+  }
+
+  &__changelog-toggle {
+    min-height: var(--control-height-sm);
+    padding: var(--space-4) var(--space-12);
+  }
+
+  &__changelog {
+    width: 100%;
+    max-height: calc(var(--space-48) * 5);
+    overflow-y: auto;
+    text-align: left;
+    font-size: var(--text-caption);
+    line-height: var(--leading-body);
+    color: var(--login-text-secondary);
+    padding: var(--space-8) var(--space-12);
+    border-radius: var(--radius-card);
+    background: var(--surface-subtle);
+    box-shadow: var(--elevation-inset);
   }
 
 

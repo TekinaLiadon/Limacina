@@ -24,6 +24,10 @@ export type {
   IntegrityReport,
   SavedLogin,
   AuthProjectConfig,
+  GameOptions,
+  GameOptionsData,
+  GameCloudsMode,
+  GameChatVisibility,
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'

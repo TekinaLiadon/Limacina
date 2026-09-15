@@ -1,6 +1,6 @@
 import { onBeforeMount, ref } from 'vue'
 import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme } from '@/05-entities'
-import { getAppInitData, checkUpdate, applyUpdateCmd, loadSettingsProject } from '@/06-shared/api'
+import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage, loadSettingsProject } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
 import type { LauncherConfig, ProjectConfig, UpdateInfo } from '@/05-entities/core/types'
@@ -17,7 +17,7 @@ export function useAppInit() {
 
   const showStartupError = (message: string, e: unknown): void => {
     reportError(message, e)
-    const detail = e instanceof Error ? e.message : String(e)
+    const detail = getErrorMessage(e)
     notification.show(detail ? `${message}: ${detail}` : message, STARTUP_ERROR_DURATION)
   }
 

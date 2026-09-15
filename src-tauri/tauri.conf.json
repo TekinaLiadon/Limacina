@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' blob: data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' blob: data: https://cdn.modrinth.com; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
@@ -38,6 +38,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "template": "./windows/installer.nsi",
+        "installMode": "currentUser",
+        "languages": ["Russian"],
+        "compression": "lzma"
+      }
+    },
     "fileAssociations": [
       {
         "ext": ["cpmproject"],

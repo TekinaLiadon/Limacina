@@ -1,7 +1,7 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm } from '@/05-entities'
-import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecraftConfig, getServerConnectUrl, deleteProject, authLogins } from '@/06-shared/api'
+import { authLogins, clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
 import { copyToClipboard, reportError } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -173,7 +173,7 @@ export function useProjectSettings(): {
       const message = await refreshManifests()
       notification.show(message)
     } catch (e: unknown) {
-      notification.show(e instanceof Error ? e.message : String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isRefreshingManifests.value = false
     }

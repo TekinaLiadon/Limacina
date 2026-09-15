@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { getJavaDistributions, getJavaVersion, downloadAlternativeJava } from '@/06-shared/api'
+import { downloadAlternativeJava, getErrorMessage, getJavaDistributions, getJavaVersion } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useNotificationStore } from '@/05-entities'
 import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
@@ -63,7 +63,7 @@ export function useAlternativeJava() {
       isPopupOpen.value = false
       return replaceDefault.value
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e)
+      const message = getErrorMessage(e)
       notification.show(`Ошибка загрузки Java: ${message}`)
       return false
     } finally {

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use tauri::State;
 use tokio::fs;
@@ -14,12 +14,13 @@ use crate::minecraft::structs::{
     ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
 };
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
-use crate::state::config::{load_config, load_config_or_default};
+use crate::state::config::{load_config, load_config_or_default, validate_project_name};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::compare_versions;
 use crate::utils::download_file::download_json;
 use crate::utils::env_info::{launcher_path, normalize_server_url};
+use crate::utils::errors::LauncherError;
 use crate::utils::http::http_client;
 use crate::utils::tauri_err::CommandResult;
 
@@ -32,20 +33,9 @@ async fn validate_new_project_name(
     state: &State<'_, Mutex<GlobalState>>,
     name: &str,
 ) -> Result<()> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        bail!("Введите название профиля");
-    }
-    if trimmed.chars().count() > 64 {
-        bail!("Название профиля не должно быть длиннее 64 символов");
-    }
-    if trimmed.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.']) {
-        bail!("Название профиля не должно содержать символы / \\ : * ? \" < > | и точку");
-    }
-    if trimmed.eq_ignore_ascii_case("config") {
-        bail!("Название «config» зарезервировано");
-    }
+    validate_project_name(name)?;
 
+    let trimmed = name.trim();
     let already_registered = {
         let guard = state.lock().await;
         guard
@@ -54,7 +44,7 @@ async fn validate_new_project_name(
             .is_some_and(|c| c.has_project(trimmed))
     };
     if already_registered || load_config(trimmed).await.is_ok() {
-        bail!("Профиль «{}» уже существует", trimmed);
+        bail!(LauncherError::ProjectExists(trimmed.to_string()));
     }
     Ok(())
 }
@@ -232,12 +222,15 @@ pub async fn get_server_connect_url(state: State<'_, Mutex<GlobalState>>) -> Com
         )
     };
     if project_name.trim().is_empty() {
-        return Err(anyhow!("Проект не выбран").into());
+        return Err(LauncherError::ProjectNotSelected.into());
     }
     if !online {
-        return Err(anyhow!("Ссылка для подключения доступна только у серверных профилей").into());
+        return Err(LauncherError::OfflineProfile(
+            "ссылка для подключения доступна только у серверных профилей".to_string(),
+        )
+        .into());
     }
-    let url = server_url.ok_or_else(|| anyhow!("Не указан адрес сервера"))?;
+    let url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
     Ok(url)
 }
 
@@ -275,6 +268,10 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
     let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
     let _ = fs::remove_file(&config_path).await;
 
+    let models_manifest_path =
+        launcher_path(Some("config"))?.join(format!("{}.models.json", project_name));
+    let _ = fs::remove_file(&models_manifest_path).await;
+
     let manifest_path = launcher_path(None)?
         .join("manifest")
         .join(format!("installed_{}.json", project_name));
@@ -298,20 +295,17 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
         guard.project_config.project_name.clone()
     };
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
     if project_name.eq_ignore_ascii_case("config") {
-        bail!("Недопустимое имя проекта");
+        bail!(LauncherError::ProjectNameReserved);
     }
     let env_project = crate::utils::env_info::get_default_project_name();
     if !crate::utils::env_info::is_offline_build()
         && !env_project.is_empty()
         && project_name == env_project
     {
-        bail!(
-            "Проект «{}» прописан в сборке лаунчера и не может быть удалён",
-            project_name
-        );
+        bail!(LauncherError::ProjectProtected(project_name.clone()));
     }
 
     let saved_logins = {
@@ -419,6 +413,8 @@ mod tests {
         let config_dir = guard.root().join("project").join("config");
         std::fs::create_dir_all(&config_dir).expect("создание папки конфигов");
         std::fs::write(config_dir.join("Test.toml"), b"toml").expect("создание TOML");
+        std::fs::write(config_dir.join("Test.models.json"), b"[]")
+            .expect("создание манифеста моделей");
         std::fs::write(config_dir.join("Other.toml"), b"toml").expect("создание чужого TOML");
 
         let manifest_dir = guard.root().join("manifest");
@@ -432,6 +428,7 @@ mod tests {
 
         assert!(!project_dir.exists());
         assert!(!config_dir.join("Test.toml").exists());
+        assert!(!config_dir.join("Test.models.json").exists());
         assert!(!manifest_dir.join("installed_Test.json").exists());
         assert!(config_dir.exists());
         assert!(config_dir.join("Other.toml").exists());

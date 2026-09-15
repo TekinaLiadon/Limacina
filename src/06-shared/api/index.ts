@@ -3,9 +3,32 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData } from '@/05-entities/core/types'
 import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
 import type { SkinModelMode } from '@/03-widgets/types'
+
+export interface CommandErrorPayload {
+  code: string
+  message: string
+}
+
+const INTERNAL_ERROR_CODE = 'internal'
+
+export function getCommandError(e: unknown): CommandErrorPayload {
+  if (typeof e === 'object' && e !== null && 'code' in e && 'message' in e) {
+    const payload = e as { code: unknown; message: unknown }
+    if (typeof payload.code === 'string' && typeof payload.message === 'string') {
+      return { code: payload.code, message: payload.message }
+    }
+  }
+  if (typeof e === 'string') return { code: INTERNAL_ERROR_CODE, message: e }
+  if (e instanceof Error) return { code: INTERNAL_ERROR_CODE, message: e.message }
+  return { code: INTERNAL_ERROR_CODE, message: String(e) }
+}
+
+export function getErrorMessage(e: unknown): string {
+  return getCommandError(e).message
+}
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -79,6 +102,22 @@ export async function saveLauncherSettings(settings: LauncherSettingsPayload): P
 
 export async function clearMinecraftConfig(): Promise<string> {
   return invoke<string>('clear_minecraft_config')
+}
+
+export async function getGameOptions(projectName: string): Promise<GameOptionsData> {
+  return invoke<GameOptionsData>('get_game_options', { projectName })
+}
+
+export async function saveGameOptions(projectName: string, options: GameOptions): Promise<void> {
+  return invoke('save_game_options', { projectName, options })
+}
+
+export async function saveGlobalGameOptions(options: GameOptions): Promise<void> {
+  return invoke('save_global_game_options', { options })
+}
+
+export async function importGlobalGameOptions(): Promise<GameOptions | null> {
+  return invoke<GameOptions | null>('import_global_game_options')
 }
 
 export async function exitLauncher(): Promise<void> {

@@ -21,6 +21,7 @@ walkdir = "2.3"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "multipart", "query", "native-tls", "charset", "http2", "system-proxy"] }
 anyhow = "1"
+thiserror = "2"
 futures = "0.3"
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 uuid = { version = "1", features = ["v4", "fast-rng", "macro-diagnostics"] }

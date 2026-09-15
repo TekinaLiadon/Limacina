@@ -1,3 +1,4 @@
+use crate::utils::errors::LauncherError;
 use anyhow::{anyhow, Context, Result};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -206,7 +207,7 @@ pub fn loader_version_or_err(state: &ProjectConfig) -> Result<&str> {
     state
         .loader_version
         .as_deref()
-        .ok_or_else(|| anyhow!("Лоадер не выбран"))
+        .ok_or(LauncherError::LoaderNotSelected.into())
 }
 
 pub fn current_loader_version(

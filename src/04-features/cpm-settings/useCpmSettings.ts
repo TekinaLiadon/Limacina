@@ -1,7 +1,7 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
 import { selectFile } from '@/06-shared'
 import { useNotificationStore } from '@/05-entities'
-import { readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
+import { getErrorMessage, readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
 import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
@@ -97,7 +97,7 @@ export function useCpmSettings() {
           const project = await parseCpmProjectFile(result as ArrayBuffer)
           applyCpmProject(project, result as ArrayBuffer, file.name.replace(/\.cpmproject$/i, ''))
         } catch (e) {
-          content.errorMessage.value = e instanceof Error ? e.message : 'Не удалось распаковать файл'
+          content.errorMessage.value = getErrorMessage(e)
         }
       },
     })
@@ -111,7 +111,7 @@ export function useCpmSettings() {
       const fileName = path.split(/[\\/]/).pop() ?? path
       applyCpmProject(project, bytes, fileName.replace(/\.cpmproject$/i, ''))
     } catch (e: unknown) {
-      content.errorMessage.value = e instanceof Error ? e.message : 'Не удалось открыть файл модели'
+      content.errorMessage.value = getErrorMessage(e)
     }
   }
 

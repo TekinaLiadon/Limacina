@@ -1,3 +1,4 @@
+use crate::utils::errors::LauncherError;
 use anyhow::{bail, Context, Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
@@ -141,12 +142,12 @@ async fn get_profile_skin_inner(
             .session
             .as_ref()
             .map(|s| s.uuid.clone())
-            .context("Нет активной сессии. Войдите в аккаунт.")?;
+            .ok_or(LauncherError::NoSession)?;
         (guard.project_config.project_name.clone(), uuid)
     };
 
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
 
     let cache_dir = launcher_path(Some(&project_name))?.join("profile_skins");
@@ -229,7 +230,7 @@ async fn current_project_name(state: &State<'_, Mutex<GlobalState>>) -> Result<S
         guard.project_config.project_name.clone()
     };
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
     Ok(project_name)
 }

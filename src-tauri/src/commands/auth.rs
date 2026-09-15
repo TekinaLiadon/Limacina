@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use tauri::State;
 use tokio::sync::Mutex;
 
@@ -8,6 +8,7 @@ use crate::log_err;
 use crate::log_info;
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
+use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 
 async fn store_session(
@@ -73,14 +74,13 @@ pub(crate) async fn restore_session(
 ) -> Result<AuthData> {
     let project = load_config_or_default(project_name).await?;
     if !project.online {
-        bail!(
-            "Профиль «{}» — одиночный, серверная авторизация недоступна",
-            project_name
-        );
+        bail!(LauncherError::OfflineProfile(
+            "серверная авторизация недоступна".to_string()
+        ));
     }
     let server_url = project
         .resolved_server_url()
-        .ok_or_else(|| anyhow!("Для проекта «{}» не указан адрес сервера", project_name))?;
+        .ok_or(LauncherError::ServerUrlMissing)?;
 
     if let Ok(refresh_token) =
         storage::get_credential(project_name, username, "refresh_token").await
@@ -100,10 +100,7 @@ pub(crate) async fn restore_session(
     let stored_password = password.map(|password| password.to_string());
     match stored_password {
         Some(password) => auth::login(&server_url, username, &password).await,
-        None => bail!(
-            "Нет сохранённых учётных данных для «{}» — войдите с паролем",
-            username
-        ),
+        None => bail!(LauncherError::NoSavedCredentials(username.to_string())),
     }
 }
 
@@ -126,11 +123,13 @@ async fn register_account(
 ) -> Result<()> {
     let project = load_config_or_default(project_name).await?;
     if !project.online {
-        bail!("Регистрация недоступна для одиночного профиля");
+        bail!(LauncherError::OfflineProfile(
+            "регистрация недоступна".to_string()
+        ));
     }
     let server_url = project
         .resolved_server_url()
-        .ok_or_else(|| anyhow!("Для проекта «{}» не указан адрес сервера", project_name))?;
+        .ok_or(LauncherError::ServerUrlMissing)?;
 
     auth::register(&server_url, username, password).await?;
 
@@ -237,26 +236,25 @@ async fn change_password_flow(
 
     let (username, access_token) = {
         let state = state.lock().await;
-        let session = state
-            .session
-            .as_ref()
-            .context("Нет активной сессии. Войдите в аккаунт.")?;
+        let session = state.session.as_ref().ok_or(LauncherError::NoSession)?;
         if session.access_token == crate::auth::OFFLINE_ACCESS_TOKEN {
             bail!("Смена пароля недоступна для одиночного профиля");
         }
         if project_name != state.project_config.project_name {
-            bail!("Проект «{}» не выбран", project_name);
+            bail!(LauncherError::ProjectNotSelected);
         }
         (session.username.clone(), session.access_token.clone())
     };
 
     let project = load_config_or_default(project_name).await?;
     if !project.online {
-        bail!("Смена пароля недоступна для одиночного профиля");
+        bail!(LauncherError::OfflineProfile(
+            "смена пароля недоступна".to_string()
+        ));
     }
     let server_url = project
         .resolved_server_url()
-        .ok_or_else(|| anyhow!("Для проекта «{}» не указан адрес сервера", project_name))?;
+        .ok_or(LauncherError::ServerUrlMissing)?;
 
     let data = auth::change_password(&server_url, &access_token, old_password, new_password)
         .await

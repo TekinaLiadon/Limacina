@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::utils::errors::LauncherError;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -30,7 +31,7 @@ struct AuthlibChecksums {
 
 pub fn offline_skin_paths(project_name: &str) -> Result<(PathBuf, PathBuf)> {
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
     let cache_dir = launcher_path(Some(project_name))?.join("profile_skins");
     Ok((

@@ -43,8 +43,8 @@ pub async fn get_launcher_versions() -> Result<UpdateVersions> {
 }
 
 async fn fetch_update_versions(timeout: Option<Duration>) -> Result<UpdateVersions> {
-    let server_url = default_server_url()
-        .ok_or_else(|| anyhow::anyhow!("Офлайн-сборка: сервер обновлений не настроен"))?;
+    let server_url =
+        default_server_url().ok_or(crate::utils::errors::LauncherError::UpdateServerMissing)?;
     let url = format!("{}/v1/launcher/update/version", server_url);
 
     let client = crate::utils::http::http_client();

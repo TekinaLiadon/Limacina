@@ -290,3 +290,52 @@ export interface IntegrityReport {
   missing: number
   failed: string[]
 }
+
+export type GameCloudsMode = 'true' | 'fast' | 'false'
+
+export type GameChatVisibility = 'full' | 'system' | 'hidden'
+
+export interface GameOptions {
+  fov: number
+  gamma: number
+  renderDistance: number
+  simulationDistance: number
+  maxFps: number
+  enableVsync: boolean
+  graphicsMode: number
+  mipmapLevels: number
+  particles: number
+  entityShadows: boolean
+  ao: boolean
+  renderClouds: GameCloudsMode
+  fullscreen: boolean
+  guiScale: number
+  soundMaster: number
+  soundMusic: number
+  soundRecord: number
+  soundWeather: number
+  soundBlock: number
+  soundHostile: number
+  soundNeutral: number
+  soundPlayer: number
+  soundAmbient: number
+  soundVoice: number
+  chatScale: number
+  chatWidth: number
+  chatOpacity: number
+  chatLineSpacing: number
+  chatDelay: number
+  textBackgroundOpacity: number
+  chatVisibility: GameChatVisibility
+  chatColors: boolean
+  chatLinks: boolean
+  chatLinksPrompt: boolean
+  resourcePacks: string[]
+}
+
+export interface GameOptionsData {
+  options: GameOptions
+  fileExists: boolean
+  availableResourcePacks: string[]
+  hasGlobal: boolean
+}

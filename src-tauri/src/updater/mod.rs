@@ -21,7 +21,7 @@ pub async fn download_update(version: &str) -> Result<PathBuf> {
     }
 
     let server_url = crate::utils::env_info::default_server_url()
-        .ok_or_else(|| anyhow::anyhow!("Офлайн-сборка: сервер обновлений не настроен"))?;
+        .ok_or(crate::utils::errors::LauncherError::UpdateServerMissing)?;
     let os = get_current_os();
     let arch = get_arch();
     let url = format!("{}/v1/launcher/update/{}/{}/download", server_url, os, arch);

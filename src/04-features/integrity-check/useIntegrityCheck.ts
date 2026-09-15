@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore } from '@/05-entities'
 import type { IntegrityReport, StepEvent, StepProgressItem } from '@/05-entities/core/types'
-import { checkFilesIntegrity, listenIntegritySteps } from '@/06-shared/api'
+import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps } from '@/06-shared/api'
 import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 
@@ -87,7 +87,7 @@ export function useIntegrityCheck(): {
     } catch (e: unknown) {
       if (checkId !== currentId) return
       reportError('Проверка целостности файлов завершилась с ошибкой', e)
-      errorMessage.value = e instanceof Error ? e.message : String(e)
+      errorMessage.value = getErrorMessage(e)
     } finally {
       if (checkId === currentId) isChecking.value = false
     }

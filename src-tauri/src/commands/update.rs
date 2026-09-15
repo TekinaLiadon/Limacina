@@ -4,6 +4,7 @@ use crate::updater::{
     get_launcher_versions as fetch_launcher_versions, is_timeout_error, retain_current_platform,
     UpdateInfo, UpdateVersions,
 };
+use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 use serde::Deserialize;
@@ -34,9 +35,12 @@ pub async fn get_server_status(
         )
     };
     if !online {
-        return Err(anyhow::anyhow!("Статус доступен только для серверных профилей").into());
+        return Err(LauncherError::OfflineProfile(
+            "статус доступен только для серверных профилей".to_string(),
+        )
+        .into());
     }
-    let server_url = server_url.ok_or_else(|| anyhow::anyhow!("Не указан адрес сервера"))?;
+    let server_url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
     let url = format!("{}/v1/common/status", server_url);
     let request = crate::utils::http::http_client()
         .get(&url)
@@ -100,7 +104,7 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
             let versions = fetch_launcher_versions().await?;
             if !versions.versions.iter().any(|entry| entry.version == v) {
                 log_err!("Версия v{} отсутствует на сервере", v);
-                return Err(anyhow::anyhow!("Версия v{} отсутствует на сервере", v).into());
+                return Err(LauncherError::UpdateVersionMissing(v.clone()).into());
             }
             v
         }

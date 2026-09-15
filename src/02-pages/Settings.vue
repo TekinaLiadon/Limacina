@@ -5,7 +5,7 @@ import { Button } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 import { useProjectSettings } from '@/04-features'
 
-type SettingsSubTab = 'project' | 'launcher' | 'skin' | 'model' | 'account'
+type SettingsSubTab = 'project' | 'game' | 'launcher' | 'skin' | 'model' | 'account'
 
 interface Tab {
   key: SettingsSubTab
@@ -23,6 +23,7 @@ const coreStore = useCoreStore()
 const tabs: Tab[] = [
   { key: 'launcher', label: 'Лаунчер', name: 'SettingsLauncher' },
   { key: 'project', label: 'Проект', name: 'SettingsProject', needsInit: true },
+  { key: 'game', label: 'Игра', name: 'SettingsGame', needsInit: true },
   { key: 'account', label: 'Аккаунт', name: 'SettingsAccount', needsInit: true, needsAuth: true, hiddenOffline: true },
   { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true },
   { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true },
