@@ -670,6 +670,11 @@ Function PageFinish
 FunctionEnd
 
 Function PageFinishLeave
+  ${If} $PassiveMode = 1
+  ${OrIf} $UpdateMode = 1
+  ${OrIf} ${Silent}
+    Return
+  ${EndIf}
   ${NSD_GetState} $DesktopShortcutCheckbox $0
   ${If} $0 = ${BST_CHECKED}
     Call CreateOrUpdateDesktopShortcut

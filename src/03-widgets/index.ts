@@ -1,5 +1,6 @@
 export { default as Sidebar } from './dashboard/Sidebar.vue'
 export { default as ServerStatus } from './dashboard/ServerStatus.vue'
+export { default as ServerUnavailableBanner } from './dashboard/ServerUnavailableBanner.vue'
 
 export { default as LaunchScene } from './tabs/accounts/LaunchScene.vue'
 export { default as AuthTabsWidget } from './tabs/accounts/AuthTabsWidget.vue'

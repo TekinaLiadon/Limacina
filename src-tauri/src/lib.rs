@@ -47,8 +47,11 @@ use commands::settings_project::clear_minecraft_config;
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
+use commands::start::get_game_state;
 use commands::start::start_minecraft;
-use commands::update::{apply_update_cmd, check_update, get_launcher_versions, get_server_status};
+use commands::update::{
+    apply_update_cmd, check_update, get_launcher_versions, get_server_status, ping_launcher_server,
+};
 use commands::user_content::{
     clear_session, delete_model, delete_offline_skin, delete_skin, get_offline_skin,
     get_offline_skin_model, get_profile_skin, get_session_info, list_models, list_skins,
@@ -166,6 +169,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
@@ -213,6 +217,7 @@ pub fn run() {
             get_java_version,
             start_minecraft,
             exit_launcher,
+            get_game_state,
             save_settings_project,
             load_settings_project,
             clear_minecraft_config,
@@ -224,6 +229,7 @@ pub fn run() {
             apply_update_cmd,
             get_launcher_versions,
             get_server_status,
+            ping_launcher_server,
             get_startup_logs,
             logger_utils::send_frontend_log,
             select_account,

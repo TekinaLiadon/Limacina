@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
@@ -181,7 +181,7 @@ pub async fn start_minecraft(
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
-    let spawn_result = spawn_game_process(app, game_config, authlib_server_url.as_deref())
+    let spawn_result = spawn_game_process(app.clone(), game_config, authlib_server_url.as_deref())
         .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project));
     let process = match spawn_result {
         Ok(process) => process,
@@ -194,6 +194,8 @@ pub async fn start_minecraft(
         }
     };
     process_step.finish(false);
+    crate::tray::set_game_state(&app, true, &username);
+    let _ = app.emit("game-started", username.clone());
 
     if let Some(server) = offline_skin_server.take() {
         let exited = process.exited_flag();
@@ -236,6 +238,11 @@ pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
     log_info!("Закрытие лаунчера после запуска игры");
     app.exit(0);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_game_state() -> CommandResult<Option<String>> {
+    Ok(crate::tray::game_username())
 }
 
 async fn repair_stale_java_path(

@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData } from '@/05-entities/core/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData } from '@/05-entities/core/types'
 import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
 import type { SkinModelMode } from '@/03-widgets/types'
 
@@ -36,18 +36,15 @@ export async function getAppInitData(): Promise<AppInitData> {
 
 interface UpdateInfoRaw {
   version: string
-  platforms: UpdatePlatform[]
 }
 
 interface UpdateVersionsRaw {
   version: string
-  platforms: UpdatePlatform[]
   versions: UpdateInfoRaw[]
 }
 
 const toUpdateInfo = (raw: UpdateInfoRaw): UpdateInfo => ({
   version: raw.version,
-  availablePlatforms: raw.platforms,
 })
 
 export async function checkUpdate(): Promise<UpdateInfo | null> {
@@ -59,7 +56,6 @@ export async function getLauncherVersions(): Promise<UpdateVersions> {
   const raw = await invoke<UpdateVersionsRaw>('get_launcher_versions')
   return {
     version: raw.version,
-    availablePlatforms: raw.platforms,
     versions: raw.versions.map(toUpdateInfo),
   }
 }
@@ -309,6 +305,26 @@ export async function listenGameExit(
 
 export async function getSessionInfo(): Promise<SessionInfo | null> {
   return invoke<SessionInfo | null>('get_session_info')
+}
+
+export async function getGameState(): Promise<string | null> {
+  return invoke<string | null>('get_game_state')
+}
+
+export async function listenGameStarted(
+  callback: (username: string) => void
+): Promise<UnlistenFn> {
+  return listen<string>('game-started', (event) => {
+    callback(event.payload)
+  })
+}
+
+export async function hideMainWindow(): Promise<void> {
+  await getCurrentWebviewWindow().hide()
+}
+
+export async function pingLauncherServer(): Promise<boolean> {
+  return invoke<boolean>('ping_launcher_server')
 }
 
 export async function clearSession(): Promise<void> {

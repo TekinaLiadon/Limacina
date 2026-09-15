@@ -3,8 +3,8 @@ import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useCpmProjectOpen } from '@/04-features'
-import { Sidebar, ServerStatus } from '@/03-widgets'
+import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen } from '@/04-features'
+import { Sidebar, ServerStatus, ServerUnavailableBanner } from '@/03-widgets'
 import type { TabKey } from '@/05-entities/core/types'
 
 const router = useRouter()
@@ -24,6 +24,10 @@ const { startSystemNotifications } = useSystemNotifications()
 void startSystemNotifications()
 const { startServerStatusSync } = useServerStatus()
 void startServerStatusSync()
+const { startServerAvailabilitySync } = useServerAvailability()
+void startServerAvailabilitySync()
+const { startGameSessionSync } = useGameSession()
+void startGameSessionSync()
 useCpmProjectOpen()
 
 interface Tab {
@@ -174,6 +178,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
 
             <div class="app__content">
               <div class="app__content-inner">
+                <ServerUnavailableBanner />
                 <router-view />
               </div>
             </div>

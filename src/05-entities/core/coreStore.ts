@@ -22,5 +22,7 @@ export const useCoreStore = defineStore('core', {
     loginError: '',
     projectConfig: null,
     serverStatus: null,
+    gameUsername: null,
+    isServerReachable: null,
   }),
 })

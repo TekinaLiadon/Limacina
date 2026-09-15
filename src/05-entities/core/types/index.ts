@@ -40,22 +40,12 @@ export interface AuthUserData extends LoginForm {
 
 export interface UpdateInfo {
   version: string
-  availablePlatforms: UpdatePlatform[]
 }
 
-export interface UpdatePlatform {
-  os: string
-  arch: string
-}
-
-export interface UpdateVersionInfo {
-  version: string
-  availablePlatforms: UpdatePlatform[]
-}
+export type UpdateVersionInfo = UpdateInfo
 
 export interface UpdateVersions {
   version: string
-  availablePlatforms: UpdatePlatform[]
   versions: UpdateVersionInfo[]
 }
 
@@ -125,6 +115,8 @@ export interface StepProgressItem {
   loginError: string
   projectConfig: ProjectConfig | null
   serverStatus: ServerStatus | null
+  gameUsername: string | null
+  isServerReachable: boolean | null
 }
 
 export interface ProjectConfig {

@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "category": "Game",
     "shortDescription": "Лаунчер Minecraft: установка игры, модов и Java в один клик",
     "longDescription": "Limacina — Minecraft-лаунчер: устанавливает игру и Java, поддерживает Vanilla, Fabric, Forge и NeoForge, синхронизирует файлы и моды с сервером, управляет скинами и моделями игроков и обновляется автоматически.",
@@ -53,5 +54,12 @@
         "role": "Editor"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
   }
 }

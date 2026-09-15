@@ -260,6 +260,7 @@ pub fn spawn_game_process(
         };
         *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
         exited.store(true, AtomicOrdering::Relaxed);
+        crate::tray::set_game_state(&app, false, "");
         crate::discord::on_game_exit();
     });
 

@@ -5,7 +5,6 @@ export type {
   AppInitData,
   AuthUserData,
   UpdateInfo,
-  UpdatePlatform,
   UpdateVersionInfo,
   UpdateVersions,
   ServerStatus,

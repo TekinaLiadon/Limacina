@@ -1,20 +1,21 @@
 use crate::state::dto::GlobalState;
 use crate::updater::{
-    apply_update, check_for_update, check_for_update_with_timeout, download_update,
-    get_launcher_versions as fetch_launcher_versions, is_timeout_error, retain_current_platform,
-    UpdateInfo, UpdateVersions,
+    compare_with_current, get_launcher_versions as fetch_launcher_versions, is_timeout_error,
+    retain_current_platform, updater_builder, updater_pubkey, UpdateInfo, UpdateVersions,
+    STARTUP_CHECK_TIMEOUT,
 };
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
+use anyhow::Context;
 use serde::Deserialize;
 use std::time::Duration;
 use tauri::AppHandle;
 use tauri::State;
 use tokio::sync::Mutex;
 
-const STARTUP_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const PING_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct ServerStatus {
@@ -41,7 +42,7 @@ pub async fn get_server_status(
         .into());
     }
     let server_url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
-    let url = format!("{}/v1/common/status", server_url);
+    let url = format!("{server_url}/v1/common/status");
     let request = crate::utils::http::http_client()
         .get(&url)
         .timeout(STATUS_REQUEST_TIMEOUT);
@@ -55,9 +56,26 @@ pub async fn get_server_status(
 }
 
 #[tauri::command]
-pub async fn check_update(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<Option<UpdateInfo>> {
+pub async fn ping_launcher_server(state: State<'_, Mutex<GlobalState>>) -> CommandResult<bool> {
+    let server_url = state.lock().await.project_config.resolved_server_url();
+    let Some(server_url) = server_url else {
+        return Ok(false);
+    };
+    let url = format!("{server_url}/v1/launcher/update/version");
+    let request = crate::utils::http::http_client()
+        .get(&url)
+        .timeout(PING_TIMEOUT);
+    match request.send().await {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            log_info!("Сервер лаунчера недоступен: {}", e);
+            Ok(false)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> CommandResult<Option<UpdateInfo>> {
     if crate::utils::env_info::is_offline_build() {
         log_info!("Офлайн-сборка, проверка обновлений пропущена");
         return Ok(None);
@@ -66,15 +84,26 @@ pub async fn check_update(
         log_info!("Режим разработки, проверка обновлений пропущена");
         return Ok(None);
     }
-    let version = state.lock().await.app_version.clone();
-    match check_for_update_with_timeout(&version, STARTUP_CHECK_TIMEOUT).await {
-        Ok(info) => Ok(info),
+    if updater_pubkey().is_none() {
+        log_info!("Обновления отключены: не задан TAURI_UPDATER_PUBKEY, проверка пропущена");
+        return Ok(None);
+    }
+    let updater = updater_builder(&app, None)?
+        .timeout(STARTUP_CHECK_TIMEOUT)
+        .build()
+        .context("Не удалось инициализировать проверку обновлений")?;
+    match updater.check().await {
+        Ok(Some(update)) => Ok(Some(UpdateInfo {
+            version: update.version,
+        })),
+        Ok(None) => Ok(None),
         Err(e) => {
+            let e = anyhow::Error::new(e);
             if is_timeout_error(&e) {
                 log_info!("Проверка обновлений прервана по таймауту, пропуск");
                 Ok(None)
             } else {
-                Err(e.into())
+                Err(e.context("Не удалось проверить обновления").into())
             }
         }
     }
@@ -94,9 +123,10 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
         return Ok(());
     }
 
+    let current_version = app.package_info().version.to_string();
+
     let target_version = match version {
         Some(v) => {
-            let current_version = app.package_info().version.to_string();
             if v == current_version {
                 log_err!("Версия v{} уже установлена", v);
                 return Err(anyhow::anyhow!("Версия v{} уже установлена", v).into());
@@ -109,14 +139,26 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
             v
         }
         None => {
-            let current_version = app.package_info().version.to_string();
             log_info!("Текущая версия: v{}", current_version);
-
-            let info = check_for_update(&current_version).await?;
-            match info {
-                Some(info) => {
-                    log_info!("Сервер предлагает обновление до v{}", info.version);
-                    info.version
+            let updater = updater_builder(&app, None)?
+                .build()
+                .context("Не удалось инициализировать проверку обновлений")?;
+            match updater
+                .check()
+                .await
+                .context("Не удалось проверить обновления")?
+            {
+                Some(update) => {
+                    if !compare_with_current(&update.version, &current_version) {
+                        log_info!(
+                            "Сервер предлагает v{}, но она не новее текущей v{}, обновление пропущено",
+                            update.version,
+                            current_version
+                        );
+                        return Ok(());
+                    }
+                    log_info!("Сервер предлагает обновление до v{}", update.version);
+                    update.version
                 }
                 None => {
                     log_info!("Обновление не требуется");
@@ -128,26 +170,35 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
 
     log_info!("Установка версии лаунчера v{}", target_version);
 
-    let archive_path = match download_update(&target_version).await {
-        Ok(path) => {
-            log_info!("Обновление v{} скачано: {:?}", target_version, path);
-            path
-        }
-        Err(e) => {
-            log_err!("Не удалось скачать обновление: {}", e);
-            return Err(anyhow::anyhow!("Не удалось скачать версию v{}", target_version).into());
-        }
-    };
+    let updater = updater_builder(&app, Some(&target_version))?
+        .build()
+        .context("Не удалось инициализировать установку обновления")?;
+    let update = updater
+        .check()
+        .await
+        .with_context(|| format!("Не удалось получить релиз v{target_version}"))?
+        .ok_or_else(|| anyhow::anyhow!("Сервер не отдал релиз v{target_version}"))?;
 
-    match apply_update(&archive_path) {
-        Ok(()) => {
-            log_info!("Обновление применено, перезапуск...");
-            app.restart();
-        }
-        Err(e) => {
-            log_err!("Не удалось применить обновление: {}", e);
-            let _ = std::fs::remove_file(&archive_path);
-            Err(anyhow::anyhow!("Не удалось применить обновление").into())
-        }
+    if update.version != target_version {
+        return Err(anyhow::anyhow!(
+            "Сервер вернул релиз v{} вместо v{}",
+            update.version,
+            target_version
+        )
+        .into());
     }
+
+    log_info!("Скачивание обновления v{}...", update.version);
+    let bytes = update
+        .download(|_chunk, _total| {}, || {})
+        .await
+        .context("Не удалось скачать обновление")?;
+
+    log_info!("Обновление v{} скачано, установка...", update.version);
+    update
+        .install(bytes)
+        .context("Не удалось установить обновление")?;
+
+    log_info!("Обновление применено, перезапуск...");
+    app.restart()
 }

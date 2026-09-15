@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { useAccountsPage, useProjectConfig } from '@/04-features'
+import { useAccountsPage, useGameSession, useProjectConfig } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
 import { LaunchScene } from '@/03-widgets'
 
 useProjectConfig()
 
 const coreStore = useCoreStore()
+const { minimizeToTray } = useGameSession()
 const {
   isLoading,
   errorMessage,
@@ -20,6 +21,7 @@ const {
   loginError,
   sceneUsername,
   isCancelPending,
+  isServerOffline,
   handleLaunch,
   showLoginForm,
   goToAccounts,
@@ -41,6 +43,8 @@ const {
       :is-cancel-pending="isCancelPending"
       :progress="activeProgress"
       :steps="launchSteps"
+      :session-username="coreStore.gameUsername"
+      :server-offline="isServerOffline"
       :login-error="loginError"
       :select-error="errorMessage"
       :show-auth="showAuth"
@@ -51,6 +55,7 @@ const {
       @show-login="showLoginForm"
       @cancel="goToAccounts"
       @auth-back="goToAccounts"
+      @minimize="minimizeToTray"
     />
   </div>
 </template>

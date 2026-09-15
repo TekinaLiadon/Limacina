@@ -6,10 +6,7 @@ use zip::ZipArchive;
 
 pub const MAX_EXTRACT_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
-pub fn extract_zip(archive_path: &Path, target_dir: &Path) -> Result<()> {
-    extract_zip_with_limit(archive_path, target_dir, MAX_EXTRACT_TOTAL_BYTES)
-}
-
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn extract_zip_with_limit(
     archive_path: &Path,
     target_dir: &Path,

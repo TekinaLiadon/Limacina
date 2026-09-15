@@ -27,6 +27,8 @@ export { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES, MODRINTH_CATEGORY_LAB
 export { useViewerCamera } from './viewer/useViewerCamera'
 export { useAlternativeJava } from './alternative-java/useAlternativeJava'
 export { useSystemNotifications } from './system-notifications/useSystemNotifications'
+export { useGameSession } from './game-session/useGameSession'
+export { useServerAvailability } from './server-availability/useServerAvailability'
 export { useServerStatus } from './server-status/useServerStatus'
 export { useProjectConfig } from './project-config/useProjectConfig'
 export { useAddProfile } from './add-profile/useAddProfile'

@@ -16,11 +16,15 @@ const props = withDefaults(defineProps<{
   isCancelPending: boolean
   progress: number
   steps: StepProgressItem[]
+  sessionUsername?: string | null
+  serverOffline?: boolean
   loginError?: string
   selectError?: string
   showAuth: boolean
   showBack: boolean
 }>(), {
+  sessionUsername: null,
+  serverOffline: false,
   loginError: '',
   selectError: '',
 })
@@ -33,6 +37,7 @@ const emit = defineEmits<{
   'show-login': []
   'cancel': []
   'auth-back': []
+  'minimize': []
 }>()
 
 const switcherRef = ref<HTMLDivElement | null>(null)
@@ -81,47 +86,69 @@ const openLoginForm = (): void => {
     </div>
 
     <template v-else>
-      <div class="launch-scene__account">
-        <span class="launch-scene__avatar">{{ avatarLetter }}</span>
-        <div class="launch-scene__account-info">
-          <span class="eyebrow">{{ accountLabel }}</span>
-          <p class="launch-scene__name">{{ username }}</p>
+      <template v-if="sessionUsername">
+        <div class="launch-scene__session">
+          <span class="launch-scene__session-dot"></span>
+          <div class="launch-scene__account-info">
+            <span class="eyebrow">Игра запущена</span>
+            <p class="launch-scene__name">{{ sessionUsername }}</p>
+          </div>
         </div>
-      </div>
-
-      <div v-if="selectError || (!isLaunching && loginError)" class="launch-scene__error">
-        {{ selectError || loginError }}
-      </div>
-
-      <div v-if="isLaunching" class="launch-scene__progress">
-        <div class="launch-scene__progress-header">
-          <span class="eyebrow">{{ progressLabel }}</span>
-          <ProgressBar :progress="progress" />
-        </div>
-
-        <StepProgress :steps="steps" hide-completed />
-
-        <p v-if="isLaunchingGame" class="launch-scene__hint">
-          Игра запускается — окно откроется автоматически
+        <p class="launch-scene__hint">
+          Лаунчер можно свернуть в трей — игра продолжит работать
         </p>
+        <div class="launch-scene__actions">
+          <Button class="btn-secondary btn-lg btn-block" @click="emit('minimize')">
+            Свернуть в трей
+          </Button>
+        </div>
+      </template>
 
-        <Button
-          class="btn-quiet btn-block"
-          :is-disabled="isCancelPending"
-          @click="emit('cancel')"
-        >
-          {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
-        </Button>
-      </div>
+      <template v-else>
+        <div class="launch-scene__account">
+          <span class="launch-scene__avatar">{{ avatarLetter }}</span>
+          <div class="launch-scene__account-info">
+            <span class="eyebrow">{{ accountLabel }}</span>
+            <p class="launch-scene__name">{{ username }}</p>
+          </div>
+        </div>
 
-      <div v-else class="launch-scene__actions">
-        <Button
-          class="btn-primary btn-lg btn-block"
-          :is-disabled="!hasSession"
-          @click="emit('launch')"
-        >
-          Играть
-        </Button>
+        <div v-if="selectError || (!isLaunching && loginError)" class="launch-scene__error">
+          {{ selectError || loginError }}
+        </div>
+
+        <div v-if="isLaunching" class="launch-scene__progress">
+          <div class="launch-scene__progress-header">
+            <span class="eyebrow">{{ progressLabel }}</span>
+            <ProgressBar :progress="progress" />
+          </div>
+
+          <StepProgress :steps="steps" hide-completed />
+
+          <p v-if="isLaunchingGame" class="launch-scene__hint">
+            Игра запускается — окно откроется автоматически
+          </p>
+
+          <Button
+            class="btn-quiet btn-block"
+            :is-disabled="isCancelPending"
+            @click="emit('cancel')"
+          >
+            {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
+          </Button>
+        </div>
+
+        <div v-else class="launch-scene__actions">
+          <div v-if="serverOffline ?? false" class="launch-scene__error">
+            Сервер лаунчера недоступен — запуск заблокирован, ждём восстановления соединения
+          </div>
+          <Button
+            class="btn-primary btn-lg btn-block"
+            :is-disabled="!hasSession || (serverOffline ?? false)"
+            @click="emit('launch')"
+          >
+            Играть
+          </Button>
 
         <div
           ref="switcherRef"
@@ -190,6 +217,7 @@ const openLoginForm = (): void => {
           </Transition>
         </div>
       </div>
+      </template>
     </template>
   </div>
 </template>
@@ -209,6 +237,24 @@ const openLoginForm = (): void => {
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+
+  &__session {
+    display: flex;
+    align-items: center;
+    gap: var(--space-16);
+    margin-bottom: var(--title-gap);
+    padding: var(--space-16);
+    border-radius: var(--radius-card);
+    background: var(--accent-subtle);
+  }
+
+  &__session-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: var(--radius-circle);
+    background: var(--login-accent);
+    flex-shrink: 0;
   }
 
   &__account {
