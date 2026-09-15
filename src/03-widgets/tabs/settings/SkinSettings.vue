@@ -64,12 +64,12 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     </div>
 
     <div class="skin-settings__actions">
-      <Button class="btn-secondary skin-settings__btn" @click="selectSkin">
+      <Button class="btn-primary skin-settings__btn" @click="selectSkin">
         {{ hasSkin ? 'Заменить скин' : 'Загрузить скин' }}
       </Button>
       <Button
         v-if="hasSkin && !isOffline"
-        class="btn-primary skin-settings__btn skin-settings__btn--upload"
+        class="btn-secondary skin-settings__btn skin-settings__btn--upload"
         :is-loading="isUploading"
         :is-disabled="isUploading"
         @click="handleUpload"
@@ -81,7 +81,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
         class="btn-danger skin-settings__btn skin-settings__btn--reset"
         @click="resetSkin"
       >
-        Удалить
+        Сбросить скин
       </Button>
     </div>
 

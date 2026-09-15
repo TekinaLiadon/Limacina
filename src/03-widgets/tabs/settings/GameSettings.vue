@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 import { useGameOptions } from '@/04-features'
+import { SettingsSection, SettingsSaveBar } from '@/03-widgets'
 import GraphicsOptions from './game/GraphicsOptions.vue'
 import SoundOptions from './game/SoundOptions.vue'
 import ChatOptions from './game/ChatOptions.vue'
@@ -11,6 +12,7 @@ const {
   isLoading,
   isSaving,
   isSavingGlobal,
+  isDirty,
   hasGlobal,
   availableResourcePacks,
   handleImportGlobal,
@@ -22,7 +24,6 @@ const {
 <template>
   <div class="game-settings">
     <div class="game-settings__head">
-      <p class="game-settings__hint">Настройки применяются к игре после сохранения</p>
       <Button
         v-if="hasGlobal"
         class="btn-secondary game-settings__import-btn"
@@ -33,54 +34,41 @@ const {
       </Button>
     </div>
 
-    <div class="settings-grid">
-      <div class="section-label span-full">Графика</div>
-      <GraphicsOptions class="span-full" :options="options" />
-    </div>
+    <SettingsSection title="Графика" storage-key="game-graphics">
+      <GraphicsOptions :options="options" />
+    </SettingsSection>
 
-    <div class="settings-grid">
-      <div class="section-label span-full">Звук</div>
-      <SoundOptions class="span-full" :options="options" />
-    </div>
+    <SettingsSection title="Звук" storage-key="game-sound">
+      <SoundOptions :options="options" />
+    </SettingsSection>
 
-    <div class="settings-grid">
-      <div class="section-label span-full">Чат</div>
-      <ChatOptions class="span-full" :options="options" />
-    </div>
+    <SettingsSection title="Чат" storage-key="game-chat">
+      <ChatOptions :options="options" />
+    </SettingsSection>
 
-    <div class="settings-grid">
-      <div class="section-label span-full">Ресурспаки</div>
+    <SettingsSection title="Ресурспаки" storage-key="game-packs">
       <ResourcePacksOptions
-        class="span-full"
         :options="options"
         :available-packs="availableResourcePacks"
       />
-    </div>
+    </SettingsSection>
 
-    <div class="game-settings__actions">
-      <Button
-        class="btn-primary btn-lg game-settings__save"
-        :is-loading="isSaving"
-        :is-disabled="isSaving || isSavingGlobal"
-        @click="handleSave"
-      >
-        Сохранить
-      </Button>
-      <Button
-        class="btn-secondary btn-lg game-settings__save-global"
-        :is-loading="isSavingGlobal"
-        :is-disabled="isSaving || isSavingGlobal"
-        @click="handleSaveGlobal"
-      >
-        Сохранить глобально
-      </Button>
-    </div>
+    <SettingsSaveBar :is-saving="isSaving" :is-dirty="isDirty" @save="handleSave">
+      <template #extra>
+        <Button
+          class="btn-secondary btn-lg game-settings__save-global"
+          :is-loading="isSavingGlobal"
+          :is-disabled="isSaving || isSavingGlobal"
+          @click="handleSaveGlobal"
+        >
+          Сохранить глобально
+        </Button>
+      </template>
+    </SettingsSaveBar>
   </div>
 </template>
 
 <style lang="scss">
-@use '@/01-app/assets/mixins';
-
 .game-settings {
   display: flex;
   flex-direction: column;
@@ -88,27 +76,7 @@ const {
 
   &__head {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-12);
-    flex-wrap: wrap;
-  }
-
-  &__hint {
-    @include mixins.caption-hint;
-
-    text-align: left;
-  }
-
-  &__actions {
-    display: flex;
-    justify-content: center;
-    gap: var(--element-gap);
-    flex-wrap: wrap;
-  }
-
-  &__save {
-    min-width: 220px;
+    justify-content: flex-end;
   }
 }
 </style>

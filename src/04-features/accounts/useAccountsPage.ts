@@ -42,10 +42,10 @@ export function useAccountsPage() {
   }
 
   const hasAccounts = computed((): boolean => logins.value.length > 0)
-  const showAccountList = computed((): boolean => hasAccounts.value && !coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
-  const showCurrentAccount = computed((): boolean => coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
-  const showLaunchProgress = computed((): boolean => store.isLaunching)
-  const showAuthTabs = computed((): boolean => !showAccountList.value && !showCurrentAccount.value && !showLaunchProgress.value)
+  const isLaunching = computed((): boolean => store.isLaunching)
+  const showAuth = computed((): boolean =>
+    !store.isLaunching && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn)),
+  )
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
 
   const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
@@ -84,7 +84,11 @@ export function useAccountsPage() {
     set: (v) => { store.activeSubTab = v },
   })
   const loginError = computed((): string => coreStore.loginError)
-  const sessionUsername = computed((): string => coreStore.session?.username ?? '')
+  const sceneUsername = computed((): string => {
+    if (coreStore.session?.username) return coreStore.session.username
+    if (store.selectedUsername) return store.selectedUsername
+    return logins.value[0] ?? ''
+  })
 
   const handleDeleteAccount = async (username: string): Promise<void> => {
     const confirmed = await notificationStore.confirm(`Вы хотите удалить аккаунт ${username}?`)
@@ -105,16 +109,14 @@ export function useAccountsPage() {
     logins,
     selectedUsername,
     handleSelect,
-    showAccountList,
-    showCurrentAccount,
-    showLaunchProgress,
-    showAuthTabs,
+    isLaunching,
+    showAuth,
     isSelected,
     activeSubTab,
     launchSteps,
     activeProgress,
     loginError,
-    sessionUsername,
+    sceneUsername,
     isCancelPending,
     handleLaunch,
     showLoginForm,

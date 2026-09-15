@@ -11,6 +11,7 @@ import { splitJvmArgs } from './jvmPresets'
 export function useProjectSettings(): {
   config: ComputedRef<ProjectSettingsForm>
   isLoaded: ComputedRef<boolean>
+  isDirty: ComputedRef<boolean>
   maxMemoryLimit: ComputedRef<number>
   isSaving: ComputedRef<boolean>
   isClearingConfig: Ref<boolean>
@@ -38,6 +39,23 @@ export function useProjectSettings(): {
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
   const isSaving = computed((): boolean => store.isSaving)
+
+  const DIRTY_FIELDS = ['loaderVersion', 'javaPath', 'jvmArgs', 'memoryRange', 'autoJoinServer'] as const
+
+  const dirtySnapshot = (): string => {
+    const form = store.config
+    return JSON.stringify(Object.fromEntries(DIRTY_FIELDS.map((field) => [field, form[field]])))
+  }
+
+  const initialDirtySnapshot = ref<string>('')
+
+  const isDirty = computed((): boolean =>
+    store.isLoaded && initialDirtySnapshot.value !== '' && initialDirtySnapshot.value !== dirtySnapshot(),
+  )
+
+  watch((): string => store.loadedProject, (): void => {
+    initialDirtySnapshot.value = dirtySnapshot()
+  }, { immediate: true })
 
   const maxMemoryLimit = computed((): number => {
     return Math.max(512, coreStore.totalMemoryMb - 2048)
@@ -115,6 +133,7 @@ export function useProjectSettings(): {
         autoJoinServer: config.value.autoJoinServer,
       }
       await saveSettingsProject(projectConfig)
+      initialDirtySnapshot.value = dirtySnapshot()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(String(e))
@@ -228,6 +247,7 @@ export function useProjectSettings(): {
   return {
     config,
     isLoaded,
+    isDirty,
     maxMemoryLimit,
     isSaving,
     isClearingConfig,

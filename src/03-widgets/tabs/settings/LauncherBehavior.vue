@@ -28,21 +28,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="launcher-behavior">
-    <Checkbox
-      :model-value="discordActivity"
-      label="Показывать статус в Discord"
-      @update:model-value="emit('update:discordActivity', $event)"
-    />
-    <Checkbox
-      :model-value="autoUpdate"
-      label="Обновлять лаунчер автоматически"
-      @update:model-value="emit('update:autoUpdate', $event)"
-    />
-    <Checkbox
-      :model-value="keepOldConfigs"
-      label="Сохранять старые конфиги Minecraft"
-      @update:model-value="emit('update:keepOldConfigs', $event)"
-    />
+    <span class="launcher-behavior__subhead">Запуск и закрытие</span>
     <Checkbox
       :model-value="startWithSystem"
       label="Запускать лаунчер при старте системы"
@@ -55,25 +41,46 @@ const emit = defineEmits<{
     />
     <Checkbox
       :model-value="minimizeToTray"
-      label="Сворачывать в трей при закрытии"
+      label="Сворачивать в трей при закрытии"
       @update:model-value="emit('update:minimizeToTray', $event)"
     />
+
+    <span class="launcher-behavior__subhead">Уведомления</span>
     <Checkbox
       :model-value="systemNotifications"
       label="Системные уведомления при свёрнутом лаунчере"
       @update:model-value="emit('update:systemNotifications', $event)"
     />
     <Checkbox
-      :model-value="debugMode"
-      label="Показывать страницу отладки"
-      @update:model-value="emit('update:debugMode', $event)"
+      :model-value="discordActivity"
+      label="Показывать статус в Discord"
+      @update:model-value="emit('update:discordActivity', $event)"
+    />
+
+    <span class="launcher-behavior__subhead">Загрузка и обновление</span>
+    <Checkbox
+      :model-value="autoUpdate"
+      label="Обновлять лаунчер автоматически"
+      @update:model-value="emit('update:autoUpdate', $event)"
     />
     <Input
-      class="span-full"
+      class="launcher-behavior__speed"
       :model-value="downloadSpeedLimit"
       :options="{ label: 'Ограничение скорости скачивания (КБ/с)', placeholder: 'Без ограничений', type: 'number' }"
       :min="1"
       @update:model-value="emit('update:downloadSpeedLimit', $event)"
+    />
+
+    <span class="launcher-behavior__subhead">Продвинутое</span>
+    <Checkbox
+      :model-value="keepOldConfigs"
+      label="Сохранять старые конфиги Minecraft"
+      @update:model-value="emit('update:keepOldConfigs', $event)"
+    />
+    <Checkbox
+      :model-value="debugMode"
+      label="Показывать страницу отладки"
+      @update:model-value="emit('update:debugMode', $event)"
     />
   </div>
 </template>
@@ -84,12 +91,23 @@ const emit = defineEmits<{
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width-wide)), 1fr));
   gap: var(--element-gap);
   align-items: center;
-  grid-column: 1 / -1;
+  align-content: start;
 
-  > .span-full {
+  &__subhead {
     grid-column: 1 / -1;
-    margin-top: var(--space-12);
-    justify-self: center;
+    margin-top: var(--space-8);
+    font-family: var(--font-eyebrow);
+    font-size: var(--text-caption);
+    line-height: var(--leading-caption);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-eyebrow);
+    text-transform: uppercase;
+    color: var(--login-text-muted);
+    font-feature-settings: "tnum" on;
+  }
+
+  &__speed {
+    grid-column: 1 / -1;
     width: 100%;
     max-width: var(--settings-row-width);
   }

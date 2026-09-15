@@ -30,7 +30,7 @@ export function useAddProfile() {
   const notification = useNotificationStore()
   const { resetAccountsState } = useProjectSwitch()
 
-  const kind = ref<ProfileKind | null>(null)
+  const kind = ref<ProfileKind>('server')
   const isSubmitting = ref<boolean>(false)
   const errorMessage = ref<string>('')
 
@@ -156,11 +156,6 @@ export function useAddProfile() {
     }
   }
 
-  const goBack = (): void => {
-    kind.value = null
-    errorMessage.value = ''
-  }
-
   const submitServer = async (): Promise<ProjectConfig | null> => {
     if (!isServerValid.value) return null
 
@@ -171,7 +166,6 @@ export function useAddProfile() {
       const config = await createServerProfile(serverForm.value.serverUrl.trim())
       await applyCreatedProfile(config)
       serverForm.value.serverUrl = ''
-      kind.value = null
       notification.show(`Сервер «${config.projectName}» добавлен`)
       return config
     } catch (e: unknown) {
@@ -197,7 +191,6 @@ export function useAddProfile() {
       )
       await applyCreatedProfile(config)
       offlineForm.value.name = ''
-      kind.value = null
       notification.show(`Профиль «${config.projectName}» создан`)
       return config
     } catch (e: unknown) {
@@ -229,8 +222,7 @@ export function useAddProfile() {
     isServerValid,
     isOfflineValid,
     selectKind,
-    goBack,
     submitServer,
-    submitOffline,
+  submitOffline,
   }
 }

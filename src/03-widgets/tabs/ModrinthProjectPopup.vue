@@ -1,18 +1,29 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { Button, MarkdownText } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import type { ModrinthSearchHit, ModrinthProjectDetails, ModrinthVersion } from '@/05-entities/modrinth/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   hit: ModrinthSearchHit | null
-}>()
+  isInstalled?: boolean
+  updateVersion?: string
+  isBusy?: boolean
+  isBusyAny?: boolean
+}>(), {
+  isInstalled: false,
+  updateVersion: '',
+  isBusy: false,
+  isBusyAny: false,
+})
 
 const emit = defineEmits<{
   close: []
+  install: []
+  update: []
 }>()
 
 const { fetchProjectDetails } = useModrinth()
@@ -113,6 +124,18 @@ watch(
   },
 )
 
+function handleEsc(e: KeyboardEvent): void {
+  if (props.visible && e.key === 'Escape') emit('close')
+}
+
+onMounted((): void => {
+  window.addEventListener('keydown', handleEsc)
+})
+
+onBeforeUnmount((): void => {
+  window.removeEventListener('keydown', handleEsc)
+})
+
 function handleLink(url: string): void {
   void openUrl(url)
 }
@@ -130,6 +153,25 @@ function handleLink(url: string): void {
               <p v-if="authorText" class="modrinth-popup__meta">{{ authorText }}</p>
               <p v-if="statText" class="modrinth-popup__meta">{{ statText }}</p>
             </div>
+            <Button
+              v-if="updateVersion"
+              class="btn-primary modrinth-popup__action"
+              :is-loading="isBusy ?? false"
+              :is-disabled="isBusyAny ?? false"
+              @click="emit('update')"
+            >
+              Обновить
+            </Button>
+            <Button
+              v-else-if="!isInstalled"
+              class="btn-primary modrinth-popup__action"
+              :is-loading="isBusy ?? false"
+              :is-disabled="isBusyAny ?? false"
+              @click="emit('install')"
+            >
+              Скачать
+            </Button>
+            <span v-else class="modrinth-popup__installed-badge">Установлен</span>
             <Button class="btn-quiet modrinth-popup__close" @click="emit('close')">
               Закрыть
             </Button>
@@ -261,6 +303,21 @@ function handleLink(url: string): void {
     flex-shrink: 0;
   }
 
+  &__action {
+    flex-shrink: 0;
+  }
+
+  &__installed-badge {
+    flex-shrink: 0;
+    padding: var(--space-4) var(--space-12);
+    border-radius: var(--radius-badge);
+    background: var(--surface-light);
+    box-shadow: var(--elevation-inset);
+    color: var(--accent-text);
+    font-size: var(--text-caption);
+    white-space: nowrap;
+  }
+
   &__content {
     display: flex;
     flex-direction: column;
@@ -351,21 +408,18 @@ function handleLink(url: string): void {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    max-height: calc(var(--space-48) * 3.5);
-    overflow-y: auto;
   }
 
   &__version {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
     gap: var(--space-4);
     padding: var(--space-8) var(--space-12);
     border-radius: var(--radius-card);
     background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
-    text-align: center;
+    text-align: left;
   }
 
   &__version-number {
@@ -375,6 +429,7 @@ function handleLink(url: string): void {
 
   &__version-meta {
     @include mixins.caption-hint;
+    text-align: left;
   }
 
   &__changelog-toggle {

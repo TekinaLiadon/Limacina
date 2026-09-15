@@ -2,12 +2,15 @@
 import { Button, Input } from '@/06-shared'
 import type { ServerProfileForm as ServerForm } from '@/05-entities/core/types'
 
-defineProps<{
+withDefaults(defineProps<{
   form: ServerForm
   isSubmitting: boolean
   isValid: boolean
   errorMessage: string
-}>()
+  canGoBack?: boolean
+}>(), {
+  canGoBack: false,
+})
 
 const emit = defineEmits<{
   submit: []
@@ -41,7 +44,13 @@ const emit = defineEmits<{
       >
         Добавить
       </Button>
-      <Button class="btn-quiet btn-block" @click="emit('back')">Назад</Button>
+      <Button
+        v-if="canGoBack"
+        class="btn-quiet btn-block"
+        @click="emit('back')"
+      >
+        Назад
+      </Button>
     </div>
   </div>
 </template>

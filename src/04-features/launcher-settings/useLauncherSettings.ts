@@ -18,12 +18,14 @@ export function useLauncherSettings(): {
   downloadSpeedLimitInput: Ref<string>
   settings: ComputedRef<LauncherSettingsPayload>
   isSaving: Ref<boolean>
+  isDirty: Ref<boolean>
   selectLauncherFolder: () => Promise<void>
   handleSave: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
+  const isDirty = ref<boolean>(false)
   const launcherPath = ref<string>('')
   const discordActivity = ref<boolean>(true)
   const autoUpdate = ref<boolean>(true)
@@ -88,6 +90,39 @@ export function useLauncherSettings(): {
     }
   }
 
+  interface DirtySnapshot {
+    launcherPath: string
+    discordActivity: boolean
+    autoUpdate: boolean
+    keepOldConfigs: boolean
+    startWithSystem: boolean
+    closeAfterLaunch: boolean
+    minimizeToTray: boolean
+    systemNotifications: boolean
+    debugMode: boolean
+    downloadSpeedLimit: number | null
+  }
+
+  const snapshot = (): DirtySnapshot => ({
+    launcherPath: launcherPath.value,
+    discordActivity: discordActivity.value,
+    autoUpdate: autoUpdate.value,
+    keepOldConfigs: keepOldConfigs.value,
+    startWithSystem: startWithSystem.value,
+    closeAfterLaunch: closeAfterLaunch.value,
+    minimizeToTray: minimizeToTray.value,
+    systemNotifications: systemNotifications.value,
+    debugMode: debugMode.value,
+    downloadSpeedLimit: parseSpeedLimit(downloadSpeedLimitInput.value),
+  })
+
+  const initialSnapshot = ref<DirtySnapshot | null>(null)
+
+  const refreshDirty = (): void => {
+    const initial = initialSnapshot.value
+    isDirty.value = initial !== null && JSON.stringify(initial) !== JSON.stringify(snapshot())
+  }
+
   onMounted((): void => {
     const config = coreStore.launcherConfig
     if (config) {
@@ -103,7 +138,10 @@ export function useLauncherSettings(): {
       downloadSpeedLimitInput.value =
         config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
     }
-    void syncStartWithSystemState()
+    void syncStartWithSystemState().then((): void => {
+      initialSnapshot.value = snapshot()
+      refreshDirty()
+    })
   })
 
   const selectLauncherFolder = async (): Promise<void> => {
@@ -126,6 +164,8 @@ export function useLauncherSettings(): {
       const updated = await saveLauncherSettings(settings.value)
       coreStore.launcherConfig = updated
       await applyStartWithSystem(startWithSystem.value)
+      initialSnapshot.value = snapshot()
+      refreshDirty()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(String(e))
@@ -147,6 +187,7 @@ export function useLauncherSettings(): {
     downloadSpeedLimitInput,
     settings,
     isSaving,
+    isDirty,
     selectLauncherFolder,
     handleSave,
   }

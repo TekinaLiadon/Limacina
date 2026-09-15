@@ -1,0 +1,438 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { Button, ProgressBar, useDropdownPanel } from '@/06-shared'
+import AuthTabsWidget from './AuthTabsWidget.vue'
+import StepProgress from '../login/StepProgress.vue'
+import type { AuthSubTab, StepProgressItem } from '@/05-entities/core/types'
+
+const props = withDefaults(defineProps<{
+  activeTab: AuthSubTab
+  username: string
+  selectedUsername: string
+  hasSession: boolean
+  logins: string[]
+  isLoading: boolean
+  isLaunching: boolean
+  isCancelPending: boolean
+  progress: number
+  steps: StepProgressItem[]
+  loginError?: string
+  selectError?: string
+  showAuth: boolean
+  showBack: boolean
+}>(), {
+  loginError: '',
+  selectError: '',
+})
+
+const emit = defineEmits<{
+  'update:activeTab': [tab: AuthSubTab]
+  'launch': []
+  'select': [username: string]
+  'delete-account': [username: string]
+  'show-login': []
+  'cancel': []
+  'auth-back': []
+}>()
+
+const switcherRef = ref<HTMLDivElement | null>(null)
+const { shown: menuOpen, openUp, maxHeight, toggle: toggleMenu, close: closeMenu } = useDropdownPanel(
+  switcherRef,
+  (): boolean => props.isLoading,
+  (): number => 6,
+)
+
+const avatarLetter = computed((): string => props.username.charAt(0).toUpperCase())
+
+const accountLabel = computed((): string =>
+  props.hasSession ? 'Текущий аккаунт' : 'Выберите аккаунт',
+)
+
+const isLaunchingGame = computed((): boolean => {
+  const last = props.steps[props.steps.length - 1]
+  return last?.status === 'active'
+})
+
+const progressLabel = computed((): string =>
+  isLaunchingGame.value ? 'Запуск игры' : 'Подготовка запуска',
+)
+
+const selectAccount = (username: string): void => {
+  if (props.isLoading || username === props.selectedUsername) return
+  closeMenu()
+  emit('select', username)
+}
+
+const openLoginForm = (): void => {
+  closeMenu()
+  emit('show-login')
+}
+</script>
+
+<template>
+  <div class="launch-scene">
+    <div v-if="showAuth" class="launch-scene__auth">
+      <AuthTabsWidget
+        :active-tab="activeTab"
+        :show-back="showBack"
+        @update:active-tab="emit('update:activeTab', $event)"
+        @back="emit('auth-back')"
+      />
+    </div>
+
+    <template v-else>
+      <div class="launch-scene__account">
+        <span class="launch-scene__avatar">{{ avatarLetter }}</span>
+        <div class="launch-scene__account-info">
+          <span class="eyebrow">{{ accountLabel }}</span>
+          <p class="launch-scene__name">{{ username }}</p>
+        </div>
+      </div>
+
+      <div v-if="selectError || (!isLaunching && loginError)" class="launch-scene__error">
+        {{ selectError || loginError }}
+      </div>
+
+      <div v-if="isLaunching" class="launch-scene__progress">
+        <div class="launch-scene__progress-header">
+          <span class="eyebrow">{{ progressLabel }}</span>
+          <ProgressBar :progress="progress" />
+        </div>
+
+        <StepProgress :steps="steps" hide-completed />
+
+        <p v-if="isLaunchingGame" class="launch-scene__hint">
+          Игра запускается — окно откроется автоматически
+        </p>
+
+        <Button
+          class="btn-quiet btn-block"
+          :is-disabled="isCancelPending"
+          @click="emit('cancel')"
+        >
+          {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
+        </Button>
+      </div>
+
+      <div v-else class="launch-scene__actions">
+        <Button
+          class="btn-primary btn-lg btn-block"
+          :is-disabled="!hasSession"
+          @click="emit('launch')"
+        >
+          Играть
+        </Button>
+
+        <div
+          ref="switcherRef"
+          class="launch-scene__switcher"
+          :class="{ 'launch-scene__switcher--up': openUp }"
+        >
+          <Button
+            class="btn-secondary btn-lg btn-block launch-scene__switcher-btn"
+            @click="toggleMenu"
+          >
+            <span>Сменить аккаунт</span>
+            <svg
+              class="launch-scene__chevron"
+              :class="{ 'launch-scene__chevron--open': menuOpen }"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+            >
+              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </Button>
+
+          <Transition name="launch-scene-menu">
+            <div v-if="menuOpen" class="launch-scene__menu" :style="{ maxHeight }">
+              <div
+                v-for="login in logins"
+                :key="login"
+                class="launch-scene__menu-item"
+                :class="{ 'launch-scene__menu-item--active': login === selectedUsername }"
+                role="button"
+                tabindex="0"
+                @click="selectAccount(login)"
+                @keydown.enter="selectAccount(login)"
+              >
+                <span class="launch-scene__menu-avatar">{{ login.charAt(0).toUpperCase() }}</span>
+                <span class="launch-scene__menu-name">{{ login }}</span>
+                <span v-if="login === selectedUsername" class="launch-scene__menu-check">
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                    <path d="M4 10L8 14L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <button
+                  v-else
+                  type="button"
+                  class="launch-scene__menu-delete"
+                  :disabled="isLoading"
+                  aria-label="Удалить аккаунт"
+                  @click.stop="emit('delete-account', login)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                class="launch-scene__menu-item launch-scene__menu-item--new"
+                @click="openLoginForm"
+              >
+                <span class="launch-scene__menu-plus">+</span>
+                Ввести новый
+              </button>
+            </div>
+          </Transition>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<style lang="scss">
+@use '@/01-app/assets/mixins';
+
+.launch-scene {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+
+  &__auth {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  &__account {
+    display: flex;
+    align-items: center;
+    gap: var(--space-16);
+    margin-bottom: var(--title-gap);
+  }
+
+  &__avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-circle);
+    background: var(--login-accent);
+    color: var(--text-on-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: var(--text-heading-sm);
+    font-weight: var(--weight-medium);
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  &__account-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+
+  &__name {
+    font-family: var(--font-display);
+    font-size: var(--text-heading-sm);
+    line-height: var(--leading-heading);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-heading);
+    color: var(--login-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+  }
+
+  &__switcher {
+    position: relative;
+  }
+
+  &__switcher-btn {
+    justify-content: space-between;
+  }
+
+  &__chevron {
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+
+    &--open {
+      transform: rotate(180deg);
+    }
+  }
+
+  &__menu {
+    position: absolute;
+    top: calc(100% + var(--space-4));
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--login-bg-form);
+    border-radius: var(--radius-input);
+    box-shadow: var(--elevation-modal);
+    overflow-y: auto;
+  }
+
+  &__switcher--up &__menu {
+    top: auto;
+    bottom: calc(100% + var(--space-4));
+  }
+
+  &__menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    width: 100%;
+    padding: var(--space-8) var(--space-12);
+    border: none;
+    border-radius: var(--radius-button);
+    background: transparent;
+    font-family: inherit;
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-secondary);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+
+    &:hover:not(:disabled) {
+      background: var(--surface-hover);
+      color: var(--login-text-primary);
+    }
+
+    &--active {
+      color: var(--login-text-primary);
+      background: var(--accent-subtle);
+    }
+  }
+
+  &__menu-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-circle);
+    background: var(--login-accent);
+    color: var(--text-on-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  &__menu-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--weight-medium);
+  }
+
+  &__menu-check {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-circle);
+    background: var(--accent-active-bg);
+    color: var(--accent-text);
+    flex-shrink: 0;
+  }
+
+  &__menu-delete {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-circle);
+    background: transparent;
+    color: var(--login-text-muted);
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    flex-shrink: 0;
+
+    &:hover:not(:disabled) {
+      background: var(--delete-bg);
+      color: var(--delete-text);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+
+  &__menu-plus {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-circle);
+    box-shadow: var(--elevation-inset);
+    color: var(--login-text-muted);
+    flex-shrink: 0;
+  }
+
+  &__progress {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-24);
+  }
+
+  &__progress-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+  }
+
+  &__hint {
+    margin: 0;
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
+    color: var(--login-text-muted);
+  }
+
+  &__error {
+    @include mixins.error-box;
+
+    margin-bottom: var(--space-16);
+  }
+}
+
+.launch-scene-menu-enter-active,
+.launch-scene-menu-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.launch-scene-menu-enter-from,
+.launch-scene-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>

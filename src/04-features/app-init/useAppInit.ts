@@ -112,7 +112,7 @@ export function useAppInit() {
       }
 
       if (coreStore.offlineBuild && coreStore.projects.length === 0) {
-        router.replace({ name: 'OfflineSetup' })
+        router.replace({ name: 'Setup' })
         return
       }
 

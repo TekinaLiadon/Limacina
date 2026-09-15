@@ -131,7 +131,7 @@ export function useSkinSettings() {
     await content.handleUpload({ fileData: skinFileBytes.value, model: modelMode.value })
   }
 
-  const resetSkin = async (): Promise<void> => {
+  const resetSkinState = async (): Promise<void> => {
     resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
     content.errorMessage.value = ''
@@ -144,8 +144,14 @@ export function useSkinSettings() {
     }
   }
 
+  const resetSkin = async (): Promise<void> => {
+    const confirmed = await notification.confirm('Сбросить текущий скин?')
+    if (!confirmed) return
+    await resetSkinState()
+  }
+
   const reloadSkinPreview = async (): Promise<void> => {
-    await resetSkin()
+    await resetSkinState()
     await loadCurrentSkin()
   }
 
@@ -155,6 +161,8 @@ export function useSkinSettings() {
   }
 
   const handleDelete = async (id: number): Promise<void> => {
+    const confirmed = await notification.confirm('Удалить скин из списка загруженных?')
+    if (!confirmed) return
     await content.handleDelete(id)
     await reloadSkinPreview()
   }

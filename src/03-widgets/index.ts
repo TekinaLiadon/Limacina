@@ -1,9 +1,7 @@
 export { default as Sidebar } from './dashboard/Sidebar.vue'
 export { default as ServerStatus } from './dashboard/ServerStatus.vue'
 
-export { default as AccountList } from './tabs/accounts/AccountList.vue'
-export { default as CurrentAccount } from './tabs/accounts/CurrentAccount.vue'
-export { default as LaunchProgress } from './tabs/accounts/LaunchProgress.vue'
+export { default as LaunchScene } from './tabs/accounts/LaunchScene.vue'
 export { default as AuthTabsWidget } from './tabs/accounts/AuthTabsWidget.vue'
 
 export { default as AuthForm } from './tabs/login/AuthForm.vue'
@@ -19,7 +17,7 @@ export { default as LauncherBehavior } from './tabs/settings/LauncherBehavior.vu
 export { default as ConfigCleanup } from './tabs/settings/ConfigCleanup.vue'
 export { default as ProjectDelete } from './tabs/settings/ProjectDelete.vue'
 export { default as ThemeSelector } from './tabs/settings/ThemeSelector.vue'
-export { default as ProjectInfoFields } from './tabs/settings/ProjectInfoFields.vue'
+export { default as SettingsInfoRow } from './tabs/settings/SettingsInfoRow.vue'
 export { default as JvmPreset } from './tabs/settings/JvmPreset.vue'
 export { default as AlternativeJavaButton } from './tabs/settings/AlternativeJavaButton.vue'
 export { default as MemorySlider } from './tabs/settings/MemorySlider.vue'
@@ -30,5 +28,7 @@ export { default as ModrinthTab } from './tabs/ModrinthTab.vue'
 export { default as CpmSettings } from './tabs/settings/CpmSettings.vue'
 export { default as AccountSettings } from './tabs/settings/AccountSettings.vue'
 export { default as GameSettings } from './tabs/settings/GameSettings.vue'
+export { default as SettingsSection } from './tabs/settings/SettingsSection.vue'
+export { default as SettingsSaveBar } from './tabs/settings/SettingsSaveBar.vue'
 
 export type { TabItem, TabKey } from './types'

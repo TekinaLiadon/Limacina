@@ -37,15 +37,12 @@ const togglePack = (pack: string): void => {
 @use '@/01-app/assets/mixins';
 
 .resource-packs-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-  width: 100%;
-  max-width: var(--settings-row-width);
-  margin-inline: auto;
+  @include mixins.settings-fields-grid;
 
   &__empty {
     @include mixins.caption-hint;
+
+    text-align: left;
   }
 }
 </style>

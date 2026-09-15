@@ -56,7 +56,7 @@ const tabs = computed((): Tab[] => {
 
 const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel', 'SettingsAccount']
 
-const fullscreenRouteNames: string[] = ['Setup', 'OfflineSetup']
+const fullscreenRouteNames: string[] = ['Setup']
 
 const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
 
@@ -67,7 +67,7 @@ const needsOfflineSetup = computed((): boolean =>
 watch(needsOfflineSetup, (needed: boolean): void => {
   const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
   if (needed && !isFullscreenRoute) {
-    router.replace({ name: 'OfflineSetup' })
+    router.replace({ name: 'Setup' })
   }
 })
 
@@ -163,7 +163,14 @@ watch(isDebugTabVisible, (visible: boolean): void => {
           </div>
 
           <div class="app__body">
-            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" :show-mods="isOfflineProject" @navigate="navigateTo" />
+            <Sidebar
+              :active-tab="currentTab"
+              :settings-sub-tab="route.name as string"
+              :show-debug="isDebugTabVisible"
+              :show-mods="isOfflineProject"
+              @navigate="navigateTo"
+              @navigate-settings="(routeName: string) => router.push({ name: routeName })"
+            />
 
             <div class="app__content">
               <div class="app__content-inner">

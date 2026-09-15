@@ -121,13 +121,25 @@ export function useCpmSettings() {
     void loadFromPath(path)
   }, { immediate: true })
 
-  function resetCpm(): void {
+  function resetCpmState(): void {
     if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
 
     cpmData.value = null
     cpmFileBytes.value = null
     cpmFileName.value = ''
     content.errorMessage.value = ''
+  }
+
+  const resetCpm = async (): Promise<void> => {
+    const confirmed = await notification.confirm('Сбросить текущую модель?')
+    if (!confirmed) return
+    resetCpmState()
+  }
+
+  const handleDeleteModel = async (id: number): Promise<void> => {
+    const confirmed = await notification.confirm('Удалить модель из списка загруженных?')
+    if (!confirmed) return
+    await content.handleDelete(id)
   }
 
   const handleUploadModel = async (): Promise<void> => {
@@ -174,7 +186,7 @@ export function useCpmSettings() {
   }
 
   onScopeDispose((): void => {
-    resetCpm()
+    resetCpmState()
   })
 
   return {
@@ -192,7 +204,7 @@ export function useCpmSettings() {
     loadFromPath,
     handleUploadModel,
     handleSaveModelOffline,
-    handleDeleteModel: content.handleDelete,
+    handleDeleteModel,
     handleCopyUrl: content.handleCopyUrl,
   }
 }

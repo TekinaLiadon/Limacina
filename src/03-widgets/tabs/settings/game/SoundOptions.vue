@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { GameOptions } from '@/05-entities'
-import GameNumberField from './GameNumberField.vue'
+import GameSliderField from './GameSliderField.vue'
 
 defineProps<{
   options: GameOptions
@@ -9,73 +9,83 @@ defineProps<{
 
 <template>
   <div class="sound-options">
-    <GameNumberField
+    <GameSliderField
       label="Общая громкость"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundMaster"
       @update:model-value="options.soundMaster = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Музыка"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundMusic"
       @update:model-value="options.soundMusic = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Музыкальные блоки"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundRecord"
       @update:model-value="options.soundRecord = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Погода"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundWeather"
       @update:model-value="options.soundWeather = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Блоки"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundBlock"
       @update:model-value="options.soundBlock = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Враждебные существа"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundHostile"
       @update:model-value="options.soundHostile = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Дружелюбные существа"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundNeutral"
       @update:model-value="options.soundNeutral = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Игроки"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundPlayer"
       @update:model-value="options.soundPlayer = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Окружение"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundAmbient"
       @update:model-value="options.soundAmbient = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Речь"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.soundVoice"
       @update:model-value="options.soundVoice = $event"
     />
@@ -83,12 +93,9 @@ defineProps<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .sound-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-  width: 100%;
-  max-width: var(--settings-row-width);
-  margin-inline: auto;
+  @include mixins.settings-fields-grid;
 }
 </style>

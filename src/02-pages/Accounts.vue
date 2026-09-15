@@ -1,25 +1,24 @@
 <script setup lang="ts">
 import { useAccountsPage, useProjectConfig } from '@/04-features'
-import { AccountList, CurrentAccount, LaunchProgress, AuthTabsWidget } from '@/03-widgets'
+import { useCoreStore } from '@/05-entities'
+import { LaunchScene } from '@/03-widgets'
 
 useProjectConfig()
 
+const coreStore = useCoreStore()
 const {
   isLoading,
   errorMessage,
   logins,
   selectedUsername,
   handleSelect,
-  showAccountList,
-  showCurrentAccount,
-  showLaunchProgress,
-  showAuthTabs,
-  isSelected,
+  isLaunching,
+  showAuth,
   activeSubTab,
   launchSteps,
   activeProgress,
   loginError,
-  sessionUsername,
+  sceneUsername,
   isCancelPending,
   handleLaunch,
   showLoginForm,
@@ -31,40 +30,27 @@ const {
 
 <template>
   <div class="accounts-page">
-    <AccountList
-      v-if="showAccountList"
+    <LaunchScene
+      v-model:active-tab="activeSubTab"
+      :username="sceneUsername"
+      :selected-username="selectedUsername"
+      :has-session="coreStore.isLoggedIn"
       :logins="logins"
       :is-loading="isLoading"
-      :selected-username="selectedUsername"
-      :is-selected="isSelected"
-      :error-message="errorMessage"
-      @select="handleSelect"
-      @delete="handleDeleteAccount"
-      @show-login="showLoginForm"
-    />
-
-    <CurrentAccount
-      v-else-if="showCurrentAccount"
-      :username="sessionUsername"
-      @launch="handleLaunch"
-      @show-login="showLoginForm"
-      @go-to-accounts="goToAccounts"
-    />
-
-    <LaunchProgress
-      v-else-if="showLaunchProgress"
+      :is-launching="isLaunching"
+      :is-cancel-pending="isCancelPending"
       :progress="activeProgress"
       :steps="launchSteps"
-      :error="loginError"
-      :is-cancel-pending="isCancelPending"
-      @go-to-accounts="goToAccounts"
-    />
-
-    <AuthTabsWidget
-      v-else-if="showAuthTabs"
-      v-model:active-tab="activeSubTab"
+      :login-error="loginError"
+      :select-error="errorMessage"
+      :show-auth="showAuth"
       :show-back="showBack"
-      @back="goToAccounts"
+      @launch="handleLaunch"
+      @select="handleSelect"
+      @delete-account="handleDeleteAccount"
+      @show-login="showLoginForm"
+      @cancel="goToAccounts"
+      @auth-back="goToAccounts"
     />
   </div>
 </template>

@@ -36,6 +36,9 @@ const {
   uninstall,
 } = modrinth
 
+type ModsView = 'catalog' | 'installed'
+
+const activeView = ref<ModsView>('catalog')
 const popupVisible = ref(false)
 const activeHit = ref<ModrinthSearchHit | null>(null)
 
@@ -52,10 +55,17 @@ const categoryOptions = MODRINTH_CATEGORIES.map((option) => ({
 const mcVersionText = computed((): string => coreStore.projectConfig?.mcVersion ?? '')
 
 const isTabLoading = computed((): boolean =>
-  isLoadingInstalled.value || (isSearching.value && hits.value.length === 0),
+  isLoadingInstalled.value || (isSearching.value && hits.value.length === 0 && activeView.value === 'catalog'),
 )
 
 const tabLoadingText = computed((): string => (isLoadingInstalled.value ? 'Загрузка модов' : 'Поиск модов'))
+
+const updatesCount = computed((): number => Object.keys(updates.value).length)
+
+const viewTabs: Array<{ key: ModsView; label: string }> = [
+  { key: 'catalog', label: 'Каталог' },
+  { key: 'installed', label: 'Установленные' },
+]
 
 const paginationItems = computed((): Array<number | 'gap'> => {
   const pages = totalPages.value
@@ -126,9 +136,27 @@ onMounted(() => {
       Моды Modrinth для одиночного профиля{{ mcVersionText ? ` (Minecraft ${mcVersionText})` : '' }}. Требуемые зависимости устанавливаются автоматически.
     </p>
 
-    <section class="modrinth-tab__section">
+    <div class="modrinth-tab__views" role="tablist">
+      <button
+        v-for="view in viewTabs"
+        :key="view.key"
+        type="button"
+        role="tab"
+        class="modrinth-tab__view"
+        :class="{ 'modrinth-tab__view--active': activeView === view.key }"
+        :aria-selected="activeView === view.key"
+        @click="activeView = view.key"
+      >
+        {{ view.label }}
+        <template v-if="view.key === 'installed'">
+          <span class="modrinth-tab__view-count">{{ installed.length }}</span>
+          <span v-if="updatesCount > 0" class="modrinth-tab__view-updates">{{ updatesCount }}</span>
+        </template>
+      </button>
+    </div>
+
+    <section v-if="activeView === 'installed'" class="modrinth-tab__section">
       <div class="modrinth-tab__section-head">
-        <h3 class="modrinth-tab__section-title">Установленные моды</h3>
         <Button
           class="btn-secondary"
           :is-loading="isCheckingUpdates"
@@ -140,7 +168,7 @@ onMounted(() => {
       </div>
 
       <p v-if="installed.length === 0" class="modrinth-tab__empty">
-        Пока ничего не установлено — найдите моды поиском ниже
+        Пока ничего не установлено — найдите моды в каталоге
       </p>
       <div v-else class="modrinth-tab__list">
         <article
@@ -182,7 +210,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="modrinth-tab__section">
+    <section v-else class="modrinth-tab__section">
       <div class="modrinth-tab__search">
         <Input
           v-model="query"
@@ -211,6 +239,10 @@ onMounted(() => {
 
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
+
+      <div v-if="hits.length > 0" class="modrinth-tab__summary">
+        <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
+      </div>
 
       <p v-if="hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
       <div v-else class="modrinth-tab__list">
@@ -279,13 +311,18 @@ onMounted(() => {
         >
           ›
         </Button>
-        <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
       </div>
     </section>
 
     <ModrinthProjectPopup
       :visible="popupVisible"
       :hit="activeHit"
+      :is-installed="activeHit !== null && isInstalled(activeHit)"
+      :update-version="(activeHit !== null ? availableUpdate(activeHit) : '') ?? ''"
+      :is-busy="activeHit !== null && isBusy(activeHit.project_id)"
+      :is-busy-any="installingId !== null"
+      @install="activeHit !== null && handleInstall(activeHit)"
+      @update="activeHit !== null && handleUpdate(activeHit)"
       @close="popupVisible = false"
     />
 
@@ -309,6 +346,66 @@ onMounted(() => {
     text-align: left;
   }
 
+  &__views {
+    @include mixins.segmented;
+
+    align-self: flex-start;
+  }
+
+  &__view {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-16);
+    border: none;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--login-text-muted);
+    font-family: inherit;
+    font-size: var(--text-body-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+
+    &:hover:not(&--active) {
+      color: var(--login-text-primary);
+      background: var(--surface-light);
+    }
+
+    &--active {
+      @include mixins.segmented-active;
+    }
+  }
+
+  &__view-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--surface-active);
+    color: var(--login-text-secondary);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__view-updates {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--accent-active-bg);
+    color: var(--accent-text);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    font-variant-numeric: tabular-nums;
+  }
+
   &__section {
     display: flex;
     flex-direction: column;
@@ -318,13 +415,9 @@ onMounted(() => {
   &__section-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: var(--space-8);
     flex-wrap: wrap;
-  }
-
-  &__section-title {
-    font-size: var(--text-subtitle);
   }
 
   &__search {
@@ -336,6 +429,11 @@ onMounted(() => {
     &-input {
       flex: 1 1 240px;
     }
+  }
+
+  &__summary {
+    display: flex;
+    justify-content: flex-end;
   }
 
   &__list {

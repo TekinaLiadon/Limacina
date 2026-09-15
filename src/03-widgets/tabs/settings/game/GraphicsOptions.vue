@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { GameCloudsMode, GameOptions } from '@/05-entities'
 import type { DropdownOption } from '@/06-shared'
-import GameNumberField from './GameNumberField.vue'
+import GameSliderField from './GameSliderField.vue'
 import GameDropdownField from './GameDropdownField.vue'
 import GameCheckboxField from './GameCheckboxField.vue'
 
@@ -47,38 +47,40 @@ const guiScaleOptions: DropdownOption[] = [
 
 <template>
   <div class="graphics-options">
-    <GameNumberField
+    <GameSliderField
       label="Угол обзора (FOV)"
       :min="30"
       :max="110"
       :model-value="options.fov"
       @update:model-value="options.fov = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Яркость"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.gamma"
       @update:model-value="options.gamma = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Дальность прорисовки (чанки)"
       :min="2"
       :max="32"
       :model-value="options.renderDistance"
       @update:model-value="options.renderDistance = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Дальность симуляции (чанки)"
       :min="5"
       :max="32"
       :model-value="options.simulationDistance"
       @update:model-value="options.simulationDistance = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Максимум FPS"
       :min="10"
       :max="260"
+      :step="10"
       :model-value="options.maxFps"
       @update:model-value="options.maxFps = $event"
     />
@@ -136,12 +138,9 @@ const guiScaleOptions: DropdownOption[] = [
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .graphics-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-  width: 100%;
-  max-width: var(--settings-row-width);
-  margin-inline: auto;
+  @include mixins.settings-fields-grid;
 }
 </style>

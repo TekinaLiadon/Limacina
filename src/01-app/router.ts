@@ -68,11 +68,6 @@ const router = createRouter({
       name: 'Setup',
       component: () => import('@/02-pages/Setup.vue'),
     },
-    {
-      path: '/offline-setup',
-      name: 'OfflineSetup',
-      component: () => import('@/02-pages/OfflineSetup.vue'),
-    },
   ],
 })
 

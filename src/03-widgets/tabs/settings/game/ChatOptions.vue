@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { GameChatVisibility, GameOptions } from '@/05-entities'
 import type { DropdownOption } from '@/06-shared'
-import GameNumberField from './GameNumberField.vue'
+import GameSliderField from './GameSliderField.vue'
 import GameDropdownField from './GameDropdownField.vue'
 import GameCheckboxField from './GameCheckboxField.vue'
 
@@ -24,45 +24,51 @@ const visibilityOptions: DropdownOption[] = [
       :model-value="options.chatVisibility"
       @update:model-value="options.chatVisibility = $event as GameChatVisibility"
     />
-    <GameNumberField
+    <GameSliderField
       label="Масштаб чата"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.chatScale"
       @update:model-value="options.chatScale = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Ширина чата"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.chatWidth"
       @update:model-value="options.chatWidth = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Прозрачность фона"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.chatOpacity"
       @update:model-value="options.chatOpacity = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Межстрочный интервал"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.chatLineSpacing"
       @update:model-value="options.chatLineSpacing = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Задержка сообщений"
       :min="0"
       :max="6"
+      :step="0.5"
       :model-value="options.chatDelay"
       @update:model-value="options.chatDelay = $event"
     />
-    <GameNumberField
+    <GameSliderField
       label="Прозрачность фона текста"
       :min="0"
       :max="1"
+      :step="0.05"
       :model-value="options.textBackgroundOpacity"
       @update:model-value="options.textBackgroundOpacity = $event"
     />
@@ -85,12 +91,9 @@ const visibilityOptions: DropdownOption[] = [
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .chat-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-  width: 100%;
-  max-width: var(--settings-row-width);
-  margin-inline: auto;
+  @include mixins.settings-fields-grid;
 }
 </style>

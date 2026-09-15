@@ -104,12 +104,12 @@ const setPlaying = (playing: boolean): void => {
     </div>
 
     <div class="cpm-settings__actions">
-      <Button class="btn-secondary cpm-settings__btn" @click="selectCpmFile">
+      <Button class="btn-primary cpm-settings__btn" @click="selectCpmFile">
         {{ hasModel ? 'Заменить модель' : 'Загрузить модель' }}
       </Button>
       <Button
         v-if="hasModel && !isOffline"
-        class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
+        class="btn-secondary cpm-settings__btn cpm-settings__btn--upload"
         :is-loading="isUploading"
         :is-disabled="isUploading"
         @click="handleUploadModel"
@@ -118,7 +118,7 @@ const setPlaying = (playing: boolean): void => {
       </Button>
       <Button
         v-if="hasModel && isOffline"
-        class="btn-primary cpm-settings__btn cpm-settings__btn--upload"
+        class="btn-secondary cpm-settings__btn cpm-settings__btn--upload"
         :is-loading="isSaving"
         :is-disabled="isSaving"
         @click="handleSaveModelOffline"
@@ -130,7 +130,7 @@ const setPlaying = (playing: boolean): void => {
         class="btn-danger cpm-settings__btn cpm-settings__btn--reset"
         @click="resetCpm"
       >
-        Удалить
+        Сбросить модель
       </Button>
     </div>
 

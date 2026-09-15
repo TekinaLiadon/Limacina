@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type GameOptions } from '@/05-entities'
 import {
   getGameOptions,
@@ -53,6 +53,7 @@ export function useGameOptions(): {
   isLoading: Ref<boolean>
   isSaving: Ref<boolean>
   isSavingGlobal: Ref<boolean>
+  isDirty: ComputedRef<boolean>
   hasGlobal: Ref<boolean>
   fileExists: Ref<boolean>
   availableResourcePacks: Ref<string[]>
@@ -71,7 +72,14 @@ export function useGameOptions(): {
   const hasGlobal = ref<boolean>(false)
   const fileExists = ref<boolean>(false)
   const availableResourcePacks = ref<string[]>([])
+  const savedSnapshot = ref<string>('')
   let loadedProject = ''
+
+  const optionsSnapshot = (): string => JSON.stringify(options.value)
+
+  const isDirty = computed<boolean>((): boolean =>
+    savedSnapshot.value !== '' && savedSnapshot.value !== optionsSnapshot(),
+  )
 
   const loadOptions = async (project: string, force: boolean = false): Promise<void> => {
     if (!project) return
@@ -85,6 +93,7 @@ export function useGameOptions(): {
       fileExists.value = data.fileExists
       availableResourcePacks.value = data.availableResourcePacks
       loadedProject = project
+      savedSnapshot.value = optionsSnapshot()
     } catch (e: unknown) {
       reportError('Не удалось загрузить настройки игры', e)
     } finally {
@@ -119,6 +128,7 @@ export function useGameOptions(): {
     try {
       await saveGameOptions(project, options.value)
       fileExists.value = true
+      savedSnapshot.value = optionsSnapshot()
       notification.show('Настройки игры сохранены')
     } catch (e: unknown) {
       notification.show(String(e))
@@ -147,6 +157,7 @@ export function useGameOptions(): {
     isLoading,
     isSaving,
     isSavingGlobal,
+    isDirty,
     hasGlobal,
     fileExists,
     availableResourcePacks,

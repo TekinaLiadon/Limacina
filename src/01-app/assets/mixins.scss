@@ -182,3 +182,11 @@
     flex-shrink: 0;
   }
 }
+
+@mixin settings-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--settings-field-min)), 1fr));
+  gap: var(--element-gap) var(--section-gap);
+  align-items: start;
+  width: 100%;
+}

@@ -15,7 +15,7 @@ const isDisabled = computed((): boolean => props.isClearing ?? false)
 
 <template>
   <Button
-    class="btn-secondary"
+    class="btn-danger"
     :is-disabled="isDisabled"
     :is-loading="isClearing ?? false"
     @click="emit('clear')"

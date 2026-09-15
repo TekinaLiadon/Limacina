@@ -97,7 +97,7 @@ a {
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width)), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--settings-field-min)), 1fr));
   gap: var(--element-gap);
   align-items: start;
 

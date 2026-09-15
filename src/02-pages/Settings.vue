@@ -1,64 +1,18 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Button } from '@/06-shared'
-import { useCoreStore } from '@/05-entities'
-import { useProjectSettings } from '@/04-features'
-
-type SettingsSubTab = 'project' | 'game' | 'launcher' | 'skin' | 'model' | 'account'
-
-interface Tab {
-  key: SettingsSubTab
-  label: string
-  name: string
-  needsInit?: boolean
-  needsAuth?: boolean
-  hiddenOffline?: boolean
-}
+import { useProjectSettings, useSettingsNav } from '@/04-features'
 
 const router = useRouter()
 const route = useRoute()
-const coreStore = useCoreStore()
-
-const tabs: Tab[] = [
-  { key: 'launcher', label: 'Лаунчер', name: 'SettingsLauncher' },
-  { key: 'project', label: 'Проект', name: 'SettingsProject', needsInit: true },
-  { key: 'game', label: 'Игра', name: 'SettingsGame', needsInit: true },
-  { key: 'account', label: 'Аккаунт', name: 'SettingsAccount', needsInit: true, needsAuth: true, hiddenOffline: true },
-  { key: 'skin', label: 'Скин', name: 'SettingsSkin', needsInit: true, needsAuth: true },
-  { key: 'model', label: 'Модель', name: 'SettingsModel', needsInit: true, needsAuth: true },
-]
 
 const { config, isLoaded } = useProjectSettings()
+const { items: tabs } = useSettingsNav()
 
-const activeSubTab = computed((): SettingsSubTab => {
-  const result = tabs.find((el) => el.name === route.name)
-
-  if (!result) return 'launcher'
-  return result.key
-})
-
-const isProjectDisabled = computed((): boolean => {
-  return !isLoaded.value || !(coreStore.projectConfig?.initialized ?? config.value.initialized)
-})
-
-const isOfflineProject = computed((): boolean => isLoaded.value && !config.value.online)
-
-const visibleTabs = computed((): Tab[] =>
-  tabs.filter((tab) => !(isOfflineProject.value && tab.hiddenOffline === true)),
-)
-
-const isTabDisabled = (tab: Tab): boolean => {
-  if (isOfflineProject.value) return false
-  if (tab.needsInit && isProjectDisabled.value) return true
-  if (tab.needsAuth && !coreStore.isLoggedIn) return true
-  return false
-}
-
-watch(isOfflineProject, (offline) => {
+watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   if (offline && route.name === 'SettingsAccount') router.replace({ name: 'SettingsLauncher' })
 })
-
 </script>
 
 <template>
@@ -67,14 +21,15 @@ watch(isOfflineProject, (offline) => {
 
     <div class="settings-page__tabs" role="tablist">
       <Button
-        v-for="tab in visibleTabs"
+        v-for="tab in tabs"
         :key="tab.key"
         class="settings-page__tab"
-        :class="{ 'settings-page__tab--active': activeSubTab === tab.key }"
+        :class="{ 'settings-page__tab--active': route.name === tab.routeName }"
         role="tab"
-        :aria-selected="activeSubTab === tab.key"
-        :is-disabled="isTabDisabled(tab)"
-        @click="router.push({ name: tab.name })"
+        :aria-selected="route.name === tab.routeName"
+        :is-disabled="!tab.isAvailable"
+        :title="tab.isAvailable ? undefined : tab.reason"
+        @click="tab.isAvailable && router.push({ name: tab.routeName })"
       >
         {{ tab.label }}
       </Button>
@@ -108,6 +63,7 @@ watch(isOfflineProject, (offline) => {
   &__tabs {
     @include mixins.segmented;
 
+    display: none;
     margin-bottom: var(--tabs-gap);
   }
 
@@ -143,6 +99,7 @@ watch(isOfflineProject, (offline) => {
 
   @include breakpoints.media-under-lg {
     &__tabs {
+      display: flex;
       gap: var(--space-4);
     }
 
