@@ -27,9 +27,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": true,
     "category": "Game",
+    "publisher": "Tekina",
+    "copyright": "© 2026 Tekina",
     "shortDescription": "Лаунчер Minecraft: установка игры, модов и Java в один клик",
     "longDescription": "Limacina — Minecraft-лаунчер: устанавливает игру и Java, поддерживает Vanilla, Fabric, Forge и NeoForge, синхронизирует файлы и моды с сервером, управляет скинами и моделями игроков и обновляется автоматически.",
     "icon": [
@@ -42,14 +46,20 @@
     "windows": {
       "nsis": {
         "template": "./windows/installer.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "installMode": "currentUser",
-        "languages": ["Russian"],
+        "languages": [
+          "Russian"
+        ],
         "compression": "lzma"
       }
     },
     "fileAssociations": [
       {
-        "ext": ["cpmproject"],
+        "ext": [
+          "cpmproject"
+        ],
         "name": "CPM Project",
         "role": "Editor"
       }
@@ -57,10 +67,10 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
       "windows": {
         "installMode": "quiet"
-      }
+      },
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzREREQjUxRUUwNDc0ODEKUldTQmRBVHVVZHZkNHdMcFRUZlpWKzh2VzU5WS9LSFh4YTlERUU3WVRJanQvWHBkRmpGOGwvSFgK"
     }
   }
 }
