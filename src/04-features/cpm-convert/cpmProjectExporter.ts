@@ -1,6 +1,6 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
 import JSZip from 'jszip'
-import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities/core/types'
+import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
   END: 0, PLAYER: 1, DEFINITION: 3, SKIN: 5, PLAYER_PARTPOS: 7,
@@ -406,8 +406,4 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
   def.writeObjectBlock(PT.END, () => {})
 
   return def.toArray()
-}
-
-export function cpmConfigToBase64(config: CPMConfig, skinPng: Uint8Array | null = null): string {
-  return bytesToBase64(cpmConfigToBytes(config, skinPng))
 }

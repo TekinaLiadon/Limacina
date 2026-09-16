@@ -32,7 +32,7 @@ defineEmits<{
 .settings-save-bar {
   position: sticky;
   bottom: 0;
-  z-index: 10;
+  z-index: var(--z-sticky);
   margin: auto calc(-1 * var(--page-padding-x)) 0;
   padding: var(--space-16) var(--page-padding-x);
   background: var(--login-bg-form);

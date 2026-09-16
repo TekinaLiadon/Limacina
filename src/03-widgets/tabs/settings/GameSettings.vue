@@ -39,15 +39,15 @@ const {
     </div>
 
     <SettingsSection title="Графика" storage-key="game-graphics">
-      <GraphicsOptions :options="options" />
+      <GraphicsOptions :options="options" @update:options="options = $event" />
     </SettingsSection>
 
     <SettingsSection title="Звук" storage-key="game-sound">
-      <SoundOptions :options="options" />
+      <SoundOptions :options="options" @update:options="options = $event" />
     </SettingsSection>
 
     <SettingsSection title="Чат" storage-key="game-chat">
-      <ChatOptions :options="options" />
+      <ChatOptions :options="options" @update:options="options = $event" />
     </SettingsSection>
 
     <SettingsSection title="Ресурспаки" storage-key="game-packs">
@@ -55,6 +55,7 @@ const {
         :options="options"
         :available-packs="availableResourcePacks"
         :is-loading="isLoading"
+        @update:options="options = $event"
       />
     </SettingsSection>
 

@@ -1,13 +1,11 @@
 import { ref, computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
   getErrorMessage,
   listSkins, uploadSkin, deleteSkin, setActiveSkin,
   listModels, uploadModel, deleteModel,
 } from '@/06-shared/api'
-import type { UserContentItem } from '@/05-entities/core/types'
-import type { SkinModelMode } from '@/03-widgets/types'
 
 interface SkinUploadPayload {
   fileData: Uint8Array

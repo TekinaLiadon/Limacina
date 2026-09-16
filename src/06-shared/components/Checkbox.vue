@@ -13,7 +13,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <label class="checkbox" :class="{ 'checkbox--disabled': disabled }">
+  <label
+    class="checkbox"
+    :class="{ 'checkbox--disabled': disabled }"
+    role="checkbox"
+    :aria-checked="modelValue"
+  >
     <input
       type="checkbox"
       class="checkbox__input"
@@ -35,6 +40,7 @@ const emit = defineEmits<{
   gap: 10px;
   cursor: pointer;
   user-select: none;
+  position: relative;
 
   &--disabled {
     opacity: 0.5;
@@ -42,7 +48,14 @@ const emit = defineEmits<{
   }
 
   &__input {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   &__box {
@@ -63,15 +76,14 @@ const emit = defineEmits<{
       box-shadow: var(--elevation-inset);
     }
 
+    .checkbox__input:focus-visible + & {
+      outline: var(--focus-ring);
+      outline-offset: var(--focus-ring-offset);
+    }
+
     .checkbox:hover & {
       box-shadow: var(--elevation-inset-strong);
     }
-  }
-
-  &__icon {
-    width: 12px;
-    height: 10px;
-    color: var(--text-on-accent);
   }
 
   &__label {

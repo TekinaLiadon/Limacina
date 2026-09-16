@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -127,7 +127,7 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
 }
 
 pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
-    let menu = build_menu(app)?;
+    let menu = build_menu(app).context("Не удалось построить меню трея")?;
 
     let icon = app
         .default_window_icon()
@@ -154,9 +154,11 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
                 show_main_window(tray.app_handle());
             }
         })
-        .build(app)?;
+        .build(app)
+        .context("Не удалось создать иконку трея")?;
 
-    tray.set_visible(minimize_to_tray_enabled())?;
+    tray.set_visible(minimize_to_tray_enabled())
+        .context("Не удалось изменить видимость иконки трея")?;
 
     log_info!("Иконка трея инициализирована");
     Ok(())

@@ -4,7 +4,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { Button, MarkdownText, useFocusTrap } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
-import type { ModrinthSearchHit, ModrinthProjectDetails, ModrinthVersion } from '@/05-entities/modrinth/types'
+import type { ModrinthSearchHit, ModrinthProjectDetails, ModrinthVersion, ModrinthSide, ModrinthVersionType } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -36,14 +36,13 @@ const details = ref<ModrinthProjectDetails | null>(null)
 const isLoading = ref(false)
 const expandedChangelogs = ref<Set<string>>(new Set())
 
-const sideLabels: Record<string, string> = {
+const sideLabels: Record<ModrinthSide, string> = {
   required: 'обязателен',
   optional: 'опционален',
   unsupported: 'не поддерживается',
-  unknown: 'неизвестно',
 }
 
-const versionTypeLabels: Record<string, string> = {
+const versionTypeLabels: Record<ModrinthVersionType, string> = {
   release: 'релиз',
   beta: 'бета',
   alpha: 'альфа',
@@ -64,7 +63,9 @@ const statText = computed((): string => {
 const sideText = computed((): string => {
   const project = details.value?.project
   if (!project) return ''
-  return `Клиент: ${sideLabels[project.client_side ?? 'unknown'] ?? project.client_side} · Сервер: ${sideLabels[project.server_side ?? 'unknown'] ?? project.server_side}`
+  const sideLabel = (side: ModrinthSide | null): string =>
+    side === null ? 'неизвестно' : sideLabels[side]
+  return `Клиент: ${sideLabel(project.client_side)} · Сервер: ${sideLabel(project.server_side)}`
 })
 
 const links = computed((): Array<{ label: string; url: string }> => {
@@ -212,7 +213,7 @@ function handleLink(url: string): void {
               <div v-for="version in details.versions" :key="version.id" class="modrinth-popup__version">
                 <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
                 <span class="modrinth-popup__version-meta">
-                  {{ versionTypeLabels[version.version_type] ?? version.version_type }} ·
+                  {{ versionTypeLabels[version.version_type] }} ·
                   {{ version.loaders.join(', ') }} ·
                   {{ formatDate(version.date_published) }} ·
                   {{ formatNumber(version.downloads) }} загрузок
@@ -257,7 +258,7 @@ function handleLink(url: string): void {
 .modrinth-popup-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -293,8 +294,8 @@ function handleLink(url: string): void {
   }
 
   &__title {
-    font-size: var(--text-title);
-    line-height: var(--leading-title);
+    font-size: var(--text-heading-sm);
+    line-height: var(--leading-heading);
     overflow-wrap: anywhere;
   }
 
@@ -345,7 +346,7 @@ function handleLink(url: string): void {
     height: 24px;
     border-radius: var(--radius-circle);
     border: 2px solid var(--surface-light);
-    border-top-color: var(--accent-primary);
+    border-top-color: var(--accent-text);
     animation: modrinth-popup-spin var(--duration-spin) linear infinite;
   }
 
@@ -404,7 +405,7 @@ function handleLink(url: string): void {
 
   &__versions-title {
     margin: 0;
-    font-size: var(--text-subtitle);
+    font-size: var(--text-subheading);
   }
 
   &__versions {
@@ -427,7 +428,7 @@ function handleLink(url: string): void {
   }
 
   &__version-number {
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-medium);
     overflow-wrap: anywhere;
   }
 

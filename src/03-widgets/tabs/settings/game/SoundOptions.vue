@@ -2,9 +2,15 @@
 import type { GameOptions } from '@/05-entities'
 import GameSliderField from './GameSliderField.vue'
 
-defineProps<{
+const props = defineProps<{
   options: GameOptions
 }>()
+
+const emit = defineEmits<{ 'update:options': [GameOptions] }>()
+
+const patch = <K extends keyof GameOptions>(key: K, value: GameOptions[K]): void => {
+  emit('update:options', { ...props.options, [key]: value })
+}
 </script>
 
 <template>
@@ -15,7 +21,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundMaster"
-      @update:model-value="options.soundMaster = $event"
+      @update:model-value="patch('soundMaster', $event)"
     />
     <GameSliderField
       label="Музыка"
@@ -23,7 +29,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundMusic"
-      @update:model-value="options.soundMusic = $event"
+      @update:model-value="patch('soundMusic', $event)"
     />
     <GameSliderField
       label="Музыкальные блоки"
@@ -31,7 +37,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundRecord"
-      @update:model-value="options.soundRecord = $event"
+      @update:model-value="patch('soundRecord', $event)"
     />
     <GameSliderField
       label="Погода"
@@ -39,7 +45,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundWeather"
-      @update:model-value="options.soundWeather = $event"
+      @update:model-value="patch('soundWeather', $event)"
     />
     <GameSliderField
       label="Блоки"
@@ -47,7 +53,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundBlock"
-      @update:model-value="options.soundBlock = $event"
+      @update:model-value="patch('soundBlock', $event)"
     />
     <GameSliderField
       label="Враждебные существа"
@@ -55,7 +61,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundHostile"
-      @update:model-value="options.soundHostile = $event"
+      @update:model-value="patch('soundHostile', $event)"
     />
     <GameSliderField
       label="Дружелюбные существа"
@@ -63,7 +69,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundNeutral"
-      @update:model-value="options.soundNeutral = $event"
+      @update:model-value="patch('soundNeutral', $event)"
     />
     <GameSliderField
       label="Игроки"
@@ -71,7 +77,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundPlayer"
-      @update:model-value="options.soundPlayer = $event"
+      @update:model-value="patch('soundPlayer', $event)"
     />
     <GameSliderField
       label="Окружение"
@@ -79,7 +85,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundAmbient"
-      @update:model-value="options.soundAmbient = $event"
+      @update:model-value="patch('soundAmbient', $event)"
     />
     <GameSliderField
       label="Речь"
@@ -87,7 +93,7 @@ defineProps<{
       :max="1"
       :step="0.05"
       :model-value="options.soundVoice"
-      @update:model-value="options.soundVoice = $event"
+      @update:model-value="patch('soundVoice', $event)"
     />
   </div>
 </template>

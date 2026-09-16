@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import anime from 'animejs'
 import { isAnimationsEnabled } from '@/06-shared'
-import type { StepProgressItem } from '@/05-entities/core/types'
+import type { StepProgressItem } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
   steps: StepProgressItem[]
@@ -86,24 +86,11 @@ watch(
   () => { void animateHeight() },
 )
 
-const getIndicatorClass = (status: StepProgressItem['status']): string => {
-  const map: Record<StepProgressItem['status'], string> = {
-    pending: 'step-progress__indicator--pending',
-    active: 'step-progress__indicator--active',
-    done: 'step-progress__indicator--done',
-    error: 'step-progress__indicator--error',
-  }
-  return map[status]
-}
-
-const getIcon = (status: StepProgressItem['status']): string => {
-  const map: Record<StepProgressItem['status'], string> = {
-    pending: '○',
-    active: '●',
-    done: '✓',
-    error: '✕',
-  }
-  return map[status]
+const STATUS_META: Record<StepProgressItem['status'], { modifier: string; icon: string }> = {
+  pending: { modifier: 'step-progress__indicator--pending', icon: '○' },
+  active: { modifier: 'step-progress__indicator--active', icon: '●' },
+  done: { modifier: 'step-progress__indicator--done', icon: '✓' },
+  error: { modifier: 'step-progress__indicator--error', icon: '✕' },
 }
 
 const hasCounter = (step: StepProgressItem): boolean =>
@@ -125,12 +112,12 @@ const subLabel = (step: StepProgressItem): string => {
       <div
         v-for="step in visibleSteps"
         :key="step.key"
-        :ref="el => { if (step.status === 'active') activeRef = el as HTMLDivElement }"
+        :ref="(el) => { activeRef = step.status === 'active' ? (el as HTMLDivElement | null) : null }"
         class="step-progress__item"
         :class="`step-progress__item--${step.status}`"
       >
-        <div class="step-progress__indicator" :class="getIndicatorClass(step.status)">
-          {{ getIcon(step.status) }}
+        <div class="step-progress__indicator" :class="STATUS_META[step.status].modifier">
+          {{ STATUS_META[step.status].icon }}
         </div>
         <div class="step-progress__content">
           <span class="step-progress__label">

@@ -94,6 +94,57 @@ async fn install_context(state: &Mutex<GlobalState>) -> Result<InstallContext> {
     })
 }
 
+async fn collect_installed_hashes(
+    mods_dir: &std::path::Path,
+) -> std::collections::HashMap<String, String> {
+    let mut local_hashes: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
+    let mut entries = match tokio::fs::read_dir(mods_dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return local_hashes,
+        Err(e) => {
+            log_err!("[modrinth] Не удалось прочитать папку модов {:?}: {}", mods_dir, e);
+            return local_hashes;
+        }
+    };
+
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => break,
+            Err(e) => {
+                log_err!("[modrinth] Не удалось прочитать запись в папке модов: {}", e);
+                continue;
+            }
+        };
+
+        if !entry
+            .file_type()
+            .await
+            .map(|t| t.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "part") {
+            continue;
+        }
+        let filename = entry.file_name().to_string_lossy().to_string();
+        match file_sha1(&path).await {
+            Ok(hash) => {
+                local_hashes.insert(filename, hash);
+            }
+            Err(e) => {
+                log_err!("[modrinth] Не удалось вычислить хеш {:?}: {}", path, e);
+            }
+        }
+    }
+
+    local_hashes
+}
+
 #[tauri::command]
 pub async fn modrinth_search(
     query: Option<String>,
@@ -185,34 +236,7 @@ pub async fn modrinth_installed(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Vec<InstalledMod>> {
     let ctx = install_context(&state).await?;
-
-    let mut local_hashes: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    if let Ok(mut entries) = tokio::fs::read_dir(&ctx.mods_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if !entry
-                .file_type()
-                .await
-                .map(|t| t.is_file())
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "part") {
-                continue;
-            }
-            let filename = entry.file_name().to_string_lossy().to_string();
-            match file_sha1(&path).await {
-                Ok(hash) => {
-                    local_hashes.insert(filename, hash);
-                }
-                Err(e) => {
-                    log_err!("[modrinth] Не удалось вычислить хеш {:?}: {}", path, e);
-                }
-            }
-        }
-    }
+    let local_hashes = collect_installed_hashes(&ctx.mods_dir).await;
 
     let manifest: ModrinthManifest = LauncherError::classify(
         sync_installed_from_hashes(&ctx, local_hashes).await,
@@ -283,4 +307,42 @@ pub async fn modrinth_uninstall(
         LauncherError::Modrinth,
     )?;
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::collect_installed_hashes;
+    use crate::test_support::LauncherDirGuard;
+
+    #[tokio::test]
+    async fn collect_installed_hashes_skips_entries_with_read_error() {
+        let guard = LauncherDirGuard::acquire("modrinth_installed_scan").await;
+        let mods_dir = guard.project_dir("Proj").join("mods");
+        tokio::fs::create_dir_all(&mods_dir)
+            .await
+            .expect("создание папки модов");
+        tokio::fs::write(mods_dir.join("good.jar"), b"jar-content")
+            .await
+            .expect("запись мода");
+
+        let unreadable = mods_dir.join("broken.jar");
+        tokio::fs::write(&unreadable, b"broken")
+            .await
+            .expect("запись проблемного мода");
+        deny_read_permission(&unreadable);
+
+        let hashes = collect_installed_hashes(&mods_dir).await;
+        assert_eq!(hashes.len(), 1, "скан должен продолжиться после ошибки чтения");
+        assert!(hashes.contains_key("good.jar"));
+    }
+
+    fn deny_read_permission(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(path)
+            .expect("метаданные проблемного мода")
+            .permissions();
+        permissions.set_mode(0o000);
+        std::fs::set_permissions(path, permissions).expect("права на проблемный мод");
+    }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Button, Checkbox, Dropdown, Input } from '@/06-shared'
 import type { DropdownOption } from '@/06-shared/types'
-import type { OfflineProfileForm as OfflineForm } from '@/05-entities/core/types'
+import type { OfflineProfileForm as OfflineForm } from '@/05-entities'
 
 const props = defineProps<{
   form: OfflineForm

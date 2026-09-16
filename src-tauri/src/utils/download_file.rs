@@ -28,6 +28,15 @@ pub async fn write_atomic(dest: &Path, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
+pub fn write_atomic_sync(dest: &Path, content: &[u8]) -> Result<()> {
+    let tmp = part_path(dest);
+    std::fs::write(&tmp, content)
+        .with_context(|| format!("Не удалось записать файл во {:?}", tmp))?;
+    std::fs::rename(&tmp, dest)
+        .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, dest))?;
+    Ok(())
+}
+
 pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
     let client = http_client();
 
@@ -173,4 +182,76 @@ pub async fn file_sha1(path: &Path) -> Result<String> {
     tokio::task::spawn_blocking(move || hash_file_blocking::<Sha1>(&path))
         .await
         .context("Ошибка при вычислении SHA1")?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{part_path, write_stream_to_atomic};
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::http::http_client;
+    use mockito::Server;
+
+    #[tokio::test]
+    async fn broken_stream_deletes_part_and_keeps_dest_absent() {
+        let dir = LauncherDirGuard::acquire("broken_stream").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/big-file")
+            .with_status(200)
+            .with_chunked_body(|writer| {
+                writer.write_all(b"partial bytes")?;
+                Err(std::io::Error::other("соединение оборвано"))
+            })
+            .create_async()
+            .await;
+
+        let dest = dir.root().join("downloads").join("big-file.bin");
+        let url = format!("{}/big-file", server.url());
+        let response = http_client()
+            .get(&url)
+            .send()
+            .await
+            .expect("запрос к серверу")
+            .error_for_status()
+            .expect("статус 200");
+
+        let result = write_stream_to_atomic(response, &dest, &url).await;
+
+        assert!(result.is_err(), "оборванный поток должен возвращать ошибку");
+        assert!(!dest.exists(), "файл назначения не должен появиться");
+        assert!(!part_path(&dest).exists(), "part-файл должен быть удалён");
+    }
+
+    #[tokio::test]
+    async fn full_stream_writes_file_without_part_leftover() {
+        let dir = LauncherDirGuard::acquire("full_stream").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/small-file")
+            .with_status(200)
+            .with_body("complete body")
+            .create_async()
+            .await;
+
+        let dest = dir.root().join("downloads").join("small-file.bin");
+        let url = format!("{}/small-file", server.url());
+        let response = http_client()
+            .get(&url)
+            .send()
+            .await
+            .expect("запрос к серверу")
+            .error_for_status()
+            .expect("статус 200");
+
+        let written = write_stream_to_atomic(response, &dest, &url)
+            .await
+            .expect("успешная загрузка");
+
+        assert_eq!(written, "complete body".len() as u64);
+        assert_eq!(
+            std::fs::read(&dest).expect("файл назначения"),
+            b"complete body"
+        );
+        assert!(!part_path(&dest).exists(), "part-файла быть не должно");
+    }
 }

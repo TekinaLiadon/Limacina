@@ -24,7 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const rootRef = ref<HTMLDivElement | null>(null)
-const { shown, openUp, maxHeight, toggle } = useDropdownPanel(
+const { shown, openUp, maxHeight, panelRef, toggle } = useDropdownPanel(
   rootRef,
   (): boolean => props.disabled,
   (): number => props.maxVisible,
@@ -84,7 +84,7 @@ function clear(): void {
       </button>
     </div>
     <Transition name="multi-select-options">
-      <div v-if="shown" class="multi-select-options" :style="{ maxHeight }">
+      <div v-if="shown" ref="panelRef" class="multi-select-options" :style="{ maxHeight }">
         <div
           v-for="option in props.options"
           :key="option.value"
@@ -198,12 +198,6 @@ function clear(): void {
     justify-content: center;
     transition: background-color var(--duration-base) var(--ease-out);
     flex-shrink: 0;
-
-    svg {
-      width: 12px;
-      height: 10px;
-      color: var(--text-on-accent);
-    }
   }
 
   &__item--selected &__check {

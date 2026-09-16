@@ -1,8 +1,7 @@
 import { watch, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene, removeGroupFromScene, createManagedTextureLoader } from '@/06-shared'
+import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
 import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
-import type { ViewerControls } from '@/03-widgets/types'
 
 interface BodyPart {
   w: number

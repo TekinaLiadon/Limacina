@@ -1,7 +1,6 @@
-import { useAccountsStore, useCoreStore } from '@/05-entities'
+import { useAccountsStore, useCoreStore, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
 import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
-import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
 
 const MIN_DISPLAY_MS = 500
 const FLUSH_TIMEOUT_MS = 5000

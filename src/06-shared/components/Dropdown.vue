@@ -19,7 +19,7 @@ const emit = defineEmits<{
 }>()
 
 const rootRef = ref<HTMLDivElement | null>(null)
-const { shown, openUp, maxHeight, toggle, close } = useDropdownPanel(
+const { shown, openUp, maxHeight, panelRef, toggle, close } = useDropdownPanel(
   rootRef,
   (): boolean => props.disabled,
   (): number => props.maxVisible,
@@ -54,7 +54,7 @@ function selectOption(value: string): void {
       <slot name="trailing" />
     </div>
     <Transition name="dropdown-options">
-      <div v-if="shown" class="dropdown-options" :style="{ maxHeight }">
+      <div v-if="shown" ref="panelRef" class="dropdown-options" :style="{ maxHeight }">
         <div
           v-for="option in props.options"
           :key="option.value"

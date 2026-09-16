@@ -1,6 +1,5 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
-import type { UpdateVersionInfo } from '@/05-entities/core/types'
+import { useCoreStore, useNotificationStore, type UpdateVersionInfo } from '@/05-entities'
 import { applyUpdateCmd, getErrorMessage, getLauncherVersions } from '@/06-shared/api'
 
 export function useLauncherUpdate(): {

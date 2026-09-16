@@ -4,7 +4,7 @@ pub mod manifest;
 pub mod rules;
 pub mod structs;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 
 use crate::minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL};
@@ -39,8 +39,9 @@ impl MinecraftLoader for Vanilla {
             VERSION_MANIFEST_URL,
             "index",
         )
-        .await?;
-        let manifest = create_manifest_versions(manifest_index.versions)?;
+        .await
+        .context("Не удалось загрузить индекс манифеста версий")?;
+        let manifest = create_manifest_versions(manifest_index.versions);
         Ok(manifest)
     }
     async fn setup(&self, state: &ProjectConfig) -> Result<()> {
@@ -56,7 +57,8 @@ impl MinecraftLoader for Vanilla {
             step_try!(version_step, get_manifest_version(version, versions).await);
         version_step.finish(false);
 
-        let base_path = launcher_path(Some(&state.project_name))?;
+        let base_path = launcher_path(Some(&state.project_name))
+            .context("Не удалось определить путь к файлам проекта")?;
         let project_name = &state.project_name;
         let targets = collect_install_targets(&manifest);
 
@@ -132,13 +134,19 @@ impl MinecraftLoader for Vanilla {
     }
     async fn config(&self, state: &ProjectConfig, config: &LaunchConfig) -> Result<GameConfig> {
         log_info!("Получение Vanilla конфига {}...", config.mc_version);
-        let versions: Vec<Versions> = self.versions().await?;
-        let manifest_version: VersionDetailsManifest =
-            get_manifest_version(&config.mc_version, versions).await?;
+        let versions: Vec<Versions> = self
+            .versions()
+            .await
+            .context("Не удалось получить список версий Vanilla")?;
+        let manifest_version: VersionDetailsManifest = get_manifest_version(&config.mc_version, versions)
+            .await
+            .context("Не удалось получить манифест версии")?;
 
         log_info!("Формирование classpath");
-        let game_dir = launcher_path(Some(&state.project_name))?;
-        let mut classpath = get_classpath(&manifest_version.libraries, config)?;
+        let game_dir = launcher_path(Some(&state.project_name))
+            .context("Не удалось определить путь к файлам проекта")?;
+        let mut classpath = get_classpath(&manifest_version.libraries, config)
+            .context("Не удалось сформировать classpath")?;
         let client_jar = game_dir.join(format!("{}.jar", config.mc_version));
         classpath.push(client_jar.to_string_lossy().to_string());
 

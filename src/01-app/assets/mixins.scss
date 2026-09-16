@@ -97,7 +97,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   box-shadow: var(--elevation-modal);
   overflow-y: auto;
   transform-origin: top center;
@@ -194,7 +194,7 @@
 @mixin drop-overlay {
   position: absolute;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-drop-overlay);
   display: flex;
   align-items: center;
   justify-content: center;

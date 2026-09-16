@@ -25,7 +25,7 @@ useSkinViewer(container, skinUrl, useViewerControls(), toRef(props, 'slim'), use
 <style lang="scss">
 .skin-viewer__canvas {
   width: 100%;
-  height: 360px;
+  height: var(--viewer-height);
   border-radius: var(--radius-card);
   overflow: hidden;
   background: #1a1d2e;

@@ -5,9 +5,15 @@ import GameSliderField from './GameSliderField.vue'
 import GameDropdownField from './GameDropdownField.vue'
 import GameCheckboxField from './GameCheckboxField.vue'
 
-defineProps<{
+const props = defineProps<{
   options: GameOptions
 }>()
+
+const emit = defineEmits<{ 'update:options': [GameOptions] }>()
+
+const patch = <K extends keyof GameOptions>(key: K, value: GameOptions[K]): void => {
+  emit('update:options', { ...props.options, [key]: value })
+}
 
 const graphicsModeOptions: DropdownOption[] = [
   { title: 'Быстрая', value: '0' },
@@ -52,7 +58,7 @@ const guiScaleOptions: DropdownOption[] = [
       :min="30"
       :max="110"
       :model-value="options.fov"
-      @update:model-value="options.fov = $event"
+      @update:model-value="patch('fov', $event)"
     />
     <GameSliderField
       label="Яркость"
@@ -60,21 +66,21 @@ const guiScaleOptions: DropdownOption[] = [
       :max="1"
       :step="0.05"
       :model-value="options.gamma"
-      @update:model-value="options.gamma = $event"
+      @update:model-value="patch('gamma', $event)"
     />
     <GameSliderField
       label="Дальность прорисовки (чанки)"
       :min="2"
       :max="32"
       :model-value="options.renderDistance"
-      @update:model-value="options.renderDistance = $event"
+      @update:model-value="patch('renderDistance', $event)"
     />
     <GameSliderField
       label="Дальность симуляции (чанки)"
       :min="5"
       :max="32"
       :model-value="options.simulationDistance"
-      @update:model-value="options.simulationDistance = $event"
+      @update:model-value="patch('simulationDistance', $event)"
     />
     <GameSliderField
       label="Максимум FPS"
@@ -82,57 +88,57 @@ const guiScaleOptions: DropdownOption[] = [
       :max="260"
       :step="10"
       :model-value="options.maxFps"
-      @update:model-value="options.maxFps = $event"
+      @update:model-value="patch('maxFps', $event)"
     />
     <GameDropdownField
       label="Графика"
       :options="graphicsModeOptions"
       :model-value="String(options.graphicsMode)"
-      @update:model-value="options.graphicsMode = Number($event)"
+      @update:model-value="patch('graphicsMode', Number($event))"
     />
     <GameDropdownField
       label="Детализация текстур (mipmap)"
       :options="mipmapOptions"
       :model-value="String(options.mipmapLevels)"
-      @update:model-value="options.mipmapLevels = Number($event)"
+      @update:model-value="patch('mipmapLevels', Number($event))"
     />
     <GameDropdownField
       label="Частицы"
       :options="particlesOptions"
       :model-value="String(options.particles)"
-      @update:model-value="options.particles = Number($event)"
+      @update:model-value="patch('particles', Number($event))"
     />
     <GameDropdownField
       label="Облака"
       :options="cloudsOptions"
       :model-value="options.renderClouds"
-      @update:model-value="options.renderClouds = $event as GameCloudsMode"
+      @update:model-value="patch('renderClouds', $event as GameCloudsMode)"
     />
     <GameDropdownField
       label="Масштаб интерфейса"
       :options="guiScaleOptions"
       :model-value="String(options.guiScale)"
-      @update:model-value="options.guiScale = Number($event)"
+      @update:model-value="patch('guiScale', Number($event))"
     />
     <GameCheckboxField
       label="Вертикальная синхронизация"
       :model-value="options.enableVsync"
-      @update:model-value="options.enableVsync = $event"
+      @update:model-value="patch('enableVsync', $event)"
     />
     <GameCheckboxField
       label="Тени существ"
       :model-value="options.entityShadows"
-      @update:model-value="options.entityShadows = $event"
+      @update:model-value="patch('entityShadows', $event)"
     />
     <GameCheckboxField
       label="Мягкое освещение"
       :model-value="options.ao"
-      @update:model-value="options.ao = $event"
+      @update:model-value="patch('ao', $event)"
     />
     <GameCheckboxField
       label="Полный экран при запуске"
       :model-value="options.fullscreen"
-      @update:model-value="options.fullscreen = $event"
+      @update:model-value="patch('fullscreen', $event)"
     />
   </div>
 </template>

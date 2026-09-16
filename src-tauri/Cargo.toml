@@ -49,5 +49,8 @@ sysinfo = "0.38"
 [dev-dependencies]
 mockito = "1.7"
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
 
 

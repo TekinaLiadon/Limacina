@@ -1,7 +1,7 @@
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
-import { copyToClipboard } from '@/06-shared'
+import { copyToClipboard, reportError } from '@/06-shared'
 import { useConsoleStream } from '@/04-features/debug-console/useConsoleStream'
-import type { ConsoleLog } from '@/05-entities/core/types'
+import type { ConsoleLog } from '@/05-entities'
 
 export function useDebugConsole(): {
   logs: ComputedRef<ConsoleLog[]>
@@ -37,7 +37,11 @@ export function useDebugConsole(): {
 
   const handleCopy = async (): Promise<void> => {
     const text = filteredLogs.value.map((l) => l.line).join('\n')
-    await copyToClipboard(text)
+    try {
+      await copyToClipboard(text)
+    } catch (e: unknown) {
+      reportError('Не удалось скопировать логи', e)
+    }
   }
 
   return {

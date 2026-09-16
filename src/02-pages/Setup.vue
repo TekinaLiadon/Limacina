@@ -151,7 +151,7 @@ const save = async (): Promise<void> => {
   align-items: center;
   justify-content: center;
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
 }
 
 .setup-card {

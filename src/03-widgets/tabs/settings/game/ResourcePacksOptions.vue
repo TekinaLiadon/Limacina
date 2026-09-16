@@ -11,14 +11,16 @@ const props = withDefaults(defineProps<{
   isLoading: false,
 })
 
+const emit = defineEmits<{ 'update:options': [GameOptions] }>()
+
 const isPackEnabled = (pack: string): boolean => props.options.resourcePacks.includes(pack)
 
 const togglePack = (pack: string): void => {
-  if (isPackEnabled(pack)) {
-    props.options.resourcePacks = props.options.resourcePacks.filter((p) => p !== pack)
-    return
-  }
-  props.options.resourcePacks.push(pack)
+  const current = props.options.resourcePacks
+  emit('update:options', {
+    ...props.options,
+    resourcePacks: isPackEnabled(pack) ? current.filter((p) => p !== pack) : [...current, pack],
+  })
 }
 </script>
 

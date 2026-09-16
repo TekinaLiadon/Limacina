@@ -31,7 +31,7 @@ const emit = defineEmits<{
   @include mixins.settings-row-body;
 
   .dropdown__value {
-    min-width: 180px;
+    min-width: var(--settings-control-min-width);
   }
 }
 </style>

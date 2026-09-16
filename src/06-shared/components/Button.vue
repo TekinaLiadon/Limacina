@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
     }"
     :aria-busy="isLoading"
     :type="props.type"
+    :disabled="isDisabled"
   >
     <span v-if="isLoading" class="btn__spinner" aria-hidden="true" />
     <slot></slot>

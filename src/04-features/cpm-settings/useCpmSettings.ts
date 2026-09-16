@@ -1,6 +1,6 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
 import { reportError, selectFile, useFileDrop } from '@/06-shared'
-import { useNotificationStore } from '@/05-entities'
+import { useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
 import {
   getErrorMessage,
   getPlayerModelsLimit,
@@ -11,7 +11,6 @@ import {
 import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
-import type { CPMChild, CPMData, CPMVec3 } from '@/05-entities/core/types'
 
 export interface CpmLayer {
   storeId: number | null

@@ -1,3 +1,5 @@
+import type { Ref } from 'vue'
+
 export interface InputOptions {
   placeholder?: string
   type?: 'text' | 'password' | 'number'
@@ -41,4 +43,21 @@ export interface SliderOptions {
   step: number
   label: string
   unit: string
+}
+
+export interface ViewerControls {
+  minZoom: number
+  zoomLevel: Ref<number>
+  rotationY: Ref<number>
+  rotationX: Ref<number>
+  autoRotate: Ref<boolean>
+  fitDistance: Ref<number>
+  zoomIn: () => void
+  zoomOut: () => void
+  rotateLeft: () => void
+  rotateRight: () => void
+  rotateUp: () => void
+  rotateDown: () => void
+  resetZoom: () => void
+  resetView: () => void
 }

@@ -1,8 +1,9 @@
 use crate::log_err;
+use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
 use anyhow::{Context, Result};
-use tokio::fs::{create_dir_all, read_to_string, rename, write};
+use tokio::fs::{create_dir_all, read_to_string, rename};
 use toml::{from_str, to_string_pretty};
 
 pub fn validate_project_name(name: &str) -> Result<()> {
@@ -25,11 +26,11 @@ pub fn validate_project_name(name: &str) -> Result<()> {
 impl ProjectConfig {
     pub async fn save_config(&self) -> Result<()> {
         let toml_string = to_string_pretty(self)?;
-        let path = launcher_path(Some("config"))?;
-        create_dir_all(&path).await?;
-        write(
-            path.join(format!("{}.toml", self.project_name)),
-            toml_string,
+        let config_dir = launcher_path(Some("config"))?;
+        create_dir_all(&config_dir).await?;
+        write_atomic(
+            &config_dir.join(format!("{}.toml", self.project_name)),
+            toml_string.as_bytes(),
         )
         .await?;
         Ok(())
@@ -101,6 +102,7 @@ async fn recover_corrupt_config(
 #[cfg(test)]
 mod tests {
     use super::{load_config, load_config_or_default, validate_project_name};
+    use crate::state::dto::ProjectConfig;
     use crate::test_support::LauncherDirGuard;
 
     #[test]
@@ -172,5 +174,55 @@ mod tests {
             .await
             .expect("повторная загрузка после восстановления стабильна");
         assert_eq!(again.project_name, "Broken");
+    }
+
+    fn sample_config(name: &str) -> ProjectConfig {
+        ProjectConfig {
+            project_name: name.to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn save_config_roundtrips_without_leftover_part() {
+        let guard = LauncherDirGuard::acquire("config_atomic_save").await;
+
+        sample_config("Atomic").save_config().await.expect("сохранение");
+
+        let path = guard.root().join("project/config/Atomic.toml");
+        assert!(path.exists(), "конфиг должен быть записан");
+        assert!(
+            !path.with_extension("toml.part").exists(),
+            "временный файл .part не должен оставаться после успешной записи"
+        );
+
+        let loaded = load_config("Atomic").await.expect("чтение сохранённого конфига");
+        assert_eq!(loaded.project_name, "Atomic");
+        assert_eq!(loaded.mc_version, "1.20.1");
+    }
+
+    #[tokio::test]
+    async fn interrupted_save_keeps_previous_config_intact() {
+        let guard = LauncherDirGuard::acquire("config_part_leftover").await;
+
+        sample_config("Interrupted").save_config().await.expect("сохранение");
+
+        let path = guard.root().join("project/config/Interrupted.toml");
+        let part = path.with_extension("toml.part");
+        tokio::fs::write(&part, "not [valid toml")
+            .await
+            .expect("симуляция обрыва записи: остался .part");
+
+        let loaded = load_config("Interrupted")
+            .await
+            .expect("предыдущий конфиг должен быть читаемым");
+        assert_eq!(loaded.mc_version, "1.20.1");
+
+        sample_config("Interrupted").save_config().await.expect("повторное сохранение");
+        assert!(!part.exists(), ".part должен быть убран успешной записью");
+
+        let again = load_config("Interrupted").await.expect("чтение после повторного сохранения");
+        assert_eq!(again.mc_version, "1.20.1");
     }
 }

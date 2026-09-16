@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Button, Input, Checkbox } from '@/06-shared'
 import { useAuth } from '@/04-features'
 import { AuthForm } from '@/03-widgets'
-import type { AuthSubTab } from '@/05-entities/core/types'
+import type { AuthSubTab } from '@/05-entities'
 
 const props = defineProps<{
   activeTab: AuthSubTab
@@ -85,7 +85,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
         v-model:password="registerFormData.password"
         submit-label="Зарегистрироваться"
         :is-loading="isLoading"
-        :is-disabled="!isRegisterValid || registerFormData.login.length < 4 || registerFormData.password.length < 4"
+        :is-disabled="!isRegisterValid"
         :error-message="errorMessage"
         username-placeholder="Логин"
         @submit="handleRegister"

@@ -7,6 +7,7 @@ use reqwest::Client;
 use serde::de::DeserializeOwned;
 
 use super::structs::{ModrinthProject, ModrinthVersion, SearchResponse};
+use crate::log_err;
 
 pub const USER_AGENT: &str =
     "TekinaLiadon/Limacina/1.4.0 (https://github.com/TekinaLiadon/Limacina)";
@@ -61,14 +62,26 @@ fn response_cache() -> &'static std::sync::Mutex<ResponseCache> {
     CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
+fn response_cache_guard() -> Option<std::sync::MutexGuard<'static, ResponseCache>> {
+    match response_cache().lock() {
+        Ok(guard) => Some(guard),
+        Err(e) => {
+            log_err!("[modrinth] Не удалось получить доступ к кешу ответов: {}", e);
+            None
+        }
+    }
+}
+
 async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
     let url = format!("{}{}", api_base(), path);
     let cache_key = format!("GET {url} {}", json_param_str(query));
 
-    if let Some((stored_at, value)) = response_cache().lock().unwrap().get(&cache_key).cloned() {
-        if stored_at.elapsed() < CACHE_TTL {
-            return serde_json::from_value(value)
-                .with_context(|| format!("Не удалось разобрать кешированный ответ от {}", url));
+    if let Some(guard) = response_cache_guard() {
+        if let Some((stored_at, value)) = guard.get(&cache_key).cloned() {
+            if stored_at.elapsed() < CACHE_TTL {
+                return serde_json::from_value(value)
+                    .with_context(|| format!("Не удалось разобрать кешированный ответ от {}", url));
+            }
         }
     }
 
@@ -86,10 +99,9 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
         .await
         .with_context(|| format!("Не удалось прочитать ответ от {}", url))?;
 
-    response_cache()
-        .lock()
-        .unwrap()
-        .insert(cache_key, (std::time::Instant::now(), value.clone()));
+    if let Some(mut guard) = response_cache_guard() {
+        guard.insert(cache_key, (std::time::Instant::now(), value.clone()));
+    }
 
     serde_json::from_value(value).with_context(|| format!("Не удалось разобрать ответ от {}", url))
 }

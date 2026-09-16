@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 1111;
+  z-index: var(--z-preloader);
   background: var(--app-bg);
   display: flex;
   flex-direction: column;

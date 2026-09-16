@@ -5,9 +5,15 @@ import GameSliderField from './GameSliderField.vue'
 import GameDropdownField from './GameDropdownField.vue'
 import GameCheckboxField from './GameCheckboxField.vue'
 
-defineProps<{
+const props = defineProps<{
   options: GameOptions
 }>()
+
+const emit = defineEmits<{ 'update:options': [GameOptions] }>()
+
+const patch = <K extends keyof GameOptions>(key: K, value: GameOptions[K]): void => {
+  emit('update:options', { ...props.options, [key]: value })
+}
 
 const visibilityOptions: DropdownOption[] = [
   { title: 'Полный', value: 'full' },
@@ -22,7 +28,7 @@ const visibilityOptions: DropdownOption[] = [
       label="Видимость чата"
       :options="visibilityOptions"
       :model-value="options.chatVisibility"
-      @update:model-value="options.chatVisibility = $event as GameChatVisibility"
+      @update:model-value="patch('chatVisibility', $event as GameChatVisibility)"
     />
     <GameSliderField
       label="Масштаб чата"
@@ -30,7 +36,7 @@ const visibilityOptions: DropdownOption[] = [
       :max="1"
       :step="0.05"
       :model-value="options.chatScale"
-      @update:model-value="options.chatScale = $event"
+      @update:model-value="patch('chatScale', $event)"
     />
     <GameSliderField
       label="Ширина чата"
@@ -38,7 +44,7 @@ const visibilityOptions: DropdownOption[] = [
       :max="1"
       :step="0.05"
       :model-value="options.chatWidth"
-      @update:model-value="options.chatWidth = $event"
+      @update:model-value="patch('chatWidth', $event)"
     />
     <GameSliderField
       label="Прозрачность фона"
@@ -46,7 +52,7 @@ const visibilityOptions: DropdownOption[] = [
       :max="1"
       :step="0.05"
       :model-value="options.chatOpacity"
-      @update:model-value="options.chatOpacity = $event"
+      @update:model-value="patch('chatOpacity', $event)"
     />
     <GameSliderField
       label="Межстрочный интервал"
@@ -54,7 +60,7 @@ const visibilityOptions: DropdownOption[] = [
       :max="1"
       :step="0.05"
       :model-value="options.chatLineSpacing"
-      @update:model-value="options.chatLineSpacing = $event"
+      @update:model-value="patch('chatLineSpacing', $event)"
     />
     <GameSliderField
       label="Задержка сообщений"
@@ -62,7 +68,7 @@ const visibilityOptions: DropdownOption[] = [
       :max="6"
       :step="0.5"
       :model-value="options.chatDelay"
-      @update:model-value="options.chatDelay = $event"
+      @update:model-value="patch('chatDelay', $event)"
     />
     <GameSliderField
       label="Прозрачность фона текста"
@@ -70,22 +76,22 @@ const visibilityOptions: DropdownOption[] = [
       :max="1"
       :step="0.05"
       :model-value="options.textBackgroundOpacity"
-      @update:model-value="options.textBackgroundOpacity = $event"
+      @update:model-value="patch('textBackgroundOpacity', $event)"
     />
     <GameCheckboxField
       label="Цвета в чате"
       :model-value="options.chatColors"
-      @update:model-value="options.chatColors = $event"
+      @update:model-value="patch('chatColors', $event)"
     />
     <GameCheckboxField
       label="Ссылки в чате"
       :model-value="options.chatLinks"
-      @update:model-value="options.chatLinks = $event"
+      @update:model-value="patch('chatLinks', $event)"
     />
     <GameCheckboxField
       label="Спрашивать перед открытием ссылок"
       :model-value="options.chatLinksPrompt"
-      @update:model-value="options.chatLinksPrompt = $event"
+      @update:model-value="patch('chatLinksPrompt', $event)"
     />
   </div>
 </template>

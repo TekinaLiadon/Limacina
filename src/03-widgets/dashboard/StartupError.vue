@@ -65,7 +65,7 @@ const emit = defineEmits<{
   padding: var(--page-padding-y) var(--page-padding-x);
   box-shadow: var(--elevation-modal);
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
 
   .eyebrow {
     display: block;

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Button, ProgressBar } from '@/06-shared'
 import { StepProgress } from '@/03-widgets'
-import type { IntegrityReport, StepProgressItem } from '@/05-entities/core/types'
+import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
 const props = defineProps<{
   isChecking: boolean
@@ -103,7 +103,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 .integrity-popup-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;

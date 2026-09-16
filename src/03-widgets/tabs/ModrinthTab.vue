@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { Button, Dropdown, Input, MultiSelect, Skeleton } from '@/06-shared'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type ModrinthSearchHit, type ModrinthInstalledMod } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
-import type { ModrinthSearchHit, ModrinthInstalledMod } from '@/05-entities/modrinth/types'
 import ModrinthProjectPopup from './ModrinthProjectPopup.vue'
 import ModrinthIcon from './ModrinthIcon.vue'
 
@@ -229,14 +228,14 @@ onMounted(() => {
           v-model="sort"
           class="modrinth-tab__search-sort"
           :options="sortOptions"
-          width="220px"
+          width="var(--filter-control-width)"
         />
         <MultiSelect
           v-model="categories"
           class="modrinth-tab__search-categories"
           :options="categoryOptions"
           placeholder="Категории"
-          width="220px"
+          width="var(--filter-control-width)"
           clearable
         />
         <Button class="btn-primary" :is-loading="isSearching" @click="loadPage(1)">
@@ -509,7 +508,7 @@ onMounted(() => {
   }
 
   &__row-title {
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-medium);
     overflow-wrap: anywhere;
   }
 

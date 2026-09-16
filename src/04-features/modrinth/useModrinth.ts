@@ -8,11 +8,12 @@ import {
   modrinthInstall,
   modrinthUninstall,
 } from '@/06-shared/api'
+import { useAsyncRaceGuard } from '@/06-shared'
 import type {
   ModrinthSearchHit,
   ModrinthProjectDetails,
   ModrinthInstalledMod,
-} from '@/05-entities/modrinth/types'
+} from '@/05-entities'
 
 export interface ModrinthCategory {
   value: string
@@ -91,8 +92,10 @@ export function useModrinth() {
   })
 
   const currentPage = ref(1)
+  const searchGuard = useAsyncRaceGuard()
 
   const search = async (newOffset: number = 0): Promise<void> => {
+    const generation = searchGuard.next()
     isSearching.value = true
     searchError.value = ''
     try {
@@ -102,14 +105,16 @@ export function useModrinth() {
         categories: categories.value,
         offset: newOffset,
       })
+      if (!searchGuard.isCurrent(generation)) return
       versionNumbers.value = { ...versionNumbers.value, ...result.version_numbers }
       hits.value = result.hits
       total.value = result.total
       currentPage.value = Math.floor(newOffset / PAGE_SIZE) + 1
     } catch (e: unknown) {
+      if (!searchGuard.isCurrent(generation)) return
       searchError.value = getErrorMessage(e)
     } finally {
-      isSearching.value = false
+      if (searchGuard.isCurrent(generation)) isSearching.value = false
     }
   }
 

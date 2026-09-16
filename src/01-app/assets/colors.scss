@@ -29,8 +29,14 @@
   --settings-row-width: 480px;
 
   --sidebar-width: 220px;
+  --header-project-width: 260px;
   --panel-padding-y: var(--space-12);
   --panel-padding-x: var(--space-12);
+
+  --viewer-height: 360px;
+  --settings-control-min-width: 180px;
+  --theme-switch-size: 200px;
+  --filter-control-width: 220px;
 
   --title-gap: var(--space-32);
   --tabs-gap: var(--space-24);
@@ -45,6 +51,8 @@
   --duration-slow: 400ms;
   --duration-spin: 0.8s;
   --duration-shimmer: 1.4s;
+  --switch-duration: 1500ms;
+  --switch-name: scale;
   --stagger-step: 25ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -89,4 +97,21 @@
   --debug-btn-hover-bg: #30363d;
   --debug-btn-hover-border: #484f58;
   --debug-btn-active-bg: #282e33;
+  --debug-control-height: 28px;
+  --debug-font-size: 13px;
+  --debug-line-height: 20px;
+  --debug-radius: 6px;
+
+  --z-background: 0;
+  --z-content: 1;
+  --z-header: 2;
+  --z-sticky: 10;
+  --z-drop-overlay: 50;
+  --z-dropdown: 100;
+  --z-version: 1000;
+  --z-preloader: 1111;
+  --z-notification: 2000;
+  --z-popup: 3000;
+  --z-tooltip: 3500;
+  --z-overlay: 9999;
 }

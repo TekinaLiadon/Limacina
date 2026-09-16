@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 
 export function useDropdownPanel(
   rootRef: Ref<HTMLDivElement | null>,
@@ -8,29 +8,52 @@ export function useDropdownPanel(
   shown: Ref<boolean>
   openUp: Ref<boolean>
   maxHeight: ComputedRef<string>
-  toggle: () => void
+  panelRef: Ref<HTMLDivElement | null>
+  toggle: () => Promise<void>
   close: () => void
 } {
   const shown = ref(false)
   const openUp = ref(false)
-  const optionsHeight = computed((): number => maxVisible() * 40 + 12)
-  const maxHeight = computed((): string => `${optionsHeight.value}px`)
+  const panelRef = ref<HTMLDivElement | null>(null)
+  const measuredHeight = ref<number | null>(null)
+
+  const maxHeight = computed((): string =>
+    measuredHeight.value === null ? 'none' : `${measuredHeight.value}px`,
+  )
+
+  const measurePanel = (): void => {
+    const panel = panelRef.value
+    const firstItem = panel?.firstElementChild as HTMLElement | null
+    if (!panel || !firstItem) return
+
+    const style = getComputedStyle(panel)
+    const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
+    const gap = Number.parseFloat(style.rowGap) || 0
+    const visible = maxVisible()
+    measuredHeight.value =
+      visible * firstItem.offsetHeight + padding + gap * Math.max(visible - 1, 0)
+  }
 
   const computeDirection = (): void => {
-    if (!rootRef.value) return
-    const rect = rootRef.value.getBoundingClientRect()
+    const root = rootRef.value
+    if (!root || measuredHeight.value === null) return
+    const rect = root.getBoundingClientRect()
     const spaceBelow = window.innerHeight - rect.bottom
-    openUp.value = spaceBelow < optionsHeight.value && rect.top > spaceBelow
+    openUp.value = spaceBelow < measuredHeight.value && rect.top > spaceBelow
   }
 
   const close = (): void => {
     shown.value = false
   }
 
-  const toggle = (): void => {
+  const toggle = async (): Promise<void> => {
     if (isDisabled()) return
-    if (!shown.value) computeDirection()
     shown.value = !shown.value
+    if (shown.value) {
+      await nextTick()
+      measurePanel()
+      computeDirection()
+    }
   }
 
   const handleClickOutside = (e: MouseEvent): void => {
@@ -51,5 +74,5 @@ export function useDropdownPanel(
     window.removeEventListener('keydown', handleKeydown)
   })
 
-  return { shown, openUp, maxHeight, toggle, close }
+  return { shown, openUp, maxHeight, panelRef, toggle, close }
 }

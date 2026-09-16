@@ -4,11 +4,9 @@ use crate::utils::errors::LauncherError;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tokio::sync::Mutex;
 
 use crate::log_info;
-use crate::state::config::load_config_or_default;
-use crate::state::dto::GlobalState;
+use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::launcher_path;
 use crate::utils::tauri_err::CommandResult;
 
@@ -332,13 +330,9 @@ pub fn parse_options(content: &str) -> GameOptions {
     options
 }
 
-pub fn merge_options(content: Option<&str>, options: &GameOptions, mc_version: &str) -> String {
+pub fn merge_options(content: Option<&str>, options: &GameOptions) -> String {
     let mut lines = content.map(parse_lines).unwrap_or_default();
-    let mut values = owned_values(options);
-
-    if content.is_none() {
-        values.push(("version", mc_version.to_string()));
-    }
+    let values = owned_values(options);
 
     apply_owned_values(&mut lines, &values);
     serialize_lines(&lines)
@@ -388,24 +382,6 @@ async fn global_options_content() -> Result<Option<String>> {
     read_options_content(&path).await
 }
 
-async fn resolve_mc_version(
-    state: &tauri::State<'_, Mutex<GlobalState>>,
-    project_name: &str,
-) -> String {
-    {
-        let guard = state.lock().await;
-        if guard.project_config.project_name == project_name
-            && !guard.project_config.mc_version.is_empty()
-        {
-            return guard.project_config.mc_version.clone();
-        }
-    }
-    load_config_or_default(project_name)
-        .await
-        .map(|c| c.mc_version)
-        .unwrap_or_default()
-}
-
 #[tauri::command]
 pub async fn get_game_options(project_name: String) -> CommandResult<GameOptionsData> {
     Ok(get_game_options_inner(&project_name).await?)
@@ -428,36 +404,31 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
 }
 
 #[tauri::command]
-pub async fn save_game_options(
-    state: tauri::State<'_, Mutex<GlobalState>>,
-    project_name: String,
-    options: GameOptions,
-) -> CommandResult<()> {
-    save_game_options_inner(&state, &project_name, &options).await?;
+pub async fn save_game_options(project_name: String, options: GameOptions) -> CommandResult<()> {
+    save_game_options_inner(&project_name, &options).await?;
     Ok(())
 }
 
-async fn save_game_options_inner(
-    state: &tauri::State<'_, Mutex<GlobalState>>,
-    project_name: &str,
-    options: &GameOptions,
-) -> Result<()> {
-    if project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::ProjectNotSelected);
-    }
-    let path = options_file_path(project_name)?;
-    let content = read_options_content(&path).await?;
-    let mc_version = resolve_mc_version(state, project_name).await;
-    let merged = merge_options(content.as_deref(), options, &mc_version);
-
+async fn write_options_file(path: &PathBuf, content: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .await
             .with_context(|| format!("Не удалось создать папку {:?}", parent))?;
     }
-    fs::write(&path, merged)
+    write_atomic(path, content.as_bytes())
         .await
         .with_context(|| format!("Не удалось записать {:?}", path))?;
+    Ok(())
+}
+
+async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> Result<()> {
+    if project_name.trim().is_empty() {
+        anyhow::bail!(LauncherError::ProjectNotSelected);
+    }
+    let path = options_file_path(project_name)?;
+    let content = read_options_content(&path).await?;
+    let merged = merge_options(content.as_deref(), options);
+    write_options_file(&path, &merged).await?;
 
     log_info!(
         "[game-options] Настройки игры проекта {} сохранены",
@@ -475,17 +446,9 @@ pub async fn save_global_game_options(options: GameOptions) -> CommandResult<()>
 async fn save_global_game_options_inner(options: &GameOptions) -> Result<()> {
     let result = async {
         let path = global_options_file_path()?;
-        let dir = path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("Не определена папка настроек лаунчера"))?;
-        fs::create_dir_all(dir)
-            .await
-            .with_context(|| format!("Не удалось создать папку {:?}", dir))?;
         let content =
             serde_json::to_string_pretty(options).context("Не удалось сериализовать настройки")?;
-        fs::write(&path, content)
-            .await
-            .with_context(|| format!("Не удалось записать {:?}", path))?;
+        write_options_file(&path, &content).await?;
 
         log_info!("[game-options] Общие настройки игры сохранены");
         Ok(())
@@ -517,7 +480,8 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_options, parse_options};
+    use super::{merge_options, parse_options, write_options_file};
+    use crate::test_support::LauncherDirGuard;
 
     #[test]
     fn merge_replaces_owned_keys_and_keeps_others() {
@@ -528,7 +492,7 @@ mod tests {
             ..super::GameOptions::default()
         };
 
-        let merged = merge_options(Some(existing), &options, "1.20.1");
+        let merged = merge_options(Some(existing), &options);
 
         assert!(merged.contains("fov:110"));
         assert!(merged.contains("gamma:1"));
@@ -546,11 +510,14 @@ mod tests {
     }
 
     #[test]
-    fn merge_into_missing_file_writes_version() {
+    fn merge_into_missing_file_omits_version() {
         let options = super::GameOptions::default();
-        let merged = merge_options(None, &options, "1.20.1");
+        let merged = merge_options(None, &options);
 
-        assert!(merged.contains("version:1.20.1"));
+        assert!(
+            !merged.lines().any(|line| line.starts_with("version:")),
+            "ключ version записывает сам Minecraft"
+        );
         assert!(merged.contains("fov:70"));
         assert!(merged.contains("enableVsync:true"));
     }
@@ -560,11 +527,11 @@ mod tests {
         let existing = "version:3955\nmouseSensitivity:0.5\n";
         let options = super::GameOptions::default();
 
-        let merged = merge_options(Some(existing), &options, "1.20.1");
+        let merged = merge_options(Some(existing), &options);
 
         assert!(merged.contains("mouseSensitivity:0.5"));
         assert!(merged.contains("renderDistance:12"));
-        assert!(!merged.contains("version:1.20.1"));
+        assert!(merged.contains("version:3955"));
     }
 
     #[test]
@@ -603,7 +570,7 @@ mod tests {
             resource_packs: vec!["file/Pack.zip".to_string()],
             ..super::GameOptions::default()
         };
-        let merged = merge_options(None, &options, "1.20.1");
+        let merged = merge_options(None, &options);
         let parsed = parse_options(&merged);
 
         assert_eq!(parsed.fov, 80.0);
@@ -611,5 +578,37 @@ mod tests {
         assert_eq!(parsed.particles, 2);
         assert!(!parsed.chat_colors);
         assert_eq!(parsed.resource_packs, vec!["file/Pack.zip".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn write_options_file_replaces_content_without_part() {
+        let guard = LauncherDirGuard::acquire("game_options_atomic").await;
+        let path = guard
+            .root()
+            .join("project")
+            .join("Proj")
+            .join("options.txt");
+
+        write_options_file(&path, "fov:70\n")
+            .await
+            .expect("запись options.txt");
+        assert_eq!(
+            tokio::fs::read_to_string(&path).await.unwrap(),
+            "fov:70\n"
+        );
+
+        let part = path.with_extension("txt.part");
+        tokio::fs::write(&part, "garbage")
+            .await
+            .expect("симуляция обрыва прошлой записи");
+
+        write_options_file(&path, "fov:90\n")
+            .await
+            .expect("повторная запись options.txt");
+        assert_eq!(
+            tokio::fs::read_to_string(&path).await.unwrap(),
+            "fov:90\n"
+        );
+        assert!(!part.exists(), ".part не должен оставаться после записи");
     }
 }

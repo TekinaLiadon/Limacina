@@ -21,7 +21,7 @@ defineProps<{
 .theme-switch-overlay {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30,7 +30,7 @@ defineProps<{
 }
 
 .theme-switch-girl {
-  animation: girl-pop 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: girl-pop var(--switch-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .girl--to-dark .girl-gif {
@@ -42,7 +42,7 @@ defineProps<{
 }
 
 .girl-gif {
-  width: 200px;
+  width: var(--theme-switch-size);
   height: auto;
   -webkit-mask-image: radial-gradient(circle, black 60%, transparent 100%);
   mask-image: radial-gradient(circle, black 60%, transparent 100%);

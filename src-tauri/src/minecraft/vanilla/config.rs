@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::{
     log_err,
@@ -101,7 +101,8 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
                 continue;
             }
         } else {
-            let local_path = maven_to_path(&lib.name)?;
+            let local_path = maven_to_path(&lib.name)
+                .context("Не удалось определить путь библиотеки")?;
             config.libraries_dir.join(local_path)
         };
 

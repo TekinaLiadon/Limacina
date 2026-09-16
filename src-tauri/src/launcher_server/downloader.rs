@@ -91,6 +91,35 @@ async fn download_file(
     Ok(())
 }
 
+async fn download_and_verify(
+    client: &Client,
+    file_path: &Path,
+    url: &str,
+    server_url: &str,
+    expected_hash: Option<&str>,
+) -> Result<()> {
+    download_file(client, file_path, url, server_url).await?;
+
+    let Some(expected) = expected_hash.filter(|hash| !hash.is_empty()) else {
+        return Ok(());
+    };
+
+    let actual = file_sha1(file_path)
+        .await
+        .with_context(|| format!("Не удалось вычислить хеш скачанного файла: {:?}", file_path))?;
+    if actual != expected {
+        let _ = tokio::fs::remove_file(file_path).await;
+        anyhow::bail!(
+            "Скачанный файл не соответствует хешу: {} (ожидается {}, получен {})",
+            url,
+            expected,
+            actual
+        );
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn fetch_file_list(
     client: &Client,
     server_url: &str,
@@ -316,13 +345,20 @@ async fn sync_server_files(
         labels.noun
     );
     let step_counter = step.clone();
+    let verify_hashes: HashMap<String, String> = files_to_download
+        .iter()
+        .filter_map(|key| list.get(key).cloned().map(|hash| (key.clone(), hash)))
+        .collect();
     let download_futures = semaphore_core(
         base_dir.to_path_buf(),
         semaphore_list,
         move |url, dest| {
             let client = client.clone();
             let server_url = server_url.clone();
-            async move { download_file(&client, &dest, &url, &server_url).await }
+            let expected = verify_hashes.get(&url).cloned();
+            async move {
+                download_and_verify(&client, &dest, &url, &server_url, expected.as_deref()).await
+            }
         },
         Some(move |_: &str| step_counter.inc()),
     );
@@ -558,6 +594,46 @@ mod mock_server_tests {
     }
 
     #[tokio::test]
+    async fn sync_reports_error_when_downloaded_hash_mismatches() {
+        let dir = LauncherDirGuard::acquire("files_sync_bad_hash").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .with_status(200)
+            .with_body("corrupt bytes")
+            .create_async()
+            .await;
+
+        let expected_hash = sha1_hex(b"good bytes");
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("mods")).unwrap();
+        std::fs::write(base.join("mods/a.jar"), b"stale").unwrap();
+
+        let list = HashMap::from([("mods/a.jar".to_string(), expected_hash)]);
+        let ctx = api_context(&server).await;
+        let step = StepHandle::start("files.download", "Скачивание файлов");
+        let result = sync_server_files(
+            &ctx,
+            &list,
+            &base,
+            true,
+            step,
+            &FILES_LABELS,
+            |key: &str| PathBuf::from(key),
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "несовпадающий хеш должен давать ошибку, а не успешный отчёт"
+        );
+        assert!(
+            !base.join("mods/a.jar").exists(),
+            "файл с неверным хешем должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
     async fn sync_rejects_unsafe_paths_from_server() {
         let dir = LauncherDirGuard::acquire("files_unsafe").await;
         let server = Server::new_async().await;
@@ -636,5 +712,90 @@ mod mock_server_tests {
             .expect("скачивание");
 
         assert_eq!(std::fs::read(&dest).unwrap(), b"fresh");
+    }
+
+    #[tokio::test]
+    async fn download_and_verify_keeps_file_with_matching_hash() {
+        let dir = LauncherDirGuard::acquire("files_hash_ok").await;
+        let mut server = Server::new_async().await;
+        let body = b"good bytes".to_vec();
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let dest = dir.project_dir("Cordelia").join("mods/a.jar");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+
+        download_and_verify(
+            &build_auth_client("test-token").expect("клиент"),
+            &dest,
+            "mods/a.jar",
+            &server.url(),
+            Some(&sha1_hex(&body)),
+        )
+        .await
+        .expect("скачивание с проверкой хеша");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn download_and_verify_deletes_file_with_mismatched_hash() {
+        let dir = LauncherDirGuard::acquire("files_hash_bad").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .with_status(200)
+            .with_body("corrupt bytes")
+            .create_async()
+            .await;
+
+        let dest = dir.project_dir("Cordelia").join("mods/a.jar");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+
+        let result = download_and_verify(
+            &build_auth_client("test-token").expect("клиент"),
+            &dest,
+            "mods/a.jar",
+            &server.url(),
+            Some("0000000000000000000000000000000000000000"),
+        )
+        .await;
+
+        assert!(result.is_err(), "битая загрузка должна быть ошибкой");
+        assert!(
+            !dest.exists(),
+            "файл с неверным хешем должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_and_verify_skips_check_without_expected_hash() {
+        let dir = LauncherDirGuard::acquire("files_no_hash").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .with_status(200)
+            .with_body("any bytes")
+            .create_async()
+            .await;
+
+        let dest = dir.project_dir("Cordelia").join("mods/a.jar");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+
+        download_and_verify(
+            &build_auth_client("test-token").expect("клиент"),
+            &dest,
+            "mods/a.jar",
+            &server.url(),
+            None,
+        )
+        .await
+        .expect("скачивание без хеша");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"any bytes");
     }
 }

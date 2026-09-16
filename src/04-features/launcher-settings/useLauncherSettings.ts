@@ -1,6 +1,6 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type LauncherConfig } from '@/05-entities'
-import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, type LauncherSettingsPayload } from '@/06-shared/api'
+import { useCoreStore, useNotificationStore, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
+import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
@@ -151,23 +151,35 @@ export function useLauncherSettings(): {
     }
   }
 
+  const resyncLauncherConfig = async (): Promise<void> => {
+    try {
+      const data = await getAppInitData()
+      coreStore.launcherConfig = data.launcherConfig
+      coreStore.hasLauncherConfig = data.launcherConfig !== null
+    } catch (e: unknown) {
+      reportError('Не удалось восстановить состояние настроек', e)
+    }
+  }
+
   const handleSave = async (): Promise<void> => {
     if (isSaving.value) return
     isSaving.value = true
     try {
+      const savedSettings = await saveLauncherSettings(settings.value)
+      coreStore.launcherConfig = savedSettings
+
       const config = coreStore.launcherConfig
       if (config && launcherPath.value !== config.launcherPath) {
         const parentPath = stripPathSuffix(launcherPath.value, coreStore.launcherName)
-        await saveLauncherConfig(parentPath)
+        coreStore.launcherConfig = await saveLauncherConfig(parentPath)
       }
 
-      const updated = await saveLauncherSettings(settings.value)
-      coreStore.launcherConfig = updated
       await applyStartWithSystem(startWithSystem.value)
       initialSnapshot.value = snapshot()
       refreshDirty()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
+      await resyncLauncherConfig()
       notification.show(getErrorMessage(e))
     } finally {
       isSaving.value = false

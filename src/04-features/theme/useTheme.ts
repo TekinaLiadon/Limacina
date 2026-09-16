@@ -1,9 +1,8 @@
 import { ref, watch, type Ref } from 'vue'
 import { useSettingsStore, parseThemeId } from '@/05-entities'
-import { saveTheme, setWindowBackgroundColor } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { saveTheme, setWindowBackgroundColor, cssDurationMs, reportError } from '@/06-shared'
 
-const SWITCH_DURATION = 1500
+const SWITCH_DURATION_MS = cssDurationMs('--switch-duration', 1500)
 
 const isSwitching = ref<boolean>(false)
 const switchDirection = ref<'to-light' | 'to-dark'>('to-light')
@@ -40,6 +39,8 @@ export function useTheme(): {
   applyTheme(settingsStore.theme)
   applyWindowBackground(settingsStore.theme)
 
+  let switchTimerId: ReturnType<typeof setTimeout> | null = null
+
   watch(() => settingsStore.theme, (newTheme: string, oldTheme: string | undefined): void => {
     if (!oldTheme || newTheme === oldTheme) return
 
@@ -61,10 +62,12 @@ export function useTheme(): {
     isSwitching.value = true
     applyWindowBackground(newTheme)
 
-    setTimeout(() => {
+    if (switchTimerId !== null) clearTimeout(switchTimerId)
+    switchTimerId = setTimeout(() => {
       applyTheme(newTheme)
       isSwitching.value = false
-    }, SWITCH_DURATION)
+      switchTimerId = null
+    }, SWITCH_DURATION_MS)
   })
 
   return { isSwitching, switchDirection }

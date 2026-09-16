@@ -13,6 +13,8 @@ const props = withDefaults(defineProps<{
 provideViewerControls(props.minZoom)
 
 const isFullscreen = ref<boolean>(false)
+const stageTarget = ref<HTMLDivElement | null>(null)
+const bottomTarget = ref<HTMLDivElement | null>(null)
 
 const openFullscreen = (): void => {
   isFullscreen.value = true
@@ -37,31 +39,31 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="viewer-3d">
-    <div class="viewer-3d__stage">
-      <ViewerStage :paused="isFullscreen">
-        <slot />
-      </ViewerStage>
-    </div>
-    <ViewerToolbar @toggle-fullscreen="openFullscreen" />
-    <slot name="bottom" />
-  </div>
-
   <Teleport to="body">
     <Transition name="popup">
-      <div v-if="isFullscreen" class="viewer-3d-fullscreen" @click.self="closeFullscreen">
+      <div v-show="isFullscreen" class="viewer-3d-fullscreen" @click.self="closeFullscreen">
         <div class="viewer-3d-fullscreen__content popup-panel">
-          <div class="viewer-3d-fullscreen__stage">
-            <ViewerStage>
-              <slot />
-            </ViewerStage>
-          </div>
+          <div ref="stageTarget" class="viewer-3d-fullscreen__stage" />
           <ViewerToolbar fullscreen @toggle-fullscreen="closeFullscreen" />
-          <slot name="bottom" />
+          <div ref="bottomTarget" class="viewer-3d-fullscreen__bottom" />
         </div>
       </div>
     </Transition>
   </Teleport>
+
+  <div class="viewer-3d">
+    <div class="viewer-3d__stage">
+      <Teleport :to="stageTarget" :disabled="!isFullscreen">
+        <ViewerStage>
+          <slot />
+        </ViewerStage>
+      </Teleport>
+    </div>
+    <ViewerToolbar @toggle-fullscreen="openFullscreen" />
+    <Teleport :to="bottomTarget" :disabled="!isFullscreen">
+      <slot name="bottom" />
+    </Teleport>
+  </div>
 </template>
 
 <style lang="scss">
@@ -78,7 +80,7 @@ onBeforeUnmount(() => {
 .viewer-3d-fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;

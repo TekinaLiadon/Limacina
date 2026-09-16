@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 import AlternativeJavaPopup from './AlternativeJavaPopup.vue'
-import type { JavaDistribution } from '@/05-entities/core/types'
+import type { JavaDistribution } from '@/05-entities'
 
 defineProps<{
   distributions: JavaDistribution[]

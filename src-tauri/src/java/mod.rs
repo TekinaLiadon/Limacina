@@ -108,7 +108,7 @@ async fn manifest_java_major(mc_version: &str) -> Option<u32> {
         get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
             .await
             .ok()?;
-    let versions = create_manifest_versions(index.versions).ok()?;
+    let versions = create_manifest_versions(index.versions);
     let manifest = get_manifest_version(mc_version, versions).await.ok()?;
     manifest.java_version.map(|j| j.major_version)
 }

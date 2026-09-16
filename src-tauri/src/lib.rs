@@ -92,6 +92,10 @@ pub fn run() {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
 
+            if let Err(e) = crate::utils::desktop_entry::sync_desktop_entry(app.handle()) {
+                log_err!("Не удалось обновить запись в меню приложений: {e:#}");
+            }
+
             let launcher_config = crate::state::launcher_config::LauncherConfig::load()
                 .ok()
                 .flatten();
@@ -124,6 +128,9 @@ pub fn run() {
             let _ = std::fs::create_dir_all(base_path.join("project"));
             let _ = std::fs::create_dir_all(base_path.join("manifest"));
             let _ = std::fs::create_dir_all(base_path.join("java"));
+
+            crate::utils::winreg::init_uninstall_registry_key(app.config());
+            crate::utils::winreg::remember_data_path(&base_path);
 
             let discord_enabled = launcher_config
                 .as_ref()

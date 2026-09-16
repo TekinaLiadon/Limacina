@@ -56,7 +56,7 @@ onUnmounted((): void => {
   position: fixed;
   top: var(--space-24);
   right: var(--space-24);
-  z-index: 2000;
+  z-index: var(--z-notification);
   background: var(--login-bg-form);
   border-radius: var(--radius-card);
   padding: var(--space-16) var(--space-20);

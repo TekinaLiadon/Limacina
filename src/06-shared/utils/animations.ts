@@ -5,5 +5,8 @@ export function isAnimationsEnabled(): boolean {
 export function cssDurationMs(token: string, fallback: number): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim()
   const parsed = Number.parseFloat(raw)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
+  if (raw.endsWith('ms')) return parsed
+  if (raw.endsWith('s')) return parsed * 1000
+  return parsed
 }

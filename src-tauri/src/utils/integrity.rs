@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ pub enum HashKind {
 
 impl HashKind {
     pub async fn matches(&self, path: &Path, expected: &str) -> Result<bool> {
-        Ok(file_sha1(path).await? == expected)
+        Ok(file_sha1(path).await.context("Не удалось вычислить хеш файла")? == expected)
     }
 }
 
@@ -245,7 +245,9 @@ pub async fn ensure_files(
         return Ok(IntegrityReport::default());
     }
 
-    let mut installed = load_install_manifest(project_name).await?;
+    let mut installed = load_install_manifest(project_name)
+        .await
+        .context("Не удалось загрузить манифест установленных файлов")?;
     let total = targets.len() as u64;
     step.set_total(total);
 
@@ -295,8 +297,19 @@ pub async fn ensure_files(
             let actual = file_sha1(&file_path).await;
             match actual {
                 Ok(hash) => {
-                    merge_installed(&mut installed, &target.rel_path.to_string_lossy(), &hash);
-                    repaired += 1;
+                    if !target.hash.is_empty() && hash != target.hash {
+                        let _ = tokio::fs::remove_file(&file_path).await;
+                        log_err!(
+                            "Скачанный файл не соответствует хешу {:?}: ожидается {}, получен {}",
+                            file_path,
+                            target.hash,
+                            hash
+                        );
+                        failed.push(target.rel_path.to_string_lossy().into_owned());
+                    } else {
+                        merge_installed(&mut installed, &target.rel_path.to_string_lossy(), &hash);
+                        repaired += 1;
+                    }
                 }
                 Err(e) => {
                     log_err!("Не удалось вычислить хеш {:?}: {}", file_path, e);
@@ -309,7 +322,9 @@ pub async fn ensure_files(
     }
 
     if failed.is_empty() {
-        save_install_manifest(project_name, &installed).await?;
+        save_install_manifest(project_name, &installed)
+            .await
+            .context("Не удалось сохранить манифест установленных файлов")?;
         step.clone().finish(false);
     } else {
         let _ = save_install_manifest(project_name, &installed).await;
@@ -342,9 +357,144 @@ pub async fn record_installed_hash(
     if !file_path.exists() {
         anyhow::bail!("Файл не существует: {:?}", file_path);
     }
-    let hash = file_sha1(&file_path).await?;
-    let mut manifest = load_install_manifest(project_name).await?;
+    let hash = file_sha1(&file_path).await.context("Не удалось вычислить хеш файла")?;
+    let mut manifest = load_install_manifest(project_name)
+        .await
+        .context("Не удалось загрузить манифест установленных файлов")?;
     merge_installed(&mut manifest, &rel_path.to_string_lossy(), &hash);
-    save_install_manifest(project_name, &manifest).await?;
+    save_install_manifest(project_name, &manifest)
+        .await
+        .context("Не удалось сохранить манифест установленных файлов")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod ensure_files_tests {
+    use super::*;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use mockito::Server;
+
+    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+        IntegrityTarget {
+            rel_path: PathBuf::from(rel),
+            hash: hash.to_string(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(url),
+        }
+    }
+
+    #[tokio::test]
+    async fn downloads_missing_file_and_records_hash() {
+        let dir = LauncherDirGuard::acquire("ensure_ok").await;
+        let mut server = Server::new_async().await;
+        let body = b"library bytes".to_vec();
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "libraries/a.jar",
+            &sha1_hex(&body),
+            format!("{}/libs/a.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("установка файлов");
+
+        assert_eq!(report.repaired, 1);
+        assert!(report.failed.is_empty());
+        assert_eq!(
+            std::fs::read(base.join("libraries/a.jar")).unwrap(),
+            body
+        );
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/a.jar"),
+            Some(&sha1_hex(&body))
+        );
+    }
+
+    #[tokio::test]
+    async fn flags_and_deletes_file_with_mismatched_hash() {
+        let dir = LauncherDirGuard::acquire("ensure_bad_hash").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body("corrupt bytes")
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "libraries/a.jar",
+            "0000000000000000000000000000000000000000",
+            format!("{}/libs/a.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("отчёт установки");
+
+        assert_eq!(report.repaired, 0);
+        assert_eq!(report.failed, vec!["libraries/a.jar"]);
+        assert!(
+            !base.join("libraries/a.jar").exists(),
+            "битый файл должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_hash_when_source_has_no_hash() {
+        let dir = LauncherDirGuard::acquire("ensure_no_hash").await;
+        let mut server = Server::new_async().await;
+        let body = b"installer bytes".to_vec();
+        server
+            .mock("GET", "/installer.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "installer.jar",
+            "",
+            format!("{}/installer.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("установка файла без хеша");
+
+        assert_eq!(report.repaired, 1);
+        assert!(report.failed.is_empty());
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("installer.jar"),
+            Some(&sha1_hex(&body))
+        );
+    }
 }

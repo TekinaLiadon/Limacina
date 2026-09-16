@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const SHOW_DELAY_MS = 300
 const VIEWPORT_MARGIN = 8
@@ -80,8 +80,10 @@ watch((): boolean => props.disabled, (disabled) => {
   if (disabled) hide()
 })
 
-window.addEventListener('keydown', handleKeydown)
-window.addEventListener('scroll', handleScroll, true)
+onMounted((): void => {
+  window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('scroll', handleScroll, true)
+})
 
 onBeforeUnmount((): void => {
   hide()
@@ -125,7 +127,7 @@ onBeforeUnmount((): void => {
 
 .tooltip__bubble {
   position: fixed;
-  z-index: 3500;
+  z-index: var(--z-tooltip);
   max-width: 280px;
   padding: var(--space-4) var(--space-8);
   border-radius: var(--radius-badge);

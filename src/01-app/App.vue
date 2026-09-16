@@ -2,10 +2,9 @@
 import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Dropdown, Preloader, Tooltip } from '@/06-shared'
-import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen } from '@/04-features'
-import { Sidebar, ServerStatus, ServerUnavailableBanner, StartupError } from '@/03-widgets'
-import type { TabKey } from '@/05-entities/core/types'
+import { useCoreStore, useNotificationStore, useSettingsStore, type TabKey } from '@/05-entities'
+import { useAppInit, useTheme, useProjectSwitch, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen, useSettingsNav } from '@/04-features'
+import { Sidebar, ServerStatus, ServerUnavailableBanner, StartupError, ThemeSwitchAnimation } from '@/03-widgets'
 
 const router = useRouter()
 const route = useRoute()
@@ -58,7 +57,9 @@ const tabs = computed((): Tab[] => {
   return items
 })
 
-const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel', 'SettingsAccount']
+const { items: settingsNavItems } = useSettingsNav()
+
+const settingsRouteNames = computed((): string[] => settingsNavItems.value.map((item) => item.routeName))
 
 const fullscreenRouteNames: string[] = ['Setup']
 
@@ -77,7 +78,7 @@ watch(needsOfflineSetup, (needed: boolean): void => {
 
 const currentTab = computed((): TabKey => {
   const name = route.name as string
-  if (settingsRouteNames.includes(name)) return 'settings'
+  if (settingsRouteNames.value.includes(name)) return 'settings'
 
   const tab = tabs.value.find((t) => t.name === name)
   return tab?.key ?? 'accounts'
@@ -131,7 +132,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
                 :options="projectOptions"
                 :model-value="coreStore.currentProject"
                 @update:model-value="selectProject"
-                :width="'260px'"
+                width="var(--header-project-width)"
                 :max-visible="6"
                 :disabled="!canSwitch || isProjectSwitching"
               >
@@ -226,7 +227,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     letter-spacing: var(--tracking-eyebrow);
     color: var(--login-text-muted);
     font-variant-numeric: tabular-nums;
-    z-index: 1000;
+    z-index: var(--z-version);
   }
 
   &__layout {
@@ -251,13 +252,13 @@ watch(isDebugTabVisible, (visible: boolean): void => {
       mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
       -webkit-mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
       pointer-events: none;
-      z-index: 0;
+      z-index: var(--z-background);
     }
   }
 
   &__header {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-header);
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -304,7 +305,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
 
   &__body {
     position: relative;
-    z-index: 1;
+    z-index: var(--z-content);
     flex: 1;
     display: flex;
     gap: var(--layout-gap);

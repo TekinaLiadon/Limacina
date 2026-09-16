@@ -1,6 +1,6 @@
 import { watch, type Ref } from 'vue'
 import * as THREE from 'three'
-import type { ViewerControls } from '@/03-widgets/types'
+import type { ViewerControls } from '@/06-shared'
 
 interface AutoRotatableControls {
   autoRotate: boolean

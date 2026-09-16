@@ -53,7 +53,7 @@ watch((): boolean => props.visible, (visible) => {
 .confirm-popup-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;

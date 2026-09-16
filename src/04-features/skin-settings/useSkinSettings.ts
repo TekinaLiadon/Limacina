@@ -4,10 +4,8 @@ import {
   getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
   getErrorMessage,
 } from '@/06-shared/api'
-import { useNotificationStore } from '@/05-entities'
+import { useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
-import type { UserContentItem } from '@/05-entities/core/types'
-import type { SkinModelMode } from '@/03-widgets/types'
 
 async function loadBlobUrl(bytes: Uint8Array): Promise<string> {
   const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })

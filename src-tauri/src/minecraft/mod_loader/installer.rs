@@ -7,6 +7,7 @@ use crate::{
     log_err, log_info,
     minecraft::{
         mod_loader::{
+            config::loader_version_jar_name,
             download::library_targets,
             manifest::{loader_libraries, loader_version_or_err, Manifest},
         },
@@ -261,13 +262,13 @@ pub(crate) async fn install_loader_files(
     step: StepHandle,
     base: &Path,
     project: &str,
-    target_version: &str,
+    version_id: &str,
     library: &[LibraryMod],
     installer_url: &str,
 ) -> Result<()> {
     let mut targets = library_targets(library)?;
     targets.push(IntegrityTarget {
-        rel_path: PathBuf::from(format!("{}.jar", target_version)),
+        rel_path: PathBuf::from(loader_version_jar_name(version_id)),
         hash: String::new(),
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(installer_url.to_string()),
@@ -278,7 +279,7 @@ pub(crate) async fn install_loader_files(
         record_installed_hash(
             project,
             base,
-            &PathBuf::from(format!("{}.jar", target_version)),
+            &PathBuf::from(loader_version_jar_name(version_id)),
         )
         .await
     );
@@ -325,7 +326,7 @@ pub async fn setup_loader(
 
     step.detail("Скачивание инсталлера");
     step.set_total(1);
-    let installer_path = base_url.join(format!("{}.jar", &target_version));
+    let installer_path = base_url.join(loader_version_jar_name(&target_version));
     step_try!(
         step,
         download_file(&version_info.url, &installer_path).await

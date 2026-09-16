@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 fn parse_maven(coord: &str) -> Result<(String, String, String)> {
@@ -17,7 +17,8 @@ fn parse_maven(coord: &str) -> Result<(String, String, String)> {
 }
 
 pub fn maven_to_path(name: &str) -> Result<PathBuf> {
-    let (group_path, artifact_id, version) = parse_maven(name)?;
+    let (group_path, artifact_id, version) =
+        parse_maven(name).context("Не удалось разобрать Maven-координату")?;
     let file_name = format!("{}-{}.jar", artifact_id, version);
 
     Ok(PathBuf::from(format!(
@@ -27,7 +28,8 @@ pub fn maven_to_path(name: &str) -> Result<PathBuf> {
 }
 
 pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
-    let (group, artifact_id, version) = parse_maven(coord)?;
+    let (group, artifact_id, version) =
+        parse_maven(coord).context("Не удалось разобрать Maven-координату")?;
 
     Ok(format!(
         "{}/{}/{}/{}/{}-{}.jar",

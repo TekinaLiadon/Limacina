@@ -1,8 +1,7 @@
 import { computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, type AuthUserData } from '@/05-entities'
 import { authLogins, authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import type { AuthUserData } from '@/05-entities/core/types'
 import { useAccountsList } from './useAccountsList'
 
 export function useAuth() {
@@ -47,8 +46,8 @@ export function useAuth() {
 
   const isRegisterValid = computed((): boolean => {
     return (
-      store.registerFormData.login.length > 0 &&
-      store.registerFormData.password.length > 0 &&
+      store.registerFormData.login.length >= MIN_LOGIN_LENGTH &&
+      store.registerFormData.password.length >= MIN_PASSWORD_LENGTH &&
       store.registerFormData.confirmPassword.length > 0 &&
       passwordsMatch.value
     )

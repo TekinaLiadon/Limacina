@@ -1,9 +1,8 @@
 import { ref } from 'vue'
 import { downloadAlternativeJava, getErrorMessage, getJavaDistributions, getJavaVersion } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import { useNotificationStore } from '@/05-entities'
+import { useNotificationStore, type JavaDistribution } from '@/05-entities'
 import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
-import type { JavaDistribution } from '@/05-entities/core/types'
 
 export function useAlternativeJava() {
   const notification = useNotificationStore()

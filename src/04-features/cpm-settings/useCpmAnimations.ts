@@ -1,5 +1,5 @@
 import { ref, computed, watch, type Ref } from 'vue'
-import type { CPMAnimation, CPMData } from '@/05-entities/core/types'
+import type { CPMAnimation, CPMData } from '@/05-entities'
 import type { DropdownOption } from '@/06-shared/types'
 
 const SPEED_MIN = 0.25

@@ -161,7 +161,7 @@ const onMaxInput = (e: Event): void => {
     appearance: none;
     background: transparent;
     cursor: pointer;
-    z-index: 1;
+    z-index: var(--z-content);
     pointer-events: none;
 
     &::-webkit-slider-thumb {

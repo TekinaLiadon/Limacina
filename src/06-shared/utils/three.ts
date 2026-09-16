@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import type { Ref } from 'vue'
+import { useAsyncRaceGuard } from './useAsyncRaceGuard'
 
-export function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
+function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
   texture.magFilter = THREE.NearestFilter
   texture.minFilter = THREE.NearestFilter
   texture.generateMipmaps = false
@@ -9,7 +10,7 @@ export function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
   return texture
 }
 
-export function disposeObjectTree(root: THREE.Object3D): void {
+function disposeObjectTree(root: THREE.Object3D): void {
   root.traverse((object) => {
     if (object instanceof THREE.Mesh) {
       object.geometry.dispose()
@@ -37,16 +38,16 @@ export interface ManagedTexture {
 }
 
 export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): ManagedTexture {
-  let loadGeneration = 0
+  const guard = useAsyncRaceGuard()
   let currentTexture: THREE.Texture | null = null
 
   return {
     load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void): void => {
       if (!scene.value) return
-      const generation = ++loadGeneration
+      const generation = guard.next()
       const loader = new THREE.TextureLoader()
       loader.load(url, (texture) => {
-        if (generation !== loadGeneration || !scene.value) return
+        if (!guard.isCurrent(generation) || !scene.value) return
         configurePixelTexture(texture)
         if (currentTexture) currentTexture.dispose()
         currentTexture = texture
@@ -54,6 +55,7 @@ export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): Mana
       })
     },
     dispose: (): void => {
+      guard.cancel()
       if (currentTexture) currentTexture.dispose()
       currentTexture = null
     },

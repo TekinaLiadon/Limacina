@@ -1,4 +1,4 @@
-import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
+import type { StepEvent, StepProgressItem } from '@/05-entities'
 
 export function createStepItem(key: string, label: string, shownAt: number): StepProgressItem {
   return {

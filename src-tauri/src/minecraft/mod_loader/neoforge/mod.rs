@@ -24,15 +24,21 @@ use crate::{
         get_classpath_separator,
     },
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 
 pub struct NeoForge;
 #[async_trait]
 impl ModLoader for NeoForge {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        let mut manifest = transform_neoforge_manifest(get_manifest_index().await?);
-        apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest).await?;
+        let mut manifest = transform_neoforge_manifest(
+            get_manifest_index()
+                .await
+                .context("Не удалось получить индекс NeoForge")?,
+        );
+        apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest)
+            .await
+            .context("Не удалось применить установленный манифест NeoForge")?;
         Ok(manifest)
     }
     async fn version_current(
@@ -61,26 +67,32 @@ impl ModLoader for NeoForge {
         log_info!("Соединение classpath NeoForge");
         let target_version = loader_version_or_err(state)?;
 
-        let neoforge_manifest = launcher_path(None)?
+        let neoforge_manifest = launcher_path(None)
+            .context("Не удалось определить путь к файлам лаунчера")?
             .join("manifest")
             .join(format!("neoforge_{}.json", target_version));
-        let manifest = download_json::<Manifest>(None, &neoforge_manifest).await?;
+        let manifest = download_json::<Manifest>(None, &neoforge_manifest)
+            .await
+            .context("Не удалось скачать манифест NeoForge")?;
 
-        let base_path = launcher_path(Some(&state.project_name))?;
+        let base_path = launcher_path(Some(&state.project_name))
+            .context("Не удалось определить путь к файлам проекта")?;
         let natives_dir = base_path.join("natives").to_string_lossy().to_string();
         let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
 
         let neoforge_libraries = if version.library.is_empty() {
-            loader_libraries(manifest.libraries.clone(), MAVEN_BASE)?
+            loader_libraries(manifest.libraries.clone(), MAVEN_BASE)
+                .context("Не удалось собрать библиотеки NeoForge")?
         } else {
             version.library.clone()
         };
         let mut classpath = merge_classpath(
             &state.project_name,
-            target_version,
+            &version.id,
             &neoforge_libraries,
             &Vec::new(),
-        )?;
+        )
+        .context("Не удалось собрать classpath NeoForge")?;
         let vanilla_client_jar = format!("{}.jar", state.mc_version);
         let vanilla_filtered: Vec<String> = vanilla_config
             .classpath

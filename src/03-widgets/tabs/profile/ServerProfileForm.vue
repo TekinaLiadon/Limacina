@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button, Input } from '@/06-shared'
-import type { ServerProfileForm as ServerForm } from '@/05-entities/core/types'
+import type { ServerProfileForm as ServerForm } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
   form: ServerForm

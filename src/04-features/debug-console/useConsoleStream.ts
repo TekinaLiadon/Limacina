@@ -1,7 +1,7 @@
 import { computed, ref, type ComputedRef } from 'vue'
 import { getStartupLogs, listenGameConsole } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import type { ConsoleLog } from '@/05-entities/core/types'
+import type { ConsoleLog } from '@/05-entities'
 
 const logs = ref<ConsoleLog[]>([])
 const LOG_LIMIT = 2000

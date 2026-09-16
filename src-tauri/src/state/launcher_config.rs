@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 use crate::state::dto::default_true;
+use crate::utils::download_file::write_atomic_sync;
 use crate::utils::errors::LauncherError;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -177,11 +178,20 @@ impl LauncherConfig {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        write_config_atomic(path, content.as_bytes())
+        write_atomic_sync(path, content.as_bytes())
+    }
+
+    fn data_path_to_remember(&self) -> PathBuf {
+        if self.launcher_path.trim().is_empty() {
+            Self::fallback_path()
+        } else {
+            normalize_path(&self.launcher_path)
+        }
     }
 
     pub(crate) fn on_saved_update_path(&self) {
         self.update_resolved_path();
+        crate::utils::winreg::remember_data_path(&self.data_path_to_remember());
     }
 
     #[cfg(test)]
@@ -194,7 +204,7 @@ impl LauncherConfig {
         let path = Self::config_file_path()?;
         let content = self.serialize_for_save()?;
         Self::write_serialized(&path, &content)?;
-        self.update_resolved_path();
+        self.on_saved_update_path();
         Ok(())
     }
 
@@ -241,14 +251,6 @@ impl LauncherConfig {
         self.projects.remove(project);
         self.current_project = self.project_names.first().cloned();
     }
-}
-
-fn write_config_atomic(path: &Path, content: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("json.part");
-    fs::write(&tmp, content).with_context(|| format!("Не удалось записать файл во {:?}", tmp))?;
-    fs::rename(&tmp, path)
-        .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, path))?;
-    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -52,7 +52,7 @@ watch(
   border-radius: var(--radius-card);
   background: var(--surface-light);
   color: var(--login-text-muted);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
   flex-shrink: 0;
   overflow: hidden;
 
@@ -64,7 +64,7 @@ watch(
   &--lg {
     width: 56px;
     height: 56px;
-    font-size: var(--text-title);
+    font-size: var(--text-heading-sm);
   }
 
   &__img {

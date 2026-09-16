@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useDebugConsole } from '@/04-features'
-import type { ConsoleLog } from '@/05-entities/core/types'
+import type { ConsoleLog } from '@/05-entities'
 import { Icon } from '@/06-shared'
 
 const { filteredLogs, searchQuery, onlyErrors, linesCount, handleCopy } = useDebugConsole()
@@ -151,14 +151,14 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   &__search {
     flex: 1;
     min-width: 0;
-    height: 28px;
+    height: var(--debug-control-height);
     padding: 0 var(--space-8);
     background: var(--debug-btn-bg);
     color: var(--debug-text);
     border: 1px solid var(--debug-btn-border);
-    border-radius: 6px;
+    border-radius: var(--debug-radius);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-caption);
     letter-spacing: normal;
 
     &::placeholder {
@@ -175,9 +175,9 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     background: var(--debug-btn-bg);
     color: var(--debug-text);
     border: 1px solid var(--debug-btn-border);
-    border-radius: 6px;
+    border-radius: var(--debug-radius);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--text-caption);
     font-family: inherit;
     white-space: nowrap;
     transition: all var(--duration-fast) var(--ease-out);
@@ -200,8 +200,8 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     overflow-y: scroll;
     padding: 0;
     font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--debug-font-size);
+    line-height: var(--debug-line-height);
     letter-spacing: normal;
     scrollbar-width: none;
 
@@ -262,7 +262,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
 
   &__count {
     color: var(--debug-line-num);
-    font-size: 12px;
+    font-size: var(--text-caption);
     font-variant-numeric: tabular-nums;
   }
 
@@ -270,10 +270,10 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: var(--debug-control-height);
+    height: var(--debug-control-height);
     border: 1px solid var(--debug-btn-border);
-    border-radius: 6px;
+    border-radius: var(--debug-radius);
     background: var(--debug-btn-bg);
     color: var(--debug-accent);
     cursor: pointer;
@@ -294,9 +294,9 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     background: var(--debug-btn-bg);
     color: var(--debug-text);
     border: 1px solid var(--debug-btn-border);
-    border-radius: 6px;
+    border-radius: var(--debug-radius);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--text-caption);
     font-family: inherit;
     transition: all var(--duration-fast) var(--ease-out);
 

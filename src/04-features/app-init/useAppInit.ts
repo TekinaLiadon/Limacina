@@ -1,9 +1,8 @@
 import { onBeforeMount, ref } from 'vue'
-import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme } from '@/05-entities'
+import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type LauncherConfig, type ProjectConfig, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage, loadSettingsProject } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
-import type { LauncherConfig, ProjectConfig, UpdateInfo } from '@/05-entities/core/types'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
 
 const STARTUP_ERROR_DURATION = 5000

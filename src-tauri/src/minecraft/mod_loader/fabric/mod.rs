@@ -1,7 +1,7 @@
 pub mod manifest;
 pub mod structs;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 
 use crate::{
@@ -30,8 +30,10 @@ impl ModLoader for Fabric {
         let url_manifest = format!("https://meta.fabricmc.net/v2/versions/loader/{}", version);
         let manifest_fabric =
             get_manifest_index::<Vec<FabricManifest>>(MOD_LOADER_NAME, &url_manifest, version)
-                .await?;
-        let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric)?;
+                .await
+                .context("Не удалось загрузить манифест Fabric")?;
+        let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric)
+            .context("Не удалось преобразовать манифест Fabric")?;
         Ok(manifest)
     }
     async fn version_current(
@@ -66,7 +68,8 @@ impl ModLoader for Fabric {
             .ok_or_else(|| anyhow!("Версия не найдена"))?;
 
         let step = StepHandle::start("loader", "Установка Fabric");
-        let base_path = launcher_path(Some(&state.project_name))?;
+        let base_path = launcher_path(Some(&state.project_name))
+            .context("Не удалось определить путь к файлам проекта")?;
         install_loader_files(
             step.clone(),
             &base_path,
@@ -86,10 +89,9 @@ impl ModLoader for Fabric {
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath");
-        let target_version = loader_version_or_err(state)?;
         let classpath = merge_classpath(
             &state.project_name,
-            target_version,
+            &version.id,
             &version.library,
             &vanilla_config.classpath,
         )?;

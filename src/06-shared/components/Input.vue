@@ -223,7 +223,7 @@ onUnmounted((): void => {
     padding: var(--space-4) 0;
     max-height: 200px;
     overflow-y: auto;
-    z-index: 100;
+    z-index: var(--z-dropdown);
     box-shadow: var(--elevation-modal);
   }
 

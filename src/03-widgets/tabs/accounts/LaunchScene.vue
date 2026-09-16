@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { Button, ProgressBar, Skeleton, useDropdownPanel } from '@/06-shared'
 import AuthTabsWidget from './AuthTabsWidget.vue'
 import StepProgress from '../login/StepProgress.vue'
-import type { AuthSubTab, StepProgressItem } from '@/05-entities/core/types'
+import type { AuthSubTab, StepProgressItem } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
   activeTab: AuthSubTab
@@ -348,7 +348,7 @@ const openLoginForm = (): void => {
     top: calc(100% + var(--space-4));
     left: 0;
     right: 0;
-    z-index: 100;
+    z-index: var(--z-dropdown);
     display: flex;
     flex-direction: column;
     gap: var(--space-4);

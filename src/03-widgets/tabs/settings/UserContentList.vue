@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button, Skeleton } from '@/06-shared'
-import type { UserContentItem } from '@/05-entities/core/types'
+import type { UserContentItem } from '@/05-entities'
 
 withDefaults(defineProps<{
   title: string

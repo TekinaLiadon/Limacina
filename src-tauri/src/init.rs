@@ -7,6 +7,7 @@ use crate::state::config::validate_project_name;
 use crate::state::dto::ProjectConfig;
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
+use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::utils::http::http_client;
 
@@ -131,7 +132,7 @@ pub async fn init_project_config(
 
     let toml_path = config_dir.join(format!("{}.toml", config.project_name));
     let toml_string = toml::to_string_pretty(&config)?;
-    fs::write(&toml_path, toml_string).await?;
+    write_atomic(&toml_path, toml_string.as_bytes()).await?;
     Ok(config)
 }
 

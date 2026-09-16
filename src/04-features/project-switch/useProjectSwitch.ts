@@ -47,21 +47,18 @@ export function useProjectSwitch() {
     }
 
     accountsStore.isSwitching = true
-    const previousProject = coreStore.currentProject
-    const previousConfig = coreStore.projectConfig
-
-    coreStore.currentProject = projectName
-    coreStore.projectConfig = null
-    resetAccountsState()
 
     try {
       await clearSession()
       await saveCurrentProject(projectName)
-      coreStore.projectConfig = await loadSettingsProject(projectName)
-      accountsStore.logins = await authLogins(projectName)
+      const projectConfig = await loadSettingsProject(projectName)
+      const logins = await authLogins(projectName)
+
+      coreStore.currentProject = projectName
+      coreStore.projectConfig = projectConfig
+      resetAccountsState()
+      accountsStore.logins = logins
     } catch (e: unknown) {
-      coreStore.currentProject = previousProject
-      coreStore.projectConfig = previousConfig
       notification.show(getErrorMessage(e))
     } finally {
       accountsStore.isSwitching = false

@@ -1,6 +1,5 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore } from '@/05-entities'
-import type { IntegrityReport, StepEvent, StepProgressItem } from '@/05-entities/core/types'
+import { useCoreStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps } from '@/06-shared/api'
 import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
 import type { UnlistenFn } from '@tauri-apps/api/event'

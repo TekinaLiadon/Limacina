@@ -66,6 +66,8 @@ export interface UserContentItem {
   active?: boolean
 }
 
+export type SkinModelMode = 'classic' | 'slim'
+
 export interface SessionInfo {
   uuid: string
   username: string
@@ -330,4 +332,24 @@ export interface GameOptionsData {
   fileExists: boolean
   availableResourcePacks: string[]
   hasGlobal: boolean
+}
+
+export interface LauncherSettingsPayload {
+  discordActivity: boolean
+  keepOldConfigs: boolean
+  downloadSpeedLimit: number | null
+  autoUpdate: boolean
+  systemNotifications: boolean
+  debugMode: boolean
+  startWithSystem: boolean
+  closeAfterLaunch: boolean
+  minimizeToTray: boolean
+}
+
+export interface SavePlayerModelPayload {
+  name: string
+  url: string | null
+  modelId: number | null
+  slim: boolean
+  data: number[] | null
 }

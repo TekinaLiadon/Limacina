@@ -15,11 +15,15 @@ use crate::{log_err, log_info};
 
 pub const STARTUP_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
-pub fn updater_pubkey() -> Option<String> {
-    std::env::var("TAURI_UPDATER_PUBKEY")
-        .ok()
-        .map(|key| key.trim().to_string())
-        .filter(|key| !key.is_empty())
+pub fn updater_pubkey(app: &AppHandle) -> Option<String> {
+    let pubkey = app
+        .config()
+        .plugins
+        .0
+        .get("updater")?
+        .get("pubkey")?
+        .as_str()?;
+    Some(pubkey.trim().to_string()).filter(|key| !key.is_empty())
 }
 
 fn valid_version(version: &str) -> bool {
@@ -32,9 +36,9 @@ pub fn updater_builder(
     app: &AppHandle,
     version: Option<&str>,
 ) -> Result<tauri_plugin_updater::UpdaterBuilder> {
-    let pubkey = updater_pubkey().ok_or_else(|| {
-        anyhow::anyhow!("Обновления отключены: не задан публичный ключ TAURI_UPDATER_PUBKEY")
-    })?;
+    if updater_pubkey(app).is_none() {
+        anyhow::bail!("Обновления отключены: не задан plugins.updater.pubkey в tauri.conf.json");
+    }
     let server_url =
         crate::utils::env_info::default_server_url().ok_or(LauncherError::UpdateServerMissing)?;
     let endpoint = match version {
@@ -48,7 +52,6 @@ pub fn updater_builder(
 
     let builder = app
         .updater_builder()
-        .pubkey(pubkey)
         .endpoints(vec![endpoint])
         .context("Не удалось задать адрес обновлений")?;
     if version.is_some() {

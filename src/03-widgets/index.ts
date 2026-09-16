@@ -33,4 +33,6 @@ export { default as GameSettings } from './tabs/settings/GameSettings.vue'
 export { default as SettingsSection } from './tabs/settings/SettingsSection.vue'
 export { default as SettingsSaveBar } from './tabs/settings/SettingsSaveBar.vue'
 
+export { default as ThemeSwitchAnimation } from './theme/ThemeSwitchAnimation.vue'
+
 export type { TabItem, TabKey } from './types'

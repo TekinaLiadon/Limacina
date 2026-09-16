@@ -3,9 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData } from '@/05-entities/core/types'
-import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
-import type { SkinModelMode } from '@/03-widgets/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
 
 export interface CommandErrorPayload {
   code: string
@@ -78,18 +76,6 @@ export async function saveSettingsProject(config: ProjectConfig): Promise<void> 
 
 export async function saveLauncherConfig(parentPath: string): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('save_launcher_config', { parentPath })
-}
-
-export interface LauncherSettingsPayload {
-  discordActivity: boolean
-  keepOldConfigs: boolean
-  downloadSpeedLimit: number | null
-  autoUpdate: boolean
-  systemNotifications: boolean
-  debugMode: boolean
-  startWithSystem: boolean
-  closeAfterLaunch: boolean
-  minimizeToTray: boolean
 }
 
 export async function saveLauncherSettings(settings: LauncherSettingsPayload): Promise<LauncherConfig> {
@@ -416,14 +402,6 @@ export async function listModels(uuid: string): Promise<UserContentItem[]> {
 
 export async function deleteModel(id: number): Promise<void> {
   return invoke('delete_model', { id })
-}
-
-export interface SavePlayerModelPayload {
-  name: string
-  url: string | null
-  modelId: number | null
-  slim: boolean
-  data: number[] | null
 }
 
 export async function savePlayerModel(payload: SavePlayerModelPayload): Promise<void> {

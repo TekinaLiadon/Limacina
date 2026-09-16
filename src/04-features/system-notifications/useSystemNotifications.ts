@@ -1,7 +1,6 @@
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
 import { listenLaunchSteps, listenGameExit, getNotificationIcon } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import type { StepEvent, GameExitInfo } from '@/05-entities/core/types'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isPermissionGranted, requestPermission, sendNotification, type Options } from '@tauri-apps/plugin-notification'
 

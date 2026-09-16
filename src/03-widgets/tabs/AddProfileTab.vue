@@ -5,7 +5,7 @@ import { Button } from '@/06-shared'
 import { useAddProfile } from '@/04-features'
 import ServerProfileForm from '@/03-widgets/tabs/profile/ServerProfileForm.vue'
 import OfflineProfileForm from '@/03-widgets/tabs/profile/OfflineProfileForm.vue'
-import type { ProfileKind, ProjectConfig } from '@/05-entities/core/types'
+import type { ProfileKind, ProjectConfig } from '@/05-entities'
 
 const props = defineProps<{
   embedded?: boolean

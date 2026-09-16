@@ -4,7 +4,7 @@ import type {
   CPMAnimationInterpolator,
   CPMAnimationFrame,
   CPMAnimationKind,
-} from '@/05-entities/core/types'
+} from '@/05-entities'
 
 const LAYER_PREFIX = '$layer$'
 const VALUE_LAYER_PREFIX = '$value$'

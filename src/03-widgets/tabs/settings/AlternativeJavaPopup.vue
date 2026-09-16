@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button, Checkbox, Dropdown, Skeleton, useFocusTrap } from '@/06-shared'
-import type { JavaDistribution } from '@/05-entities/core/types'
+import type { JavaDistribution } from '@/05-entities'
 
 const props = defineProps<{
   visible: boolean
@@ -99,7 +99,7 @@ onBeforeUnmount((): void => {
 .alt-java-popup-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;

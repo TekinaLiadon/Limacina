@@ -225,6 +225,13 @@ FunctionEnd
 Function CreateWizardFonts
   IntOp $DPI $DPI + 0
   ${If} $DPI <= 0
+    StrCpy $0 0
+    System::Call 'user32::GetDpiForWindow(p $HWNDPARENT) i.r0'
+    ${If} $0 > 0
+      StrCpy $DPI $0
+    ${EndIf}
+  ${EndIf}
+  ${If} $DPI <= 0
     StrCpy $DPI 96
   ${EndIf}
   ${If} $FontsReady != 1
@@ -282,6 +289,13 @@ FunctionEnd
 
 Function un.CreateWizardFonts
   IntOp $DPI $DPI + 0
+  ${If} $DPI <= 0
+    StrCpy $0 0
+    System::Call 'user32::GetDpiForWindow(p $HWNDPARENT) i.r0'
+    ${If} $0 > 0
+      StrCpy $DPI $0
+    ${EndIf}
+  ${EndIf}
   ${If} $DPI <= 0
     StrCpy $DPI 96
   ${EndIf}
@@ -660,6 +674,7 @@ Function PageFinish
   Pop $DesktopShortcutCheckbox
   SendMessage $DesktopShortcutCheckbox ${WM_SETFONT} $FontBody 1
   SetCtlColors $DesktopShortcutCheckbox ${COLOR_TEXT} ${COLOR_BG}
+  SendMessage $DesktopShortcutCheckbox ${BM_SETCHECK} ${BST_CHECKED} 0
 
   GetDlgItem $0 $HWNDPARENT 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:Готово"
@@ -717,12 +732,18 @@ Function un.PageConfirm
   Pop $DIALOG
   SetCtlColors $DIALOG "" ${COLOR_BG}
 
+  ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" "DataPath"
+  ${StrCpy} $1 "$PROFILE\${PRODUCTNAME}"
+  ${If} $0 != ""
+    StrCpy $1 $0
+  ${EndIf}
+
   ${NSD_CreateLabel} 0 8u 100% 16u "Удалить ${PRODUCTNAME}?"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $FontHeading 1
   SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
 
-  ${NSD_CreateLabel} 0 34u 100% 80u "Будут удалены:$\n$\n— файлы программы: $INSTDIR$\n— папка данных в профиле пользователя: конфиги, сессии и все установленные файлы игр$\n$\nДействие нельзя отменить."
+  ${NSD_CreateLabel} 0 34u 100% 80u "Будут удалены:$\n$\n— файлы программы: $INSTDIR$\n— папка данных: $1 (конфиги, сессии и все установленные файлы игр)$\n$\nДействие нельзя отменить."
   Pop $0
   SendMessage $0 ${WM_SETFONT} $FontBody 1
   SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
@@ -858,8 +879,6 @@ SectionEnd
 Section Install
   SetOutPath $INSTDIR
 
-  CreateDirectory "$INSTDIR\logs"
-
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
@@ -991,7 +1010,7 @@ Section Uninstall
   {{#each resources_ancestors}}
   RMDir /REBOOTOK "$INSTDIR\\{{this}}"
   {{/each}}
-  RMDir "$INSTDIR"
+  RMDir /r "$INSTDIR"
 
   ${If} $UpdateMode <> 1
     !insertmacro DeleteAppUserModelId
@@ -1031,8 +1050,14 @@ Section Uninstall
     DeleteRegKey /ifempty HKCU "${MANUKEY}"
 
     SetShellVarContext current
-    RmDir /r "$PROFILE\${PRODUCTNAME}"
-    RmDir /r "$APPDATA\${PRODUCTNAME}"
+    ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" "DataPath"
+    ${StrCpy} $1 "${PRODUCTNAME}"
+    ${If} $0 != ""
+      RmDir /r "$0"
+      ${GetFileName} $0 $1
+    ${EndIf}
+    RmDir /r "$PROFILE\$1"
+    RmDir /r "$APPDATA\$1"
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
   ${EndIf}

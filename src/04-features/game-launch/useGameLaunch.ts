@@ -1,8 +1,7 @@
 import { computed } from 'vue'
-import { useCoreStore, useAccountsStore } from '@/05-entities'
+import { useCoreStore, useAccountsStore, type ProjectConfig, type StepProgressItem } from '@/05-entities'
 import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import type { ProjectConfig, StepProgressItem } from '@/05-entities/core/types'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
 type StepAction = () => Promise<void>

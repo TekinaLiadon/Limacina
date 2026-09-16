@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::future::BoxFuture;
 
 use crate::log_info;
@@ -20,11 +20,14 @@ pub async fn load_version_manifest(
 ) -> Result<crate::minecraft::vanilla::structs::VersionDetailsManifest> {
     let manifest_index =
         get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
-            .await?;
+            .await
+            .context("Не удалось загрузить индекс манифеста версий")?;
 
-    let versions = create_manifest_versions(manifest_index.versions)?;
+    let versions = create_manifest_versions(manifest_index.versions);
 
-    let manifest = get_manifest_version(&project.mc_version, versions).await?;
+    let manifest = get_manifest_version(&project.mc_version, versions)
+        .await
+        .context("Не удалось получить манифест версии")?;
     Ok(manifest)
 }
 
@@ -51,10 +54,13 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         "mc.manifest",
         "Загрузка манифеста версии",
     );
-    let manifest = load_version_manifest(project).await?;
+    let manifest = load_version_manifest(project)
+        .await
+        .context("Не удалось загрузить манифест версии")?;
     manifest_step.finish(false);
 
-    let base_path = launcher_path(Some(&project_name))?;
+    let base_path = launcher_path(Some(&project_name))
+        .context("Не удалось определить путь к файлам проекта")?;
     let targets = collect_install_targets(&manifest);
 
     let jar_report = check_integrity(
@@ -64,7 +70,8 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         PHASE_CLIENT.label,
         url_download_fn(),
     )
-    .await?;
+    .await
+    .context("Не удалось проверить клиентский jar")?;
 
     let libs_report = check_integrity(
         &base_path,
@@ -73,7 +80,8 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         PHASE_LIBRARIES.label,
         url_download_fn(),
     )
-    .await?;
+    .await
+    .context("Не удалось проверить библиотеки")?;
 
     let index_report = check_integrity(
         &base_path,
@@ -82,10 +90,13 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         PHASE_ASSET_INDEX.label,
         url_download_fn(),
     )
-    .await?;
+    .await
+    .context("Не удалось проверить индекс ассетов")?;
 
     let index_path = base_path.join(&targets.asset_index.rel_path);
-    let asset_index = read_asset_index(&index_path).await?;
+    let asset_index = read_asset_index(&index_path)
+        .await
+        .context("Не удалось прочитать индекс ассетов")?;
 
     let assets_report = check_integrity(
         &base_path,
@@ -94,7 +105,8 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         PHASE_ASSETS.label,
         url_download_fn(),
     )
-    .await?;
+    .await
+    .context("Не удалось проверить ассеты")?;
 
     let mut report = jar_report;
     report.merge(libs_report);

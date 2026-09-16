@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 use crate::minecraft::mod_loader::utils::maven_to_path;
@@ -10,7 +10,8 @@ pub fn library_targets(libraries: &[LibraryMod]) -> Result<Vec<IntegrityTarget>>
         .iter()
         .map(|lib| {
             Ok(IntegrityTarget {
-                rel_path: PathBuf::from("libraries").join(maven_to_path(&lib.name)?),
+                rel_path: PathBuf::from("libraries")
+                    .join(maven_to_path(&lib.name).context("Не удалось разобрать координату библиотеки")?),
                 hash: lib.hash.clone(),
                 hash_kind: HashKind::Sha1,
                 download: TargetDownload::Url(lib.url.clone()),

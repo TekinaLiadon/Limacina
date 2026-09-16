@@ -87,8 +87,8 @@ pub async fn check_update(app: AppHandle) -> CommandResult<Option<UpdateInfo>> {
         log_info!("Режим разработки, проверка обновлений пропущена");
         return Ok(None);
     }
-    if updater_pubkey().is_none() {
-        log_info!("Обновления отключены: не задан TAURI_UPDATER_PUBKEY, проверка пропущена");
+    if updater_pubkey(&app).is_none() {
+        log_info!("Обновления отключены: не задан plugins.updater.pubkey, проверка пропущена");
         return Ok(None);
     }
     let result = async {
