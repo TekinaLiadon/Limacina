@@ -96,6 +96,8 @@ pub struct CpmModelEntry {
 struct CpmModelManifest {
     #[serde(default)]
     models: Vec<CpmModelEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<u32>,
 }
 
 fn write_varint(out: &mut Vec<u8>, mut value: u32) {
@@ -232,6 +234,18 @@ fn merge_selected_model(content: Option<&str>, file_name: &str) -> Result<Option
     Ok(Some(serde_json::to_string_pretty(&root)?))
 }
 
+fn remove_selected_model(content: Option<&str>) -> Result<Option<String>> {
+    let Some(content) = content else {
+        return Ok(None);
+    };
+    let mut root = parse_cpm_config(Some(content));
+    if !root.contains_key("selectedModel") {
+        return Ok(None);
+    }
+    root.remove("selectedModel");
+    Ok(Some(serde_json::to_string_pretty(&root)?))
+}
+
 async fn read_selected_model(project_name: &str) -> Result<Option<String>> {
     let path = cpm_config_path(project_name)?;
     match tokio::fs::read_to_string(&path).await {
@@ -262,6 +276,19 @@ async fn set_selected_model(project_name: &str, file_name: &str) -> Result<()> {
     Ok(())
 }
 
+async fn clear_selected_model(project_name: &str) -> Result<()> {
+    let path = cpm_config_path(project_name)?;
+    let existing = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => Some(content),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
+    };
+    if let Some(content) = remove_selected_model(existing.as_deref())? {
+        write_atomic(&path, content.as_bytes()).await?;
+    }
+    Ok(())
+}
+
 async fn replace_manifest_entry(project_name: &str, entry: &CpmModelEntry) -> Result<()> {
     let mut manifest = read_manifest(project_name).await?;
     let dir = player_models_dir(project_name)?;
@@ -280,6 +307,97 @@ async fn replace_manifest_entry(project_name: &str, entry: &CpmModelEntry) -> Re
     }
     manifest.models.push(entry.clone());
     save_manifest(project_name, &manifest).await?;
+    Ok(())
+}
+
+fn pick_eviction_index(manifest: &CpmModelManifest, selected: Option<&str>) -> Option<usize> {
+    let is_protected = |entry: &CpmModelEntry| selected.is_some_and(|file| entry.file == file);
+    manifest
+        .models
+        .iter()
+        .enumerate()
+        .find(|(_, entry)| !entry.offline && !is_protected(entry))
+        .map(|(index, _)| index)
+        .or_else(|| {
+            manifest
+                .models
+                .iter()
+                .enumerate()
+                .find(|(_, entry)| !is_protected(entry))
+                .map(|(index, _)| index)
+        })
+}
+
+async fn enforce_models_limit(project_name: &str, manifest: &mut CpmModelManifest) -> Result<()> {
+    let Some(limit) = manifest.limit else {
+        return Ok(());
+    };
+    let limit = (limit.max(1)) as usize;
+    let dir = player_models_dir(project_name)?;
+    let selected = read_selected_model(project_name).await?;
+    let mut evicted = false;
+
+    while manifest.models.len() > limit {
+        let Some(index) = pick_eviction_index(manifest, selected.as_deref()) else {
+            break;
+        };
+        let entry = manifest.models.remove(index);
+        let _ = tokio::fs::remove_file(dir.join(&entry.file)).await;
+        log_info!("Модель {} удалена: достигнут лимит хранения", entry.file);
+        evicted = true;
+    }
+
+    if evicted {
+        save_manifest(project_name, manifest).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_player_models_limit(
+    state: State<'_, Mutex<GlobalState>>,
+) -> CommandResult<Option<u32>> {
+    let project_name = {
+        let guard = state.lock().await;
+        guard.project_config.project_name.clone()
+    };
+    if project_name.trim().is_empty() {
+        return Err(LauncherError::ProjectNotSelected.into());
+    }
+    let manifest = read_manifest(&project_name).await?;
+    Ok(manifest.limit)
+}
+
+#[tauri::command]
+pub async fn set_player_models_limit(
+    state: State<'_, Mutex<GlobalState>>,
+    limit: Option<u32>,
+) -> CommandResult<()> {
+    let project_name = {
+        let guard = state.lock().await;
+        guard.project_config.project_name.clone()
+    };
+    if project_name.trim().is_empty() {
+        return Err(LauncherError::ProjectNotSelected.into());
+    }
+    if limit == Some(0) {
+        return Err(LauncherError::InvalidInput(
+            "Лимит моделей должен быть не меньше 1".to_string(),
+        )
+        .into());
+    }
+
+    let mut manifest = read_manifest(&project_name).await?;
+    manifest.limit = limit;
+    save_manifest(&project_name, &manifest).await?;
+    enforce_models_limit(&project_name, &mut manifest).await?;
+
+    log_info!(
+        "Лимит моделей обновлён: {}",
+        limit
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "не ограничен".to_string())
+    );
     Ok(())
 }
 
@@ -352,6 +470,8 @@ pub async fn save_player_model(
     write_atomic(&dir.join(&entry.file), &container).await?;
     replace_manifest_entry(&project_name, &entry).await?;
     set_selected_model(&project_name, &entry.file).await?;
+    let mut manifest = read_manifest(&project_name).await?;
+    enforce_models_limit(&project_name, &mut manifest).await?;
 
     log_info!("Модель сохранена в игру: {}", entry.file);
     Ok(())
@@ -453,6 +573,7 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
     if changed {
         save_manifest(&project_name, &manifest).await?;
     }
+    enforce_models_limit(&project_name, &mut manifest).await?;
 
     let selected = read_selected_model(&project_name).await?;
     let stale = match &selected {
@@ -463,6 +584,9 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
         if let Some(entry) = manifest.models.iter().filter(|m| !m.offline).next_back() {
             set_selected_model(&project_name, &entry.file).await?;
             log_info!("Выбрана модель CPM: {}", entry.file);
+        } else if stale {
+            clear_selected_model(&project_name).await?;
+            log_info!("Выбор модели CPM сброшен: модель удалена с сервера");
         }
     }
 
@@ -526,6 +650,119 @@ mod tests {
         let root: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(&merged).unwrap();
         assert_eq!(root["selectedModel"], "new.cpmmodel");
+    }
+
+    #[test]
+    fn remove_selected_model_keeps_other_keys() {
+        let existing = r#"{"keybinds": {"glide": "KEY_G"}, "selectedModel": "old.cpmmodel"}"#;
+        let updated = remove_selected_model(Some(existing)).unwrap().unwrap();
+        let root: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&updated).unwrap();
+        assert!(root.get("selectedModel").is_none());
+        assert!(root.get("keybinds").is_some());
+    }
+
+    #[test]
+    fn remove_selected_model_is_noop_without_key_or_content() {
+        assert!(remove_selected_model(Some(r#"{"keybinds": {}}"#))
+            .unwrap()
+            .is_none());
+        assert!(remove_selected_model(None).unwrap().is_none());
+        assert!(remove_selected_model(Some("{ not json")).unwrap().is_none());
+    }
+
+    #[test]
+    fn manifest_limit_defaults_to_unlimited() {
+        let manifest: CpmModelManifest = serde_json::from_str("{}").unwrap();
+        assert_eq!(manifest.limit, None);
+        let manifest: CpmModelManifest = serde_json::from_str(r#"{"limit": 3}"#).unwrap();
+        assert_eq!(manifest.limit, Some(3));
+    }
+
+    fn entry(id: Option<i64>, file: &str, offline: bool) -> CpmModelEntry {
+        CpmModelEntry {
+            id,
+            file: file.to_string(),
+            name: file.to_string(),
+            url: None,
+            skin_type: None,
+            offline,
+        }
+    }
+
+    #[test]
+    fn eviction_prefers_oldest_online_entry() {
+        let manifest = CpmModelManifest {
+            models: vec![
+                entry(Some(1), "a.cpmmodel", false),
+                entry(None, "local.cpmmodel", true),
+                entry(Some(2), "c.cpmmodel", false),
+            ],
+            limit: None,
+        };
+        assert_eq!(pick_eviction_index(&manifest, Some("c.cpmmodel")), Some(0));
+    }
+
+    #[test]
+    fn eviction_skips_selected_and_falls_back_to_offline() {
+        let manifest = CpmModelManifest {
+            models: vec![
+                entry(None, "local.cpmmodel", true),
+                entry(Some(2), "c.cpmmodel", false),
+            ],
+            limit: None,
+        };
+        assert_eq!(pick_eviction_index(&manifest, Some("c.cpmmodel")), Some(0));
+    }
+
+    #[test]
+    fn eviction_returns_none_when_only_selected_remains() {
+        let manifest = CpmModelManifest {
+            models: vec![entry(Some(1), "only.cpmmodel", false)],
+            limit: None,
+        };
+        assert_eq!(pick_eviction_index(&manifest, Some("only.cpmmodel")), None);
+    }
+
+    #[tokio::test]
+    async fn enforce_models_limit_deletes_oldest_files_and_keeps_orphans() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_limit").await;
+        let project = "Cordelia";
+        let dir = player_models_dir(project).unwrap();
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let mut manifest = CpmModelManifest {
+            models: vec![
+                entry(Some(1), "a.cpmmodel", false),
+                entry(Some(2), "b.cpmmodel", false),
+                entry(Some(3), "c.cpmmodel", false),
+            ],
+            limit: Some(2),
+        };
+        for model in &manifest.models {
+            tokio::fs::write(dir.join(&model.file), b"x").await.unwrap();
+        }
+        tokio::fs::write(dir.join("orphan.cpmmodel"), b"x")
+            .await
+            .unwrap();
+
+        enforce_models_limit(project, &mut manifest).await.unwrap();
+
+        assert_eq!(manifest.models.len(), 2);
+        assert_eq!(manifest.models[0].file, "b.cpmmodel");
+        assert!(!tokio::fs::try_exists(dir.join("a.cpmmodel")).await.unwrap());
+        assert!(tokio::fs::try_exists(dir.join("b.cpmmodel")).await.unwrap());
+        assert!(tokio::fs::try_exists(dir.join("orphan.cpmmodel"))
+            .await
+            .unwrap());
+
+        manifest.limit = Some(1);
+        enforce_models_limit(project, &mut manifest).await.unwrap();
+        assert_eq!(manifest.models.len(), 1);
+        assert_eq!(manifest.models[0].file, "c.cpmmodel");
+        assert!(tokio::fs::try_exists(dir.join("orphan.cpmmodel"))
+            .await
+            .unwrap());
     }
 
     #[test]

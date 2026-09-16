@@ -3,7 +3,7 @@ import { Button, Checkbox, Dropdown, Input } from '@/06-shared'
 import type { DropdownOption } from '@/06-shared/types'
 import type { OfflineProfileForm as OfflineForm } from '@/05-entities/core/types'
 
-defineProps<{
+const props = defineProps<{
   form: OfflineForm
   mcVersionOptions: DropdownOption[]
   loaderOptions: DropdownOption[]
@@ -21,10 +21,15 @@ const emit = defineEmits<{
   submit: []
   back: []
 }>()
+
+const handleSubmit = (): void => {
+  if (props.isSubmitting || !props.isValid) return
+  emit('submit')
+}
 </script>
 
 <template>
-  <div class="offline-profile">
+  <form class="offline-profile" @submit.prevent="handleSubmit">
     <div class="offline-profile__head">
       <h2 class="offline-profile__title heading-display">Одиночная игра</h2>
       <p class="offline-profile__subtitle">
@@ -80,9 +85,9 @@ const emit = defineEmits<{
     <div class="offline-profile__actions">
       <Button
         class="btn-primary btn-lg btn-block"
+        type="submit"
         :is-loading="isSubmitting"
         :is-disabled="!isValid"
-        @click="emit('submit')"
       >
         Создать профиль
       </Button>
@@ -92,7 +97,7 @@ const emit = defineEmits<{
         @click="emit('back')"
       >Назад</Button>
     </div>
-  </div>
+  </form>
 </template>
 
 <style lang="scss">

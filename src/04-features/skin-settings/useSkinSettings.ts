@@ -1,7 +1,8 @@
 import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
-import { selectFile, reportError } from '@/06-shared'
+import { reportError, selectFile, useFileDrop } from '@/06-shared'
 import {
-  getProfileSkin, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
+  getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
+  getErrorMessage,
 } from '@/06-shared/api'
 import { useNotificationStore } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
@@ -131,6 +132,31 @@ export function useSkinSettings() {
     await content.handleUpload({ fileData: skinFileBytes.value, model: modelMode.value })
   }
 
+  const handleDropPath = async (path: string): Promise<void> => {
+    content.errorMessage.value = ''
+    try {
+      const bytes = await readSkinFile(path)
+      const dataUrl = await loadBlobUrl(bytes)
+      skinFileBytes.value = bytes
+      setSkinUrl(dataUrl)
+      if (content.isOffline.value) {
+        await persistOfflineSkin(true)
+      }
+    } catch (e: unknown) {
+      content.errorMessage.value = getErrorMessage(e)
+    }
+  }
+
+  const { isDragOver } = useFileDrop({
+    accept: ['png'],
+    onDrop: (path: string): void => {
+      void handleDropPath(path)
+    },
+    onError: (message: string): void => {
+      content.errorMessage.value = message
+    },
+  })
+
   const resetSkinState = async (): Promise<void> => {
     resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
@@ -192,7 +218,9 @@ export function useSkinSettings() {
     isUploading: content.isUploading,
     isOffline: content.isOffline,
     uploadedSkins: content.items,
+    isListLoading: content.isListLoading,
     isSkinLoading,
+    isDragOver,
     modelMode,
     selectSkin,
     handleUpload,

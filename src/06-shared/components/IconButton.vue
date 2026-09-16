@@ -39,14 +39,18 @@ const props = withDefaults(defineProps<{
   background-color: var(--surface-light);
   box-shadow: var(--elevation-inset);
   border: none;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+
+  &:active {
+    transform: scale(0.94);
+  }
 
   &__icon {
     font-size: 18px;
     width: 18px;
     height: 18px;
     color: var(--login-text-secondary);
-    transition: color 0.2s ease;
+    transition: color var(--duration-base) var(--ease-out);
   }
 
   @include breakpoints.media-under-sm {

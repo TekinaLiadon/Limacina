@@ -1,9 +1,54 @@
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity .2s ease;
+  transition: opacity var(--duration-base) var(--ease-out);
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0.2;
+}
+
+.page-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
+}
+
+.page-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(var(--space-8));
+}
+
+.page-leave-to {
+  opacity: 0;
+}
+
+.popup-enter-active,
+.popup-leave-active {
+  transition: opacity var(--duration-base) var(--ease-out);
+
+  .popup-panel {
+    transition: transform var(--duration-base) var(--ease-out), opacity var(--duration-base) var(--ease-out);
+  }
+}
+
+.popup-enter-from,
+.popup-leave-to {
+  opacity: 0;
+
+  .popup-panel {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+html[data-animations='off'] *,
+html[data-animations='off'] *::before,
+html[data-animations='off'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
 }

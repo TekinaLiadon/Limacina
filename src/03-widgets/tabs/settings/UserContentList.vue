@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { Button } from '@/06-shared'
+import { Button, Skeleton } from '@/06-shared'
 import type { UserContentItem } from '@/05-entities/core/types'
 
-defineProps<{
+withDefaults(defineProps<{
   title: string
   items: UserContentItem[]
-}>()
+  isLoading?: boolean
+}>(), {
+  isLoading: false,
+})
 
 const emit = defineEmits<{
   copy: [url: string]
@@ -16,7 +19,12 @@ const emit = defineEmits<{
 <template>
   <div class="user-content-list">
     <div class="user-content-list__title section-label">{{ title }}</div>
-    <div class="user-content-list__items">
+    <div v-if="isLoading" class="user-content-list__items" aria-hidden="true">
+      <div v-for="index in 3" :key="index" class="user-content-list__item">
+        <Skeleton variant="line" height="var(--control-height)" />
+      </div>
+    </div>
+    <div v-else class="user-content-list__items">
       <div
         v-for="item in items"
         :key="item.id ?? item.url"

@@ -1,0 +1,68 @@
+[data-theme="monologue-light"] {
+  --font-body: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-display: "Jost", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-eyebrow: var(--font-mono);
+  --weight-display: 400;
+  --tracking-body: normal;
+  --tracking-heading: -0.018em;
+  --tracking-eyebrow: 0.06em;
+
+  --radius-button: var(--radius-pill);
+  --radius-card: 18px;
+  --radius-modal: 24px;
+  --radius-input: 8px;
+  --radius-badge: var(--radius-pill);
+
+  --login-bg-primary: #f7f9fa;
+  --login-bg-secondary: #e9eef0;
+  --app-bg:
+    radial-gradient(120% 90% at 50% -20%, rgba(13, 143, 168, 0.08) 0%, transparent 60%),
+    linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-secondary) 100%);
+  --html-bg: #e9eef0;
+
+  --login-bg-form: #ffffff;
+
+  --login-text-primary: #0a0a0a;
+  --login-text-secondary: #3f3f3f;
+  --login-text-muted: #7f7f7f;
+
+  --login-accent: #0d8fa8;
+  --login-accent-hover: #0a768c;
+  --text-on-accent: #ffffff;
+  --accent-fill: #282828;
+  --text-on-accent-fill: #ffffff;
+  --accent-subtle: rgba(13, 143, 168, 0.08);
+  --accent-active-bg: rgba(13, 143, 168, 0.16);
+  --accent-text: var(--login-accent);
+
+  --surface-subtle: rgba(10, 10, 10, 0.03);
+  --surface-light: rgba(10, 10, 10, 0.05);
+  --surface-input: rgba(10, 10, 10, 0.05);
+  --surface-hover: rgba(10, 10, 10, 0.08);
+  --surface-active: rgba(10, 10, 10, 0.12);
+  --overlay: rgba(10, 10, 10, 0.4);
+
+  --border-subtle: rgba(10, 10, 10, 0.12);
+  --elevation-inset: inset 0 0 0 1px rgba(10, 10, 10, 0.12);
+  --elevation-inset-strong: inset 0 0 0 1px rgba(10, 10, 10, 0.22);
+
+  --elevation-card:
+    inset 0 0 0 1px rgba(10, 10, 10, 0.12),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.7);
+  --elevation-modal:
+    inset 0 0 0 1px rgba(10, 10, 10, 0.12),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.7),
+    0 8px 24px rgba(10, 10, 10, 0.12);
+  --elevation-glow: 0 0 8px rgba(13, 143, 168, 0.3);
+
+  --error: #c0392b;
+  --error-bg: rgba(192, 57, 43, 0.08);
+  --error-border: rgba(192, 57, 43, 0.28);
+  --delete-bg: rgba(192, 57, 43, 0.08);
+  --delete-border: rgba(192, 57, 43, 0.32);
+  --delete-text: #c0392b;
+
+  --grid-line: rgba(10, 10, 10, 0.06);
+  --heading-gradient: linear-gradient(180deg, #0a0a0a 0%, #7f7f7f 100%);
+}

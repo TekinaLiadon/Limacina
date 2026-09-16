@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Button, Dropdown, Input, MultiSelect, Preloader } from '@/06-shared'
+import { Button, Dropdown, Input, MultiSelect, Skeleton } from '@/06-shared'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
 import type { ModrinthSearchHit, ModrinthInstalledMod } from '@/05-entities/modrinth/types'
@@ -55,10 +55,12 @@ const categoryOptions = MODRINTH_CATEGORIES.map((option) => ({
 const mcVersionText = computed((): string => coreStore.projectConfig?.mcVersion ?? '')
 
 const isTabLoading = computed((): boolean =>
-  isLoadingInstalled.value || (isSearching.value && hits.value.length === 0 && activeView.value === 'catalog'),
+  isLoadingInstalled.value && activeView.value === 'installed',
 )
 
-const tabLoadingText = computed((): string => (isLoadingInstalled.value ? 'Загрузка модов' : 'Поиск модов'))
+const isCatalogSearching = computed((): boolean =>
+  activeView.value === 'catalog' && isSearching.value && hits.value.length === 0,
+)
 
 const updatesCount = computed((): number => Object.keys(updates.value).length)
 
@@ -167,7 +169,12 @@ onMounted(() => {
         </Button>
       </div>
 
-      <p v-if="installed.length === 0" class="modrinth-tab__empty">
+      <div v-if="isTabLoading" class="modrinth-tab__list" aria-hidden="true">
+        <div v-for="index in 5" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
+          <Skeleton variant="list-item" icon-shape="square" :lines="4" />
+        </div>
+      </div>
+      <p v-else-if="installed.length === 0" class="modrinth-tab__empty">
         Пока ничего не установлено — найдите моды в каталоге
       </p>
       <div v-else class="modrinth-tab__list">
@@ -244,9 +251,19 @@ onMounted(() => {
         <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
       </div>
 
-      <p v-if="hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
-      <div v-else class="modrinth-tab__list">
-        <article v-for="hit in hits" :key="hit.project_id" class="modrinth-tab__row">
+      <p v-if="!isCatalogSearching && hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
+      <div v-else-if="isCatalogSearching" class="modrinth-tab__list" aria-hidden="true">
+        <div v-for="index in 6" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
+          <Skeleton variant="list-item" icon-shape="square" :lines="4" />
+        </div>
+      </div>
+      <TransitionGroup v-else name="modrinth-rows" tag="div" class="modrinth-tab__list">
+        <article
+          v-for="(hit, index) in hits"
+          :key="hit.project_id"
+          class="modrinth-tab__row"
+          :style="{ '--modrinth-row-index': String(Math.min(index, 11)) }"
+        >
           <ModrinthIcon :src="hit.icon_url" :title="hit.title" />
           <div class="modrinth-tab__row-info">
             <div class="modrinth-tab__row-head">
@@ -282,7 +299,7 @@ onMounted(() => {
             <Button class="btn-secondary" @click="openDetails(hit)">Подробнее</Button>
           </div>
         </article>
-      </div>
+      </TransitionGroup>
 
       <div v-if="totalPages > 1 && hits.length > 0" class="modrinth-tab__pagination">
         <Button
@@ -325,8 +342,6 @@ onMounted(() => {
       @update="activeHit !== null && handleUpdate(activeHit)"
       @close="popupVisible = false"
     />
-
-    <Preloader v-if="isTabLoading" local :text="tabLoadingText" />
   </div>
 </template>
 
@@ -365,7 +380,7 @@ onMounted(() => {
     font-size: var(--text-body-sm);
     font-weight: var(--weight-medium);
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
 
     &:hover:not(&--active) {
       color: var(--login-text-primary);
@@ -450,6 +465,32 @@ onMounted(() => {
     border-radius: var(--radius-card);
     background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
+
+    &--skeleton {
+      .skeleton--list-item {
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .skeleton__icon {
+        width: 48px;
+        height: 48px;
+      }
+
+      .skeleton__body {
+        gap: var(--space-4);
+      }
+
+      .skeleton__line {
+        height: calc(var(--text-body-sm) * var(--leading-body-sm));
+      }
+
+      .skeleton__line--short {
+        height: calc(var(--text-caption) * var(--leading-caption));
+      }
+    }
   }
 
   &__row-info {
@@ -556,5 +597,15 @@ onMounted(() => {
       justify-content: flex-end;
     }
   }
+}
+
+.modrinth-rows-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
+  transition-delay: calc(var(--modrinth-row-index, 0) * var(--stagger-step));
+}
+
+.modrinth-rows-enter-from {
+  opacity: 0;
+  transform: translateY(var(--space-8));
 }
 </style>

@@ -73,12 +73,12 @@ onUnmounted((): void => {
 
 .push-notification-enter-active,
 .push-notification-leave-active {
-  transition: all 0.3s ease;
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
 }
 
 .push-notification-enter-from,
 .push-notification-leave-to {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateX(var(--space-20));
 }
 </style>

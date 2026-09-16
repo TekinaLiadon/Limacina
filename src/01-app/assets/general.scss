@@ -46,6 +46,11 @@ input {
   outline: none;
 }
 
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 input {
   padding: 0;
   margin: 0;

@@ -54,6 +54,7 @@ const {
       <ResourcePacksOptions
         :options="options"
         :available-packs="availableResourcePacks"
+        :is-loading="isLoading"
       />
     </SettingsSection>
 

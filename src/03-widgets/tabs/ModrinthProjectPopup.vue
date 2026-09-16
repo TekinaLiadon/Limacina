@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { Button, MarkdownText } from '@/06-shared'
+import { Button, MarkdownText, useFocusTrap } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import type { ModrinthSearchHit, ModrinthProjectDetails, ModrinthVersion } from '@/05-entities/modrinth/types'
@@ -27,6 +27,10 @@ const emit = defineEmits<{
 }>()
 
 const { fetchProjectDetails } = useModrinth()
+
+const popupRef = ref<HTMLDivElement | null>(null)
+
+useFocusTrap(popupRef, (): boolean => props.visible)
 
 const details = ref<ModrinthProjectDetails | null>(null)
 const isLoading = ref(false)
@@ -143,9 +147,9 @@ function handleLink(url: string): void {
 
 <template>
   <Teleport to="body">
-    <Transition name="modrinth-popup">
+    <Transition name="popup">
       <div v-if="visible" class="modrinth-popup-overlay" @click.self="emit('close')" @keydown.esc="emit('close')">
-        <div class="modrinth-popup">
+        <div ref="popupRef" class="modrinth-popup popup-panel" role="dialog" aria-modal="true">
           <div class="modrinth-popup__head">
             <ModrinthIcon :src="hit?.icon_url ?? null" :title="hit?.title ?? '?'" size="lg" />
             <div class="modrinth-popup__head-info">
@@ -342,7 +346,7 @@ function handleLink(url: string): void {
     border-radius: var(--radius-circle);
     border: 2px solid var(--surface-light);
     border-top-color: var(--accent-primary);
-    animation: modrinth-popup-spin 0.8s linear infinite;
+    animation: modrinth-popup-spin var(--duration-spin) linear infinite;
   }
 
   &__info {
@@ -468,7 +472,7 @@ function handleLink(url: string): void {
 
   &__error {
     margin: 0;
-    color: var(--error-text);
+    color: var(--error);
   }
 }
 
@@ -476,15 +480,5 @@ function handleLink(url: string): void {
   to {
     transform: rotate(360deg);
   }
-}
-
-.modrinth-popup-enter-active,
-.modrinth-popup-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modrinth-popup-enter-from,
-.modrinth-popup-leave-to {
-  opacity: 0;
 }
 </style>

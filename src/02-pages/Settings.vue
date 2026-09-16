@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Button } from '@/06-shared'
+import { Button, Tooltip } from '@/06-shared'
 import { useProjectSettings, useSettingsNav } from '@/04-features'
 
 const router = useRouter()
@@ -20,23 +20,32 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
     <h2 class="settings-page__title heading-display">Настройки</h2>
 
     <div class="settings-page__tabs" role="tablist">
-      <Button
+      <Tooltip
         v-for="tab in tabs"
         :key="tab.key"
-        class="settings-page__tab"
-        :class="{ 'settings-page__tab--active': route.name === tab.routeName }"
-        role="tab"
-        :aria-selected="route.name === tab.routeName"
-        :is-disabled="!tab.isAvailable"
-        :title="tab.isAvailable ? undefined : tab.reason"
-        @click="tab.isAvailable && router.push({ name: tab.routeName })"
+        class="settings-page__tab-tooltip"
+        :content="tab.reason"
+        :disabled="tab.isAvailable"
       >
-        {{ tab.label }}
-      </Button>
+        <Button
+          class="settings-page__tab"
+          :class="{ 'settings-page__tab--active': route.name === tab.routeName }"
+          role="tab"
+          :aria-selected="route.name === tab.routeName"
+          :is-disabled="!tab.isAvailable"
+          @click="tab.isAvailable && router.push({ name: tab.routeName })"
+        >
+          {{ tab.label }}
+        </Button>
+      </Tooltip>
     </div>
 
     <div class="settings-page__content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </div>
   </div>
 </template>
@@ -65,6 +74,17 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
 
     display: none;
     margin-bottom: var(--tabs-gap);
+  }
+
+  &__tab-tooltip {
+    flex: 1 1 0;
+    min-width: 0;
+    display: inline-flex;
+
+    .settings-page__tab {
+      flex: 1;
+      width: 100%;
+    }
   }
 
   &__tab {

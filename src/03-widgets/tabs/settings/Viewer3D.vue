@@ -48,9 +48,9 @@ onBeforeUnmount(() => {
   </div>
 
   <Teleport to="body">
-    <Transition name="viewer-fullscreen">
+    <Transition name="popup">
       <div v-if="isFullscreen" class="viewer-3d-fullscreen" @click.self="closeFullscreen">
-        <div class="viewer-3d-fullscreen__content">
+        <div class="viewer-3d-fullscreen__content popup-panel">
           <div class="viewer-3d-fullscreen__stage">
             <ViewerStage>
               <slot />
@@ -103,15 +103,5 @@ onBeforeUnmount(() => {
       height: 100%;
     }
   }
-}
-
-.viewer-fullscreen-enter-active,
-.viewer-fullscreen-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.viewer-fullscreen-enter-from,
-.viewer-fullscreen-leave-to {
-  opacity: 0;
 }
 </style>

@@ -37,12 +37,18 @@ export function useDropdownPanel(
     if (rootRef.value && !rootRef.value.contains(e.target as Node)) close()
   }
 
+  const handleKeydown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && shown.value) close()
+  }
+
   onMounted((): void => {
     document.addEventListener('click', handleClickOutside)
+    window.addEventListener('keydown', handleKeydown)
   })
 
   onBeforeUnmount((): void => {
     document.removeEventListener('click', handleClickOutside)
+    window.removeEventListener('keydown', handleKeydown)
   })
 
   return { shown, openUp, maxHeight, toggle, close }

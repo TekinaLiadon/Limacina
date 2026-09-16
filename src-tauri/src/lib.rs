@@ -18,7 +18,10 @@ mod test_support;
 use commands::auth::{
     auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account,
 };
-use commands::cpm_models::{read_cpm_project_file, save_player_model, take_cpm_project_path};
+use commands::cpm_models::{
+    get_player_models_limit, read_cpm_project_file, save_player_model, set_player_models_limit,
+    take_cpm_project_path,
+};
 use commands::download::download_alternative_java;
 use commands::download::download_java;
 use commands::download::download_minecraft;
@@ -30,6 +33,7 @@ use commands::game_options::{
     get_game_options, import_global_game_options, save_game_options, save_global_game_options,
 };
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
+use commands::install_journal::{clear_install_journal, load_install_journal, record_install_step};
 use commands::integrity::check_files_integrity;
 use commands::launcher_config::{
     get_app_init_data, save_animations_enabled, save_launcher_config, save_launcher_settings,
@@ -39,6 +43,7 @@ use commands::modrinth::{
     modrinth_check_updates, modrinth_install, modrinth_installed, modrinth_project,
     modrinth_search, modrinth_uninstall,
 };
+use commands::notification::get_notification_icon;
 use commands::profile::{
     create_offline_profile, create_server_profile, delete_project, get_loader_versions,
     get_minecraft_versions, get_server_connect_url, refresh_manifests, save_current_project,
@@ -56,7 +61,7 @@ use commands::update::{
 use commands::user_content::{
     clear_session, delete_model, delete_offline_skin, delete_skin, get_offline_skin,
     get_offline_skin_model, get_profile_skin, get_session_info, list_models, list_skins,
-    save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
+    read_skin_file, save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
 };
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -201,6 +206,9 @@ pub fn run() {
             initialize_launcher,
             initialize_project,
             set_initialized,
+            load_install_journal,
+            record_install_step,
+            clear_install_journal,
             create_server_profile,
             create_offline_profile,
             delete_project,
@@ -234,6 +242,7 @@ pub fn run() {
             get_server_status,
             ping_launcher_server,
             get_startup_logs,
+            get_notification_icon,
             logger_utils::send_frontend_log,
             select_account,
             get_session_info,
@@ -247,10 +256,13 @@ pub fn run() {
             delete_skin,
             set_active_skin,
             get_profile_skin,
+            read_skin_file,
             upload_model,
             list_models,
             delete_model,
             save_player_model,
+            get_player_models_limit,
+            set_player_models_limit,
             read_cpm_project_file,
             take_cpm_project_path,
             modrinth_search,

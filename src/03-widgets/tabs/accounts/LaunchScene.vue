@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Button, ProgressBar, useDropdownPanel } from '@/06-shared'
+import { Button, ProgressBar, Skeleton, useDropdownPanel } from '@/06-shared'
 import AuthTabsWidget from './AuthTabsWidget.vue'
 import StepProgress from '../login/StepProgress.vue'
 import type { AuthSubTab, StepProgressItem } from '@/05-entities/core/types'
@@ -119,110 +119,124 @@ const openLoginForm = (): void => {
           {{ selectError || loginError }}
         </div>
 
-        <div v-if="isLaunching" class="launch-scene__progress">
-          <div class="launch-scene__progress-header">
-            <span class="eyebrow">{{ progressLabel }}</span>
-            <ProgressBar :progress="progress" />
-          </div>
-
-          <StepProgress :steps="steps" hide-completed />
-
-          <p v-if="isInterrupted" class="launch-scene__hint">
-            Запуск был прерван перезагрузкой окна — отмените и запустите заново
-          </p>
-
-          <p v-if="isLaunchingGame" class="launch-scene__hint">
-            Игра запускается — окно откроется автоматически
-          </p>
-
-          <Button
-            class="btn-quiet btn-block"
-            :is-disabled="isCancelPending"
-            @click="emit('cancel')"
-          >
-            {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
-          </Button>
-        </div>
-
-        <div v-else class="launch-scene__actions">
-          <div v-if="serverOffline ?? false" class="launch-scene__error">
-            Сервер лаунчера недоступен — запуск заблокирован, ждём восстановления соединения
-          </div>
-          <Button
-            class="btn-primary btn-lg btn-block"
-            :is-disabled="!hasSession || (serverOffline ?? false)"
-            @click="emit('launch')"
-          >
-            Играть
-          </Button>
-
-        <div
-          ref="switcherRef"
-          class="launch-scene__switcher"
-          :class="{ 'launch-scene__switcher--up': openUp }"
-        >
-          <Button
-            class="btn-secondary btn-lg btn-block launch-scene__switcher-btn"
-            @click="toggleMenu"
-          >
-            <span>Сменить аккаунт</span>
-            <svg
-              class="launch-scene__chevron"
-              :class="{ 'launch-scene__chevron--open': menuOpen }"
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-            >
-              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </Button>
-
-          <Transition name="launch-scene-menu">
-            <div v-if="menuOpen" class="launch-scene__menu" :style="{ maxHeight }">
-              <div
-                v-for="login in logins"
-                :key="login"
-                class="launch-scene__menu-item"
-                :class="{ 'launch-scene__menu-item--active': login === selectedUsername }"
-                role="button"
-                tabindex="0"
-                @click="selectAccount(login)"
-                @keydown.enter="selectAccount(login)"
-              >
-                <span class="launch-scene__menu-avatar">{{ login.charAt(0).toUpperCase() }}</span>
-                <span class="launch-scene__menu-name">{{ login }}</span>
-                <span v-if="login === selectedUsername" class="launch-scene__menu-check">
-                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                    <path d="M4 10L8 14L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </span>
-                <button
-                  v-else
-                  type="button"
-                  class="launch-scene__menu-delete"
-                  :disabled="isLoading"
-                  aria-label="Удалить аккаунт"
-                  @click.stop="emit('delete-account', login)"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                class="launch-scene__menu-item launch-scene__menu-item--new"
-                @click="openLoginForm"
-              >
-                <span class="launch-scene__menu-plus">+</span>
-                Ввести новый
-              </button>
+        <Transition name="launch-scene-swap" mode="out-in">
+          <div v-if="isLaunching" key="progress" class="launch-scene__progress">
+            <div class="launch-scene__progress-header">
+              <span class="eyebrow">{{ progressLabel }}</span>
+              <ProgressBar :progress="progress" />
             </div>
-          </Transition>
+
+            <StepProgress :steps="steps" hide-completed />
+
+            <p v-if="isInterrupted" class="launch-scene__hint">
+              Запуск был прерван перезагрузкой окна — отмените и запустите заново
+            </p>
+
+            <p v-if="isLaunchingGame" class="launch-scene__hint">
+              Игра запускается — окно откроется автоматически
+            </p>
+
+            <Button
+              class="btn-quiet btn-block"
+              :is-disabled="isCancelPending"
+              @click="emit('cancel')"
+            >
+              {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
+            </Button>
+          </div>
+
+          <div v-else key="actions" class="launch-scene__actions">
+            <div v-if="serverOffline ?? false" class="launch-scene__error">
+              Сервер лаунчера недоступен — запуск заблокирован, ждём восстановления соединения
+            </div>
+            <Button
+              class="btn-primary btn-lg btn-block"
+              :is-disabled="!hasSession || (serverOffline ?? false)"
+              @click="emit('launch')"
+            >
+              Играть
+            </Button>
+
+          <div
+            ref="switcherRef"
+            class="launch-scene__switcher"
+            :class="{ 'launch-scene__switcher--up': openUp }"
+          >
+            <Button
+              class="btn-secondary btn-lg btn-block launch-scene__switcher-btn"
+              @click="toggleMenu"
+            >
+              <span>Сменить аккаунт</span>
+              <svg
+                class="launch-scene__chevron"
+                :class="{ 'launch-scene__chevron--open': menuOpen }"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+              >
+                <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </Button>
+
+            <Transition name="launch-scene-menu">
+              <div v-if="menuOpen" class="launch-scene__menu" :style="{ maxHeight }">
+                <template v-if="isLoading && logins.length === 0">
+                  <Skeleton
+                    v-for="index in 3"
+                    :key="`skeleton-${index}`"
+                    class="launch-scene__menu-skeleton"
+                    variant="list-item"
+                    icon-shape="circle"
+                    :lines="1"
+                  />
+                </template>
+                <template v-else>
+                <div
+                  v-for="login in logins"
+                  :key="login"
+                  class="launch-scene__menu-item"
+                  :class="{ 'launch-scene__menu-item--active': login === selectedUsername }"
+                  role="button"
+                  tabindex="0"
+                  @click="selectAccount(login)"
+                  @keydown.enter="selectAccount(login)"
+                >
+                  <span class="launch-scene__menu-avatar">{{ login.charAt(0).toUpperCase() }}</span>
+                  <span class="launch-scene__menu-name">{{ login }}</span>
+                  <span v-if="login === selectedUsername" class="launch-scene__menu-check">
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                      <path d="M4 10L8 14L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <button
+                    v-else
+                    type="button"
+                    class="launch-scene__menu-delete"
+                    :disabled="isLoading"
+                    aria-label="Удалить аккаунт"
+                    @click.stop="emit('delete-account', login)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  class="launch-scene__menu-item launch-scene__menu-item--new"
+                  @click="openLoginForm"
+                >
+                  <span class="launch-scene__menu-plus">+</span>
+                  Ввести новый
+                </button>
+                </template>
+              </div>
+            </Transition>
+          </div>
         </div>
-      </div>
+        </Transition>
       </template>
     </template>
   </div>
@@ -322,7 +336,7 @@ const openLoginForm = (): void => {
 
   &__chevron {
     flex-shrink: 0;
-    transition: transform 0.2s ease;
+    transition: transform var(--duration-base) var(--ease-out);
 
     &--open {
       transform: rotate(180deg);
@@ -343,11 +357,34 @@ const openLoginForm = (): void => {
     border-radius: var(--radius-input);
     box-shadow: var(--elevation-modal);
     overflow-y: auto;
+    transform-origin: top center;
   }
 
   &__switcher--up &__menu {
     top: auto;
     bottom: calc(100% + var(--space-4));
+    transform-origin: bottom center;
+  }
+
+  &__menu-skeleton {
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
+    border-radius: var(--radius-button);
+    background: transparent;
+    box-shadow: none;
+
+    &.skeleton .skeleton__icon {
+      width: 28px;
+      height: 28px;
+    }
+
+    &.skeleton .skeleton__body {
+      gap: 0;
+    }
+
+    &.skeleton .skeleton__line {
+      height: calc(var(--text-body-sm) * var(--leading-body-sm));
+    }
   }
 
   &__menu-item {
@@ -365,7 +402,7 @@ const openLoginForm = (): void => {
     color: var(--login-text-secondary);
     text-align: left;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
     &:hover:not(:disabled) {
       background: var(--surface-hover);
@@ -426,7 +463,7 @@ const openLoginForm = (): void => {
     background: transparent;
     color: var(--login-text-muted);
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
     flex-shrink: 0;
 
     &:hover:not(:disabled) {
@@ -478,14 +515,31 @@ const openLoginForm = (): void => {
   }
 }
 
+.launch-scene-swap-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
+}
+
+.launch-scene-swap-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.launch-scene-swap-enter-from {
+  opacity: 0;
+  transform: translateY(var(--space-8));
+}
+
+.launch-scene-swap-leave-to {
+  opacity: 0;
+}
+
 .launch-scene-menu-enter-active,
 .launch-scene-menu-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
 }
 
 .launch-scene-menu-enter-from,
 .launch-scene-menu-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: scale(0.98);
 }
 </style>

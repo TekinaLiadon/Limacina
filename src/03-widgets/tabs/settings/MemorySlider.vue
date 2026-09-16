@@ -174,7 +174,7 @@ const onMaxInput = (e: Event): void => {
       box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
       cursor: pointer;
       pointer-events: auto;
-      transition: transform 0.15s ease;
+      transition: transform var(--duration-fast) var(--ease-out);
 
       &:hover {
         transform: scale(1.15);

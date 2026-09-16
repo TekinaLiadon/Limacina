@@ -180,7 +180,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     font-size: 12px;
     font-family: inherit;
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition: all var(--duration-fast) var(--ease-out);
 
     &:hover {
       background: var(--debug-btn-hover-bg);
@@ -277,7 +277,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     background: var(--debug-btn-bg);
     color: var(--debug-accent);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--duration-fast) var(--ease-out);
 
     &:hover {
       background: var(--debug-btn-hover-bg);
@@ -298,7 +298,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     cursor: pointer;
     font-size: 12px;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition: all var(--duration-fast) var(--ease-out);
 
     &:hover {
       background: var(--debug-btn-hover-bg);

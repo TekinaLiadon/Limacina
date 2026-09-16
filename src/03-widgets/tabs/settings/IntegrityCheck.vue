@@ -41,9 +41,9 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
     </Button>
 
     <Teleport to="body">
-      <Transition name="integrity-popup">
+      <Transition name="popup">
         <div v-if="isChecking || report !== null || errorMessage" class="integrity-popup-overlay" @click.self="emit('close')">
-          <div class="integrity-popup">
+          <div class="integrity-popup popup-panel">
             <h3 class="integrity-popup__title">Проверка целостности файлов</h3>
 
             <template v-if="isCheckingNow">
@@ -186,15 +186,5 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
     flex: 1;
     min-height: var(--control-height);
   }
-}
-
-.integrity-popup-enter-active,
-.integrity-popup-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.integrity-popup-enter-from,
-.integrity-popup-leave-to {
-  opacity: 0;
 }
 </style>

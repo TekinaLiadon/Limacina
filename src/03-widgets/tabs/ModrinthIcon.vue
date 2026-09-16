@@ -71,7 +71,7 @@ watch(
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--duration-base) var(--ease-out);
 
     &--hidden {
       opacity: 0;

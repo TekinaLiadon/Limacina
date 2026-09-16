@@ -120,7 +120,7 @@ const modes: ModeOption[] = [
     font-size: var(--text-caption);
     font-weight: var(--weight-medium);
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
 
     &:hover:not(:disabled) {
       color: var(--login-text-primary);
@@ -156,7 +156,7 @@ const modes: ModeOption[] = [
     color: var(--login-text-primary);
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.2s ease, box-shadow 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
 
     &:hover:not(:disabled) {
       background: var(--surface-hover);
@@ -230,7 +230,7 @@ const modes: ModeOption[] = [
     background: var(--login-accent);
     color: var(--text-on-accent);
     opacity: 0;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--duration-base) var(--ease-out);
   }
 }
 </style>

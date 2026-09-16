@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { IconButton } from '@/06-shared'
+import { IconButton, Tooltip } from '@/06-shared'
 import { useSettingsNav } from '@/04-features'
 import type { TabItem, TabKey } from '@/03-widgets/types'
 
@@ -67,6 +67,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
           class="sidebar__item"
           :class="{ 'sidebar__item--active': activeTab === 'settings' }"
           type="button"
+          :aria-expanded="isSettingsExpanded"
           @click="toggleSettings"
         >
           <IconButton tag="span" icon="settings" />
@@ -83,21 +84,28 @@ const items = computed<TabItem[]>((): TabItem[] => {
           </svg>
         </button>
 
-        <div v-if="isSettingsExpanded" class="sidebar__subitems">
-          <button
-            v-for="item in settingsItems"
-            :key="item.key"
-            type="button"
-            class="sidebar__subitem"
-            :class="{
-              'sidebar__subitem--active': activeTab === 'settings' && settingsSubTab === item.routeName,
-              'sidebar__subitem--locked': !item.isAvailable,
-            }"
-            :title="item.isAvailable ? undefined : item.reason"
-            @click="item.isAvailable && emit('navigate-settings', item.routeName)"
-          >
-            {{ item.label }}
-          </button>
+        <div class="sidebar__subitems" :class="{ 'sidebar__subitems--closed': !isSettingsExpanded }">
+          <div class="sidebar__subitems-inner">
+            <Tooltip
+              v-for="item in settingsItems"
+              :key="item.key"
+              class="sidebar__subitem-tooltip"
+              :content="item.reason"
+              :disabled="item.isAvailable"
+            >
+              <button
+                type="button"
+                class="sidebar__subitem"
+                :class="{
+                  'sidebar__subitem--active': activeTab === 'settings' && settingsSubTab === item.routeName,
+                  'sidebar__subitem--locked': !item.isAvailable,
+                }"
+                @click="item.isAvailable && emit('navigate-settings', item.routeName)"
+              >
+                {{ item.label }}
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 
@@ -150,7 +158,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
     color: var(--login-text-secondary);
     font-family: inherit;
     font-size: var(--text-body-sm);
@@ -182,6 +190,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
       flex-shrink: 0;
       background-color: transparent;
       box-shadow: none;
+      transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
 
       &__icon {
         font-size: 18px;
@@ -193,6 +202,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
     &:hover:not(&--disabled) .icon-btn {
       background-color: var(--surface-hover);
       box-shadow: var(--elevation-inset);
+      transform: translateX(2px);
 
       .icon-btn__icon {
         color: var(--login-text-primary);
@@ -212,7 +222,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
   &__chevron {
     margin-left: auto;
     flex-shrink: 0;
-    transition: transform 0.2s ease;
+    transition: transform var(--duration-base) var(--ease-out);
 
     &--open {
       transform: rotate(180deg);
@@ -220,10 +230,33 @@ const items = computed<TabItem[]>((): TabItem[] => {
   }
 
   &__subitems {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows var(--duration-base) var(--ease-in-out), opacity var(--duration-base) var(--ease-out), visibility var(--duration-base);
+
+    &--closed {
+      grid-template-rows: 0fr;
+      opacity: 0;
+      visibility: hidden;
+    }
+  }
+
+  &__subitems-inner {
+    overflow: hidden;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
     padding-left: var(--space-16);
+  }
+
+  &__subitem-tooltip {
+    display: block;
+    width: 100%;
+
+    .sidebar__subitem {
+      width: 100%;
+    }
   }
 
   &__subitem {
@@ -240,7 +273,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
     text-align: left;
     color: var(--login-text-secondary);
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
     &:hover:not(&--locked) {
       color: var(--login-text-primary);

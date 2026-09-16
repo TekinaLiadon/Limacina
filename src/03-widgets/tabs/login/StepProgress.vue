@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import anime from 'animejs'
+import { isAnimationsEnabled } from '@/06-shared'
 import type { StepProgressItem } from '@/05-entities/core/types'
 
 const props = withDefaults(defineProps<{
@@ -14,14 +15,13 @@ const rootRef = ref<HTMLDivElement | null>(null)
 const activeRef = ref<HTMLDivElement | null>(null)
 
 watch(() => props.steps.map(s => s.status).join(','), () => {
-  if (activeRef.value) {
-    anime({
-      targets: activeRef.value.querySelector('.step-progress__indicator'),
-      scale: [1, 1.3, 1],
-      duration: 600,
-      easing: 'easeInOutQuad',
-    })
-  }
+  if (!isAnimationsEnabled() || !activeRef.value) return
+  anime({
+    targets: activeRef.value.querySelector('.step-progress__indicator'),
+    scale: [1, 1.3, 1],
+    duration: 600,
+    easing: 'easeInOutQuad',
+  })
 })
 
 const visibleSteps = computed((): StepProgressItem[] => {
@@ -53,7 +53,7 @@ let heightRun = 0
 
 const animateHeight = async (): Promise<void> => {
   const el = rootRef.value
-  if (el === null) return
+  if (el === null || !isAnimationsEnabled()) return
   const run = ++heightRun
   const from = el.offsetHeight
   await nextTick()
@@ -70,7 +70,7 @@ const animateHeight = async (): Promise<void> => {
     current.style.transition = ''
     return
   }
-  current.style.transition = 'height 0.4s cubic-bezier(0.25, 0.1, 0.25, 1)'
+  current.style.transition = 'height var(--duration-slow) var(--ease-in-out)'
   current.style.height = `${target}px`
   const onEnd = (event: TransitionEvent): void => {
     if (run !== heightRun || event.propertyName !== 'height') return
@@ -156,7 +156,7 @@ const subLabel = (step: StepProgressItem): string => {
     align-items: flex-start;
     gap: var(--space-12);
     opacity: 0.5;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--duration-base) var(--ease-out);
 
     &--active,
     &--done,
@@ -174,7 +174,7 @@ const subLabel = (step: StepProgressItem): string => {
     font-size: var(--text-caption);
     font-weight: var(--weight-medium);
     flex-shrink: 0;
-    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
 
     &--active {
       background: var(--login-accent);
@@ -191,6 +191,7 @@ const subLabel = (step: StepProgressItem): string => {
       background: var(--accent-active-bg);
       box-shadow: var(--elevation-inset);
       color: var(--accent-text);
+      animation: step-progress-pop var(--duration-slow) var(--ease-out);
     }
 
     &--error {
@@ -244,7 +245,7 @@ const subLabel = (step: StepProgressItem): string => {
 .step-progress-fade-move,
 .step-progress-fade-enter-active,
 .step-progress-fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-slow) var(--ease-in-out);
 }
 
 .step-progress-fade-enter-from {
@@ -259,5 +260,19 @@ const subLabel = (step: StepProgressItem): string => {
 
 .step-progress-fade-leave-active {
   position: absolute;
+}
+
+@keyframes step-progress-pop {
+  0% {
+    transform: scale(0.6);
+  }
+
+  60% {
+    transform: scale(1.15);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 </style>

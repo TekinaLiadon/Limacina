@@ -2,7 +2,7 @@
 import { Button, Input } from '@/06-shared'
 import type { ServerProfileForm as ServerForm } from '@/05-entities/core/types'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   form: ServerForm
   isSubmitting: boolean
   isValid: boolean
@@ -16,10 +16,15 @@ const emit = defineEmits<{
   submit: []
   back: []
 }>()
+
+const handleSubmit = (): void => {
+  if (props.isSubmitting || !props.isValid) return
+  emit('submit')
+}
 </script>
 
 <template>
-  <div class="server-profile">
+  <form class="server-profile" @submit.prevent="handleSubmit">
     <div class="server-profile__head">
       <h2 class="server-profile__title heading-display">Добавить сервер</h2>
       <p class="server-profile__subtitle">
@@ -38,9 +43,9 @@ const emit = defineEmits<{
     <div class="server-profile__actions">
       <Button
         class="btn-primary btn-lg btn-block"
+        type="submit"
         :is-loading="isSubmitting"
         :is-disabled="!isValid"
-        @click="emit('submit')"
       >
         Добавить
       </Button>
@@ -52,7 +57,7 @@ const emit = defineEmits<{
         Назад
       </Button>
     </div>
-  </div>
+  </form>
 </template>
 
 <style lang="scss">

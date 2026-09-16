@@ -204,6 +204,43 @@ pub async fn get_profile_skin(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+const SKIN_EXT: &str = "png";
+const SKIN_MAX_BYTES: u64 = 256 * 1024;
+
+fn is_skin_path(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(SKIN_EXT))
+}
+
+#[tauri::command]
+pub async fn read_skin_file(path: String) -> CommandResult<tauri::ipc::Response> {
+    if !is_skin_path(&path) {
+        return Err(LauncherError::InvalidInput(
+            "Открывать можно только файлы с расширением .png".to_string(),
+        )
+        .into());
+    }
+    let metadata = LauncherError::classify(
+        tokio::fs::metadata(&path)
+            .await
+            .with_context(|| format!("Не удалось прочитать файл скина {:?}", path)),
+        LauncherError::DiskIo,
+    )?;
+    if metadata.len() > SKIN_MAX_BYTES {
+        return Err(LauncherError::InvalidInput(format!(
+            "Файл скина слишком большой: {} КБ, максимум {} КБ",
+            metadata.len() / 1024,
+            SKIN_MAX_BYTES / 1024
+        ))
+        .into());
+    }
+    let bytes = tokio::fs::read(&path)
+        .await
+        .with_context(|| format!("Не удалось прочитать файл скина {:?}", path))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 pub async fn upload_model(
     state: State<'_, Mutex<GlobalState>>,

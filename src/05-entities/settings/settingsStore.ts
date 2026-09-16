@@ -15,6 +15,10 @@ function loadCachedTheme(): string {
   return normalizeTheme(localStorage.getItem(THEME_CACHE_KEY))
 }
 
+function applyAnimationsPreference(value: boolean): void {
+  document.documentElement.dataset.animations = value ? 'on' : 'off'
+}
+
 export const useSettingsStore = defineStore('settings', {
   state: (): SettingsState => ({
     animationsEnabled: true,
@@ -37,11 +41,12 @@ export const useSettingsStore = defineStore('settings', {
 
   actions: {
     toggleAnimations(): void {
-      this.animationsEnabled = !this.animationsEnabled
+      this.setAnimationsEnabled(!this.animationsEnabled)
     },
 
     setAnimationsEnabled(value: boolean): void {
       this.animationsEnabled = value
+      applyAnimationsPreference(value)
     },
 
     setTheme(theme: string): void {

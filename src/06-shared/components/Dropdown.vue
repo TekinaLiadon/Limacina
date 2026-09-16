@@ -38,9 +38,17 @@ function selectOption(value: string): void {
 
 <template>
   <div ref="rootRef" class="dropdown" :class="{ shown, disabled, 'dropdown--up': openUp }">
-    <div class="dropdown__value"
-         @click="toggle"
-         :style="`width: ${width}`"
+    <div
+      class="dropdown__value"
+      role="button"
+      tabindex="0"
+      :aria-expanded="shown"
+      aria-haspopup="listbox"
+      :aria-disabled="props.disabled"
+      @click="toggle"
+      @keydown.enter.prevent="toggle"
+      @keydown.space.prevent="toggle"
+      :style="`width: ${width}`"
     >
       <span class="dropdown__title">{{ selectedTitle }}</span>
       <slot name="trailing" />
@@ -111,11 +119,6 @@ function selectOption(value: string): void {
 
 .dropdown--up .dropdown-options {
   @include mixins.options-panel-up;
-}
-
-.dropdown--up .dropdown-options-enter-from,
-.dropdown--up .dropdown-options-leave-to {
-  transform: translateY(10px);
 }
 
 .dropdown-options {

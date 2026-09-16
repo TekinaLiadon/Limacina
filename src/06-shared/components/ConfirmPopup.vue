@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Button } from '@/06-shared'
+import { ref, watch } from 'vue'
+import { Button, useFocusTrap } from '@/06-shared'
 
-defineProps<{
+const props = defineProps<{
   message: string
   visible: boolean
 }>()
@@ -10,13 +11,26 @@ const emit = defineEmits<{
   confirm: []
   cancel: []
 }>()
+
+const popupRef = ref<HTMLDivElement | null>(null)
+
+useFocusTrap(popupRef, (): boolean => props.visible)
+
+function handleKeydown(e: KeyboardEvent): void {
+  if (props.visible && e.key === 'Escape') emit('cancel')
+}
+
+watch((): boolean => props.visible, (visible) => {
+  if (visible) window.addEventListener('keydown', handleKeydown)
+  else window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="confirm-popup">
+    <Transition name="popup">
       <div v-if="visible" class="confirm-popup-overlay" @click.self="emit('cancel')">
-        <div class="confirm-popup">
+        <div ref="popupRef" class="confirm-popup popup-panel" role="dialog" aria-modal="true">
           <p class="confirm-popup__message">{{ message }}</p>
           <div class="confirm-popup__actions">
             <Button class="btn-primary confirm-popup__btn" @click="emit('confirm')">
@@ -73,15 +87,5 @@ const emit = defineEmits<{
     flex: 1;
     min-height: var(--control-height);
   }
-}
-
-.confirm-popup-enter-active,
-.confirm-popup-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.confirm-popup-enter-from,
-.confirm-popup-leave-to {
-  opacity: 0;
 }
 </style>

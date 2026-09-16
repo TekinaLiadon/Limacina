@@ -1,7 +1,13 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
-import { selectFile } from '@/06-shared'
+import { reportError, selectFile, useFileDrop } from '@/06-shared'
 import { useNotificationStore } from '@/05-entities'
-import { getErrorMessage, readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
+import {
+  getErrorMessage,
+  getPlayerModelsLimit,
+  readCpmProjectFile,
+  savePlayerModel,
+  setPlayerModelsLimit,
+} from '@/06-shared/api'
 import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
@@ -46,6 +52,7 @@ export function useCpmSettings() {
   const cpmFileName = ref<string>('')
   const isSaving = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
+  const modelsLimit = ref<number | null>(null)
 
   const modelName = computed((): string => cpmFileName.value.trim() || 'Модель')
 
@@ -185,6 +192,39 @@ export function useCpmSettings() {
     }
   }
 
+  const loadModelsLimit = async (): Promise<void> => {
+    try {
+      modelsLimit.value = await getPlayerModelsLimit()
+    } catch (e: unknown) {
+      reportError('Не удалось загрузить лимит моделей', e)
+    }
+  }
+
+  const { isDragOver } = useFileDrop({
+    accept: ['cpmproject'],
+    onDrop: (path: string): void => {
+      void loadFromPath(path)
+    },
+    onError: (message: string): void => {
+      content.errorMessage.value = message
+    },
+  })
+
+  const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
+    if (limit !== null && (!Number.isFinite(limit) || limit < 1)) {
+      content.errorMessage.value = 'Лимит моделей — положительное число или пустое значение'
+      return
+    }
+    try {
+      await setPlayerModelsLimit(limit)
+      modelsLimit.value = limit
+    } catch (e: unknown) {
+      content.errorMessage.value = getErrorMessage(e)
+    }
+  }
+
+  void loadModelsLimit()
+
   onScopeDispose((): void => {
     resetCpmState()
   })
@@ -199,6 +239,9 @@ export function useCpmSettings() {
     isSaving,
     isOffline: content.isOffline,
     uploadedModels: content.items,
+    isListLoading: content.isListLoading,
+    modelsLimit,
+    isDragOver,
     selectCpmFile,
     resetCpm,
     loadFromPath,
@@ -206,5 +249,6 @@ export function useCpmSettings() {
     handleSaveModelOffline,
     handleDeleteModel,
     handleCopyUrl: content.handleCopyUrl,
+    handleSaveModelsLimit,
   }
 }

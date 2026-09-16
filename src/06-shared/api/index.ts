@@ -161,6 +161,26 @@ export async function setInitialized(): Promise<ProjectConfig> {
   return invoke<ProjectConfig>('set_initialized')
 }
 
+export async function loadInstallJournal(
+  project: string,
+  fingerprint: string,
+  plan: string[]
+): Promise<string[]> {
+  return invoke<string[]>('load_install_journal', { project, fingerprint, plan })
+}
+
+export async function recordInstallStep(
+  project: string,
+  fingerprint: string,
+  key: string
+): Promise<void> {
+  return invoke('record_install_step', { project, fingerprint, key })
+}
+
+export async function clearInstallJournal(project: string): Promise<void> {
+  return invoke('clear_install_journal', { project })
+}
+
 export async function createServerProfile(serverUrl: string): Promise<ProjectConfig> {
   return invoke<ProjectConfig>('create_server_profile', { serverUrl })
 }
@@ -263,6 +283,10 @@ export async function getStartupLogs(): Promise<ConsoleLog[]> {
   return invoke<ConsoleLog[]>('get_startup_logs')
 }
 
+export async function getNotificationIcon(): Promise<string | null> {
+  return invoke<string | null>('get_notification_icon')
+}
+
 export async function sendConsoleLog(line: string, isError: boolean): Promise<void> {
   return invoke('send_frontend_log', { line, isError })
 }
@@ -358,6 +382,11 @@ export async function getProfileSkin(url: string): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
+export async function readSkinFile(path: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('read_skin_file', { path })
+  return new Uint8Array(buffer)
+}
+
 export async function saveOfflineSkin(fileData: Uint8Array, model: SkinModelMode): Promise<void> {
   return invoke('save_offline_skin', fileData, {
     headers: { 'Skin-Model': model },
@@ -399,6 +428,14 @@ export interface SavePlayerModelPayload {
 
 export async function savePlayerModel(payload: SavePlayerModelPayload): Promise<void> {
   return invoke('save_player_model', { ...payload })
+}
+
+export async function getPlayerModelsLimit(): Promise<number | null> {
+  return invoke<number | null>('get_player_models_limit')
+}
+
+export async function setPlayerModelsLimit(limit: number | null): Promise<void> {
+  return invoke('set_player_models_limit', { limit })
 }
 
 export async function readCpmProjectFile(path: string): Promise<ArrayBuffer> {

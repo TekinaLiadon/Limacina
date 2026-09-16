@@ -57,7 +57,18 @@ function clear(): void {
 
 <template>
   <div ref="rootRef" class="multi-select" :class="{ shown, disabled, 'multi-select--up': openUp }">
-    <div class="multi-select__value" :style="`width: ${width}`" @click="toggle">
+    <div
+      class="multi-select__value"
+      role="button"
+      tabindex="0"
+      :aria-expanded="shown"
+      aria-haspopup="listbox"
+      :aria-disabled="props.disabled"
+      :style="`width: ${width}`"
+      @click="toggle"
+      @keydown.enter.prevent="toggle"
+      @keydown.space.prevent="toggle"
+    >
       <span class="multi-select__title">{{ triggerTitle }}</span>
       <button
         v-if="clearable && modelValue.length > 0 && !disabled"
@@ -133,7 +144,7 @@ function clear(): void {
     background: transparent;
     color: var(--login-text-muted);
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
     svg {
       width: 12px;
@@ -168,11 +179,6 @@ function clear(): void {
   @include mixins.options-panel-up;
 }
 
-.multi-select--up .multi-select-options-enter-from,
-.multi-select--up .multi-select-options-leave-to {
-  transform: translateY(10px);
-}
-
 .multi-select-options {
   @include mixins.options-panel;
 
@@ -190,7 +196,7 @@ function clear(): void {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out);
     flex-shrink: 0;
 
     svg {

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useSettingsStore } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
   title: string
@@ -9,7 +8,6 @@ const props = withDefaults(defineProps<{
   storageKey: '',
 })
 
-const settingsStore = useSettingsStore()
 const isOpen = ref<boolean>(true)
 
 const isCollapsible = computed((): boolean => props.storageKey !== '')
@@ -26,10 +24,6 @@ const toggle = (): void => {
     localStorage.setItem(`limacina-section-${props.storageKey}`, isOpen.value ? '1' : '0')
   }
 }
-
-const bodyStyle = computed((): Record<string, string> =>
-  settingsStore.animationsEnabled ? {} : { transition: 'none' },
-)
 </script>
 
 <template>
@@ -58,7 +52,6 @@ const bodyStyle = computed((): Record<string, string> =>
     <div
       class="settings-section__body"
       :class="{ 'settings-section__body--closed': isCollapsible && !isOpen }"
-      :style="bodyStyle"
     >
       <div class="settings-section__inner">
         <slot />
@@ -100,13 +93,13 @@ const bodyStyle = computed((): Record<string, string> =>
     color: var(--login-text-muted);
     white-space: nowrap;
     font-feature-settings: "tnum" on;
-    transition: color 0.2s ease;
+    transition: color var(--duration-base) var(--ease-out);
   }
 
   &__chevron {
     flex-shrink: 0;
     color: var(--login-text-muted);
-    transition: transform 0.2s ease;
+    transition: transform var(--duration-base) var(--ease-out);
 
     &--open {
       transform: rotate(180deg);
@@ -116,10 +109,12 @@ const bodyStyle = computed((): Record<string, string> =>
   &__body {
     display: grid;
     grid-template-rows: 1fr;
-    transition: grid-template-rows 0.3s ease;
+    transition: grid-template-rows var(--duration-base) var(--ease-in-out), opacity var(--duration-base) var(--ease-out), visibility var(--duration-base);
 
     &--closed {
       grid-template-rows: 0fr;
+      opacity: 0;
+      visibility: hidden;
     }
   }
 

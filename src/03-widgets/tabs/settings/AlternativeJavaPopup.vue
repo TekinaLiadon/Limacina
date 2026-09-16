@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Button, Dropdown, Checkbox } from '@/06-shared'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { Button, Checkbox, Dropdown, Skeleton, useFocusTrap } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities/core/types'
 
 const props = defineProps<{
@@ -18,25 +19,43 @@ const selectedDistribution = defineModel<string>('selectedDistribution', { defau
 const replaceDefault = defineModel<boolean>('replaceDefault', { default: false })
 const versionInput = defineModel<string>('versionInput', { default: '' })
 
+const popupRef = ref<HTMLDivElement | null>(null)
+
+useFocusTrap(popupRef, (): boolean => props.visible)
+
 const dropdownOptions = () =>
   props.distributions.map((d) => ({ title: d.name, value: d.name }))
+
+function handleKeydown(e: KeyboardEvent): void {
+  if (props.visible && !props.isDownloading && e.key === 'Escape') emit('close')
+}
+
+onMounted((): void => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount((): void => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="alt-java-popup">
+    <Transition name="popup">
       <div v-if="visible" class="alt-java-popup-overlay" @click.self="emit('close')">
-        <div class="alt-java-popup">
+        <div ref="popupRef" class="alt-java-popup popup-panel" role="dialog" aria-modal="true">
           <template v-if="!isDownloading">
             <h3 class="alt-java-popup__title">Загрузка Java</h3>
             <div class="alt-java-popup__form">
               <div class="alt-java-popup__field">
                 <span class="alt-java-popup__label eyebrow">Вендор</span>
                 <Dropdown
+                  v-if="distributions.length > 0"
                   v-model="selectedDistribution"
                   :options="dropdownOptions()"
                   width="100%"
                 />
+                <Skeleton v-else variant="line" height="var(--control-height)" aria-hidden="true" />
               </div>
               <div class="alt-java-popup__field">
                 <span class="alt-java-popup__label eyebrow">Версия Java</span>
@@ -132,7 +151,7 @@ const dropdownOptions = () =>
     outline: none;
     width: 100%;
     box-sizing: border-box;
-    transition: box-shadow 0.2s ease, background-color 0.2s ease;
+    transition: box-shadow var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out);
 
     &::placeholder {
       color: var(--login-text-muted);
@@ -174,15 +193,5 @@ const dropdownOptions = () =>
     font-size: var(--text-body-sm);
     color: var(--login-text-secondary);
   }
-}
-
-.alt-java-popup-enter-active,
-.alt-java-popup-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.alt-java-popup-enter-from,
-.alt-java-popup-leave-to {
-  opacity: 0;
 }
 </style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Button, Checkbox } from '@/06-shared'
+import { computed, ref, watch } from 'vue'
+import { Button, Checkbox, Input } from '@/06-shared'
 import { useCpmSettings, useCpmAnimations } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
@@ -17,12 +17,16 @@ const {
   isSaving,
   isOffline,
   uploadedModels,
+  isListLoading,
+  modelsLimit,
+  isDragOver,
   selectCpmFile,
   resetCpm,
   handleUploadModel,
   handleSaveModelOffline,
   handleDeleteModel,
   handleCopyUrl,
+  handleSaveModelsLimit,
 } = useCpmSettings()
 
 const {
@@ -45,10 +49,25 @@ const hasModel = computed((): boolean => cpmData.value !== null)
 const setPlaying = (playing: boolean): void => {
   isAnimationPlaying.value = playing
 }
+
+const limitInput = ref<string>('')
+
+watch(modelsLimit, (): void => {
+  limitInput.value = modelsLimit.value === null ? '' : String(modelsLimit.value)
+}, { immediate: true })
+
+const applyLimitInput = async (): Promise<void> => {
+  const raw = limitInput.value.trim()
+  const parsed = raw === '' ? null : Number.parseInt(raw, 10)
+  await handleSaveModelsLimit(parsed)
+  limitInput.value = modelsLimit.value === null ? '' : String(modelsLimit.value)
+}
 </script>
 
 <template>
   <div class="cpm-settings">
+    <div v-if="isDragOver" class="cpm-settings__drop-overlay">Отпустите файл</div>
+
     <div v-if="isOffline" class="cpm-settings__notice">
       Локальный профиль: модель сохраняется в игру без отправки на сервер
     </div>
@@ -138,10 +157,24 @@ const setPlaying = (playing: boolean): void => {
       Формат: .cpmproject, не более 2 МБ
     </p>
 
+    <div class="cpm-settings__limit">
+      <Input
+        v-model="limitInput"
+        class="cpm-settings__limit-input"
+        :options="{ label: 'Лимит хранимых моделей', placeholder: 'Не ограничен' }"
+        @keydown.enter="applyLimitInput"
+        @blur="applyLimitInput"
+      />
+      <p class="cpm-settings__hint cpm-settings__limit-hint">
+        Сколько моделей игра хранит в папке player_models — самые старые удаляются
+      </p>
+    </div>
+
     <UserContentList
-      v-if="!isOffline && uploadedModels.length > 0"
+      v-if="!isOffline && (isListLoading || uploadedModels.length > 0)"
       title="Загруженные модели"
       :items="uploadedModels"
+      :is-loading="isListLoading"
       @copy="handleCopyUrl"
       @delete="handleDeleteModel"
     />
@@ -152,9 +185,14 @@ const setPlaying = (playing: boolean): void => {
 @use '@/01-app/assets/mixins';
 
 .cpm-settings {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
+
+  &__drop-overlay {
+    @include mixins.drop-overlay;
+  }
 
   &__error {
     @include mixins.error-box;
@@ -207,6 +245,17 @@ const setPlaying = (playing: boolean): void => {
 
   &__hint {
     @include mixins.caption-hint;
+  }
+
+  &__limit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    max-width: var(--settings-row-width);
+  }
+
+  &__limit-hint {
+    text-align: left;
   }
 }
 </style>

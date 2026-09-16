@@ -1,9 +1,12 @@
 <script setup lang="ts">
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   label?: string
   isDisabled?: boolean
   isLoading?: boolean
-}>()
+  type?: 'button' | 'submit'
+}>(), {
+  type: 'button',
+})
 
 </script>
 
@@ -13,6 +16,7 @@ const props = defineProps<{
       loading: isLoading,
     }"
     :aria-busy="isLoading"
+    :type="props.type"
   >
     <span v-if="isLoading" class="btn__spinner" aria-hidden="true" />
     <slot></slot>
@@ -37,7 +41,11 @@ const props = defineProps<{
   letter-spacing: normal;
   text-transform: none;
   cursor: pointer;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, filter 0.2s ease;
+  transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), filter var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+
+  &:active:not(.disabled) {
+    transform: scale(0.98);
+  }
 
   &.disabled {
     opacity: 0.5;
@@ -51,7 +59,7 @@ const props = defineProps<{
     border-radius: 50%;
     border: 2px solid currentColor;
     border-top-color: transparent;
-    animation: btn-spin 0.7s linear infinite;
+    animation: btn-spin var(--duration-spin) linear infinite;
   }
 
   &.btn-primary {
