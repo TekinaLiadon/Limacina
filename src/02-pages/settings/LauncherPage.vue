@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useLauncherSettings } from '@/04-features'
-import { PathPicker, ThemeSelector, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar } from '@/03-widgets'
+import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar } from '@/03-widgets'
 import { useCoreStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
@@ -59,6 +59,7 @@ const {
     />
 
     <SettingsSection title="Внешний вид" storage-key="launcher-appearance">
+      <AnimationToggle />
       <ThemeSelector />
     </SettingsSection>
 

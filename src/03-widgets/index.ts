@@ -19,6 +19,7 @@ export { default as LauncherBehavior } from './tabs/settings/LauncherBehavior.vu
 export { default as ConfigCleanup } from './tabs/settings/ConfigCleanup.vue'
 export { default as ProjectDelete } from './tabs/settings/ProjectDelete.vue'
 export { default as ThemeSelector } from './tabs/settings/ThemeSelector.vue'
+export { default as AnimationToggle } from './tabs/settings/AnimationToggle.vue'
 export { default as SettingsInfoRow } from './tabs/settings/SettingsInfoRow.vue'
 export { default as JvmPreset } from './tabs/settings/JvmPreset.vue'
 export { default as AlternativeJavaButton } from './tabs/settings/AlternativeJavaButton.vue'

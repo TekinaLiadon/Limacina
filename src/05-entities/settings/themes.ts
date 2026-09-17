@@ -6,17 +6,17 @@ export const THEME_FAMILIES: ThemeFamily[] = [
     title: 'Стандартная',
     description: 'Тёмно-синий фон, серебристо-голубой текст, фиолетовый акцент',
     preview: {
-      dark: { bg: '#05060f', surface: '#2f343e', accent: '#663af3' },
-      light: { bg: '#f4f6fb', surface: '#e3e8f2', accent: '#5b2fe0' },
+      dark: { bg: '#05060f', surface: '#10121d', accent: '#663af3' },
+      light: { bg: '#f4f6fb', surface: '#f5f5f6', accent: '#5b2fe0' },
     },
   },
   {
-    id: 'test',
+    id: 'night',
     title: 'Ночная синь',
     description: 'Тёмно-синий фон, светло-серый текст, васильковый акцент',
     preview: {
-      dark: { bg: '#1a1d2e', surface: '#16213e', accent: '#6c7fd8' },
-      light: { bg: '#f0f2f8', surface: '#e8ecf4', accent: '#5a6a9a' },
+      dark: { bg: '#1a1d2e', surface: '#282b3b', accent: '#5b6ed2' },
+      light: { bg: '#f0f2f8', surface: '#f3f3f4', accent: '#5a6a9a' },
     },
   },
   {
@@ -25,7 +25,7 @@ export const THEME_FAMILIES: ThemeFamily[] = [
     description: 'Чёрный фон, светло-зелёный текст, лаймовый акцент',
     preview: {
       dark: { bg: '#000000', surface: '#181818', accent: '#7fee64' },
-      light: { bg: '#eef7ec', surface: '#def0dd', accent: '#2f7d1f' },
+      light: { bg: '#eef7ec', surface: '#f6fbf4', accent: '#2f7d1f' },
     },
   },
   {
@@ -33,8 +33,8 @@ export const THEME_FAMILIES: ThemeFamily[] = [
     title: 'Искра',
     description: 'Тёмно-фиолетовый фон, сиреневый текст, фиолетовый и оранжевый акценты',
     preview: {
-      dark: { bg: '#0e0918', surface: '#1a1624', accent: '#fd8925' },
-      light: { bg: '#f5f3f9', surface: '#ebe8f2', accent: '#fd8925' },
+      dark: { bg: '#0e0918', surface: '#1a1624', accent: '#8250f0' },
+      light: { bg: '#f5f3f9', surface: '#fbfafd', accent: '#5a1fd0' },
     },
   },
   {
@@ -43,7 +43,7 @@ export const THEME_FAMILIES: ThemeFamily[] = [
     description: 'Чёрный фон, белый и серый текст, циановый акцент',
     preview: {
       dark: { bg: '#000000', surface: '#191919', accent: '#19d0e8' },
-      light: { bg: '#f7f9fa', surface: '#e9eef0', accent: '#0d8fa8' },
+      light: { bg: '#f7f9fa', surface: '#ffffff', accent: '#0b7a8e' },
     },
   },
 ]

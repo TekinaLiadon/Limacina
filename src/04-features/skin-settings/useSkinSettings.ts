@@ -1,11 +1,11 @@
 import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
-import { reportError, selectFile, useFileDrop } from '@/06-shared'
+import { reportError } from '@/06-shared'
 import {
   getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
-  getErrorMessage,
 } from '@/06-shared/api'
 import { useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
+import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 
 async function loadBlobUrl(bytes: Uint8Array): Promise<string> {
   const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
@@ -99,61 +99,27 @@ export function useSkinSettings() {
     }
   }
 
-  const selectSkin = (): void => {
-    content.errorMessage.value = ''
-
-    selectFile({
-      accept: '.png,image/png',
-      maxBytes: 256 * 1024,
-      readAs: 'arrayBuffer',
-      onError: (msg: string) => {
-        content.errorMessage.value = msg
-      },
-      onLoad: async (_file: File, result: string | ArrayBuffer) => {
-        try {
-          const bytes = new Uint8Array(result as ArrayBuffer)
-          const dataUrl = await loadBlobUrl(bytes)
-          skinFileBytes.value = bytes
-          setSkinUrl(dataUrl)
-          if (content.isOffline.value) {
-            await persistOfflineSkin(true)
-          }
-        } catch {
-          content.errorMessage.value = 'Не удалось загрузить изображение'
-        }
-      },
-    })
-  }
+  const { isDragOver, openFileDialog: selectSkin } = useUserContentFile({
+    accept: '.png,image/png',
+    extensions: ['png'],
+    maxBytes: 256 * 1024,
+    readFile: async (path: string): Promise<ArrayBuffer> => (await readSkinFile(path)).buffer as ArrayBuffer,
+    processFile: async (bytes: ArrayBuffer): Promise<void> => {
+      const skinBytes = new Uint8Array(bytes)
+      const dataUrl = await loadBlobUrl(skinBytes)
+      skinFileBytes.value = skinBytes
+      setSkinUrl(dataUrl)
+      if (content.isOffline.value) {
+        await persistOfflineSkin(true)
+      }
+    },
+    errorMessage: content.errorMessage,
+  })
 
   const handleUpload = async (): Promise<void> => {
     if (skinFileBytes.value.length === 0) return
     await content.handleUpload({ fileData: skinFileBytes.value, model: modelMode.value })
   }
-
-  const handleDropPath = async (path: string): Promise<void> => {
-    content.errorMessage.value = ''
-    try {
-      const bytes = await readSkinFile(path)
-      const dataUrl = await loadBlobUrl(bytes)
-      skinFileBytes.value = bytes
-      setSkinUrl(dataUrl)
-      if (content.isOffline.value) {
-        await persistOfflineSkin(true)
-      }
-    } catch (e: unknown) {
-      content.errorMessage.value = getErrorMessage(e)
-    }
-  }
-
-  const { isDragOver } = useFileDrop({
-    accept: ['png'],
-    onDrop: (path: string): void => {
-      void handleDropPath(path)
-    },
-    onError: (message: string): void => {
-      content.errorMessage.value = message
-    },
-  })
 
   const resetSkinState = async (): Promise<void> => {
     resetSkinUrl()

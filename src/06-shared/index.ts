@@ -26,7 +26,7 @@ export { applyStepEvent, computeStepProgress, createStepItem } from './utils/ste
 export { useDropdownPanel } from './utils/useDropdownPanel'
 export { useAsyncRaceGuard } from './utils/useAsyncRaceGuard'
 export type { AsyncRaceGuard } from './utils/useAsyncRaceGuard'
-export { isAnimationsEnabled, cssDurationMs } from './utils/animations'
+export { isAnimationsEnabled, prefersReducedMotion, cssDurationMs } from './utils/animations'
 export { useFocusTrap } from './utils/useFocusTrap'
 export { useFileDrop } from './utils/useFileDrop'
 export { renderMarkdown, resolveMarkdownUrl } from './utils/markdown'

@@ -4,13 +4,15 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { getErrorMessage, initializeLauncher } from '@/06-shared/api'
-import { Button, Input, joinPath } from '@/06-shared'
+import { Button, Input, joinPath, prefersReducedMotion } from '@/06-shared'
+import { useAnimationSettings } from '@/04-features'
 import { AddProfileTab } from '@/03-widgets'
 import { open } from '@tauri-apps/plugin-dialog'
 
 const router = useRouter()
 const coreStore = useCoreStore()
 const notificationStore = useNotificationStore()
+const { setAnimationsEnabled } = useAnimationSettings()
 const { defaultParentPath, launcherName } = storeToRefs(coreStore)
 const selectedPath = ref<string>('')
 const isLoading = ref<boolean>(false)
@@ -51,6 +53,9 @@ const save = async (): Promise<void> => {
     const config = await initializeLauncher(selectedPath.value)
     coreStore.launcherConfig = config
     coreStore.hasLauncherConfig = true
+    if (prefersReducedMotion()) {
+      await setAnimationsEnabled(false)
+    }
     if (needsProfile.value) {
       step.value = 2
       return

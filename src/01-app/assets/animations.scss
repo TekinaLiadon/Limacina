@@ -52,3 +52,14 @@ html[data-animations='off'] *::after {
   transition-duration: 0.01ms !important;
   transition-delay: 0ms !important;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-animations='on']) *,
+  html:not([data-animations='on']) *::before,
+  html:not([data-animations='on']) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

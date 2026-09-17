@@ -1,5 +1,5 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
-import { reportError, selectFile, useFileDrop } from '@/06-shared'
+import { reportError } from '@/06-shared'
 import { useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
 import {
   getErrorMessage,
@@ -10,6 +10,7 @@ import {
 } from '@/06-shared/api'
 import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
+import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
 
 export interface CpmLayer {
@@ -88,38 +89,17 @@ export function useCpmSettings() {
     cpmFileName.value = name
   }
 
-  function selectCpmFile(): void {
-    content.errorMessage.value = ''
-
-    selectFile({
-      accept: '.cpmproject',
-      maxBytes: 2 * 1024 * 1024,
-      readAs: 'arrayBuffer',
-      onError: (msg: string) => {
-        content.errorMessage.value = msg
-      },
-      onLoad: async (file: File, result: string | ArrayBuffer) => {
-        try {
-          const project = await parseCpmProjectFile(result as ArrayBuffer)
-          applyCpmProject(project, result as ArrayBuffer, file.name.replace(/\.cpmproject$/i, ''))
-        } catch (e) {
-          content.errorMessage.value = getErrorMessage(e)
-        }
-      },
-    })
-  }
-
-  const loadFromPath = async (path: string): Promise<void> => {
-    content.errorMessage.value = ''
-    try {
-      const bytes = await readCpmProjectFile(path)
+  const { isDragOver, openFileDialog: selectCpmFile, loadFromPath } = useUserContentFile({
+    accept: '.cpmproject',
+    extensions: ['cpmproject'],
+    maxBytes: 2 * 1024 * 1024,
+    readFile: readCpmProjectFile,
+    processFile: async (bytes: ArrayBuffer, name: string): Promise<void> => {
       const project = await parseCpmProjectFile(bytes)
-      const fileName = path.split(/[\\/]/).pop() ?? path
-      applyCpmProject(project, bytes, fileName.replace(/\.cpmproject$/i, ''))
-    } catch (e: unknown) {
-      content.errorMessage.value = getErrorMessage(e)
-    }
-  }
+      applyCpmProject(project, bytes, name.replace(/\.cpmproject$/i, ''))
+    },
+    errorMessage: content.errorMessage,
+  })
 
   watch(pendingOpenPath, (path: string | null): void => {
     if (!path) return
@@ -198,16 +178,6 @@ export function useCpmSettings() {
       reportError('Не удалось загрузить лимит моделей', e)
     }
   }
-
-  const { isDragOver } = useFileDrop({
-    accept: ['cpmproject'],
-    onDrop: (path: string): void => {
-      void loadFromPath(path)
-    },
-    onError: (message: string): void => {
-      content.errorMessage.value = message
-    },
-  })
 
   const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
     if (limit !== null && (!Number.isFinite(limit) || limit < 1)) {

@@ -2,6 +2,10 @@ export function isAnimationsEnabled(): boolean {
   return document.documentElement.dataset.animations !== 'off'
 }
 
+export function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 export function cssDurationMs(token: string, fallback: number): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim()
   const parsed = Number.parseFloat(raw)
