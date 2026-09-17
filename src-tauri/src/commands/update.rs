@@ -5,6 +5,7 @@ use crate::updater::{
     STARTUP_CHECK_TIMEOUT,
 };
 use crate::utils::errors::LauncherError;
+use crate::utils::http::with_launcher_id;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 use anyhow::{bail, Context};
@@ -43,9 +44,11 @@ pub async fn get_server_status(
     }
     let server_url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
     let url = format!("{server_url}/v1/common/status");
-    let request = crate::utils::http::http_client()
-        .get(&url)
-        .timeout(STATUS_REQUEST_TIMEOUT);
+    let request = with_launcher_id(
+        crate::utils::http::http_client()
+            .get(&url)
+            .timeout(STATUS_REQUEST_TIMEOUT),
+    );
     let status: ServerStatus = LauncherError::classify(
         crate::utils::http::request_json(
             request,
@@ -65,9 +68,11 @@ pub async fn ping_launcher_server(state: State<'_, Mutex<GlobalState>>) -> Comma
         return Ok(false);
     };
     let url = format!("{server_url}/v1/launcher/update/version");
-    let request = crate::utils::http::http_client()
-        .get(&url)
-        .timeout(PING_TIMEOUT);
+    let request = with_launcher_id(
+        crate::utils::http::http_client()
+            .get(&url)
+            .timeout(PING_TIMEOUT),
+    );
     match request.send().await {
         Ok(_) => Ok(true),
         Err(e) => {

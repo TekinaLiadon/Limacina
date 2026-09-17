@@ -20,6 +20,7 @@ export interface ProjectSettingsState {
   config: ProjectSettingsForm
   isLoaded: boolean
   isSaving: boolean
+  loadError: string
   loadedProject: string
   loadingProject: string
 }
@@ -46,6 +47,7 @@ export const useProjectSettingsStore = defineStore('projectSettings', {
     config: defaultForm(),
     isLoaded: false,
     isSaving: false,
+    loadError: '',
     loadedProject: '',
     loadingProject: '',
   }),
@@ -53,16 +55,29 @@ export const useProjectSettingsStore = defineStore('projectSettings', {
   actions: {
     startLoading(project: string): void {
       this.loadingProject = project
+      this.loadError = ''
       this.isLoaded = false
     },
 
     applyLoaded(project: string, config: ProjectSettingsForm): void {
+      if (this.loadingProject !== project) return
       this.config = config
       this.loadedProject = project
       this.isLoaded = true
+      this.loadError = ''
+      this.loadingProject = ''
     },
 
-    finishLoading(): void {
+    applyError(project: string, message: string): void {
+      if (this.loadingProject !== project) return
+      this.loadedProject = ''
+      this.isLoaded = false
+      this.loadError = message
+      this.loadingProject = ''
+    },
+
+    finishLoading(project: string): void {
+      if (this.loadingProject !== project) return
       this.loadingProject = ''
     },
 

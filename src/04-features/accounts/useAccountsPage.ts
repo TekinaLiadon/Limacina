@@ -33,6 +33,7 @@ export function useAccountsPage() {
   )
 
   const handleLaunch = async (): Promise<void> => {
+    if (store.isLaunching) return
     if (isServerOffline.value) {
       notificationStore.show('Сервер лаунчера недоступен, запуск невозможен')
       void sendSystemNotification('Запуск заблокирован', 'Сервер лаунчера недоступен')
@@ -44,7 +45,9 @@ export function useAccountsPage() {
     try {
       await executeSteps(() => launchGeneration !== store.launchGeneration)
     } catch (e: unknown) {
-      coreStore.loginError = getErrorMessage(e)
+      if (launchGeneration === store.launchGeneration) {
+        coreStore.loginError = getErrorMessage(e)
+      }
     } finally {
       if (launchGeneration === store.launchGeneration) {
         store.isLaunching = false

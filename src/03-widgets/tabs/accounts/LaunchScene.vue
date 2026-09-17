@@ -152,6 +152,7 @@ const openLoginForm = (): void => {
             <Button
               class="btn-primary btn-lg btn-block"
               :is-disabled="!hasSession || (serverOffline ?? false)"
+              :is-loading="isLaunching"
               @click="emit('launch')"
             >
               Играть

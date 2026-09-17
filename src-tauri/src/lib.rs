@@ -99,6 +99,12 @@ pub fn run() {
             let launcher_config = crate::state::launcher_config::LauncherConfig::load()
                 .ok()
                 .flatten();
+            if let Some(id) = launcher_config
+                .as_ref()
+                .and_then(|c| c.install_id.as_deref())
+            {
+                crate::utils::install_id::set_install_id(id);
+            }
             crate::utils::bandwidth::set_limit(
                 launcher_config
                     .as_ref()

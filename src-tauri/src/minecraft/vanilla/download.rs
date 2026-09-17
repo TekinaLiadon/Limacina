@@ -2,10 +2,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use std::fs as std_fs;
 use std::io as std_io;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_err, log_info,
     minecraft::vanilla::rules::is_rule_allowed,
@@ -66,10 +67,14 @@ fn native_artifact_for_os<'a>(lib: &'a Library, current_os: &str) -> Option<&'a 
 }
 
 pub async fn read_asset_index(path: &Path) -> Result<AssetIndexContent> {
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .with_context(|| format!("Не удалось прочитать индекс ресурсов: {:?}", path))?;
-    serde_json::from_str(&content).context("Не удалось разобрать индекс ресурсов")
+    let content = tokio::fs::read_to_string(path).await.map_err(|e| {
+        LauncherError::ManifestParse(format!(
+            "Не удалось прочитать индекс ресурсов: {path:?}: {e:#}"
+        ))
+    })?;
+    serde_json::from_str(&content).map_err(|e| {
+        LauncherError::ManifestParse(format!("Не удалось разобрать индекс ресурсов: {e:#}")).into()
+    })
 }
 
 pub fn collect_natives_to_extract(
@@ -121,7 +126,31 @@ pub async fn extract_natives(
         .into_iter()
         .map(|(rel, exclude)| (base_path.join(rel), exclude))
         .collect();
-    extract_native(natives_to_extract, natives_dir).await
+
+    clear_natives_dir(&natives_dir).await?;
+    match extract_native(natives_to_extract, natives_dir.clone()).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if let Err(wipe_error) = clear_natives_dir(&natives_dir).await {
+                log_err!(
+                    "Не удалось очистить natives после сбоя распаковки: {:?}",
+                    wipe_error
+                );
+            }
+            Err(e)
+        }
+    }
+}
+
+async fn clear_natives_dir(natives_dir: &Path) -> Result<()> {
+    match tokio::fs::remove_dir_all(natives_dir).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std_io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(LauncherError::DiskIo(format!(
+            "Не удалось очистить папку natives {natives_dir:?}: {e:#}"
+        ))
+        .into()),
+    }
 }
 
 fn should_download_library(lib_name: &str) -> bool {
@@ -184,12 +213,14 @@ async fn extract_native(
 
     let mut total_extracted = 0u32;
     for (jar_path, exclude_rules) in &natives_to_extract {
-        match extract_natives_from_jar(jar_path, &natives_dir, exclude_rules).await {
-            Ok(count) => {
-                total_extracted += count;
-            }
-            Err(e) => log_err!("Ошибка извлечения {:?}: {:?}", jar_path, e),
-        }
+        let count = extract_natives_from_jar(jar_path, &natives_dir, exclude_rules)
+            .await
+            .map_err(|e| {
+                LauncherError::GameDownload(format!(
+                    "Не удалось распаковать natives из {jar_path:?}: {e:#}"
+                ))
+            })?;
+        total_extracted += count;
     }
     log_info!("Всего извлечено нативных файлов: {}", total_extracted);
 
@@ -204,7 +235,9 @@ async fn extract_natives_from_jar(
     log_info!("  Извлекаем natives из: {:?}", jar_path);
 
     if !jar_path.exists() {
-        return Err(anyhow!("JAR файл не существует: {:?}", jar_path));
+        return Err(
+            LauncherError::GameDownload(format!("JAR файл не существует: {jar_path:?}")).into(),
+        );
     }
 
     let jar_path_buf = jar_path.to_path_buf();
@@ -212,12 +245,19 @@ async fn extract_natives_from_jar(
     let exclude_rules_owned = exclude_rules.clone();
 
     let extracted_count = tokio::task::spawn_blocking(move || -> Result<u32> {
-        std_fs::create_dir_all(&natives_dir_buf)
-            .with_context(|| format!("Не удалось создать директорию: {:?}", natives_dir_buf))?;
-        let std_file = std_fs::File::open(&jar_path_buf)
-            .with_context(|| format!("Не удалось открыть JAR: {:?}", jar_path_buf))?;
-        let mut archive = ZipArchive::new(std_file)
-            .with_context(|| format!("Не удалось прочитать ZIP архив: {:?}", jar_path_buf))?;
+        std_fs::create_dir_all(&natives_dir_buf).map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось создать директорию: {natives_dir_buf:?}: {e:#}"
+            ))
+        })?;
+        let std_file = std_fs::File::open(&jar_path_buf).map_err(|e| {
+            LauncherError::DiskIo(format!("Не удалось открыть JAR: {jar_path_buf:?}: {e:#}"))
+        })?;
+        let mut archive = ZipArchive::new(std_file).map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось прочитать ZIP архив: {jar_path_buf:?}: {e:#}"
+            ))
+        })?;
 
         let mut count = 0u32;
         for i in 0..archive.len() {
@@ -251,10 +291,12 @@ async fn extract_natives_from_jar(
                 .unwrap_or_else(|| name.clone());
             let out_path = natives_dir_buf.join(&file_name);
 
-            let mut out_file = std_fs::File::create(&out_path)
-                .with_context(|| format!("Не удалось создать файл: {:?}", out_path))?;
-            std_io::copy(&mut file, &mut out_file)
-                .with_context(|| format!("Не удалось записать файл: {:?}", out_path))?;
+            let mut out_file = std_fs::File::create(&out_path).map_err(|e| {
+                LauncherError::DiskIo(format!("Не удалось создать файл: {out_path:?}: {e:#}"))
+            })?;
+            std_io::copy(&mut file, &mut out_file).map_err(|e| {
+                LauncherError::DiskIo(format!("Не удалось записать файл: {out_path:?}: {e:#}"))
+            })?;
 
             count += 1;
             log_info!("    ✓ {}", file_name);
@@ -263,7 +305,11 @@ async fn extract_natives_from_jar(
         Ok(count)
     })
     .await
-    .context("Ошибка при выполнении синхронного потока (spawn_blocking)")??;
+    .map_err(|e| {
+        LauncherError::GameProcess(format!(
+            "Ошибка при выполнении синхронного потока (spawn_blocking): {e:#}"
+        ))
+    })??;
 
     Ok(extracted_count)
 }
@@ -362,9 +408,28 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTa
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_library_targets, get_current_os};
+    use super::{collect_library_targets, extract_natives, get_current_os};
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
+    use crate::test_support::LauncherDirGuard;
     use crate::utils::integrity::{HashKind, TargetDownload};
+    use std::fs as std_fs;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    fn make_jar(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+        if let Some(parent) = path.parent() {
+            std_fs::create_dir_all(parent).unwrap();
+        }
+        let file = std_fs::File::create(path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        for (name, data) in entries {
+            writer
+                .start_file(name.to_string(), zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap();
+    }
 
     const MANIFEST_1_18_2: &str = r#"{
         "id": "1.18.2",
@@ -564,5 +629,94 @@ mod tests {
                 assert_eq!(rel_paths.len(), 7);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn extract_natives_unpacks_native_files_from_jars() {
+        let dir = LauncherDirGuard::acquire("natives_extract").await;
+        let base = dir.project_dir("Cordelia");
+
+        make_jar(
+            &base.join("libraries/lwjgl/lwjgl-natives.jar"),
+            &[
+                ("org/lwjgl/lwjgl.dll", b"win dll bytes".as_slice()),
+                ("liblwjgl.so", b"so bytes".as_slice()),
+                ("META-INF/MANIFEST.MF", b"manifest".as_slice()),
+                ("README.txt", b"not native".as_slice()),
+            ],
+        );
+        make_jar(
+            &base.join("libraries/t2s/t2s-natives.jar"),
+            &[("libt2s.dylib", b"dylib bytes".as_slice())],
+        );
+
+        extract_natives(
+            &base,
+            vec![
+                (PathBuf::from("libraries/lwjgl/lwjgl-natives.jar"), None),
+                (
+                    PathBuf::from("libraries/t2s/t2s-natives.jar"),
+                    Some(vec!["META-INF/".to_string()]),
+                ),
+            ],
+        )
+        .await
+        .expect("распаковка natives");
+
+        let natives = base.join("natives");
+        assert_eq!(
+            std_fs::read(natives.join("lwjgl.dll")).unwrap(),
+            b"win dll bytes"
+        );
+        assert_eq!(
+            std_fs::read(natives.join("liblwjgl.so")).unwrap(),
+            b"so bytes"
+        );
+        assert_eq!(
+            std_fs::read(natives.join("libt2s.dylib")).unwrap(),
+            b"dylib bytes"
+        );
+        assert!(!natives.join("README.txt").exists());
+        assert!(!natives.join("MANIFEST.MF").exists());
+    }
+
+    #[tokio::test]
+    async fn extract_natives_failure_wipes_dir_and_retry_recovers() {
+        let dir = LauncherDirGuard::acquire("natives_fail_retry").await;
+        let base = dir.project_dir("Cordelia");
+
+        make_jar(
+            &base.join("libraries/good.jar"),
+            &[("libgood.so", b"good".as_slice())],
+        );
+        std_fs::create_dir_all(base.join("natives")).unwrap();
+        std_fs::write(base.join("natives/stale.dll"), b"stale").unwrap();
+
+        let result = extract_natives(
+            &base,
+            vec![
+                (PathBuf::from("libraries/good.jar"), None),
+                (PathBuf::from("libraries/missing.jar"), None),
+            ],
+        )
+        .await;
+
+        assert!(result.is_err(), "недоступный jar должен ронять распаковку");
+        let natives_clean = std_fs::read_dir(base.join("natives"))
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(true);
+        assert!(
+            natives_clean,
+            "после сбоя папка natives должна быть пуста для чистой повторной попытки"
+        );
+
+        extract_natives(&base, vec![(PathBuf::from("libraries/good.jar"), None)])
+            .await
+            .expect("повторная распаковка после сбоя");
+
+        assert_eq!(
+            std_fs::read(base.join("natives/libgood.so")).unwrap(),
+            b"good"
+        );
     }
 }

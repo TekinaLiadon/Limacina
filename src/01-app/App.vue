@@ -107,7 +107,6 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     <PushNotification
       :visible="notificationStore.visible"
       :message="notificationStore.message"
-      @update:visible="notificationStore.hide"
     />
     <ConfirmPopup
       :visible="notificationStore.popupVisible"

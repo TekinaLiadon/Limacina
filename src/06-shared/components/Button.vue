@@ -12,12 +12,12 @@ const props = withDefaults(defineProps<{
 
 <template>
   <button class="btn" :aria-label="props.label" :class="{
-      disabled: isDisabled,
+      disabled: isDisabled || isLoading,
       loading: isLoading,
     }"
     :aria-busy="isLoading"
     :type="props.type"
-    :disabled="isDisabled"
+    :disabled="isDisabled || isLoading"
   >
     <span v-if="isLoading" class="btn__spinner" aria-hidden="true" />
     <slot></slot>

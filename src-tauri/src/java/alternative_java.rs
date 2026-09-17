@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::{create_dir_all, read_dir, remove_file, rename};
@@ -7,6 +7,7 @@ use tokio::task::spawn_blocking;
 use crate::java::{extract_archive, find_java_executable, resolve_java_version};
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::{get_arch, get_current_os, launcher_path};
+use crate::utils::errors::LauncherError;
 
 #[derive(Serialize, Clone)]
 pub struct JavaDistribution {
@@ -107,14 +108,15 @@ async fn fetch_package(
         .get(&url)
         .send()
         .await
-        .context("Не удалось запросить пакеты у Foojay API")?
+        .map_err(|e| {
+            LauncherError::Java(format!("Не удалось запросить пакеты у Foojay API: {e:#}"))
+        })?
         .error_for_status()
-        .context("Foojay API вернул ошибку")?;
+        .map_err(|e| LauncherError::Java(format!("Foojay API вернул ошибку: {e:#}")))?;
 
-    let packages: FoojayPackagesResponse = response
-        .json()
-        .await
-        .context("Не удалось распарсить ответ Foojay API")?;
+    let packages: FoojayPackagesResponse = response.json().await.map_err(|e| {
+        LauncherError::Java(format!("Не удалось распарсить ответ Foojay API: {e:#}"))
+    })?;
 
     let pkg = packages.result.into_iter().find_map(|p| {
         let links = p.links.as_ref()?;
@@ -170,7 +172,9 @@ pub async fn download_alt_java(
             None => fetch_package(client, distribution, &version, arch, os_foojay, "jdk")
                 .await?
                 .ok_or_else(|| {
-                    anyhow::anyhow!("Foojay API не вернул файлов для скачивания (ни JRE, ни JDK)")
+                    LauncherError::Java(
+                        "Foojay API не вернул файлов для скачивания (ни JRE, ни JDK)".to_string(),
+                    )
                 })?,
         };
 

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 
-defineProps<{
+withDefaults(defineProps<{
   isSaving: boolean
   isDirty: boolean
-}>()
+  isBlocked?: boolean
+}>(), {
+  isBlocked: false,
+})
 
 defineEmits<{
   save: []
@@ -19,7 +22,7 @@ defineEmits<{
         class="btn-lg settings-save-bar__btn"
         :class="{ 'settings-save-bar__btn--dirty': isDirty }"
         :is-loading="isSaving"
-        :is-disabled="isSaving"
+        :is-disabled="isSaving || (isBlocked ?? false)"
         @click="$emit('save')"
       >
         Сохранить

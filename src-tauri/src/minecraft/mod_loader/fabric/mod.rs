@@ -1,9 +1,10 @@
 pub mod manifest;
 pub mod structs;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
     minecraft::{
@@ -31,9 +32,17 @@ impl ModLoader for Fabric {
         let manifest_fabric =
             get_manifest_index::<Vec<FabricManifest>>(MOD_LOADER_NAME, &url_manifest, version)
                 .await
-                .context("Не удалось загрузить манифест Fabric")?;
-        let manifest: Vec<VersionMod> = transform_fabric_manifest(manifest_fabric)
-            .context("Не удалось преобразовать манифест Fabric")?;
+                .map_err(|e| {
+                    LauncherError::LoaderSetup(format!(
+                        "Не удалось загрузить манифест Fabric: {e:#}"
+                    ))
+                })?;
+        let manifest: Vec<VersionMod> =
+            transform_fabric_manifest(manifest_fabric).map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось преобразовать манифест Fabric: {e:#}"
+                ))
+            })?;
         Ok(manifest)
     }
     async fn version_current(
@@ -47,7 +56,7 @@ impl ModLoader for Fabric {
             .iter()
             .find(|m| m.id == version)
             .cloned()
-            .ok_or_else(|| anyhow!("Версия не найдена"))
+            .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()).into())
     }
     async fn latest_version(
         &self,
@@ -58,18 +67,23 @@ impl ModLoader for Fabric {
             .iter()
             .map(|v| v.id.clone())
             .max_by(|a, b| compare_versions(a, b))
-            .ok_or_else(|| anyhow!("Нет доступных версий Fabric"))
+            .ok_or_else(|| {
+                LauncherError::LoaderSetup("Нет доступных версий Fabric".to_string()).into()
+            })
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
         let target_version = loader_version_or_err(state)?;
         let version_info = manifest
             .iter()
             .find(|v| v.id == target_version)
-            .ok_or_else(|| anyhow!("Версия не найдена"))?;
+            .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()))?;
 
         let step = StepHandle::start("loader", "Установка Fabric");
-        let base_path = launcher_path(Some(&state.project_name))
-            .context("Не удалось определить путь к файлам проекта")?;
+        let base_path = launcher_path(Some(&state.project_name)).map_err(|e| {
+            LauncherError::LoaderSetup(format!(
+                "Не удалось определить путь к файлам проекта: {e:#}"
+            ))
+        })?;
         install_loader_files(
             step.clone(),
             &base_path,

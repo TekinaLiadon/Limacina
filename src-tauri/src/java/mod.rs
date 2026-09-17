@@ -1,12 +1,13 @@
 pub mod alternative_java;
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
     minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL},
@@ -61,10 +62,12 @@ pub async fn install_java(config: &ProjectConfig) -> Result<(PathBuf, String)> {
 
 pub(crate) fn parse_java_major(version: &str) -> Result<u32> {
     let major = version.split('.').next().unwrap_or(version);
-    major
-        .trim()
-        .parse::<u32>()
-        .with_context(|| format!("Не удалось определить мажорную версию Java: {version}"))
+    major.trim().parse::<u32>().map_err(|e| {
+        LauncherError::Java(format!(
+            "Не удалось определить мажорную версию Java: {version}: {e:#}"
+        ))
+        .into()
+    })
 }
 
 async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf> {
@@ -183,10 +186,10 @@ pub(crate) fn extract_archive_with_limit(
             let mut entry = entry?;
             total_bytes += entry.header().size()?;
             if total_bytes > max_total_bytes {
-                bail!(
-                    "Суммарный размер записей архива превышает лимит {} байт",
-                    max_total_bytes
-                );
+                return Err(LauncherError::Java(format!(
+                    "Суммарный размер записей архива превышает лимит {max_total_bytes} байт"
+                ))
+                .into());
             }
             entry.unpack_in(target_dir)?;
         }
@@ -235,7 +238,10 @@ pub(crate) fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
             }
         }
     }
-    bail!("Не удалось найти исполняемый файл Java после распаковки");
+    Err(
+        LauncherError::Java("Не удалось найти исполняемый файл Java после распаковки".to_string())
+            .into(),
+    )
 }
 
 #[cfg(test)]

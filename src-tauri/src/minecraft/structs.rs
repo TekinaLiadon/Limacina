@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
+use crate::state::dto::ProjectConfig;
+use crate::utils::env_info::launcher_path;
+use crate::utils::errors::LauncherError;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Versions {
@@ -75,8 +77,11 @@ pub async fn new_launch_config(
     access_token: &str,
     state_project: &ProjectConfig,
 ) -> Result<LaunchConfig> {
-    let base_dir = launcher_path(Some(&state_project.project_name))
-        .context("Не удалось определить путь к файлам проекта")?;
+    let base_dir = launcher_path(Some(&state_project.project_name)).map_err(|e| {
+        LauncherError::GameDownload(format!(
+            "Не удалось определить путь к файлам проекта: {e:#}"
+        ))
+    })?;
     let mut jvm_sub_arg = vec![
         state_project.min_memory.clone(),
         state_project.max_memory.clone(),

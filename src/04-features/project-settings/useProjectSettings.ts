@@ -10,6 +10,8 @@ import { splitJvmArgs } from './jvmPresets'
 export function useProjectSettings(): {
   config: ComputedRef<ProjectSettingsForm>
   isLoaded: ComputedRef<boolean>
+  isLoading: ComputedRef<boolean>
+  loadError: ComputedRef<string>
   isDirty: ComputedRef<boolean>
   maxMemoryLimit: ComputedRef<number>
   isSaving: ComputedRef<boolean>
@@ -27,6 +29,7 @@ export function useProjectSettings(): {
   handleGetConnectUrl: () => Promise<void>
   handleCopyConnectUrl: () => Promise<void>
   loadConfig: (project: string, force?: boolean) => Promise<void>
+  retryLoad: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const accountsStore = useAccountsStore()
@@ -37,6 +40,8 @@ export function useProjectSettings(): {
 
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
+  const isLoading = computed((): boolean => store.loadingProject !== '')
+  const loadError = computed((): string => store.loadError)
   const isSaving = computed((): boolean => store.isSaving)
 
   const DIRTY_FIELDS = ['loaderVersion', 'javaPath', 'jvmArgs', 'memoryRange', 'autoJoinServer'] as const
@@ -98,11 +103,15 @@ export function useProjectSettings(): {
         autoJoinServer: loaded.autoJoinServer,
       })
     } catch (e: unknown) {
+      const message = getErrorMessage(e)
       reportError('Не удалось загрузить настройки проекта', e)
+      store.applyError(project, message)
     } finally {
-      store.finishLoading()
+      store.finishLoading(project)
     }
   }
+
+  const retryLoad = (): Promise<void> => loadConfig(coreStore.currentProject, true)
 
   const serverConnectUrl = ref<string>('')
   const isLoadingConnectUrl = ref<boolean>(false)
@@ -113,6 +122,7 @@ export function useProjectSettings(): {
   }, { immediate: true })
 
   const handleSave = async (): Promise<void> => {
+    if (!store.isLoaded) return
     store.startSaving()
 
     try {
@@ -250,6 +260,8 @@ export function useProjectSettings(): {
   return {
     config,
     isLoaded,
+    isLoading,
+    loadError,
     isDirty,
     maxMemoryLimit,
     isSaving,
@@ -267,5 +279,6 @@ export function useProjectSettings(): {
     handleGetConnectUrl,
     handleCopyConnectUrl,
     loadConfig,
+    retryLoad,
   }
 }

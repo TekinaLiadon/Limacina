@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::utils::errors::LauncherError;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::Result;
 
 use super::client;
 use super::structs::{ManifestEntry, ModrinthFile, ModrinthManifest, ModrinthVersion};
@@ -34,11 +34,15 @@ pub async fn load_manifest(path: &Path) -> ModrinthManifest {
 }
 
 pub async fn save_manifest(path: &Path, manifest: &ModrinthManifest) -> Result<()> {
-    let content =
-        serde_json::to_vec_pretty(manifest).context("Не удалось сериализовать манифест модов")?;
-    write_atomic(path, &content)
-        .await
-        .with_context(|| format!("Не удалось сохранить манифест модов {:?}", path))
+    let content = serde_json::to_vec_pretty(manifest).map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось сериализовать манифест модов: {e:#}"))
+    })?;
+    write_atomic(path, &content).await.map_err(|e| {
+        LauncherError::Modrinth(format!(
+            "Не удалось сохранить манифест модов {path:?}: {e:#}"
+        ))
+        .into()
+    })
 }
 
 pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<InstallReport> {
@@ -55,7 +59,12 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
 
     tokio::fs::create_dir_all(&ctx.mods_dir)
         .await
-        .with_context(|| format!("Не удалось создать директорию модов {:?}", ctx.mods_dir))?;
+        .map_err(|e| {
+            LauncherError::Modrinth(format!(
+                "Не удалось создать директорию модов {:?}: {e:#}",
+                ctx.mods_dir
+            ))
+        })?;
 
     let mut manifest = load_manifest(&ctx.manifest_path).await;
     let mut report = InstallReport {
@@ -65,14 +74,15 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
 
     for version in &resolved {
         let file = primary_file(version)?;
-        let sha1 = file
-            .hashes
-            .get("sha1")
-            .cloned()
-            .ok_or_else(|| anyhow!("Файл версии {} без SHA1 хеша", version.version_number))?;
+        let sha1 = file.hashes.get("sha1").cloned().ok_or_else(|| {
+            LauncherError::Modrinth(format!(
+                "Файл версии {} без SHA1 хеша",
+                version.version_number
+            ))
+        })?;
 
         if !is_safe_relative_path(&file.filename) {
-            bail!(LauncherError::InvalidModFilename(file.filename.clone()));
+            return Err(LauncherError::InvalidModFilename(file.filename.clone()).into());
         }
 
         let (title, icon_url, slug) = project_display_info(&version.project_id).await;
@@ -124,14 +134,18 @@ async fn resolve_project(
 
     let versions = client::get_project_versions(project_id, &ctx.loaders, &ctx.game_versions)
         .await
-        .with_context(|| format!("Не удалось получить версии мода {}", project_id))?;
+        .map_err(|e| {
+            LauncherError::Modrinth(format!(
+                "Не удалось получить версии мода {project_id}: {e:#}"
+            ))
+        })?;
     let version = pick_version(&versions).ok_or_else(|| {
-        anyhow!(
+        LauncherError::Modrinth(format!(
             "Для Minecraft {} и лоадера {:?} не найдено совместимых версий мода {}",
             ctx.game_versions.join(", "),
             ctx.loaders,
             project_id
-        )
+        ))
     })?;
     log_info!(
         "[modrinth] Выбрана версия {} ({}) для проекта {}",
@@ -189,7 +203,9 @@ fn primary_file(version: &ModrinthVersion) -> Result<&ModrinthFile> {
         .iter()
         .find(|f| f.primary)
         .or_else(|| version.files.first())
-        .ok_or_else(|| anyhow!("Версия {} без файлов", version.version_number))
+        .ok_or_else(|| {
+            LauncherError::Modrinth(format!("Версия {} без файлов", version.version_number)).into()
+        })
 }
 
 async fn install_file(dest: &Path, expected_sha1: &str, url: &str) -> Result<bool> {
@@ -207,35 +223,35 @@ async fn install_file(dest: &Path, expected_sha1: &str, url: &str) -> Result<boo
 
     download_file(url, dest)
         .await
-        .with_context(|| format!("Не удалось скачать {}", url))?;
+        .map_err(|e| LauncherError::Modrinth(format!("Не удалось скачать {url}: {e:#}")))?;
 
     let hash = file_sha1(dest).await?;
     if hash != expected_sha1 {
         let _ = tokio::fs::remove_file(dest).await;
-        bail!(LauncherError::HashMismatch(format!(
+        return Err(LauncherError::HashMismatch(format!(
             "{:?} ({} != {})",
             dest, hash, expected_sha1
-        )));
+        ))
+        .into());
     }
     Ok(true)
 }
 
 pub async fn uninstall_project(ctx: &InstallContext, project_id: &str) -> Result<()> {
     let mut manifest = load_manifest(&ctx.manifest_path).await;
-    let entry = manifest
-        .mods
-        .remove(project_id)
-        .ok_or_else(|| anyhow!("Мод {} не установлен через Modrinth", project_id))?;
+    let entry = manifest.mods.remove(project_id).ok_or_else(|| {
+        LauncherError::Modrinth(format!("Мод {} не установлен через Modrinth", project_id))
+    })?;
 
     if !is_safe_relative_path(&entry.filename) {
-        bail!(LauncherError::InvalidModFilename(entry.filename.clone()));
+        return Err(LauncherError::InvalidModFilename(entry.filename.clone()).into());
     }
 
     let dest = ctx.mods_dir.join(&entry.filename);
     if dest.exists() {
-        tokio::fs::remove_file(&dest)
-            .await
-            .with_context(|| format!("Не удалось удалить файл мода {:?}", dest))?;
+        tokio::fs::remove_file(&dest).await.map_err(|e| {
+            LauncherError::Modrinth(format!("Не удалось удалить файл мода {dest:?}: {e:#}"))
+        })?;
     }
     log_info!(
         "[modrinth] Удалён мод: {} ({})",

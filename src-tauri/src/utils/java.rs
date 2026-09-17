@@ -3,6 +3,8 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::utils::errors::LauncherError;
+
 pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
     if let Some(java_path_str) = java_path {
         let path = PathBuf::from(&java_path_str);
@@ -46,7 +48,10 @@ pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
         }
     }
 
-    anyhow::bail!("Java не найдена в системе — установите её в настройках лаунчера или выберите папку с Java вручную")
+    Err(LauncherError::Java(
+        "Java не найдена в системе — установите её в настройках лаунчера или выберите папку с Java вручную".to_string(),
+    )
+    .into())
 }
 
 pub fn repair_java_path(path: &Path) -> Option<PathBuf> {

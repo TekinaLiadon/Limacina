@@ -52,6 +52,7 @@ const cloneDefaults = (): GameOptions => ({ ...DEFAULT_GAME_OPTIONS, resourcePac
 export function useGameOptions(): {
   options: Ref<GameOptions>
   isLoading: Ref<boolean>
+  loadError: Ref<string>
   isSaving: Ref<boolean>
   isSavingGlobal: Ref<boolean>
   isDirty: ComputedRef<boolean>
@@ -59,6 +60,7 @@ export function useGameOptions(): {
   fileExists: Ref<boolean>
   availableResourcePacks: Ref<string[]>
   loadOptions: (project: string, force?: boolean) => Promise<void>
+  retryLoad: () => Promise<void>
   handleImportGlobal: () => Promise<void>
   handleSave: () => Promise<void>
   handleSaveGlobal: () => Promise<void>
@@ -68,6 +70,7 @@ export function useGameOptions(): {
 
   const options = ref<GameOptions>(cloneDefaults())
   const isLoading = ref<boolean>(false)
+  const loadError = ref<string>('')
   const isSaving = ref<boolean>(false)
   const isSavingGlobal = ref<boolean>(false)
   const hasGlobal = ref<boolean>(false)
@@ -75,6 +78,7 @@ export function useGameOptions(): {
   const availableResourcePacks = ref<string[]>([])
   const savedSnapshot = ref<string>('')
   let loadedProject = ''
+  let loadGeneration = 0
 
   const optionsSnapshot = (): string => JSON.stringify(options.value)
 
@@ -86,9 +90,12 @@ export function useGameOptions(): {
     if (!project) return
     if (!force && loadedProject === project) return
 
+    const generation = ++loadGeneration
     isLoading.value = true
+    loadError.value = ''
     try {
       const data = await getGameOptions(project)
+      if (generation !== loadGeneration) return
       options.value = { ...cloneDefaults(), ...data.options }
       hasGlobal.value = data.hasGlobal
       fileExists.value = data.fileExists
@@ -96,11 +103,15 @@ export function useGameOptions(): {
       loadedProject = project
       savedSnapshot.value = optionsSnapshot()
     } catch (e: unknown) {
+      if (generation !== loadGeneration) return
+      loadError.value = getErrorMessage(e)
       reportError('Не удалось загрузить настройки игры', e)
     } finally {
-      isLoading.value = false
+      if (generation === loadGeneration) isLoading.value = false
     }
   }
+
+  const retryLoad = (): Promise<void> => loadOptions(coreStore.currentProject, true)
 
   watch(() => coreStore.currentProject, (project: string) => {
     loadedProject = ''
@@ -123,7 +134,7 @@ export function useGameOptions(): {
 
   const handleSave = async (): Promise<void> => {
     const project = coreStore.currentProject
-    if (!project || isSaving.value) return
+    if (!project || isSaving.value || loadError.value) return
 
     isSaving.value = true
     try {
@@ -139,7 +150,7 @@ export function useGameOptions(): {
   }
 
   const handleSaveGlobal = async (): Promise<void> => {
-    if (isSavingGlobal.value) return
+    if (isSavingGlobal.value || loadError.value) return
 
     isSavingGlobal.value = true
     try {
@@ -156,6 +167,7 @@ export function useGameOptions(): {
   return {
     options,
     isLoading,
+    loadError,
     isSaving,
     isSavingGlobal,
     isDirty,
@@ -163,6 +175,7 @@ export function useGameOptions(): {
     fileExists,
     availableResourcePacks,
     loadOptions,
+    retryLoad,
     handleImportGlobal,
     handleSave,
     handleSaveGlobal,

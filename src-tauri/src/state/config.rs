@@ -188,7 +188,10 @@ mod tests {
     async fn save_config_roundtrips_without_leftover_part() {
         let guard = LauncherDirGuard::acquire("config_atomic_save").await;
 
-        sample_config("Atomic").save_config().await.expect("сохранение");
+        sample_config("Atomic")
+            .save_config()
+            .await
+            .expect("сохранение");
 
         let path = guard.root().join("project/config/Atomic.toml");
         assert!(path.exists(), "конфиг должен быть записан");
@@ -197,7 +200,9 @@ mod tests {
             "временный файл .part не должен оставаться после успешной записи"
         );
 
-        let loaded = load_config("Atomic").await.expect("чтение сохранённого конфига");
+        let loaded = load_config("Atomic")
+            .await
+            .expect("чтение сохранённого конфига");
         assert_eq!(loaded.project_name, "Atomic");
         assert_eq!(loaded.mc_version, "1.20.1");
     }
@@ -206,7 +211,10 @@ mod tests {
     async fn interrupted_save_keeps_previous_config_intact() {
         let guard = LauncherDirGuard::acquire("config_part_leftover").await;
 
-        sample_config("Interrupted").save_config().await.expect("сохранение");
+        sample_config("Interrupted")
+            .save_config()
+            .await
+            .expect("сохранение");
 
         let path = guard.root().join("project/config/Interrupted.toml");
         let part = path.with_extension("toml.part");
@@ -219,10 +227,15 @@ mod tests {
             .expect("предыдущий конфиг должен быть читаемым");
         assert_eq!(loaded.mc_version, "1.20.1");
 
-        sample_config("Interrupted").save_config().await.expect("повторное сохранение");
+        sample_config("Interrupted")
+            .save_config()
+            .await
+            .expect("повторное сохранение");
         assert!(!part.exists(), ".part должен быть убран успешной записью");
 
-        let again = load_config("Interrupted").await.expect("чтение после повторного сохранения");
+        let again = load_config("Interrupted")
+            .await
+            .expect("чтение после повторного сохранения");
         assert_eq!(again.mc_version, "1.20.1");
     }
 }

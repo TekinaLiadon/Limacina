@@ -2,15 +2,19 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 
 use super::structs::{ModrinthProject, ModrinthVersion, SearchResponse};
 use crate::log_err;
+use crate::utils::errors::LauncherError;
 
-pub const USER_AGENT: &str =
-    "TekinaLiadon/Limacina/1.4.0 (https://github.com/TekinaLiadon/Limacina)";
+pub const USER_AGENT: &str = concat!(
+    "TekinaLiadon/Limacina/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/TekinaLiadon/Limacina)"
+);
 const API_BASE_PROD: &str = "https://api.modrinth.com/v2";
 
 static API_BASE_OVERRIDE: OnceLock<std::sync::RwLock<Option<String>>> = OnceLock::new();
@@ -41,8 +45,7 @@ static MODRINTH_CLIENT: OnceLock<Client> = OnceLock::new();
 
 pub fn modrinth_client() -> &'static Client {
     MODRINTH_CLIENT.get_or_init(|| {
-        Client::builder()
-            .connect_timeout(Duration::from_secs(10))
+        crate::utils::http::base_client_builder()
             .user_agent(USER_AGENT)
             .build()
             .expect("Не удалось создать HTTP клиент Modrinth")
@@ -66,7 +69,10 @@ fn response_cache_guard() -> Option<std::sync::MutexGuard<'static, ResponseCache
     match response_cache().lock() {
         Ok(guard) => Some(guard),
         Err(e) => {
-            log_err!("[modrinth] Не удалось получить доступ к кешу ответов: {}", e);
+            log_err!(
+                "[modrinth] Не удалось получить доступ к кешу ответов: {}",
+                e
+            );
             None
         }
     }
@@ -79,8 +85,12 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
     if let Some(guard) = response_cache_guard() {
         if let Some((stored_at, value)) = guard.get(&cache_key).cloned() {
             if stored_at.elapsed() < CACHE_TTL {
-                return serde_json::from_value(value)
-                    .with_context(|| format!("Не удалось разобрать кешированный ответ от {}", url));
+                return serde_json::from_value(value).map_err(|e| {
+                    LauncherError::Modrinth(format!(
+                        "Не удалось разобрать кешированный ответ от {url}: {e:#}"
+                    ))
+                    .into()
+                });
             }
         }
     }
@@ -90,20 +100,23 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
         .query(query)
         .send()
         .await
-        .with_context(|| format!("Не удалось отправить запрос на {}", url))?;
+        .map_err(|e| {
+            LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
+        })?;
     let response = response
         .error_for_status()
-        .with_context(|| format!("Modrinth вернул ошибку для {}", url))?;
-    let value: serde_json::Value = response
-        .json()
-        .await
-        .with_context(|| format!("Не удалось прочитать ответ от {}", url))?;
+        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
+    let value: serde_json::Value = response.json().await.map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
+    })?;
 
     if let Some(mut guard) = response_cache_guard() {
         guard.insert(cache_key, (std::time::Instant::now(), value.clone()));
     }
 
-    serde_json::from_value(value).with_context(|| format!("Не удалось разобрать ответ от {}", url))
+    serde_json::from_value(value).map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось разобрать ответ от {url}: {e:#}")).into()
+    })
 }
 
 fn json_param_str(query: &[(&str, String)]) -> String {
@@ -121,7 +134,8 @@ pub async fn search(
     offset: u32,
     limit: u32,
 ) -> Result<SearchResponse> {
-    let facets_json = serde_json::to_string(facets).context("Не удалось сериализовать фильтры")?;
+    let facets_json = serde_json::to_string(facets)
+        .map_err(|e| LauncherError::Modrinth(format!("Не удалось сериализовать фильтры: {e:#}")))?;
     get_json(
         "/search",
         &[
@@ -184,17 +198,18 @@ pub async fn get_version_from_hash(
         .query(&query)
         .send()
         .await
-        .with_context(|| format!("Не удалось отправить запрос на {}", url))?;
+        .map_err(|e| {
+            LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
+        })?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
     let response = response
         .error_for_status()
-        .with_context(|| format!("Modrinth вернул ошибку для {}", url))?;
-    let version = response
-        .json()
-        .await
-        .with_context(|| format!("Не удалось прочитать ответ от {}", url))?;
+        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
+    let version = response.json().await.map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
+    })?;
     Ok(Some(version))
 }
 
@@ -225,14 +240,15 @@ pub async fn get_versions_from_hashes(
         .json(&body)
         .send()
         .await
-        .with_context(|| format!("Не удалось отправить запрос на {}", url))?;
+        .map_err(|e| {
+            LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
+        })?;
     let response = response
         .error_for_status()
-        .with_context(|| format!("Modrinth вернул ошибку для {}", url))?;
-    response
-        .json()
-        .await
-        .with_context(|| format!("Не удалось прочитать ответ от {}", url))
+        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
+    response.json().await.map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}")).into()
+    })
 }
 
 #[cfg(test)]
@@ -277,5 +293,10 @@ mod tests {
             project.date_modified.as_deref(),
             Some("2026-09-12T22:49:42.621484Z")
         );
+    }
+
+    #[test]
+    fn user_agent_contains_package_version() {
+        assert!(USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
     }
 }

@@ -74,6 +74,12 @@ pub enum LauncherError {
     InvalidInput(String),
     #[error("Сессия принадлежит проекту «{0}», а запускается «{1}». Перезайдите в аккаунт.")]
     SessionMismatch(String, String),
+    #[error("Не удалось скачать файл: {0}")]
+    Download(String),
+    #[error("{0}")]
+    Http(String),
+    #[error("{message}")]
+    HttpStatus { status: u16, message: String },
 }
 
 impl LauncherError {
@@ -114,15 +120,27 @@ impl LauncherError {
             Self::PasswordTooShort | Self::PasswordUnchanged => "invalid_password",
             Self::InvalidInput(_) => "invalid_input",
             Self::SessionMismatch(_, _) => "auth_session_mismatch",
+            Self::Download(_) => "download",
+            Self::Http(_) => "http",
+            Self::HttpStatus { .. } => "http_status",
         }
+    }
+
+    fn is_generic(&self) -> bool {
+        matches!(
+            self,
+            Self::Download(_) | Self::Http(_) | Self::HttpStatus { .. }
+        )
     }
 
     pub fn classify<T>(result: Result<T>, wrap: impl FnOnce(String) -> Self) -> Result<T> {
         result.map_err(|e| {
-            if e.chain().any(|cause| cause.is::<LauncherError>()) {
-                e
-            } else {
-                anyhow!(wrap(format!("{:#}", e)))
+            let typed = e
+                .chain()
+                .find_map(|cause| cause.downcast_ref::<LauncherError>());
+            match typed {
+                Some(typed) if !typed.is_generic() => e,
+                _ => anyhow!(wrap(format!("{:#}", e))),
             }
         })
     }
@@ -206,6 +224,15 @@ mod tests {
                 LauncherError::SessionMismatch("a".to_string(), "b".to_string()),
                 "auth_session_mismatch",
             ),
+            (LauncherError::Download("x".to_string()), "download"),
+            (LauncherError::Http("x".to_string()), "http"),
+            (
+                LauncherError::HttpStatus {
+                    status: 404,
+                    message: "x".to_string(),
+                },
+                "http_status",
+            ),
         ]
     }
 
@@ -272,6 +299,40 @@ mod tests {
             .unwrap_err()
             .to_string(),
             "Ошибка файловой системы: файл не найден"
+        );
+    }
+
+    #[test]
+    fn classify_overrides_generic_error() {
+        let wrapped = LauncherError::classify(
+            Err::<(), _>(anyhow!(LauncherError::Download(
+                "поток оборвался".to_string()
+            ))),
+            LauncherError::Java,
+        )
+        .unwrap_err();
+        let typed = wrapped
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<LauncherError>());
+        assert!(
+            matches!(typed, Some(LauncherError::Java(_))),
+            "обобщённая ошибка скачивания должна переопределяться доменной обёрткой"
+        );
+        assert_eq!(
+            wrapped.to_string(),
+            "Java: Не удалось скачать файл: поток оборвался"
+        );
+
+        let auth_wrapped = LauncherError::classify(
+            Err::<(), _>(anyhow!(LauncherError::Http(
+                "Неверный логин или пароль".to_string()
+            ))),
+            LauncherError::AuthServer,
+        )
+        .unwrap_err();
+        assert_eq!(
+            auth_wrapped.to_string(),
+            "Сервер авторизации: Неверный логин или пароль"
         );
     }
 

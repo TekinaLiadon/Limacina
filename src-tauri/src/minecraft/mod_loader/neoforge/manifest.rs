@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::minecraft::{
     mod_loader::manifest::{get_loader_index, transform_loader_manifest, LoaderIndex, Metadata},
     structs::VersionMod,
 };
+use crate::utils::errors::LauncherError;
 
 const METADATA_URL: &str =
     "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
@@ -14,7 +15,9 @@ pub(crate) const MANIFEST_PREFIX: &str = "neoforge";
 pub async fn get_manifest_index() -> Result<LoaderIndex> {
     get_loader_index(CACHE_FILE, METADATA_URL, group_neoforge_versions)
         .await
-        .context("Не удалось получить индекс NeoForge")
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось получить индекс NeoForge: {e:#}")).into()
+        })
 }
 
 fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
@@ -61,7 +64,10 @@ mod neoforge_index_tests {
     use mockito::Server;
 
     fn metadata(versions: &[&str]) -> Metadata {
-        let latest = versions.last().map(|v| (*v).to_string()).unwrap_or_default();
+        let latest = versions
+            .last()
+            .map(|v| (*v).to_string())
+            .unwrap_or_default();
         Metadata {
             versioning: Versioning {
                 latest: latest.clone(),
@@ -75,18 +81,17 @@ mod neoforge_index_tests {
 
     #[test]
     fn groups_patch_zero_under_short_mc_version_key() {
-        let index = group_neoforge_versions(metadata(&[
-            "21.0.0-beta",
-            "21.0.143",
-            "21.1.1",
-            "20.6.121",
-        ]));
+        let index =
+            group_neoforge_versions(metadata(&["21.0.0-beta", "21.0.143", "21.1.1", "20.6.121"]));
 
         assert_eq!(
             index.get("1.21").map(Vec::as_slice),
             Some(&["21.0.0-beta".to_string(), "21.0.143".to_string()][..])
         );
-        assert_eq!(index.get("1.21.1").map(Vec::as_slice), Some(&["21.1.1".to_string()][..]));
+        assert_eq!(
+            index.get("1.21.1").map(Vec::as_slice),
+            Some(&["21.1.1".to_string()][..])
+        );
         assert_eq!(
             index.get("1.20.6").map(Vec::as_slice),
             Some(&["20.6.121".to_string()][..])
@@ -135,7 +140,10 @@ mod neoforge_index_tests {
         assert!(cached.contains("\"1.21\""));
         assert!(!cached.contains("\"1.21.0\""));
 
-        assert!(index.get("1.21").map(Vec::as_slice).is_some_and(|v| v.contains(&"21.0.143".to_string())));
+        assert!(index
+            .get("1.21")
+            .map(Vec::as_slice)
+            .is_some_and(|v| v.contains(&"21.0.143".to_string())));
 
         let manifest = transform_neoforge_manifest(index);
         let state = ProjectConfig {

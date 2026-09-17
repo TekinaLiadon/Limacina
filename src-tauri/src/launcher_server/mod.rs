@@ -1,7 +1,7 @@
 pub mod downloader;
 pub mod user_content;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tokio::sync::Mutex;
 
 use crate::state::dto::GlobalState;
@@ -15,8 +15,7 @@ pub(crate) async fn api_context(
     let token = guard
         .session
         .as_ref()
-        .ok_or(LauncherError::NoSession)
-        .context("Не удалось подготовить контекст запроса к лаунчер-серверу")?
+        .ok_or(LauncherError::NoSession)?
         .access_token
         .clone();
     let server_url = guard

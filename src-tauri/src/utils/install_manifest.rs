@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::utils::env_info::launcher_path;
+use crate::utils::errors::LauncherError;
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct InstallManifest {
@@ -23,21 +24,26 @@ pub async fn load_install_manifest(project_name: &str) -> Result<InstallManifest
     }
     let content = tokio::fs::read_to_string(&path)
         .await
-        .with_context(|| format!("Не удалось прочитать {:?}", path))?;
-    let manifest: InstallManifest =
-        serde_json::from_str(&content).with_context(|| format!("Неверный формат {:?}", path))?;
+        .map_err(|e| LauncherError::DiskIo(format!("Не удалось прочитать {path:?}: {e:#}")))?;
+    let manifest: InstallManifest = serde_json::from_str(&content)
+        .map_err(|e| LauncherError::ManifestParse(format!("Неверный формат {path:?}: {e:#}")))?;
     Ok(manifest)
 }
 
 pub async fn save_install_manifest(project_name: &str, manifest: &InstallManifest) -> Result<()> {
     let path = manifest_path(project_name)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("Не удалось создать директорию для {:?}", parent))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось создать директорию для {parent:?}: {e:#}"
+            ))
+        })?;
     }
-    let content = serde_json::to_string_pretty(manifest)
-        .context("Не удалось сериализовать манифест установки")?;
+    let content = serde_json::to_string_pretty(manifest).map_err(|e| {
+        LauncherError::ManifestParse(format!(
+            "Не удалось сериализовать манифест установки: {e:#}"
+        ))
+    })?;
     crate::utils::download_file::write_atomic(&path, content.as_bytes()).await?;
     Ok(())
 }

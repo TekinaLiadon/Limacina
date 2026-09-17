@@ -1,8 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Deserialize;
 
 use crate::utils::compare_versions;
 use crate::utils::env_info::{default_server_url, get_arch, get_current_os};
+use crate::utils::errors::LauncherError;
+use crate::utils::http::with_launcher_id;
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Platform {
@@ -43,18 +45,24 @@ pub async fn get_launcher_versions() -> Result<UpdateVersions> {
         default_server_url().ok_or(crate::utils::errors::LauncherError::UpdateServerMissing)?;
     let url = format!("{server_url}/v1/launcher/update/version");
 
-    let resp = crate::utils::http::http_client()
-        .get(&url)
+    let resp = with_launcher_id(crate::utils::http::http_client().get(&url))
         .send()
         .await
-        .context("Не удалось подключиться к серверу обновлений")?
+        .map_err(|e| {
+            LauncherError::Update(format!(
+                "Не удалось подключиться к серверу обновлений: {e:#}"
+            ))
+        })?
         .error_for_status()
-        .context("Сервер вернул ошибку при получении списка версий")?;
+        .map_err(|e| {
+            LauncherError::Update(format!(
+                "Сервер вернул ошибку при получении списка версий: {e:#}"
+            ))
+        })?;
 
-    let data: UpdateVersions = resp
-        .json()
-        .await
-        .context("Не удалось распарсить список версий")?;
+    let data: UpdateVersions = resp.json().await.map_err(|e| {
+        LauncherError::Update(format!("Не удалось распарсить список версий: {e:#}"))
+    })?;
 
     Ok(data)
 }

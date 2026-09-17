@@ -7,12 +7,16 @@ defineProps<{
   distributions: JavaDistribution[]
   isDownloading: boolean
   popupVisible: boolean
+  isDistributionsLoading: boolean
+  distributionsError: string
   javaVersion: string
+  versionError: string
 }>()
 
 const emit = defineEmits<{
   'open-popup': []
   download: []
+  retry: []
   'close-popup': []
 }>()
 
@@ -31,12 +35,16 @@ const versionInput = defineModel<string>('versionInput', { default: '' })
       :visible="popupVisible"
       :distributions="distributions"
       :is-downloading="isDownloading"
+      :is-distributions-loading="isDistributionsLoading"
+      :distributions-error="distributionsError"
       :java-version="javaVersion"
+      :version-error="versionError"
       v-model:selected-distribution="selectedDistribution"
       v-model:replace-default="replaceDefault"
       v-model:version-input="versionInput"
       @close="emit('close-popup')"
       @download="emit('download')"
+      @retry="emit('retry')"
     />
   </div>
 </template>

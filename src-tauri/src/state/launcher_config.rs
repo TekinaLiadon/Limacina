@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
+use crate::log_err;
 use crate::state::dto::default_true;
 use crate::utils::download_file::write_atomic_sync;
 use crate::utils::errors::LauncherError;
@@ -67,6 +68,9 @@ pub struct LauncherConfig {
 
     #[serde(default)]
     pub projects: HashMap<String, AuthProjectConfig>,
+
+    #[serde(default)]
+    pub install_id: Option<String>,
 }
 
 impl Default for LauncherConfig {
@@ -87,6 +91,7 @@ impl Default for LauncherConfig {
             project_names: Vec::new(),
             current_project: None,
             projects: HashMap::new(),
+            install_id: None,
         }
     }
 }
@@ -153,12 +158,18 @@ impl LauncherConfig {
 
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
-        let mut config: LauncherConfig = serde_json::from_str(&content)
-            .with_context(|| format!("Неверный формат {:?}", path))?;
-        if migrate_flattened_projects(&mut config, &content)? {
-            let _ = config.save();
+        match serde_json::from_str::<LauncherConfig>(&content) {
+            Ok(mut config) => {
+                if migrate_flattened_projects(&mut config, &content)? {
+                    let _ = config.save();
+                }
+                Ok(Some(config))
+            }
+            Err(e) => {
+                backup_corrupt_config(&path, &anyhow::Error::from(e));
+                Ok(None)
+            }
         }
-        Ok(Some(config))
     }
 
     pub(crate) fn config_file_path_public() -> Result<PathBuf> {
@@ -251,6 +262,18 @@ impl LauncherConfig {
         self.projects.remove(project);
         self.current_project = self.project_names.first().cloned();
     }
+}
+
+fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
+    let backup_path = path.with_extension("json.bak");
+    log_err!(
+        "{}: {:?} — {:?} ({})",
+        LauncherError::ConfigCorrupt,
+        path,
+        backup_path,
+        error
+    );
+    let _ = fs::rename(path, &backup_path);
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -363,6 +386,36 @@ mod tests {
     }
 
     #[test]
+    fn old_config_without_install_id_parses_as_none() {
+        let json = r#"{ "launcherPath": "/home/user/Limacina", "projectNames": ["Cordelia"] }"#;
+        let parsed: LauncherConfig = serde_json::from_str(json).expect("разбор старого JSON");
+
+        assert_eq!(parsed.install_id, None);
+    }
+
+    #[test]
+    fn install_id_round_trips_as_camel_case_key() {
+        let mut config = LauncherConfig {
+            launcher_path: "/home/user/Limacina".to_string(),
+            ..Default::default()
+        };
+        config.install_id = Some("v1-0123456789abcdef0123456789abcdef".to_string());
+
+        let json = serde_json::to_string(&config).expect("сериализация в JSON");
+        let raw = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+        assert_eq!(
+            raw["installId"].as_str(),
+            Some("v1-0123456789abcdef0123456789abcdef")
+        );
+
+        let parsed: LauncherConfig = serde_json::from_str(&json).expect("повторный разбор");
+        assert_eq!(
+            parsed.install_id.as_deref(),
+            Some("v1-0123456789abcdef0123456789abcdef")
+        );
+    }
+
+    #[test]
     fn add_project_is_idempotent() {
         let mut config = LauncherConfig::default();
         config.add_project("Cordelia");
@@ -398,6 +451,36 @@ mod tests {
         assert!(config.project_names.is_empty());
         assert_eq!(config.current_project, None);
         assert!(config.get_logins("Cordelia").is_empty());
+    }
+
+    struct TempDirGuard(PathBuf);
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn backup_corrupt_config_moves_broken_file_aside() {
+        let root = std::env::temp_dir().join(format!(
+            "limacina_launcher_config_corrupt_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("создание временной директории");
+        let _guard = TempDirGuard(root.clone());
+
+        let path = root.join("config.json");
+        fs::write(&path, "not valid json").expect("запись битого конфига");
+
+        backup_corrupt_config(&path, &anyhow::Error::msg("ошибка разбора"));
+
+        assert!(!path.exists(), "битый конфиг должен быть убран с пути");
+        assert!(
+            root.join("config.json.bak").exists(),
+            "битый конфиг должен быть сохранён в бэкап"
+        );
     }
 
     #[test]

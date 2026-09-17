@@ -34,16 +34,20 @@ export function useSettingsNav(): {
   items: ComputedRef<SettingsNavItem[]>
 } {
   const coreStore = useCoreStore()
-  const { config, isLoaded } = useProjectSettings()
+  const { config, isLoaded, loadError } = useProjectSettings()
 
   const items = computed((): SettingsNavItem[] => {
     const isProjectReady = isLoaded.value && (coreStore.projectConfig?.initialized ?? config.value.initialized)
     const isOffline = isLoaded.value && !config.value.online
+    const isLoadFailed = loadError.value !== ''
 
     return SEEDS.map((seed): SettingsNavItem => {
       let isAvailable = true
       let reason = ''
-      if (isOffline) {
+      if (isLoadFailed && (seed.needsInit === true || seed.needsAuth === true || seed.hiddenOffline === true)) {
+        isAvailable = false
+        reason = 'Не удалось загрузить настройки проекта'
+      } else if (isOffline) {
         if (seed.hiddenOffline === true) {
           isAvailable = false
           reason = 'Недоступно в офлайн-режиме'

@@ -6,10 +6,10 @@ use crate::log_err;
 use crate::state::config::validate_project_name;
 use crate::state::dto::ProjectConfig;
 use crate::state::launcher_config::LauncherConfig;
-use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
 use crate::utils::download_file::write_atomic;
+use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
 use crate::utils::errors::LauncherError;
-use crate::utils::http::http_client;
+use crate::utils::http::{http_client, with_launcher_id};
 
 pub struct InitPaths {
     pub base: PathBuf,
@@ -90,8 +90,7 @@ pub async fn init_project_config(
         })?,
     };
     let response = LauncherError::classify(
-        http_client()
-            .get(format!("{}/v1/launcher/config", base_url))
+        with_launcher_id(http_client().get(format!("{}/v1/launcher/config", base_url)))
             .send()
             .await
             .context("Не удалось подключиться к серверу конфига проекта"),

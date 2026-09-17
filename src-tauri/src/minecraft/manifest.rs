@@ -1,6 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::de::DeserializeOwned;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     minecraft::structs::Versions,
     minecraft::vanilla::structs::VersionDetailsManifest,
@@ -33,7 +34,7 @@ pub async fn get_manifest_version(
         .iter()
         .find(|v| v.id == version)
         .map(|v| v.url.clone())
-        .with_context(|| format!("Версия не найдена: {}", version))?;
+        .ok_or_else(|| LauncherError::ManifestParse(format!("Версия не найдена: {version}")))?;
 
     let manifest: VersionDetailsManifest =
         download_json(Some(&version_url), json_path.as_path()).await?;

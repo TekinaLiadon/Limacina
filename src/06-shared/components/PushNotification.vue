@@ -1,44 +1,8 @@
 <script setup lang="ts">
-import {onMounted, onUnmounted, watch} from 'vue'
-
-const props = defineProps<{
+defineProps<{
   message: string
   visible: boolean
-  duration?: number
 }>()
-
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-}>()
-
-let timer: ReturnType<typeof setTimeout> | null = null
-
-const startTimer = (): void => {
-  clearTimer()
-  timer = setTimeout(() => {
-    emit('update:visible', false)
-  }, props.duration ?? 3000)
-}
-
-const clearTimer = (): void => {
-  if (!timer) return
-
-  clearTimeout(timer)
-  timer = null
-}
-
-watch(() => props.visible, (val: boolean) => {
-  if (val) startTimer()
-  else clearTimer()
-})
-
-onMounted((): void => {
-  if (props.visible) startTimer()
-})
-
-onUnmounted((): void => {
-  clearTimer()
-})
 </script>
 
 <template>

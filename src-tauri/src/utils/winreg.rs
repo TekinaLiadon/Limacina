@@ -36,21 +36,26 @@ pub(crate) fn remember_data_path(path: &Path) {
 
 #[cfg(target_os = "windows")]
 fn try_remember_data_path(path: &Path) -> Result<()> {
-    use anyhow::Context;
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+
+    use crate::utils::errors::LauncherError;
 
     let Some(key) = UNINSTALL_REGISTRY_KEY.get() else {
         return Ok(());
     };
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let (subkey, _) = hkcu
-        .create_subkey(key)
-        .with_context(|| format!("Не удалось открыть ключ реестра: {}", key))?;
+    let (subkey, _) = hkcu.create_subkey(key).map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось открыть ключ реестра {key}: {e:#}"))
+    })?;
     subkey
         .set_value(DATA_PATH_VALUE, &path.to_string_lossy().to_string())
-        .with_context(|| format!("Не удалось записать путь данных в реестр: {}", key))?;
+        .map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось записать путь данных в реестр {key}: {e:#}"
+            ))
+        })?;
 
     Ok(())
 }
@@ -58,6 +63,22 @@ fn try_remember_data_path(path: &Path) -> Result<()> {
 #[cfg(not(target_os = "windows"))]
 fn try_remember_data_path(_path: &Path) -> Result<()> {
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn machine_guid() -> Option<String> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let key = hklm.open_subkey("SOFTWARE\\Microsoft\\Cryptography").ok()?;
+    key.get_value::<String>("MachineGuid").ok()
+}
+
+#[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
+pub(crate) fn machine_guid() -> Option<String> {
+    None
 }
 
 #[cfg(test)]

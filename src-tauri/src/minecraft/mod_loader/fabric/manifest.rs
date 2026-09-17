@@ -5,7 +5,8 @@ use crate::minecraft::{
     },
     structs::{LibraryMod, VersionMod},
 };
-use anyhow::{Context, Result};
+use crate::utils::errors::LauncherError;
+use anyhow::Result;
 
 pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result<Vec<VersionMod>> {
     let mut manifest: Vec<VersionMod> = Vec::new();
@@ -14,8 +15,11 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result
         let mut library: Vec<LibraryMod> = Vec::new();
         let url = "https://maven.fabricmc.net";
         for common in version.launcher_meta.libraries.common {
-            let url_maven = maven_to_url(&common.name, url)
-                .context("Не удалось определить URL библиотеки Fabric")?;
+            let url_maven = maven_to_url(&common.name, url).map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось определить URL библиотеки Fabric: {e:#}"
+                ))
+            })?;
             let lib = LibraryMod {
                 name: common.name,
                 url: url_maven,
@@ -24,8 +28,9 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result
             };
             library.push(lib)
         }
-        let url_intermediary = maven_to_url(&version.intermediary.maven, url)
-            .context("Не удалось определить URL intermediary")?;
+        let url_intermediary = maven_to_url(&version.intermediary.maven, url).map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось определить URL intermediary: {e:#}"))
+        })?;
         let intermediary = LibraryMod {
             name: version.intermediary.maven,
             url: url_intermediary,
@@ -39,8 +44,11 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result
             MainClass::AsObject(data) => &data.client,
         };
         let data = VersionMod {
-            url: maven_to_url(&version.loader.maven, url)
-                .context("Не удалось определить URL загрузчика Fabric")?,
+            url: maven_to_url(&version.loader.maven, url).map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось определить URL загрузчика Fabric: {e:#}"
+                ))
+            })?,
             id: version.loader.version,
             main_class: main_class_client.to_string(),
             library,

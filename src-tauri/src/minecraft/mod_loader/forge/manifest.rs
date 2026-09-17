@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::minecraft::{
     mod_loader::manifest::{get_loader_index, transform_loader_manifest, LoaderIndex, Metadata},
     structs::VersionMod,
 };
+use crate::utils::errors::LauncherError;
 
 const METADATA_URL: &str =
     "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
@@ -14,7 +15,9 @@ pub(crate) const MANIFEST_PREFIX: &str = "forge";
 pub async fn get_manifest_index() -> Result<LoaderIndex> {
     get_loader_index(CACHE_FILE, METADATA_URL, group_forge_versions)
         .await
-        .context("Не удалось получить индекс Forge")
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось получить индекс Forge: {e:#}")).into()
+        })
 }
 
 fn group_forge_versions(metadata: Metadata) -> LoaderIndex {

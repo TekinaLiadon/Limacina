@@ -13,16 +13,24 @@ export function useAlternativeJava() {
   const replaceDefault = ref<boolean>(false)
   const isDownloading = ref<boolean>(false)
   const isPopupOpen = ref<boolean>(false)
+  const isDistributionsLoading = ref<boolean>(false)
+  const distributionsError = ref<string>('')
+  const versionError = ref<string>('')
 
   const loadJavaVersion = async (mcVersion: string): Promise<void> => {
+    versionError.value = ''
     try {
       javaVersion.value = await getJavaVersion(mcVersion)
     } catch (e: unknown) {
+      javaVersion.value = ''
+      versionError.value = getErrorMessage(e)
       reportError('Не удалось определить требуемую версию Java', e)
     }
   }
 
   const loadDistributions = async (): Promise<void> => {
+    isDistributionsLoading.value = true
+    distributionsError.value = ''
     try {
       distributions.value = await getJavaDistributions()
       if (!selectedDistribution.value) {
@@ -30,7 +38,10 @@ export function useAlternativeJava() {
         if (first !== undefined) selectedDistribution.value = first.name
       }
     } catch (e: unknown) {
+      distributionsError.value = getErrorMessage(e)
       reportError('Не удалось загрузить список Java-дистрибутивов', e)
+    } finally {
+      isDistributionsLoading.value = false
     }
   }
 
@@ -77,6 +88,9 @@ export function useAlternativeJava() {
     replaceDefault,
     isDownloading,
     isPopupOpen,
+    isDistributionsLoading,
+    distributionsError,
+    versionError,
     openPopup,
     closePopup,
     startDownload,

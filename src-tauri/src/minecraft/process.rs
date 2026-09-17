@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
@@ -14,6 +14,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 
+use crate::utils::errors::LauncherError;
 use crate::utils::get_classpath_separator;
 use crate::utils::logger_utils::send_game_output;
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
@@ -68,7 +69,10 @@ impl GameProcess {
                 } else {
                     format!("\n{}", tail)
                 };
-                anyhow::bail!("Игра завершилась до открытия окна ({}){}", status, details);
+                return Err(LauncherError::GameProcess(format!(
+                    "Игра завершилась до открытия окна ({status}){details}"
+                ))
+                .into());
             }
             if Instant::now() >= deadline {
                 log_info!(
@@ -156,7 +160,9 @@ pub fn spawn_game_process(
 
     if !config.java_path.exists() {
         log_err!("Java не найдена: {:?}", config.java_path);
-        anyhow::bail!("Файл Java не найден: {:?}", config.java_path);
+        return Err(
+            LauncherError::Java(format!("Файл Java не найден: {:?}", config.java_path)).into(),
+        );
     }
 
     let mut command = Command::new(&config.java_path);
@@ -197,18 +203,16 @@ pub fn spawn_game_process(
         command.creation_flags(0x08000000);
     }
 
-    let mut child = command
-        .spawn()
-        .context("Не удалось запустить Java процесс")?;
+    let mut child = command.spawn().map_err(|e| {
+        LauncherError::GameProcess(format!("Не удалось запустить Java процесс: {e:#}"))
+    })?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow!("Не удалось получить stdout процесса"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| anyhow!("Не удалось получить stderr процесса"))?;
+    let stdout = child.stdout.take().ok_or(LauncherError::GameProcess(
+        "Не удалось получить stdout процесса".to_string(),
+    ))?;
+    let stderr = child.stderr.take().ok_or(LauncherError::GameProcess(
+        "Не удалось получить stderr процесса".to_string(),
+    ))?;
 
     let process = GameProcess {
         window_opened: Arc::new(AtomicBool::new(false)),

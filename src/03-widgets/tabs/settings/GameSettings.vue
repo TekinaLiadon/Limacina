@@ -10,6 +10,7 @@ import ResourcePacksOptions from './game/ResourcePacksOptions.vue'
 const {
   options,
   isLoading,
+  loadError,
   isSaving,
   isSavingGlobal,
   isDirty,
@@ -18,11 +19,24 @@ const {
   handleImportGlobal,
   handleSave,
   handleSaveGlobal,
+  retryLoad,
 } = useGameOptions()
 </script>
 
 <template>
   <div class="game-settings">
+    <div v-if="loadError" class="game-settings__load-error" role="alert">
+      <p class="game-settings__load-error-text">{{ loadError }}</p>
+      <Button
+        class="btn-secondary game-settings__load-error-btn"
+        :is-loading="isLoading"
+        :is-disabled="isLoading"
+        @click="retryLoad"
+      >
+        Повторить
+      </Button>
+    </div>
+
     <div class="game-settings__head">
       <p class="game-settings__hint">
         Настройки применяются после сохранения — лаунчер вписывает их в
@@ -59,12 +73,17 @@ const {
       />
     </SettingsSection>
 
-    <SettingsSaveBar :is-saving="isSaving" :is-dirty="isDirty" @save="handleSave">
+    <SettingsSaveBar
+      :is-saving="isSaving"
+      :is-dirty="isDirty"
+      :is-blocked="loadError !== ''"
+      @save="handleSave"
+    >
       <template #extra>
         <Button
           class="btn-secondary btn-lg game-settings__save-global"
           :is-loading="isSavingGlobal"
-          :is-disabled="isSaving || isSavingGlobal"
+          :is-disabled="isSaving || isSavingGlobal || loadError !== ''"
           @click="handleSaveGlobal"
         >
           Сохранить глобально
@@ -81,6 +100,23 @@ const {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
+
+  &__load-error {
+    @include mixins.error-box;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
+  }
+
+  &__load-error-text {
+    margin: 0;
+  }
+
+  &__load-error-btn {
+    flex-shrink: 0;
+  }
 
   &__head {
     display: flex;

@@ -169,7 +169,9 @@ async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
 }
 
 fn authlib_scratch_path() -> Result<PathBuf> {
-    Ok(launcher_path(None)?.join("manifest").join("authlib-latest.json"))
+    Ok(launcher_path(None)?
+        .join("manifest")
+        .join("authlib-latest.json"))
 }
 
 async fn authlib_cache_fresh(path: &Path) -> bool {
@@ -179,9 +181,7 @@ async fn authlib_cache_fresh(path: &Path) -> bool {
     let Ok(modified) = metadata.modified() else {
         return false;
     };
-    modified
-        .elapsed()
-        .is_ok_and(|age| age < AUTHLIB_LATEST_TTL)
+    modified.elapsed().is_ok_and(|age| age < AUTHLIB_LATEST_TTL)
 }
 
 async fn fetch_authlib_latest(scratch_path: &Path) -> Result<AuthlibLatest> {
@@ -268,7 +268,8 @@ mod tests {
         let scratch = authlib_scratch_path().expect("путь scratch-файла");
 
         assert_eq!(
-            scratch, guard.root().join("manifest").join("authlib-latest.json"),
+            scratch,
+            guard.root().join("manifest").join("authlib-latest.json"),
             "scratch должен лежать в каталоге данных лаунчера, а не в общем temp"
         );
     }

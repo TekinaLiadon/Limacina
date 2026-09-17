@@ -10,6 +10,8 @@ const coreStore = useCoreStore()
 const {
   config,
   isDirty,
+  isLoading,
+  loadError,
   maxMemoryLimit,
   isSaving,
   isClearingConfig,
@@ -26,6 +28,7 @@ const {
   handleGetConnectUrl,
   handleCopyConnectUrl,
   loadConfig,
+  retryLoad,
 } = useProjectSettings()
 
 const {
@@ -35,6 +38,9 @@ const {
   replaceDefault,
   isDownloading: isAltDownloading,
   isPopupOpen,
+  isDistributionsLoading,
+  distributionsError,
+  versionError,
   openPopup,
   closePopup,
   startDownload,
@@ -76,6 +82,18 @@ const handleDownload = async (): Promise<void> => {
 
 <template>
   <div class="project-settings">
+    <div v-if="loadError" class="project-settings__load-error" role="alert">
+      <p class="project-settings__load-error-text">{{ loadError }}</p>
+      <Button
+        class="btn-secondary project-settings__load-error-btn"
+        :is-loading="isLoading"
+        :is-disabled="isLoading"
+        @click="retryLoad"
+      >
+        Повторить
+      </Button>
+    </div>
+
     <SettingsSection title="Сборка" storage-key="project-build">
       <div class="settings-grid">
         <div class="project-settings__info">
@@ -136,12 +154,16 @@ const handleDownload = async (): Promise<void> => {
           :distributions="distributions"
           :is-downloading="isAltDownloading"
           :popup-visible="isPopupOpen"
+          :is-distributions-loading="isDistributionsLoading"
+          :distributions-error="distributionsError"
           :java-version="javaVersion"
+          :version-error="versionError"
           v-model:selected-distribution="selectedDistribution"
           v-model:replace-default="replaceDefault"
           v-model:version-input="javaVersion"
           @open-popup="handleOpenPopup"
           @download="handleDownload"
+          @retry="handleOpenPopup"
           @close-popup="closePopup"
         />
       </div>
@@ -175,15 +197,34 @@ const handleDownload = async (): Promise<void> => {
       </div>
     </SettingsSection>
 
-    <SettingsSaveBar :is-saving="isSaving" :is-dirty="isDirty" @save="handleSave" />
+    <SettingsSaveBar :is-saving="isSaving" :is-dirty="isDirty" :is-blocked="loadError !== ''" @save="handleSave" />
   </div>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .project-settings {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
+
+  &__load-error {
+    @include mixins.error-box;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
+  }
+
+  &__load-error-text {
+    margin: 0;
+  }
+
+  &__load-error-btn {
+    flex-shrink: 0;
+  }
 
   &__info {
     display: flex;

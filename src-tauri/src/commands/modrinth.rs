@@ -104,7 +104,11 @@ async fn collect_installed_hashes(
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return local_hashes,
         Err(e) => {
-            log_err!("[modrinth] Не удалось прочитать папку модов {:?}: {}", mods_dir, e);
+            log_err!(
+                "[modrinth] Не удалось прочитать папку модов {:?}: {}",
+                mods_dir,
+                e
+            );
             return local_hashes;
         }
     };
@@ -114,7 +118,10 @@ async fn collect_installed_hashes(
             Ok(Some(entry)) => entry,
             Ok(None) => break,
             Err(e) => {
-                log_err!("[modrinth] Не удалось прочитать запись в папке модов: {}", e);
+                log_err!(
+                    "[modrinth] Не удалось прочитать запись в папке модов: {}",
+                    e
+                );
                 continue;
             }
         };
@@ -332,7 +339,11 @@ mod tests {
         deny_read_permission(&unreadable);
 
         let hashes = collect_installed_hashes(&mods_dir).await;
-        assert_eq!(hashes.len(), 1, "скан должен продолжиться после ошибки чтения");
+        assert_eq!(
+            hashes.len(),
+            1,
+            "скан должен продолжиться после ошибки чтения"
+        );
         assert!(hashes.contains_key("good.jar"));
     }
 

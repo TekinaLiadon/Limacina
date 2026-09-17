@@ -1,11 +1,10 @@
 use crate::{log_err, log_info, step_try, utils::errors::LauncherError};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use crate::launcher_server::api_context;
 use crate::state::dto::GlobalState;
@@ -19,14 +18,22 @@ pub(crate) fn build_auth_client(token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token))
-            .context("Некорректный токен авторизации")?,
+        HeaderValue::from_str(&format!("Bearer {}", token)).map_err(|e| {
+            LauncherError::AuthServer(format!("Некорректный токен авторизации: {e:#}"))
+        })?,
     );
-    Client::builder()
+    if let Some(id) = crate::utils::install_id::install_id() {
+        headers.insert(
+            crate::utils::install_id::LAUNCHER_ID_HEADER,
+            HeaderValue::from_str(id).map_err(|e| {
+                LauncherError::AuthServer(format!("Некорректный ID установки: {e:#}"))
+            })?,
+        );
+    }
+    Ok(crate::utils::http::base_client_builder()
         .default_headers(headers)
-        .connect_timeout(Duration::from_secs(10))
         .build()
-        .context("Не удалось создать HTTP клиент")
+        .map_err(|e| LauncherError::AuthServer(format!("Не удалось создать HTTP клиент: {e:#}")))?)
 }
 
 pub(crate) struct ApiContext {
@@ -66,7 +73,11 @@ async fn download_file(
         .json(&body)
         .send()
         .await
-        .with_context(|| format!("Не удалось отправить запрос на сервер для файла: {}", url))?;
+        .map_err(|e| {
+            LauncherError::LauncherServer(format!(
+                "Не удалось отправить запрос на сервер для файла {url}: {e:#}"
+            ))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -77,13 +88,10 @@ async fn download_file(
             url,
             body
         );
-        anyhow::bail!(
-            "Сервер вернул {} при скачивании {}: {} (путь: {:?})",
-            status,
-            url,
-            body,
-            file_path
-        );
+        return Err(LauncherError::LauncherServer(format!(
+            "Сервер вернул {status} при скачивании {url}: {body} (путь: {file_path:?})"
+        ))
+        .into());
     }
 
     let total_bytes = write_stream_to_atomic(response, file_path, url).await?;
@@ -104,17 +112,17 @@ async fn download_and_verify(
         return Ok(());
     };
 
-    let actual = file_sha1(file_path)
-        .await
-        .with_context(|| format!("Не удалось вычислить хеш скачанного файла: {:?}", file_path))?;
+    let actual = file_sha1(file_path).await.map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось вычислить хеш скачанного файла {file_path:?}: {e:#}"
+        ))
+    })?;
     if actual != expected {
         let _ = tokio::fs::remove_file(file_path).await;
-        anyhow::bail!(
-            "Скачанный файл не соответствует хешу: {} (ожидается {}, получен {})",
-            url,
-            expected,
-            actual
-        );
+        return Err(LauncherError::HashMismatch(format!(
+            "Скачанный файл не соответствует хешу: {url} (ожидается {expected}, получен {actual})"
+        ))
+        .into());
     }
 
     Ok(())
@@ -136,10 +144,9 @@ pub(crate) async fn fetch_file_list(
             .get(format!("{}/v1/launcher/files/list", server_url))
             .send()
             .await
-            .with_context(|| format!(
-                "Не удалось отправить запрос на {}/v1/launcher/files/list",
-                server_url
-            ))
+            .map_err(|e| LauncherError::LauncherServer(format!(
+                "Не удалось отправить запрос на {server_url}/v1/launcher/files/list: {e:#}"
+            )))
     );
 
     if !response.status().is_success() {
@@ -147,20 +154,20 @@ pub(crate) async fn fetch_file_list(
         let body = response.text().await.unwrap_or_default();
         log_err!("[files] Сервер вернул {}: {}", status, body);
         list_step.fail(format!("Сервер файлов вернул {}", status));
-        anyhow::bail!(
-            "Сервер файлов вернул {} (проект: {}): {}",
-            status,
-            project_name,
-            body
-        );
+        return Err(LauncherError::LauncherServer(format!(
+            "Сервер файлов вернул {status} (проект: {project_name}): {body}"
+        ))
+        .into());
     }
 
     let file_list: HashMap<String, String> = step_try!(
         list_step,
-        response.json().await.with_context(|| format!(
-            "Не удалось распарсить JSON списка файлов (проект: {})",
-            project_name
-        ))
+        response
+            .json()
+            .await
+            .map_err(|e| LauncherError::LauncherServer(format!(
+                "Не удалось распарсить JSON списка файлов (проект: {project_name}): {e:#}"
+            )))
     );
     list_step.finish(false);
     Ok(file_list)
@@ -182,10 +189,9 @@ pub(crate) async fn fetch_mods_list(
             .get(format!("{}/v1/launcher/files/mods", server_url))
             .send()
             .await
-            .with_context(|| format!(
-                "Не удалось отправить запрос на {}/v1/launcher/files/mods",
-                server_url
-            ))
+            .map_err(|e| LauncherError::LauncherServer(format!(
+                "Не удалось отправить запрос на {server_url}/v1/launcher/files/mods: {e:#}"
+            )))
     );
 
     if !response.status().is_success() {
@@ -193,30 +199,29 @@ pub(crate) async fn fetch_mods_list(
         let body = response.text().await.unwrap_or_default();
         log_err!("[mods] Сервер вернул ошибку {}: {}", status, body);
         list_step.fail(format!("Сервер модов вернул {}", status));
-        anyhow::bail!(
-            "Сервер модов вернул {} (проект: {}): {}",
-            status,
-            project_name,
-            body
-        );
+        return Err(LauncherError::LauncherServer(format!(
+            "Сервер модов вернул {status} (проект: {project_name}): {body}"
+        ))
+        .into());
     }
 
     let response_text = step_try!(
         list_step,
-        response.text().await.with_context(|| format!(
-            "Не удалось прочитать ответ от {}/v1/launcher/files/mods",
-            server_url
-        ))
+        response
+            .text()
+            .await
+            .map_err(|e| LauncherError::LauncherServer(format!(
+                "Не удалось прочитать ответ от {server_url}/v1/launcher/files/mods: {e:#}"
+            )))
     );
-    log_info!("[mods] Ответ сервера: {}", response_text);
 
     let mods: HashMap<String, String> = step_try!(
         list_step,
-        serde_json::from_str(&response_text).with_context(|| format!(
-            "Не удалось распарсить JSON списка модов (проект: {})",
-            project_name
-        ))
+        serde_json::from_str(&response_text).map_err(|e| LauncherError::LauncherServer(format!(
+            "Не удалось распарсить JSON списка модов (проект: {project_name}): {e:#}"
+        )))
     );
+    log_info!("[mods] Получено модов: {}", mods.len());
     list_step.finish(false);
     Ok(mods)
 }
@@ -264,7 +269,6 @@ async fn sync_server_files(
     ctx: &ApiContext,
     list: &HashMap<String, String>,
     base_dir: &Path,
-    check_hashes: bool,
     step: StepHandle,
     labels: &SyncLabels,
     dest_for: impl Fn(&str) -> PathBuf,
@@ -279,14 +283,18 @@ async fn sync_server_files(
         if !is_safe_relative_path(key) {
             log_err!("{} Отклонён небезопасный путь от сервера: {}", prefix, key);
             step.fail(format!("Сервер передал недопустимый путь: {}", key));
-            anyhow::bail!("Сервер передал недопустимый путь {}: {}", labels.item, key);
+            return Err(LauncherError::InvalidModFilename(format!(
+                "Сервер передал недопустимый путь {}: {}",
+                labels.item, key
+            ))
+            .into());
         }
 
         let file_path = base_dir.join(dest_for(key));
         if !file_path.exists() {
             log_info!("{} Отсутствует: {}", prefix, dest_for(key).display());
             files_to_download.push(key.clone());
-        } else if check_hashes {
+        } else {
             match file_sha1(&file_path).await {
                 Ok(hash) if hash == *expected_hash => continue,
                 Ok(hash) => {
@@ -404,7 +412,6 @@ async fn sync_server_files(
 
 pub async fn download_all_files(
     project_name: String,
-    check_hashes: bool,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
     let result = async {
@@ -430,7 +437,6 @@ pub async fn download_all_files(
             &ctx,
             &file_list,
             &core,
-            check_hashes,
             download_step,
             &FILES_LABELS,
             |key: &str| PathBuf::from(key),
@@ -479,7 +485,6 @@ pub async fn download_mods(
             &ctx,
             &mods,
             &mods_dir,
-            true,
             download_step,
             &MODS_LABELS,
             |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
@@ -511,6 +516,7 @@ pub async fn download_mods(
 #[cfg(test)]
 mod mock_server_tests {
     use super::*;
+    use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
     use crate::test_support::{sha1_hex, LauncherDirGuard};
     use crate::utils::http::http_client;
     use mockito::{Matcher, Server};
@@ -567,15 +573,9 @@ mod mock_server_tests {
 
         let ctx = api_context(&server).await;
         let step = StepHandle::start("files.download", "Скачивание файлов");
-        let report = sync_server_files(
-            &ctx,
-            &list,
-            &base,
-            true,
-            step,
-            &FILES_LABELS,
-            |key: &str| PathBuf::from(key),
-        )
+        let report = sync_server_files(&ctx, &list, &base, step, &FILES_LABELS, |key: &str| {
+            PathBuf::from(key)
+        })
         .await
         .expect("синхронизация файлов");
 
@@ -612,15 +612,9 @@ mod mock_server_tests {
         let list = HashMap::from([("mods/a.jar".to_string(), expected_hash)]);
         let ctx = api_context(&server).await;
         let step = StepHandle::start("files.download", "Скачивание файлов");
-        let result = sync_server_files(
-            &ctx,
-            &list,
-            &base,
-            true,
-            step,
-            &FILES_LABELS,
-            |key: &str| PathBuf::from(key),
-        )
+        let result = sync_server_files(&ctx, &list, &base, step, &FILES_LABELS, |key: &str| {
+            PathBuf::from(key)
+        })
         .await;
 
         assert!(
@@ -645,7 +639,6 @@ mod mock_server_tests {
             &ctx,
             &list,
             &dir.project_dir("Cordelia"),
-            true,
             step,
             &FILES_LABELS,
             |key: &str| PathBuf::from(key),
@@ -653,6 +646,108 @@ mod mock_server_tests {
         .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn download_all_files_redownloads_changed_server_file() {
+        let dir = LauncherDirGuard::acquire("files_entry_changed").await;
+        let mut server = Server::new_async().await;
+
+        let fresh = b"fresh config v2".to_vec();
+        let intact = b"intact bytes".to_vec();
+
+        let list_mock = server
+            .mock("GET", "/v1/launcher/files/list")
+            .with_status(200)
+            .with_body(
+                json!({
+                    "configs/settings.json": sha1_hex(&fresh),
+                    "configs/intact.json": sha1_hex(&intact),
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let changed_mock = server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_body(Matcher::PartialJsonString(
+                json!({"url": "configs/settings.json"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(fresh.clone())
+            .create_async()
+            .await;
+        let intact_mock = server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_body(Matcher::PartialJsonString(
+                json!({"url": "configs/intact.json"}).to_string(),
+            ))
+            .expect(0)
+            .with_status(200)
+            .with_body(intact.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("configs")).unwrap();
+        std::fs::write(base.join("configs/settings.json"), b"stale local").unwrap();
+        std::fs::write(base.join("configs/intact.json"), &intact).unwrap();
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server.url()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "test-token".to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        });
+
+        let report = download_all_files("Cordelia".to_string(), &state)
+            .await
+            .expect("синхронизация файлов сервера");
+
+        assert_eq!(report.total, 1);
+        assert_eq!(report.downloaded, 1);
+        assert!(!report.skipped);
+        assert_eq!(
+            std::fs::read(base.join("configs/settings.json")).unwrap(),
+            fresh
+        );
+        assert_eq!(
+            std::fs::read(base.join("configs/intact.json")).unwrap(),
+            intact
+        );
+
+        list_mock.assert_async().await;
+        changed_mock.assert_async().await;
+        intact_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn fetch_file_list_sends_launcher_id_header() {
+        crate::utils::install_id::override_install_id_for_tests("test-install-id");
+
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/v1/launcher/files/list")
+            .match_header("x-launcher-id", "test-install-id")
+            .with_status(200)
+            .with_body(json!({"mods/a.jar": "hash1"}).to_string())
+            .create_async()
+            .await;
+
+        let ctx = api_context(&server).await;
+        let _ = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+            .await
+            .expect("список файлов");
+
+        mock.assert_async().await;
     }
 
     #[tokio::test]
@@ -766,10 +861,7 @@ mod mock_server_tests {
         .await;
 
         assert!(result.is_err(), "битая загрузка должна быть ошибкой");
-        assert!(
-            !dest.exists(),
-            "файл с неверным хешем должен быть удалён"
-        );
+        assert!(!dest.exists(), "файл с неверным хешем должен быть удалён");
     }
 
     #[tokio::test]

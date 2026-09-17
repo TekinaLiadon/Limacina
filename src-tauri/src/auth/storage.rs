@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use crate::{
     log_err,
@@ -12,6 +13,12 @@ use crate::{
 };
 
 const FALLBACK_ALLOWED_SUFFIXES: &[&str] = &["refresh_token", "uuid"];
+
+static FALLBACK_STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn fallback_store_lock() -> &'static Mutex<()> {
+    FALLBACK_STORE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Serialize, Deserialize)]
 struct EncryptedEntry {
@@ -45,7 +52,15 @@ fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -> Result<()> {
+pub(crate) fn save_fallback(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+    value: &str,
+) -> Result<()> {
+    let _guard = fallback_store_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let path = fallback_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -81,7 +96,7 @@ fn save_fallback(project: &str, username: &str, key_suffix: &str, value: &str) -
     Ok(())
 }
 
-fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<String> {
     let path = fallback_path()?;
     if !path.exists() {
         anyhow::bail!("Файл хранилища credentials не найден");
@@ -106,7 +121,10 @@ fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<Stri
     String::from_utf8(decrypted).context("Не удалось расшифровать credentials")
 }
 
-fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
+pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
+    let _guard = fallback_store_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let path = fallback_path()?;
     if !path.exists() {
         return Ok(());
@@ -369,6 +387,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fallback_concurrent_saves_keep_all_entries() {
+        let dir = LauncherDirGuard::acquire("credentials_concurrent").await;
+
+        let mut handles = Vec::new();
+        for i in 0..40 {
+            handles.push(tokio::task::spawn_blocking(move || {
+                save_fallback(
+                    "Cordelia",
+                    "Steve",
+                    &format!("rt{i}"),
+                    &format!("token-{i}"),
+                )
+            }));
+        }
+        for handle in handles {
+            handle.await.expect("задача сохранения credentials");
+        }
+
+        let stored = std::fs::read_to_string(dir.root().join("credentials.json"))
+            .expect("файл хранилища создан");
+        for i in 0..40 {
+            assert!(
+                stored.contains(&format!("Steve_rt{i}")),
+                "запись rt{i} потеряна при конкурентной записи"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn fallback_reads_legacy_entry_without_project_in_key() {
         let dir = LauncherDirGuard::acquire("credentials_legacy").await;
 
@@ -378,11 +425,7 @@ mod tests {
             "{{\"entries\":[{{\"username\":\"Steve_refresh_token\",\"obfuscated\":\"{}\"}}]}}",
             obfuscated
         );
-        write_atomic_sync(
-            &dir.root().join("credentials.json"),
-            store.as_bytes(),
-        )
-        .unwrap();
+        write_atomic_sync(&dir.root().join("credentials.json"), store.as_bytes()).unwrap();
 
         assert_eq!(
             load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),

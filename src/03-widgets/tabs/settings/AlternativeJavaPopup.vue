@@ -7,12 +7,16 @@ const props = defineProps<{
   visible: boolean
   distributions: JavaDistribution[]
   isDownloading: boolean
+  isDistributionsLoading: boolean
+  distributionsError: string
   javaVersion: string
+  versionError: string
 }>()
 
 const emit = defineEmits<{
   close: []
   download: []
+  retry: []
 }>()
 
 const selectedDistribution = defineModel<string>('selectedDistribution', { default: '' })
@@ -55,7 +59,24 @@ onBeforeUnmount((): void => {
                   :options="dropdownOptions()"
                   width="100%"
                 />
-                <Skeleton v-else variant="line" height="var(--control-height)" aria-hidden="true" />
+                <Skeleton
+                  v-else-if="isDistributionsLoading"
+                  variant="line"
+                  height="var(--control-height)"
+                  aria-hidden="true"
+                />
+                <div v-else-if="distributionsError" class="alt-java-popup__error">
+                  <span>{{ distributionsError }}</span>
+                  <Button
+                    class="btn-quiet alt-java-popup__retry"
+                    @click="emit('retry')"
+                  >
+                    Повторить
+                  </Button>
+                </div>
+                <span v-else class="alt-java-popup__empty">
+                  Доступные дистрибутивы не найдены
+                </span>
               </div>
               <div class="alt-java-popup__field">
                 <span class="alt-java-popup__label eyebrow">Версия Java</span>
@@ -65,13 +86,20 @@ onBeforeUnmount((): void => {
                   type="text"
                   placeholder="Авто (на основе MC)"
                 />
+                <span v-if="versionError" class="alt-java-popup__version-error">
+                  {{ versionError }} — будет использована версия по умолчанию
+                </span>
               </div>
               <Checkbox
                 v-model="replaceDefault"
                 label="Заменить Java по умолчанию"
               />
               <div class="alt-java-popup__actions">
-                <Button class="btn-primary alt-java-popup__btn" @click="emit('download')">
+                <Button
+                  class="btn-primary alt-java-popup__btn"
+                  :is-disabled="distributions.length === 0 || selectedDistribution === ''"
+                  @click="emit('download')"
+                >
                   Загрузить
                 </Button>
                 <Button
@@ -96,6 +124,8 @@ onBeforeUnmount((): void => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .alt-java-popup-overlay {
   position: fixed;
   inset: 0;
@@ -169,6 +199,33 @@ onBeforeUnmount((): void => {
   &__actions {
     display: flex;
     gap: var(--space-8);
+  }
+
+  &__error {
+    @include mixins.error-box;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+  }
+
+  &__retry {
+    min-height: var(--control-height-sm);
+    flex-shrink: 0;
+    color: var(--error);
+  }
+
+  &__empty {
+    font-size: var(--text-body-sm);
+    color: var(--login-text-muted);
+  }
+
+  &__version-error {
+    font-size: var(--text-caption);
+    color: var(--error);
+    text-align: left;
+    word-break: break-word;
   }
 
   &__btn {

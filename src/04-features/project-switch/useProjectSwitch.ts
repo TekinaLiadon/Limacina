@@ -49,10 +49,10 @@ export function useProjectSwitch() {
     accountsStore.isSwitching = true
 
     try {
-      await clearSession()
       await saveCurrentProject(projectName)
       const projectConfig = await loadSettingsProject(projectName)
       const logins = await authLogins(projectName)
+      await clearSession()
 
       coreStore.currentProject = projectName
       coreStore.projectConfig = projectConfig

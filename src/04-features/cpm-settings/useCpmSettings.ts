@@ -51,6 +51,7 @@ export function useCpmSettings() {
   const cpmFileBytes = ref<ArrayBuffer | null>(null)
   const cpmFileName = ref<string>('')
   const isSaving = ref<boolean>(false)
+  const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
   const modelsLimit = ref<number | null>(null)
 
@@ -130,12 +131,15 @@ export function useCpmSettings() {
 
   const handleUploadModel = async (): Promise<void> => {
     if (!cpmFileBytes.value || !cpmData.value) return
+    if (isUploading.value) return
 
-    const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value)
-    const item = await content.handleUpload(base64)
-    if (!item) return
-
+    isUploading.value = true
+    content.errorMessage.value = ''
     try {
+      const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value)
+      const item = await content.handleUpload(base64)
+      if (!item) return
+
       await savePlayerModel({
         name: modelName.value,
         url: item.url,
@@ -146,6 +150,8 @@ export function useCpmSettings() {
       notification.show('Модель добавлена в игру')
     } catch (e: unknown) {
       content.errorMessage.value = getErrorMessage(e)
+    } finally {
+      isUploading.value = false
     }
   }
 
@@ -204,7 +210,7 @@ export function useCpmSettings() {
     showEmptyLayers,
     displayLayers,
     activeLayerIds,
-    isUploading: content.isUploading,
+    isUploading,
     isSaving,
     isOffline: content.isOffline,
     uploadedModels: content.items,

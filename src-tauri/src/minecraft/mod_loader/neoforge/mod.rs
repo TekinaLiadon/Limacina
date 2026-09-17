@@ -1,5 +1,6 @@
 pub mod manifest;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
     minecraft::{
@@ -24,21 +25,24 @@ use crate::{
         get_classpath_separator,
     },
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 
 pub struct NeoForge;
 #[async_trait]
 impl ModLoader for NeoForge {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        let mut manifest = transform_neoforge_manifest(
-            get_manifest_index()
-                .await
-                .context("Не удалось получить индекс NeoForge")?,
-        );
+        let mut manifest =
+            transform_neoforge_manifest(get_manifest_index().await.map_err(|e| {
+                LauncherError::LoaderSetup(format!("Не удалось получить индекс NeoForge: {e:#}"))
+            })?);
         apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest)
             .await
-            .context("Не удалось применить установленный манифест NeoForge")?;
+            .map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось применить установленный манифест NeoForge: {e:#}"
+                ))
+            })?;
         Ok(manifest)
     }
     async fn version_current(
@@ -68,21 +72,31 @@ impl ModLoader for NeoForge {
         let target_version = loader_version_or_err(state)?;
 
         let neoforge_manifest = launcher_path(None)
-            .context("Не удалось определить путь к файлам лаунчера")?
+            .map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось определить путь к файлам лаунчера: {e:#}"
+                ))
+            })?
             .join("manifest")
             .join(format!("neoforge_{}.json", target_version));
         let manifest = download_json::<Manifest>(None, &neoforge_manifest)
             .await
-            .context("Не удалось скачать манифест NeoForge")?;
+            .map_err(|e| {
+                LauncherError::LoaderSetup(format!("Не удалось скачать манифест NeoForge: {e:#}"))
+            })?;
 
-        let base_path = launcher_path(Some(&state.project_name))
-            .context("Не удалось определить путь к файлам проекта")?;
+        let base_path = launcher_path(Some(&state.project_name)).map_err(|e| {
+            LauncherError::LoaderSetup(format!(
+                "Не удалось определить путь к файлам проекта: {e:#}"
+            ))
+        })?;
         let natives_dir = base_path.join("natives").to_string_lossy().to_string();
         let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
 
         let neoforge_libraries = if version.library.is_empty() {
-            loader_libraries(manifest.libraries.clone(), MAVEN_BASE)
-                .context("Не удалось собрать библиотеки NeoForge")?
+            loader_libraries(manifest.libraries.clone(), MAVEN_BASE).map_err(|e| {
+                LauncherError::LoaderSetup(format!("Не удалось собрать библиотеки NeoForge: {e:#}"))
+            })?
         } else {
             version.library.clone()
         };
@@ -92,7 +106,9 @@ impl ModLoader for NeoForge {
             &neoforge_libraries,
             &Vec::new(),
         )
-        .context("Не удалось собрать classpath NeoForge")?;
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось собрать classpath NeoForge: {e:#}"))
+        })?;
         let vanilla_client_jar = format!("{}.jar", state.mc_version);
         let vanilla_filtered: Vec<String> = vanilla_config
             .classpath
@@ -114,7 +130,7 @@ impl ModLoader for NeoForge {
                     result = result.replace("${library_directory}", &libraries_dir);
                     result = result.replace("${classpath_separator}", get_classpath_separator());
                     result = result.replace("${launcher_name}", &launcher_name);
-                    result = result.replace("${launcher_version}", "1.0");
+                    result = result.replace("${launcher_version}", env!("CARGO_PKG_VERSION"));
                     result
                 })
                 .collect(),
@@ -122,28 +138,92 @@ impl ModLoader for NeoForge {
         let jvm_args = [&vanilla_config.jvm_args[..], &neoforge_jvm[..]].concat();
 
         let mut game_args = vanilla_config.game_args.clone();
-        let neoforge_game = manifest.arguments.game_strings();
-        let mut i = 0;
-        while i < neoforge_game.len() {
-            let arg = &neoforge_game[i];
-            if arg.starts_with("--") {
-                let flag = arg.clone();
-                let value = neoforge_game.get(i + 1).cloned().unwrap_or_default();
-                if value.starts_with("${") {
-                    i += 1;
-                    continue;
-                }
-                if !game_args.iter().any(|a| a == &flag) {
-                    game_args.push(flag);
-                    game_args.push(value);
-                    i += 1;
-                }
-            }
-            i += 1;
-        }
+        game_args = merge_game_args(game_args, manifest.arguments.game_strings());
 
         Ok(vanilla_config
             .with_args(jvm_args, game_args)
             .with_loader(clean_classpath, manifest.main_class.clone()))
+    }
+}
+
+fn merge_game_args(mut game_args: Vec<String>, neoforge_game: Vec<String>) -> Vec<String> {
+    let mut i = 0;
+    while i < neoforge_game.len() {
+        let arg = &neoforge_game[i];
+        if arg.starts_with("--") {
+            let flag = arg.clone();
+            let Some(value) = neoforge_game.get(i + 1).cloned() else {
+                i += 1;
+                continue;
+            };
+            if value.starts_with("${") {
+                i += 1;
+                continue;
+            }
+            if !game_args.iter().any(|a| a == &flag) {
+                game_args.push(flag);
+                game_args.push(value);
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+    game_args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_game_args;
+
+    #[test]
+    fn merges_flag_with_value() {
+        let game_args = merge_game_args(
+            vec!["--existing".to_string()],
+            vec!["--fml.forgeVersion".to_string(), "47.0.1".to_string()],
+        );
+
+        assert_eq!(
+            game_args,
+            vec![
+                "--existing".to_string(),
+                "--fml.forgeVersion".to_string(),
+                "47.0.1".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn trailing_flag_without_value_is_dropped() {
+        let game_args = merge_game_args(vec![], vec!["--fml.forgeVersion".to_string()]);
+
+        assert!(
+            game_args.is_empty(),
+            "флаг без значения не должен добавляться"
+        );
+    }
+
+    #[test]
+    fn duplicate_flag_is_not_added_twice() {
+        let game_args = merge_game_args(
+            vec!["--flag".to_string(), "old".to_string()],
+            vec!["--flag".to_string(), "new".to_string()],
+        );
+
+        assert_eq!(game_args, vec!["--flag".to_string(), "old".to_string()]);
+    }
+
+    #[test]
+    fn flag_with_placeholder_value_is_skipped() {
+        let game_args = merge_game_args(
+            vec![],
+            vec![
+                "--flag".to_string(),
+                "${placeholder}".to_string(),
+                "--after".to_string(),
+                "value".to_string(),
+            ],
+        );
+
+        assert_eq!(game_args, vec!["--after".to_string(), "value".to_string()]);
     }
 }

@@ -6,6 +6,7 @@ pub mod errors;
 pub mod file_logger;
 pub mod hex;
 pub mod http;
+pub mod install_id;
 pub mod install_manifest;
 pub mod integrity;
 pub mod java;

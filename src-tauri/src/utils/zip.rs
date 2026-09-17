@@ -1,8 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
 use zip::ZipArchive;
+
+use crate::utils::errors::LauncherError;
 
 pub const MAX_EXTRACT_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
@@ -12,38 +14,50 @@ pub fn extract_zip_with_limit(
     target_dir: &Path,
     max_total_bytes: u64,
 ) -> Result<()> {
-    let file = File::open(archive_path)
-        .with_context(|| format!("Не удалось открыть архив: {:?}", archive_path))?;
-    let mut archive = ZipArchive::new(file)
-        .with_context(|| format!("Не удалось прочитать ZIP архив: {:?}", archive_path))?;
+    let file = File::open(archive_path).map_err(|e| {
+        LauncherError::Java(format!("Не удалось открыть архив {archive_path:?}: {e:#}"))
+    })?;
+    let mut archive = ZipArchive::new(file).map_err(|e| {
+        LauncherError::Java(format!(
+            "Не удалось прочитать ZIP архив {archive_path:?}: {e:#}"
+        ))
+    })?;
 
     let mut total_bytes: u64 = 0;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
+        let mut entry = archive.by_index(i).map_err(|e| {
+            LauncherError::Java(format!(
+                "Не удалось прочитать запись архива {archive_path:?}: {e:#}"
+            ))
+        })?;
         let Some(relative) = entry.enclosed_name() else {
             continue;
         };
         total_bytes += entry.size();
         if total_bytes > max_total_bytes {
-            bail!(
-                "Суммарный размер записей архива превышает лимит {} байт",
-                max_total_bytes
-            );
+            return Err(LauncherError::Java(format!(
+                "Суммарный размер записей архива превышает лимит {max_total_bytes} байт"
+            ))
+            .into());
         }
         let out_path = target_dir.join(relative);
 
         if entry.is_dir() {
-            fs::create_dir_all(&out_path)
-                .with_context(|| format!("Не удалось создать директорию: {:?}", out_path))?;
+            fs::create_dir_all(&out_path).map_err(|e| {
+                LauncherError::Java(format!("Не удалось создать директорию {out_path:?}: {e:#}"))
+            })?;
         } else {
             if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("Не удалось создать директорию: {:?}", parent))?;
+                fs::create_dir_all(parent).map_err(|e| {
+                    LauncherError::Java(format!("Не удалось создать директорию {parent:?}: {e:#}"))
+                })?;
             }
-            let mut out_file = File::create(&out_path)
-                .with_context(|| format!("Не удалось создать файл: {:?}", out_path))?;
-            io::copy(&mut entry, &mut out_file)
-                .with_context(|| format!("Не удалось записать файл: {:?}", out_path))?;
+            let mut out_file = File::create(&out_path).map_err(|e| {
+                LauncherError::Java(format!("Не удалось создать файл {out_path:?}: {e:#}"))
+            })?;
+            io::copy(&mut entry, &mut out_file).map_err(|e| {
+                LauncherError::Java(format!("Не удалось записать файл {out_path:?}: {e:#}"))
+            })?;
         }
     }
 

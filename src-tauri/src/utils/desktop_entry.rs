@@ -1,13 +1,15 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
+
+use crate::utils::errors::LauncherError;
 
 pub fn sync_desktop_entry(app: &tauri::AppHandle) -> Result<()> {
     let Some(appimage) = std::env::var_os("APPIMAGE") else {
         return Ok(());
     };
-    let appimage = PathBuf::from(appimage)
-        .canonicalize()
-        .context("Не удалось определить путь до AppImage")?;
+    let appimage = PathBuf::from(appimage).canonicalize().map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось определить путь до AppImage: {e:#}"))
+    })?;
     let appdir = std::env::var_os("APPDIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -36,16 +38,24 @@ pub fn sync_desktop_entry(app: &tauri::AppHandle) -> Result<()> {
     let entry = render_desktop_entry(&name, &comment, &exec, &identifier);
 
     let applications_dir = data_home.join("applications");
-    std::fs::create_dir_all(&applications_dir)
-        .with_context(|| format!("Не удалось создать каталог {}", applications_dir.display()))?;
+    std::fs::create_dir_all(&applications_dir).map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось создать каталог {}: {e:#}",
+            applications_dir.display()
+        ))
+    })?;
     let entry_path = applications_dir.join(format!("{identifier}.desktop"));
     let unchanged = entry_path.is_file()
         && std::fs::read_to_string(&entry_path)
             .map(|content| content.contains(&exec))
             .unwrap_or(false);
     if !unchanged {
-        std::fs::write(&entry_path, entry)
-            .with_context(|| format!("Не удалось записать {}", entry_path.display()))?;
+        std::fs::write(&entry_path, entry).map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось записать {}: {e:#}",
+                entry_path.display()
+            ))
+        })?;
     }
     Ok(())
 }
@@ -73,7 +83,9 @@ fn xdg_data_home() -> Result<PathBuf> {
     std::env::home_dir()
         .filter(|home| !home.as_os_str().is_empty())
         .map(|home| home.join(".local").join("share"))
-        .ok_or_else(|| anyhow!("Не удалось определить домашний каталог"))
+        .ok_or_else(|| {
+            LauncherError::DiskIo("Не удалось определить домашний каталог".to_string()).into()
+        })
 }
 
 fn sync_icon(appdir: &Path, data_home: &Path, identifier: &str) -> Result<()> {
@@ -87,11 +99,19 @@ fn sync_icon(appdir: &Path, data_home: &Path, identifier: &str) -> Result<()> {
         .join("hicolor")
         .join(format!("{width}x{height}"))
         .join("apps");
-    std::fs::create_dir_all(&icon_dir)
-        .with_context(|| format!("Не удалось создать каталог {}", icon_dir.display()))?;
+    std::fs::create_dir_all(&icon_dir).map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось создать каталог {}: {e:#}",
+            icon_dir.display()
+        ))
+    })?;
     let target = icon_dir.join(format!("{identifier}.png"));
-    std::fs::copy(&source, &target)
-        .with_context(|| format!("Не удалось скопировать иконку из {}", source.display()))?;
+    std::fs::copy(&source, &target).map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось скопировать иконку из {}: {e:#}",
+            source.display()
+        ))
+    })?;
     Ok(())
 }
 
@@ -171,10 +191,7 @@ mod tests {
 
     #[test]
     fn exec_line_escapes_quotes() {
-        assert_eq!(
-            format_exec_line(Path::new("/a\"b\\c")),
-            "\"/a\\\"b\\\\c\""
-        );
+        assert_eq!(format_exec_line(Path::new("/a\"b\\c")), "\"/a\\\"b\\\\c\"");
     }
 
     #[test]

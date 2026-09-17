@@ -592,10 +592,7 @@ mod tests {
         write_options_file(&path, "fov:70\n")
             .await
             .expect("запись options.txt");
-        assert_eq!(
-            tokio::fs::read_to_string(&path).await.unwrap(),
-            "fov:70\n"
-        );
+        assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "fov:70\n");
 
         let part = path.with_extension("txt.part");
         tokio::fs::write(&part, "garbage")
@@ -605,10 +602,7 @@ mod tests {
         write_options_file(&path, "fov:90\n")
             .await
             .expect("повторная запись options.txt");
-        assert_eq!(
-            tokio::fs::read_to_string(&path).await.unwrap(),
-            "fov:90\n"
-        );
+        assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "fov:90\n");
         assert!(!part.exists(), ".part не должен оставаться после записи");
     }
 }

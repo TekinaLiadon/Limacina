@@ -5,7 +5,7 @@ pub use version::{
     UpdateInfo, UpdateVersions,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::time::Duration;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
@@ -37,23 +37,36 @@ pub fn updater_builder(
     version: Option<&str>,
 ) -> Result<tauri_plugin_updater::UpdaterBuilder> {
     if updater_pubkey(app).is_none() {
-        anyhow::bail!("Обновления отключены: не задан plugins.updater.pubkey в tauri.conf.json");
+        return Err(LauncherError::Update(
+            "Обновления отключены: не задан plugins.updater.pubkey в tauri.conf.json".to_string(),
+        )
+        .into());
     }
     let server_url =
         crate::utils::env_info::default_server_url().ok_or(LauncherError::UpdateServerMissing)?;
     let endpoint = match version {
         Some(v) if valid_version(v) => format!("{server_url}/v1/launcher/update/{v}/latest.json"),
-        Some(v) => anyhow::bail!("Некорректная версия: {}", v),
+        Some(v) => {
+            return Err(LauncherError::Update(format!("Некорректная версия: {v}")).into());
+        }
         None => format!("{server_url}/v1/launcher/update/latest.json"),
     };
-    let endpoint: url::Url = endpoint
-        .parse()
-        .context("Не удалось разобрать адрес обновлений")?;
+    let endpoint: url::Url = endpoint.parse().map_err(|e| {
+        LauncherError::Update(format!("Не удалось разобрать адрес обновлений: {e:#}"))
+    })?;
 
     let builder = app
         .updater_builder()
         .endpoints(vec![endpoint])
-        .context("Не удалось задать адрес обновлений")?;
+        .map_err(|e| LauncherError::Update(format!("Не удалось задать адрес обновлений: {e:#}")))?;
+    let builder = match crate::utils::install_id::install_id() {
+        Some(id) => builder
+            .header(crate::utils::install_id::LAUNCHER_ID_HEADER, id)
+            .map_err(|e| {
+                LauncherError::Update(format!("Не удалось задать заголовок обновлений: {e:#}"))
+            })?,
+        None => builder,
+    };
     if version.is_some() {
         Ok(builder.version_comparator(|_, _| true))
     } else {
@@ -65,8 +78,9 @@ pub fn cleanup_old_binaries() {
     if let Ok(current_exe) = std::env::current_exe() {
         let old_path = old_binary_path(&current_exe);
         if old_path.exists() {
-            match std::fs::remove_file(&old_path).context("Не удалось удалить старый бинарник")
-            {
+            match std::fs::remove_file(&old_path).map_err(|e| {
+                LauncherError::DiskIo(format!("Не удалось удалить старый бинарник: {e:#}"))
+            }) {
                 Ok(()) => log_info!("Удалён старый бинарник: {:?}", old_path),
                 Err(e) => log_err!("{:?}", e),
             }
@@ -80,9 +94,11 @@ pub fn cleanup_old_binaries() {
                 .to_string_lossy()
         ));
         if staged_path.exists() {
-            match std::fs::remove_file(&staged_path)
-                .context("Не удалось удалить незавершённое обновление")
-            {
+            match std::fs::remove_file(&staged_path).map_err(|e| {
+                LauncherError::DiskIo(format!(
+                    "Не удалось удалить незавершённое обновление: {e:#}"
+                ))
+            }) {
                 Ok(()) => log_info!(
                     "Удалён незавершённый бинарник обновления: {:?}",
                     staged_path
@@ -102,8 +118,9 @@ pub fn cleanup_old_binaries() {
                 .trim_end_matches(".app")
         ));
         if old_dir.exists() {
-            match std::fs::remove_dir_all(&old_dir).context("Не удалось удалить старый бандл")
-            {
+            match std::fs::remove_dir_all(&old_dir).map_err(|e| {
+                LauncherError::DiskIo(format!("Не удалось удалить старый бандл: {e:#}"))
+            }) {
                 Ok(()) => log_info!("Удалён старый бандл: {:?}", old_dir),
                 Err(e) => log_err!("{:?}", e),
             }

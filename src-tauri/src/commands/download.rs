@@ -98,7 +98,7 @@ pub async fn download_server_file(
 ) -> CommandResult<()> {
     let result = async {
         let project_name = state.lock().await.project_config.project_name.clone();
-        download_all_files(project_name, false, &state).await?;
+        download_all_files(project_name, &state).await?;
         Ok(())
     }
     .await;

@@ -1,10 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::log_info;
 use crate::state::dto::GlobalState;
 use crate::utils::errors::LauncherError;
-use crate::utils::http::{request_json, require_success};
+use crate::utils::http::{request_json, require_success, with_launcher_id};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -24,9 +24,11 @@ async fn require_api_context(state: &Mutex<GlobalState>) -> Result<(String, Stri
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
     LauncherError::classify(
         request_json(
-            crate::utils::http::http_client()
-                .get(url)
-                .bearer_auth(token),
+            with_launcher_id(
+                crate::utils::http::http_client()
+                    .get(url)
+                    .bearer_auth(token),
+            ),
             "Не удалось подключиться к серверу",
             "Не удалось распарсить ответ сервера",
         )
@@ -39,12 +41,14 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
     let result = async {
         let client = crate::utils::http::http_client();
         let response = require_success(
-            client
-                .delete(url)
-                .bearer_auth(token)
+            with_launcher_id(client.get(url).bearer_auth(token))
                 .send()
                 .await
-                .context("Не удалось подключиться к серверу")?,
+                .map_err(|e| {
+                    LauncherError::LauncherServer(format!(
+                        "Не удалось подключиться к серверу: {e:#}"
+                    ))
+                })?,
         )
         .await?;
 
@@ -69,23 +73,25 @@ async fn upload_multipart(
         let part = reqwest::multipart::Part::bytes(file_data)
             .file_name(file_name.to_string())
             .mime_str(mime)
-            .context("Не удалось создать multipart part")?;
+            .map_err(|e| {
+                LauncherError::LauncherServer(format!("Не удалось создать multipart part: {e:#}"))
+            })?;
 
         let form = reqwest::multipart::Form::new().part("file", part);
 
         let client = crate::utils::http::http_client();
         let response = require_success(
-            client
-                .post(url)
-                .bearer_auth(token)
-                .multipart(form)
+            with_launcher_id(client.post(url).bearer_auth(token).multipart(form))
                 .send()
                 .await
-                .context(send_context)?,
+                .map_err(|e| LauncherError::LauncherServer(format!("{send_context}: {e:#}")))?,
         )
         .await?;
 
-        let item: UserContentItem = response.json().await.context(parse_context)?;
+        let item: UserContentItem = response
+            .json()
+            .await
+            .map_err(|e| LauncherError::LauncherServer(format!("{parse_context}: {e:#}")))?;
         Ok(item)
     }
     .await;
@@ -146,13 +152,17 @@ pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> 
     let result = async {
         let client = crate::utils::http::http_client();
         let response = require_success(
-            client
-                .patch(&url)
-                .bearer_auth(&token)
-                .json(&serde_json::json!({ "id": id }))
-                .send()
-                .await
-                .context("Не удалось подключиться к серверу")?,
+            with_launcher_id(
+                client
+                    .patch(&url)
+                    .bearer_auth(&token)
+                    .json(&serde_json::json!({ "id": id })),
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                LauncherError::LauncherServer(format!("Не удалось подключиться к серверу: {e:#}"))
+            })?,
         )
         .await?;
 

@@ -1,5 +1,6 @@
 pub mod manifest;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
     minecraft::{
@@ -20,21 +21,23 @@ use crate::{
     state::dto::ProjectConfig,
     utils::{download_file::download_json, env_info::launcher_path},
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 
 pub struct Forge;
 #[async_trait]
 impl ModLoader for Forge {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        let mut manifest = transform_forge_manifest(
-            get_manifest_index()
-                .await
-                .context("Не удалось получить индекс Forge")?,
-        );
+        let mut manifest = transform_forge_manifest(get_manifest_index().await.map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось получить индекс Forge: {e:#}"))
+        })?);
         apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest)
             .await
-            .context("Не удалось применить установленный манифест Forge")?;
+            .map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось применить установленный манифест Forge: {e:#}"
+                ))
+            })?;
         Ok(manifest)
     }
     async fn version_current(
@@ -68,16 +71,24 @@ impl ModLoader for Forge {
             &version.library,
             &vanilla_config.classpath,
         )
-        .context("Не удалось собрать classpath Forge")?;
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось собрать classpath Forge: {e:#}"))
+        })?;
         let clean_classpath = filter_classpath(classpath);
 
         let forge_manifest = launcher_path(None)
-            .context("Не удалось определить путь к файлам лаунчера")?
+            .map_err(|e| {
+                LauncherError::LoaderSetup(format!(
+                    "Не удалось определить путь к файлам лаунчера: {e:#}"
+                ))
+            })?
             .join("manifest")
             .join(format!("forge_{}.json", target_version));
         let manifest = download_json::<Manifest>(None, &forge_manifest)
             .await
-            .context("Не удалось скачать манифест Forge")?;
+            .map_err(|e| {
+                LauncherError::LoaderSetup(format!("Не удалось скачать манифест Forge: {e:#}"))
+            })?;
         let loader_game_args = manifest.arguments.game_strings();
         let jvm_args = [
             &vanilla_config.jvm_args[..],
@@ -171,9 +182,12 @@ mod config_tests {
         assert!(config
             .classpath
             .contains(&lib_path.to_string_lossy().into_owned()));
-        assert!(config
-            .classpath
-            .contains(&game_root.join("1.20.1-0.16.9.jar").to_string_lossy().into_owned()));
+        assert!(config.classpath.contains(
+            &game_root
+                .join("1.20.1-0.16.9.jar")
+                .to_string_lossy()
+                .into_owned()
+        ));
         assert!(!config
             .classpath
             .contains(&game_root.join("0.16.9.jar").to_string_lossy().into_owned()));
@@ -257,9 +271,15 @@ mod config_tests {
         };
         let maven_base = format!("{}/maven", server.url());
 
-        setup_loader("Forge", "forge", &state, std::slice::from_ref(&version), &maven_base)
-            .await
-            .expect("установка Forge");
+        setup_loader(
+            "Forge",
+            "forge",
+            &state,
+            std::slice::from_ref(&version),
+            &maven_base,
+        )
+        .await
+        .expect("установка Forge");
 
         let game_root = dir.project_dir("ForgeInstallProj");
         fs::write(game_root.join("1.20.1.jar"), b"client").unwrap();
