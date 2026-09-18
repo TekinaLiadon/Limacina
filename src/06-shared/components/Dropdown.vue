@@ -9,9 +9,11 @@ const props = withDefaults(defineProps<{
   width?: string
   maxVisible?: number
   disabled?: boolean
+  openUp?: boolean
 }>(), {
   maxVisible: 3,
   disabled: false,
+  openUp: false,
 })
 
 const emit = defineEmits<{
@@ -21,8 +23,9 @@ const emit = defineEmits<{
 const baseRef = ref<InstanceType<typeof SelectBase> | null>(null)
 
 const selectedTitle = computed((): string => {
-  const selected = props.options.find((option) => option.value === props.modelValue)
-  return selected?.title ?? props.modelValue
+  const value = String(props.modelValue)
+  const selected = props.options.find((option) => String(option.value) === value)
+  return selected?.title ?? value
 })
 
 function handleSelect(value: string): void {
@@ -39,6 +42,7 @@ function handleSelect(value: string): void {
     :width="width"
     :max-visible="props.maxVisible"
     :disabled="props.disabled"
+    :open-up="props.openUp"
     @select="handleSelect"
   >
     <template #trailing>

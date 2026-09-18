@@ -1,18 +1,26 @@
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 use crate::utils::errors::LauncherError;
+use crate::utils::{compare_versions, download_file::write_atomic};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::log_info;
-use crate::utils::download_file::write_atomic;
+use crate::state::config::load_config_or_default;
 use crate::utils::env_info::launcher_path;
 use crate::utils::tauri_err::CommandResult;
 
 pub const SETTINGS_DIR_NAME: &str = "settings";
 pub const GLOBAL_OPTIONS_FILE: &str = "game_options.json";
 pub const OPTIONS_FILE: &str = "options.txt";
+
+const FOV_MIN_DEG: f64 = 30.0;
+const FOV_MAX_DEG: f64 = 110.0;
+const FOV_OFFSET: f64 = 70.0;
+const FOV_SCALE: f64 = 40.0;
+const FOV_NORMALIZED_SINCE: &str = "1.19";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -139,7 +147,53 @@ fn parse_u32(raw: &str, fallback: u32) -> u32 {
     raw.trim().parse::<u32>().unwrap_or(fallback)
 }
 
-fn owned_values(options: &GameOptions) -> Vec<(&'static str, String)> {
+fn uses_normalized_fov(mc_version: &str) -> bool {
+    let version = mc_version.trim();
+    version.is_empty() || compare_versions(version, FOV_NORMALIZED_SINCE) != Ordering::Less
+}
+
+fn parse_fov(raw: Option<&str>, normalized: bool) -> f64 {
+    let value = raw.and_then(|v| v.trim().parse::<f64>().ok().filter(|n| n.is_finite()));
+    match value {
+        Some(degrees) if normalized => (degrees * FOV_SCALE + FOV_OFFSET).clamp(FOV_MIN_DEG, FOV_MAX_DEG),
+        Some(degrees) => degrees,
+        None => FOV_OFFSET,
+    }
+}
+
+fn format_fov(degrees: f64, normalized: bool) -> f64 {
+    if normalized {
+        ((degrees - FOV_OFFSET) / FOV_SCALE).clamp(-1.0, 1.0)
+    } else {
+        degrees
+    }
+}
+
+fn normalize_clouds(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "fast" => "fast".to_string(),
+        "false" => "false".to_string(),
+        _ => "true".to_string(),
+    }
+}
+
+fn parse_chat_visibility(raw: &str) -> String {
+    match raw.trim() {
+        "1" | "system" => "system".to_string(),
+        "2" | "hidden" => "hidden".to_string(),
+        _ => "full".to_string(),
+    }
+}
+
+fn format_chat_visibility(value: &str) -> String {
+    match value {
+        "system" => "1".to_string(),
+        "hidden" => "2".to_string(),
+        _ => "0".to_string(),
+    }
+}
+
+fn owned_values(options: &GameOptions, normalized_fov: bool) -> Vec<(&'static str, String)> {
     let mut packs = vec!["vanilla".to_string()];
     packs.extend(
         options
@@ -150,7 +204,7 @@ fn owned_values(options: &GameOptions) -> Vec<(&'static str, String)> {
     );
     let resource_packs = serde_json::to_string(&packs).unwrap_or_else(|_| "[\"vanilla\"]".into());
     vec![
-        ("fov", options.fov.to_string()),
+        ("fov", format_fov(options.fov, normalized_fov).to_string()),
         ("gamma", options.gamma.to_string()),
         ("renderDistance", options.render_distance.to_string()),
         (
@@ -186,7 +240,7 @@ fn owned_values(options: &GameOptions) -> Vec<(&'static str, String)> {
             "textBackgroundOpacity",
             options.text_background_opacity.to_string(),
         ),
-        ("chatVisibility", options.chat_visibility.clone()),
+        ("chatVisibility", format_chat_visibility(&options.chat_visibility)),
         ("chatColors", format_bool(options.chat_colors)),
         ("chatLinks", format_bool(options.chat_links)),
         ("chatLinksPrompt", format_bool(options.chat_links_prompt)),
@@ -232,7 +286,7 @@ fn owned_map(lines: &[(String, String)]) -> std::collections::HashMap<&str, &str
         .collect()
 }
 
-pub fn parse_options(content: &str) -> GameOptions {
+pub fn parse_options(content: &str, normalized_fov: bool) -> GameOptions {
     let defaults = GameOptions::default();
     let lines = parse_lines(content);
     let map = owned_map(&lines);
@@ -240,7 +294,7 @@ pub fn parse_options(content: &str) -> GameOptions {
     let get = |key: &str| -> Option<&str> { map.get(key).copied() };
 
     let mut options = GameOptions {
-        fov: get("fov").map_or(defaults.fov, |v| parse_f64(v, defaults.fov)),
+        fov: parse_fov(get("fov"), normalized_fov),
         gamma: get("gamma").map_or(defaults.gamma, |v| parse_f64(v, defaults.gamma)),
         render_distance: get("renderDistance").map_or(defaults.render_distance, |v| {
             parse_u32(v, defaults.render_distance)
@@ -264,7 +318,7 @@ pub fn parse_options(content: &str) -> GameOptions {
             parse_bool(v, defaults.entity_shadows)
         }),
         ao: get("ao").map_or(defaults.ao, |v| parse_bool(v, defaults.ao)),
-        render_clouds: get("renderClouds").map_or(defaults.render_clouds.clone(), str::to_string),
+        render_clouds: get("renderClouds").map_or(defaults.render_clouds.clone(), normalize_clouds),
         fullscreen: get("fullscreen")
             .map_or(defaults.fullscreen, |v| parse_bool(v, defaults.fullscreen)),
         gui_scale: get("guiScale").map_or(defaults.gui_scale, |v| parse_u32(v, defaults.gui_scale)),
@@ -311,8 +365,7 @@ pub fn parse_options(content: &str) -> GameOptions {
             .map_or(defaults.text_background_opacity, |v| {
                 parse_f64(v, defaults.text_background_opacity)
             }),
-        chat_visibility: get("chatVisibility")
-            .map_or(defaults.chat_visibility.clone(), str::to_string),
+        chat_visibility: get("chatVisibility").map_or(defaults.chat_visibility.clone(), parse_chat_visibility),
         chat_colors: get("chatColors").map_or(defaults.chat_colors, |v| {
             parse_bool(v, defaults.chat_colors)
         }),
@@ -330,9 +383,9 @@ pub fn parse_options(content: &str) -> GameOptions {
     options
 }
 
-pub fn merge_options(content: Option<&str>, options: &GameOptions) -> String {
+pub fn merge_options(content: Option<&str>, options: &GameOptions, normalized_fov: bool) -> String {
     let mut lines = content.map(parse_lines).unwrap_or_default();
-    let values = owned_values(options);
+    let values = owned_values(options, normalized_fov);
 
     apply_owned_values(&mut lines, &values);
     serialize_lines(&lines)
@@ -382,6 +435,13 @@ async fn global_options_content() -> Result<Option<String>> {
     read_options_content(&path).await
 }
 
+async fn resolve_mc_version(project_name: &str) -> String {
+    load_config_or_default(project_name)
+        .await
+        .map(|config| config.mc_version)
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub async fn get_game_options(project_name: String) -> CommandResult<GameOptionsData> {
     Ok(get_game_options_inner(&project_name).await?)
@@ -391,7 +451,11 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
     let path = options_file_path(project_name)?;
     let content = read_options_content(&path).await?;
     let file_exists = content.is_some();
-    let options = content.as_deref().map(parse_options).unwrap_or_default();
+    let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
+    let options = content
+        .as_deref()
+        .map(|c| parse_options(c, normalized_fov))
+        .unwrap_or_default();
     let available_resource_packs = list_resource_packs(project_name).await?;
     let has_global = global_options_content().await?.is_some();
 
@@ -427,7 +491,8 @@ async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> R
     }
     let path = options_file_path(project_name)?;
     let content = read_options_content(&path).await?;
-    let merged = merge_options(content.as_deref(), options);
+    let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
+    let merged = merge_options(content.as_deref(), options, normalized_fov);
     write_options_file(&path, &merged).await?;
 
     log_info!(
@@ -492,7 +557,7 @@ mod tests {
             ..super::GameOptions::default()
         };
 
-        let merged = merge_options(Some(existing), &options);
+        let merged = merge_options(Some(existing), &options, false);
 
         assert!(merged.contains("fov:110"));
         assert!(merged.contains("gamma:1"));
@@ -512,7 +577,7 @@ mod tests {
     #[test]
     fn merge_into_missing_file_omits_version() {
         let options = super::GameOptions::default();
-        let merged = merge_options(None, &options);
+        let merged = merge_options(None, &options, false);
 
         assert!(
             !merged.lines().any(|line| line.starts_with("version:")),
@@ -527,7 +592,7 @@ mod tests {
         let existing = "version:3955\nmouseSensitivity:0.5\n";
         let options = super::GameOptions::default();
 
-        let merged = merge_options(Some(existing), &options);
+        let merged = merge_options(Some(existing), &options, false);
 
         assert!(merged.contains("mouseSensitivity:0.5"));
         assert!(merged.contains("renderDistance:12"));
@@ -535,9 +600,27 @@ mod tests {
     }
 
     #[test]
+    fn merge_writes_normalized_fov_and_chat_codes() {
+        let options = super::GameOptions {
+            fov: 90.0,
+            chat_visibility: "system".to_string(),
+            ..super::GameOptions::default()
+        };
+
+        let merged = merge_options(None, &options, true);
+
+        assert!(merged.contains("fov:0.5"), "современные версии хранят fov нормализованным");
+        assert!(merged.contains("chatVisibility:1"));
+
+        let legacy = merge_options(None, &options, false);
+        assert!(legacy.contains("fov:90"), "старые версии хранят fov в градусах");
+        assert!(legacy.contains("chatVisibility:1"));
+    }
+
+    #[test]
     fn parse_reads_owned_keys_and_defaults_rest() {
-        let content = "version:3955\nfov:90.0\ngamma:1.0\nrenderDistance:8\nsoundCategory_master:0.25\nchatVisibility:system\nresourcePacks:[\"vanilla\",\"file/Test.zip\"]\n";
-        let options = parse_options(content);
+        let content = "version:3955\nfov:0.5\ngamma:1.0\nrenderDistance:8\nsoundCategory_master:0.25\nchatVisibility:1\nresourcePacks:[\"vanilla\",\"file/Test.zip\"]\n";
+        let options = parse_options(content, true);
 
         assert_eq!(options.fov, 90.0);
         assert_eq!(options.gamma, 1.0);
@@ -550,9 +633,46 @@ mod tests {
     }
 
     #[test]
+    fn parse_converts_normalized_fov_on_modern_versions() {
+        assert_eq!(parse_options("fov:0.0\n", true).fov, 70.0);
+        assert_eq!(parse_options("fov:0.5\n", true).fov, 90.0);
+        assert_eq!(parse_options("fov:1.0\n", true).fov, 110.0);
+        assert_eq!(parse_options("fov:-1.0\n", true).fov, 30.0);
+        assert_eq!(
+            parse_options("fov:5.0\n", true).fov,
+            110.0,
+            "выход за диапазон обрезается до 110"
+        );
+    }
+
+    #[test]
+    fn parse_keeps_degrees_fov_on_legacy_versions() {
+        assert_eq!(parse_options("fov:70\n", false).fov, 70.0);
+        assert_eq!(parse_options("fov:90.0\n", false).fov, 90.0);
+    }
+
+    #[test]
+    fn parse_normalizes_clouds_and_chat_visibility() {
+        let clouds = parse_options("renderClouds:True\n", true);
+        assert_eq!(clouds.render_clouds, "true");
+
+        let clouds_fast = parse_options("renderClouds:fast\n", true);
+        assert_eq!(clouds_fast.render_clouds, "fast");
+
+        let clouds_unknown = parse_options("renderClouds:enabled\n", true);
+        assert_eq!(clouds_unknown.render_clouds, "true");
+
+        assert_eq!(parse_options("chatVisibility:0\n", true).chat_visibility, "full");
+        assert_eq!(parse_options("chatVisibility:1\n", true).chat_visibility, "system");
+        assert_eq!(parse_options("chatVisibility:2\n", true).chat_visibility, "hidden");
+        assert_eq!(parse_options("chatVisibility:9\n", true).chat_visibility, "full");
+        assert_eq!(parse_options("chatVisibility:hidden\n", true).chat_visibility, "hidden");
+    }
+
+    #[test]
     fn parse_survives_corrupt_values() {
         let content = "fov:broken\ngamma:NaN\nrenderDistance:-5\nresourcePacks:not-json\n";
-        let options = parse_options(content);
+        let options = parse_options(content, true);
 
         assert_eq!(options.fov, 70.0);
         assert_eq!(options.gamma, 0.5);
@@ -570,8 +690,8 @@ mod tests {
             resource_packs: vec!["file/Pack.zip".to_string()],
             ..super::GameOptions::default()
         };
-        let merged = merge_options(None, &options);
-        let parsed = parse_options(&merged);
+        let merged = merge_options(None, &options, true);
+        let parsed = parse_options(&merged, true);
 
         assert_eq!(parsed.fov, 80.0);
         assert_eq!(parsed.gamma, 0.8);

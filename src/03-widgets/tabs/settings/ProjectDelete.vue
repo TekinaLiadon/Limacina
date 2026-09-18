@@ -15,7 +15,7 @@ const isDisabled = computed((): boolean => props.isDeleting ?? false)
 
 <template>
   <Button
-    class="btn-danger span-full project-delete__btn"
+    class="btn-danger project-delete__btn"
     :is-disabled="isDisabled"
     :is-loading="isDisabled"
     @click="emit('delete')"
@@ -26,8 +26,6 @@ const isDisabled = computed((): boolean => props.isDeleting ?? false)
 
 <style lang="scss">
 .project-delete__btn {
-  justify-self: center;
   width: 100%;
-  max-width: var(--settings-row-width);
 }
 </style>

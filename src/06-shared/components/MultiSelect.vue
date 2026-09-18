@@ -12,11 +12,13 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   placeholder?: string
   clearable?: boolean
+  openUp?: boolean
 }>(), {
   maxVisible: 3,
   disabled: false,
   placeholder: 'Не выбрано',
   clearable: false,
+  openUp: false,
 })
 
 const emit = defineEmits<{
@@ -55,6 +57,7 @@ function clear(): void {
     :width="width"
     :max-visible="props.maxVisible"
     :disabled="props.disabled"
+    :open-up="props.openUp"
     :is-selected="isSelected"
     @select="toggleOption"
   >

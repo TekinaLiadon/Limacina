@@ -17,9 +17,10 @@ const emit = defineEmits<{
 
 const isPercent = computed((): boolean => props.min === 0 && props.max === 1)
 
-const percent = computed((): number =>
-  ((props.modelValue - props.min) / (props.max - props.min)) * 100,
-)
+const percent = computed((): number => {
+  const raw = ((props.modelValue - props.min) / (props.max - props.min)) * 100
+  return Math.min(100, Math.max(0, raw))
+})
 
 const displayValue = computed((): string =>
   isPercent.value ? `${Math.round(percent.value)}%` : String(props.modelValue),
@@ -58,6 +59,7 @@ const onInput = (e: Event): void => {
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
+  min-width: 0;
 
   &__header {
     display: flex;
@@ -71,6 +73,7 @@ const onInput = (e: Event): void => {
     line-height: var(--leading-body-sm);
     color: var(--login-text-secondary);
     text-align: left;
+    white-space: nowrap;
   }
 
   &__value {

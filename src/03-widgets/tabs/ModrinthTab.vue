@@ -246,7 +246,14 @@ onMounted(() => {
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
 
-      <div v-if="hits.length > 0" class="modrinth-tab__summary">
+      <div v-if="isCatalogSearching" class="modrinth-tab__summary" aria-hidden="true">
+        <Skeleton
+          class="modrinth-tab__summary-skeleton"
+          width="128px"
+          height="calc(var(--text-caption) * var(--leading-caption))"
+        />
+      </div>
+      <div v-else-if="hits.length > 0" class="modrinth-tab__summary">
         <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
       </div>
 

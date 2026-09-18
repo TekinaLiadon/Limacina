@@ -247,10 +247,6 @@ const handleDownload = async (): Promise<void> => {
     display: flex;
     flex-direction: column;
     gap: var(--space-12);
-
-    .project-delete__btn {
-      justify-self: auto;
-    }
   }
 }
 </style>

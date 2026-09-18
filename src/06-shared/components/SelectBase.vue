@@ -9,10 +9,12 @@ const props = withDefaults(defineProps<{
   width?: string | undefined
   maxVisible?: number
   disabled?: boolean
+  openUp?: boolean
   isSelected?: (value: string) => boolean
 }>(), {
   maxVisible: 3,
   disabled: false,
+  openUp: false,
 })
 
 const emit = defineEmits<{
@@ -29,6 +31,7 @@ const { shown, openUp, maxHeight, panelRef, toggle, close } = useDropdownPanel(
   rootRef,
   (): boolean => props.disabled,
   (): number => props.maxVisible,
+  (): boolean => props.openUp,
 )
 
 defineExpose({ close })

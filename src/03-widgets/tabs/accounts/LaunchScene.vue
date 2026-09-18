@@ -55,6 +55,8 @@ const accountLabel = computed((): string =>
   props.hasSession ? 'Текущий аккаунт' : 'Выберите аккаунт',
 )
 
+const displayName = computed((): string => props.hasSession ? props.username : 'Не выбрано')
+
 const isLaunchingGame = computed((): boolean => {
   const last = props.steps[props.steps.length - 1]
   return last?.status === 'active'
@@ -108,10 +110,10 @@ const openLoginForm = (): void => {
 
       <template v-else>
         <div class="launch-scene__account">
-          <span class="launch-scene__avatar">{{ avatarLetter }}</span>
+          <span v-if="hasSession" class="launch-scene__avatar">{{ avatarLetter }}</span>
           <div class="launch-scene__account-info">
             <span class="eyebrow">{{ accountLabel }}</span>
-            <p class="launch-scene__name">{{ username }}</p>
+            <p class="launch-scene__name">{{ displayName }}</p>
           </div>
         </div>
 

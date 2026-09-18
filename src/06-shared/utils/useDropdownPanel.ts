@@ -4,18 +4,21 @@ export function useDropdownPanel(
   rootRef: Ref<HTMLDivElement | null>,
   isDisabled: () => boolean,
   maxVisible: () => number,
+  forceUp: () => boolean = (): boolean => false,
 ): {
   shown: Ref<boolean>
-  openUp: Ref<boolean>
+  openUp: ComputedRef<boolean>
   maxHeight: ComputedRef<string>
   panelRef: Ref<HTMLDivElement | null>
   toggle: () => Promise<void>
   close: () => void
 } {
   const shown = ref(false)
-  const openUp = ref(false)
+  const measuredUp = ref(false)
   const panelRef = ref<HTMLDivElement | null>(null)
   const measuredHeight = ref<number | null>(null)
+
+  const openUp = computed((): boolean => forceUp() || measuredUp.value)
 
   const maxHeight = computed((): string =>
     measuredHeight.value === null ? 'none' : `${measuredHeight.value}px`,
@@ -39,7 +42,7 @@ export function useDropdownPanel(
     if (!root || measuredHeight.value === null) return
     const rect = root.getBoundingClientRect()
     const spaceBelow = window.innerHeight - rect.bottom
-    openUp.value = spaceBelow < measuredHeight.value && rect.top > spaceBelow
+    measuredUp.value = spaceBelow < measuredHeight.value && rect.top > spaceBelow
   }
 
   const close = (): void => {

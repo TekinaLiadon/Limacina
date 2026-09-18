@@ -23,5 +23,11 @@ const emit = defineEmits<{
 
 .game-checkbox-field {
   @include mixins.settings-row-body;
+
+  min-width: 0;
+
+  &__text {
+    white-space: nowrap;
+  }
 }
 </style>

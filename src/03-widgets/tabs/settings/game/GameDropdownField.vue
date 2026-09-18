@@ -30,6 +30,12 @@ const emit = defineEmits<{
 .game-dropdown-field {
   @include mixins.settings-row-body;
 
+  min-width: 0;
+
+  &__text {
+    white-space: nowrap;
+  }
+
   .dropdown__value {
     min-width: var(--settings-control-min-width);
   }

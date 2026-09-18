@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { cssDurationMs } from '@/06-shared'
 
 const props = withDefaults(defineProps<{
   title: string
@@ -9,8 +10,12 @@ const props = withDefaults(defineProps<{
 })
 
 const isOpen = ref<boolean>(true)
+const isAnimating = ref<boolean>(false)
+const bodyRef = ref<HTMLElement | null>(null)
+let clipTimer: ReturnType<typeof setTimeout> | undefined
 
 const isCollapsible = computed((): boolean => props.storageKey !== '')
+const shouldClip = computed((): boolean => !isOpen.value || isAnimating.value)
 
 onMounted((): void => {
   if (isCollapsible.value && localStorage.getItem(`limacina-section-${props.storageKey}`) === '0') {
@@ -18,12 +23,32 @@ onMounted((): void => {
   }
 })
 
+const clearAnimating = (): void => {
+  isAnimating.value = false
+  clearTimeout(clipTimer)
+}
+
 const toggle = (): void => {
   isOpen.value = !isOpen.value
   if (isCollapsible.value) {
     localStorage.setItem(`limacina-section-${props.storageKey}`, isOpen.value ? '1' : '0')
   }
+  isAnimating.value = true
+  clearTimeout(clipTimer)
+  clipTimer = setTimeout(
+    clearAnimating,
+    cssDurationMs('--duration-base', 250) + 100,
+  )
 }
+
+const handleTransitionEnd = (e: TransitionEvent): void => {
+  if (e.target !== bodyRef.value || e.propertyName !== 'grid-template-rows') return
+  clearAnimating()
+}
+
+onBeforeUnmount((): void => {
+  clearTimeout(clipTimer)
+})
 </script>
 
 <template>
@@ -50,10 +75,12 @@ const toggle = (): void => {
     <span v-else class="settings-section__title">{{ title }}</span>
 
     <div
+      ref="bodyRef"
       class="settings-section__body"
       :class="{ 'settings-section__body--closed': isCollapsible && !isOpen }"
+      @transitionend="handleTransitionEnd"
     >
-      <div class="settings-section__inner">
+      <div class="settings-section__inner" :class="{ 'settings-section__inner--clip': shouldClip }">
         <slot />
       </div>
     </div>
@@ -71,12 +98,12 @@ const toggle = (): void => {
     justify-content: space-between;
     gap: var(--space-12);
     width: 100%;
-    padding: 0;
+    padding: var(--space-8) 0;
     border: none;
     background: transparent;
     font-family: inherit;
     cursor: pointer;
-    margin-bottom: var(--space-16);
+    margin-bottom: var(--space-8);
 
     &:hover .settings-section__title {
       color: var(--login-text-secondary);
@@ -85,8 +112,8 @@ const toggle = (): void => {
 
   &__title {
     font-family: var(--font-eyebrow);
-    font-size: var(--text-caption);
-    line-height: var(--leading-caption);
+    font-size: var(--text-body-sm);
+    line-height: var(--leading-body-sm);
     font-weight: var(--weight-medium);
     letter-spacing: var(--tracking-eyebrow);
     text-transform: uppercase;
@@ -119,11 +146,14 @@ const toggle = (): void => {
   }
 
   &__inner {
-    overflow: hidden;
     min-height: 0;
     display: flex;
     flex-direction: column;
     gap: var(--section-gap);
+
+    &--clip {
+      overflow: hidden;
+    }
   }
 }
 </style>
