@@ -1,7 +1,7 @@
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import { copyToClipboard, reportError } from '@/06-shared'
 import { useConsoleStream } from '@/04-features/debug-console/useConsoleStream'
-import type { ConsoleLog } from '@/05-entities'
+import { useNotificationStore, type ConsoleLog } from '@/05-entities'
 
 export function useDebugConsole(): {
   logs: ComputedRef<ConsoleLog[]>
@@ -9,9 +9,12 @@ export function useDebugConsole(): {
   searchQuery: Ref<string>
   onlyErrors: Ref<boolean>
   linesCount: ComputedRef<number>
+  streamError: ComputedRef<string>
+  startConsoleStream: () => Promise<void>
   handleCopy: () => Promise<void>
 } {
-  const { logs, setConsoleActive } = useConsoleStream()
+  const { logs, streamError, startConsoleStream, setConsoleActive } = useConsoleStream()
+  const notification = useNotificationStore()
 
   const searchQuery = ref<string>('')
   const onlyErrors = ref<boolean>(false)
@@ -41,6 +44,7 @@ export function useDebugConsole(): {
       await copyToClipboard(text)
     } catch (e: unknown) {
       reportError('Не удалось скопировать логи', e)
+      notification.show('Не удалось скопировать логи')
     }
   }
 
@@ -50,6 +54,8 @@ export function useDebugConsole(): {
     searchQuery,
     onlyErrors,
     linesCount,
+    streamError,
+    startConsoleStream,
     handleCopy,
   }
 }

@@ -5,9 +5,20 @@ import { useDebugConsole } from '@/04-features'
 import type { ConsoleLog } from '@/05-entities'
 import { Icon } from '@/06-shared'
 
-const { filteredLogs, searchQuery, onlyErrors, linesCount, handleCopy } = useDebugConsole()
+const { logs, filteredLogs, searchQuery, onlyErrors, linesCount, streamError, startConsoleStream, handleCopy } = useDebugConsole()
 
 const logAt = (index: number): ConsoleLog | undefined => filteredLogs.value[index]
+
+const isRetrying = ref<boolean>(false)
+const retryStream = async (): Promise<void> => {
+  if (isRetrying.value) return
+  isRetrying.value = true
+  try {
+    await startConsoleStream()
+  } finally {
+    isRetrying.value = false
+  }
+}
 
 const parentRef = ref<HTMLDivElement | null>(null)
 const isAutoScroll = ref<boolean>(true)
@@ -80,7 +91,23 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       </button>
     </div>
 
+    <div v-if="streamError" class="debug-tab__stream-error">
+      <span class="debug-tab__stream-error-text">Стриминг логов недоступен: {{ streamError }}</span>
+      <button
+        class="debug-tab__retry-btn"
+        type="button"
+        :disabled="isRetrying"
+        @click="retryStream"
+      >
+        Повторить
+      </button>
+    </div>
+
+    <div v-if="filteredLogs.length === 0" class="debug-tab__empty">
+      {{ logs.length === 0 ? 'Логов пока нет' : 'Под фильтр ничего не подошло' }}
+    </div>
     <div
+      v-else
       ref="parentRef"
       class="debug-tab__scroll"
     >
@@ -192,6 +219,58 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       color: var(--debug-error);
       border-color: var(--debug-error);
     }
+  }
+
+  &__stream-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
+    border-bottom: 1px solid var(--debug-border);
+    background: var(--debug-actions-bg);
+  }
+
+  &__stream-error-text {
+    min-width: 0;
+    color: var(--debug-error);
+    font-size: var(--text-caption);
+  }
+
+  &__retry-btn {
+    flex-shrink: 0;
+    padding: var(--space-4) var(--space-12);
+    background: var(--debug-btn-bg);
+    color: var(--debug-error);
+    border: 1px solid var(--debug-error);
+    border-radius: var(--debug-radius);
+    cursor: pointer;
+    font-size: var(--text-caption);
+    font-family: inherit;
+    white-space: nowrap;
+    transition: background-color var(--duration-fast) var(--ease-out);
+
+    &:hover {
+      background: var(--debug-btn-hover-bg);
+    }
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+  }
+
+  &__empty {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-16);
+    color: var(--debug-line-num);
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    text-align: center;
   }
 
   &__scroll {

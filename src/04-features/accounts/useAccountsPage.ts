@@ -59,8 +59,10 @@ export function useAccountsPage() {
 
   const hasAccounts = computed((): boolean => logins.value.length > 0)
   const isLaunching = computed((): boolean => store.isLaunching)
+  const loginsError = computed((): string => store.loginsError)
   const showAuth = computed((): boolean =>
-    !store.isLaunching && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn)),
+    !store.isLaunching
+    && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn && !loginsError.value && !store.isLoginsLoading)),
   )
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
 
@@ -126,6 +128,8 @@ export function useAccountsPage() {
     isLoading,
     errorMessage,
     logins,
+    loginsError,
+    loadAccounts,
     selectedUsername,
     handleSelect,
     isLaunching,

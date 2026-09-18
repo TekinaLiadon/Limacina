@@ -1,6 +1,6 @@
 import { computed, type WritableComputedRef } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
-import { authLogins } from '@/06-shared/api'
+import { authLogins, getErrorMessage } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
 export function useAccountsList(): {
@@ -16,10 +16,18 @@ export function useAccountsList(): {
   })
 
   const loadAccounts = async (): Promise<void> => {
+    const projectName = coreStore.currentProject
+    if (!projectName) return
+
+    store.isLoginsLoading = true
+    store.loginsError = ''
     try {
-      store.logins = await authLogins(coreStore.currentProject)
+      store.logins = await authLogins(projectName)
     } catch (e: unknown) {
+      store.loginsError = getErrorMessage(e)
       reportError('Не удалось загрузить аккаунты', e)
+    } finally {
+      store.isLoginsLoading = false
     }
   }
 

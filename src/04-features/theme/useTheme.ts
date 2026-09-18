@@ -1,5 +1,5 @@
 import { ref, watch, type Ref } from 'vue'
-import { useSettingsStore, parseThemeId } from '@/05-entities'
+import { useNotificationStore, useSettingsStore, parseThemeId } from '@/05-entities'
 import { saveTheme, setWindowBackgroundColor, cssDurationMs, reportError } from '@/06-shared'
 
 const SWITCH_DURATION_MS = cssDurationMs('--switch-duration', 1500)
@@ -31,6 +31,7 @@ export function useTheme(): {
   switchDirection: Ref<'to-light' | 'to-dark'>
 } {
   const settingsStore = useSettingsStore()
+  const notification = useNotificationStore()
 
   const applyTheme = (theme: string): void => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -46,6 +47,7 @@ export function useTheme(): {
 
     saveTheme(newTheme).catch((e: unknown) => {
       reportError('Ошибка сохранения темы', e)
+      notification.show('Тема применена, но не сохранена — после перезапуска вернётся прежняя')
     })
 
     const newMode = parseThemeId(newTheme).mode

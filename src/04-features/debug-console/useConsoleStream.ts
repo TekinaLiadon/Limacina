@@ -1,9 +1,10 @@
 import { computed, ref, type ComputedRef } from 'vue'
-import { getStartupLogs, listenGameConsole } from '@/06-shared/api'
+import { getErrorMessage, getStartupLogs, listenGameConsole } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import type { ConsoleLog } from '@/05-entities'
 
 const logs = ref<ConsoleLog[]>([])
+const streamError = ref<string>('')
 const LOG_LIMIT = 2000
 const FLUSH_INTERVAL = 500
 const FLUSH_BATCH = 100
@@ -50,12 +51,14 @@ const flushBuffer = (): number => {
 
 export function useConsoleStream(): {
   logs: ComputedRef<ConsoleLog[]>
+  streamError: ComputedRef<string>
   startConsoleStream: () => Promise<void>
   setConsoleActive: (active: boolean) => void
 } {
   const startConsoleStream = async (): Promise<void> => {
     if (streamingStarted) return
     streamingStarted = true
+    streamError.value = ''
 
     try {
       if (logs.value.length === 0) {
@@ -71,6 +74,7 @@ export function useConsoleStream(): {
       setInterval(flushBuffer, FLUSH_INTERVAL)
     } catch (e: unknown) {
       streamingStarted = false
+      streamError.value = getErrorMessage(e)
       reportError('Не удалось запустить стриминг консоли', e)
     }
   }
@@ -89,6 +93,7 @@ export function useConsoleStream(): {
 
   return {
     logs: computed(() => logs.value),
+    streamError: computed(() => streamError.value),
     startConsoleStream,
     setConsoleActive,
   }

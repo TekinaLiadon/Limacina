@@ -223,6 +223,8 @@ export function useCpmSettings() {
     isOffline: content.isOffline,
     uploadedModels: content.items,
     isListLoading: content.isListLoading,
+    listError: content.listError,
+    loadList: content.loadItems,
     modelsLimit,
     isLimitLoading,
     limitLoadError,

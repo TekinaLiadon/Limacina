@@ -183,6 +183,8 @@ export function useSkinSettings() {
     isOffline: content.isOffline,
     uploadedSkins: content.items,
     isListLoading: content.isListLoading,
+    listError: content.listError,
+    loadList: content.loadItems,
     isSkinLoading,
     isDragOver,
     modelMode,

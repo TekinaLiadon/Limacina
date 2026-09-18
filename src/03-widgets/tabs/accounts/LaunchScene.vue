@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<{
   serverOffline?: boolean
   loginError?: string
   selectError?: string
+  loginsError?: string
   showAuth: boolean
   showBack: boolean
 }>(), {
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<{
   serverOffline: false,
   loginError: '',
   selectError: '',
+  loginsError: '',
   isInterrupted: false,
 })
 
@@ -37,6 +39,7 @@ const emit = defineEmits<{
   'select': [username: string]
   'delete-account': [username: string]
   'show-login': []
+  'retry-logins': []
   'cancel': []
   'auth-back': []
   'minimize': []
@@ -146,6 +149,18 @@ const openLoginForm = (): void => {
           </div>
 
           <div v-else key="actions" class="launch-scene__actions">
+            <template v-if="loginsError && !hasSession">
+              <div class="launch-scene__error">
+                Не удалось загрузить список аккаунтов: {{ loginsError }}
+              </div>
+              <Button
+                class="btn-secondary btn-block"
+                :is-disabled="isLoading"
+                @click="emit('retry-logins')"
+              >
+                Повторить
+              </Button>
+            </template>
             <div v-if="serverOffline ?? false" class="launch-scene__error">
               Сервер лаунчера недоступен — запуск заблокирован, ждём восстановления соединения
             </div>
@@ -193,6 +208,9 @@ const openLoginForm = (): void => {
                   />
                 </template>
                 <template v-else>
+                <div v-if="loginsError" class="launch-scene__menu-error">
+                  Не удалось загрузить список аккаунтов
+                </div>
                 <div
                   v-for="login in logins"
                   :key="login"
@@ -370,6 +388,12 @@ const openLoginForm = (): void => {
     &.skeleton .skeleton__line {
       height: calc(var(--text-body-sm) * var(--leading-body-sm));
     }
+  }
+
+  &__menu-error {
+    padding: var(--space-8) var(--space-12);
+    font-size: var(--text-caption);
+    color: var(--error);
   }
 
   &__menu-item {

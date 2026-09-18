@@ -14,6 +14,8 @@ const {
   isOffline,
   uploadedSkins,
   isListLoading,
+  listError,
+  loadList,
   isDragOver,
   modelMode,
   selectSkin,
@@ -94,12 +96,14 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     </p>
 
     <UserContentList
-      v-if="!isOffline && (isListLoading || uploadedSkins.length > 0)"
+      v-if="!isOffline && (isListLoading || listError || uploadedSkins.length > 0)"
       title="Загруженные скины"
       :items="uploadedSkins"
       :is-loading="isListLoading"
+      :error="listError"
       @copy="handleCopyUrl"
       @delete="handleDelete"
+      @retry="loadList"
     >
       <template #item-actions="{ item }">
         <Button

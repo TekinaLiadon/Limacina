@@ -5,6 +5,7 @@ export { default as StartupError } from './dashboard/StartupError.vue'
 
 export { default as LaunchScene } from './tabs/accounts/LaunchScene.vue'
 export { default as AuthTabsWidget } from './tabs/accounts/AuthTabsWidget.vue'
+export { default as NoProjectsState } from './tabs/accounts/NoProjectsState.vue'
 
 export { default as AuthForm } from './tabs/login/AuthForm.vue'
 export { default as StepProgress } from './tabs/login/StepProgress.vue'

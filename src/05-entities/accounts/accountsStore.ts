@@ -5,6 +5,8 @@ export interface AccountsState {
   isLoading: boolean
   errorMessage: string
   logins: string[]
+  loginsError: string
+  isLoginsLoading: boolean
   selectedUsername: string
 
   authLoading: boolean
@@ -29,6 +31,8 @@ export const useAccountsStore = defineStore('accounts', {
     isLoading: false,
     errorMessage: '',
     logins: [],
+    loginsError: '',
+    isLoginsLoading: false,
     selectedUsername: '',
 
     authLoading: false,

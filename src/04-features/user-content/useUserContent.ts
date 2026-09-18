@@ -29,6 +29,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   const isUploading = ref<boolean>(false)
   const errorMessage = ref<string>('')
   const isListLoading = ref<boolean>(false)
+  const listError = ref<string>('')
 
   const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
 
@@ -38,9 +39,11 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     if (!uuid) return
 
     isListLoading.value = true
+    listError.value = ''
     try {
       items.value = await api.list(uuid)
     } catch (e: unknown) {
+      listError.value = `${api.listLoadErrorMessage}: ${getErrorMessage(e)}`
       reportError(api.listLoadErrorMessage, e)
     } finally {
       isListLoading.value = false
@@ -98,6 +101,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     items,
     isUploading,
     isListLoading,
+    listError,
     errorMessage,
     isOffline,
     loadItems,

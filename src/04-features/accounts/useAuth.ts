@@ -1,6 +1,6 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, type AuthUserData } from '@/05-entities'
-import { authLogins, authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
+import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
@@ -40,11 +40,13 @@ export function useAuth() {
   const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
 
   const isLoginValid = computed((): boolean => {
+    if (!coreStore.currentProject) return false
     if (store.loginFormData.username.length < 3) return false
     return isOffline.value || store.loginFormData.password.length >= 4
   })
 
   const isRegisterValid = computed((): boolean => {
+    if (!coreStore.currentProject) return false
     return (
       store.registerFormData.login.length >= MIN_LOGIN_LENGTH &&
       store.registerFormData.password.length >= MIN_PASSWORD_LENGTH &&
@@ -56,15 +58,10 @@ export function useAuth() {
   const loadSavedCredentials = async (): Promise<void> => {
     if (coreStore.isLoggedIn) return
 
-    try {
-      const savedLogins = await authLogins(coreStore.currentProject)
-      store.logins = savedLogins
-      const [firstLogin] = savedLogins
-      if (firstLogin !== undefined && !store.loginFormData.username) {
-        store.loginFormData.username = firstLogin
-      }
-    } catch (e: unknown) {
-      reportError('Не удалось загрузить сохранённые учётные данные', e)
+    await loadAccounts()
+    const [firstLogin] = store.logins
+    if (firstLogin !== undefined && !store.loginFormData.username) {
+      store.loginFormData.username = firstLogin
     }
   }
 

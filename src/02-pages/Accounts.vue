@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { useAccountsPage, useGameSession, useProjectConfig, useProjectSwitch } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
 import { Preloader } from '@/06-shared'
-import { LaunchScene } from '@/03-widgets'
+import { LaunchScene, NoProjectsState } from '@/03-widgets'
 
 useProjectConfig()
 
+const router = useRouter()
 const coreStore = useCoreStore()
 const { minimizeToTray } = useGameSession()
 const { isSwitching } = useProjectSwitch()
@@ -13,6 +15,8 @@ const {
   isLoading,
   errorMessage,
   logins,
+  loginsError,
+  loadAccounts,
   selectedUsername,
   handleSelect,
   isLaunching,
@@ -36,6 +40,10 @@ const {
 <template>
   <div class="accounts-page">
     <Preloader v-if="isSwitching" text="Смена проекта…" />
+    <NoProjectsState
+      v-else-if="coreStore.projects.length === 0"
+      @add-profile="router.push({ name: 'AddProfile' })"
+    />
     <LaunchScene v-else
       v-model:active-tab="activeSubTab"
       :username="sceneUsername"
@@ -52,12 +60,14 @@ const {
       :server-offline="isServerOffline"
       :login-error="loginError"
       :select-error="errorMessage"
+      :logins-error="loginsError"
       :show-auth="showAuth"
       :show-back="showBack"
       @launch="handleLaunch"
       @select="handleSelect"
       @delete-account="handleDeleteAccount"
       @show-login="showLoginForm"
+      @retry-logins="loadAccounts"
       @cancel="goToAccounts"
       @auth-back="goToAccounts"
       @minimize="minimizeToTray"

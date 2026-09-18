@@ -19,6 +19,8 @@ const {
   isOffline,
   uploadedModels,
   isListLoading,
+  listError,
+  loadList,
   modelsLimit,
   isLimitLoading,
   limitLoadError,
@@ -188,12 +190,14 @@ const applyLimitInput = async (): Promise<void> => {
     </div>
 
     <UserContentList
-      v-if="!isOffline && (isListLoading || uploadedModels.length > 0)"
+      v-if="!isOffline && (isListLoading || listError || uploadedModels.length > 0)"
       title="Загруженные модели"
       :items="uploadedModels"
       :is-loading="isListLoading"
+      :error="listError"
       @copy="handleCopyUrl"
       @delete="handleDeleteModel"
+      @retry="loadList"
     />
   </div>
 </template>
