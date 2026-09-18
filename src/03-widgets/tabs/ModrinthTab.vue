@@ -27,6 +27,7 @@ const {
   isCheckingUpdates,
   installingId,
   actionError,
+  installedError,
   search,
   loadPage,
   loadInstalled,
@@ -168,12 +169,15 @@ onMounted(() => {
         </Button>
       </div>
 
+      <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
+      <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
+
       <div v-if="isTabLoading" class="modrinth-tab__list" aria-hidden="true">
         <div v-for="index in 5" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
           <Skeleton variant="list-item" icon-shape="square" :lines="4" />
         </div>
       </div>
-      <p v-else-if="installed.length === 0" class="modrinth-tab__empty">
+      <p v-else-if="installed.length === 0 && !installedError" class="modrinth-tab__empty">
         Пока ничего не установлено — найдите моды в каталоге
       </p>
       <div v-else class="modrinth-tab__list">
@@ -245,6 +249,7 @@ onMounted(() => {
 
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
+      <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
 
       <div v-if="isCatalogSearching" class="modrinth-tab__summary" aria-hidden="true">
         <Skeleton

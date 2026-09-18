@@ -84,6 +84,7 @@ export function useModrinth() {
   const isCheckingUpdates = ref(false)
   const installingId = ref<string | null>(null)
   const actionError = ref('')
+  const installedError = ref('')
 
   const totalPages = computed((): number => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
@@ -125,10 +126,11 @@ export function useModrinth() {
 
   const loadInstalled = async (): Promise<void> => {
     isLoadingInstalled.value = true
+    installedError.value = ''
     try {
       installed.value = await modrinthInstalled()
     } catch (e: unknown) {
-      actionError.value = getErrorMessage(e)
+      installedError.value = getErrorMessage(e)
     } finally {
       isLoadingInstalled.value = false
     }
@@ -212,6 +214,7 @@ export function useModrinth() {
     isCheckingUpdates,
     installingId,
     actionError,
+    installedError,
     search,
     loadPage,
     loadInstalled,

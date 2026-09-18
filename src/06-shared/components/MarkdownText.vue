@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { resolveMarkdownUrl, renderMarkdown } from '@/06-shared'
+import { getErrorMessage, resolveMarkdownUrl, renderMarkdown } from '@/06-shared'
 
 const props = defineProps<{
   source: string
 }>()
 
+const emit = defineEmits<{
+  'link-error': [message: string]
+}>()
+
 const html = computed((): string => renderMarkdown(props.source))
 
-function handleAnchorClick(event: MouseEvent): void {
+async function handleAnchorClick(event: MouseEvent): Promise<void> {
   const { target } = event
   if (!(target instanceof Element)) return
   const anchor = target.closest('a')
@@ -17,7 +21,11 @@ function handleAnchorClick(event: MouseEvent): void {
   const href = anchor.getAttribute('href')
   if (href === null || href === '') return
   event.preventDefault()
-  void openUrl(resolveMarkdownUrl(href))
+  try {
+    await openUrl(resolveMarkdownUrl(href))
+  } catch (e: unknown) {
+    emit('link-error', getErrorMessage(e))
+  }
 }
 </script>
 

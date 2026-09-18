@@ -6,6 +6,7 @@ import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
 const props = defineProps<{
   isChecking: boolean
+  isPopupHidden: boolean
   steps: StepProgressItem[]
   progress: number
   report: IntegrityReport | null
@@ -42,7 +43,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 
     <Teleport to="body">
       <Transition name="popup">
-        <div v-if="isChecking || report !== null || errorMessage" class="integrity-popup-overlay" @click.self="emit('close')">
+        <div v-if="!isPopupHidden && (isChecking || report !== null || errorMessage)" class="integrity-popup-overlay" @click.self="emit('close')">
           <div class="integrity-popup popup-panel">
             <h3 class="integrity-popup__title">Проверка целостности файлов</h3>
 

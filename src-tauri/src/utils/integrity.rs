@@ -411,6 +411,7 @@ pub async fn record_installed_hash(
 mod ensure_files_tests {
     use super::*;
     use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::utils::install_manifest::InstallManifest;
     use mockito::Server;
 
     fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
@@ -559,5 +560,78 @@ mod ensure_files_tests {
 
         let installed = load_install_manifest("Cordelia").await.expect("манифест");
         assert_eq!(installed.files.get("installer.jar"), Some(&sha1_hex(&body)));
+    }
+
+    fn write_broken_manifest(dir: &LauncherDirGuard, project: &str) {
+        let manifest_path = dir
+            .root()
+            .join("manifest")
+            .join(format!("installed_{project}.json"));
+        std::fs::create_dir_all(manifest_path.parent().expect("родительская директория")).unwrap();
+        std::fs::write(&manifest_path, "{ это невалидный json").unwrap();
+    }
+
+    #[tokio::test]
+    async fn broken_manifest_does_not_block_ensure_files() {
+        let dir = LauncherDirGuard::acquire("ensure_broken_manifest").await;
+        write_broken_manifest(&dir, "Cordelia");
+        let mut server = Server::new_async().await;
+        let body = b"library bytes".to_vec();
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "libraries/a.jar",
+            &sha1_hex(&body),
+            format!("{}/libs/a.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("установка при битом манифесте");
+
+        assert_eq!(report.repaired, 1);
+        assert!(report.failed.is_empty());
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/a.jar"),
+            Some(&sha1_hex(&body))
+        );
+        let raw =
+            std::fs::read_to_string(dir.root().join("manifest").join("installed_Cordelia.json"))
+                .expect("чтение манифеста");
+        assert!(serde_json::from_str::<InstallManifest>(&raw).is_ok());
+    }
+
+    #[tokio::test]
+    async fn broken_manifest_does_not_block_record_installed_hash() {
+        let dir = LauncherDirGuard::acquire("record_broken_manifest").await;
+        write_broken_manifest(&dir, "Cordelia");
+
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
+        let body = b"installer bytes".to_vec();
+        std::fs::write(base.join("libraries").join("installer.jar"), &body).unwrap();
+
+        record_installed_hash("Cordelia", &base, Path::new("libraries/installer.jar"))
+            .await
+            .expect("запись хеша при битом манифесте");
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/installer.jar"),
+            Some(&sha1_hex(&body))
+        );
     }
 }

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { Button, MarkdownText, useFocusTrap } from '@/06-shared'
+import { Button, MarkdownText, useFocusTrap, getErrorMessage } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
-import type { ModrinthSearchHit, ModrinthProjectDetails, ModrinthVersion, ModrinthSide, ModrinthVersionType } from '@/05-entities'
+import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -27,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const { fetchProjectDetails } = useModrinth()
+const notification = useNotificationStore()
 
 const popupRef = ref<HTMLDivElement | null>(null)
 
@@ -34,7 +35,9 @@ useFocusTrap(popupRef, (): boolean => props.visible)
 
 const details = ref<ModrinthProjectDetails | null>(null)
 const isLoading = ref(false)
+const loadError = ref('')
 const expandedChangelogs = ref<Set<string>>(new Set())
+let detailsGeneration = 0
 
 const sideLabels: Record<ModrinthSide, string> = {
   required: 'обязателен',
@@ -99,13 +102,19 @@ function formatDate(value: string | null): string {
 async function loadDetails(): Promise<void> {
   const { hit } = props
   if (hit === null) return
+  const generation = (detailsGeneration += 1)
   isLoading.value = true
   details.value = null
+  loadError.value = ''
   expandedChangelogs.value = new Set()
-  await fetchProjectDetails(hit.project_id).then((result) => {
-    details.value = result
-  })
-  isLoading.value = false
+  try {
+    const result = await fetchProjectDetails(hit.project_id)
+    if (generation === detailsGeneration) details.value = result
+  } catch (e: unknown) {
+    if (generation === detailsGeneration) loadError.value = getErrorMessage(e)
+  } finally {
+    if (generation === detailsGeneration) isLoading.value = false
+  }
 }
 
 function hasChangelog(version: ModrinthVersion): boolean {
@@ -141,8 +150,12 @@ onBeforeUnmount((): void => {
   window.removeEventListener('keydown', handleEsc)
 })
 
-function handleLink(url: string): void {
-  void openUrl(url)
+async function handleLink(url: string): Promise<void> {
+  try {
+    await openUrl(url)
+  } catch (e: unknown) {
+    notification.show(getErrorMessage(e))
+  }
 }
 </script>
 
@@ -206,7 +219,11 @@ function handleLink(url: string): void {
 
             <p class="modrinth-popup__description">{{ details.project.description }}</p>
 
-            <MarkdownText class="modrinth-popup__body" :source="details.project.body" />
+            <MarkdownText
+              class="modrinth-popup__body"
+              :source="details.project.body"
+              @link-error="notification.show"
+            />
 
             <h4 class="modrinth-popup__versions-title">Версии ({{ details.versions.length }})</h4>
             <div class="modrinth-popup__versions">
@@ -229,12 +246,13 @@ function handleLink(url: string): void {
                   v-if="hasChangelog(version) && expandedChangelogs.has(version.id)"
                   class="modrinth-popup__changelog"
                   :source="version.changelog ?? ''"
+                  @link-error="notification.show"
                 />
               </div>
             </div>
           </div>
 
-          <p v-else class="modrinth-popup__error">Не удалось загрузить информацию о моде</p>
+          <p v-else class="modrinth-popup__error">{{ loadError || 'Не удалось загрузить информацию о моде' }}</p>
 
           <div v-if="links.length > 0" class="modrinth-popup__footer">
             <Button

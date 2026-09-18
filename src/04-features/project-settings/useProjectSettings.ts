@@ -247,9 +247,17 @@ export function useProjectSettings(): {
         return
       }
 
-      coreStore.currentProject = next
-      coreStore.projectConfig = await loadSettingsProject(next)
-      accountsStore.logins = await authLogins(next)
+      try {
+        const nextConfig = await loadSettingsProject(next)
+        const logins = await authLogins(next)
+        coreStore.currentProject = next
+        coreStore.projectConfig = nextConfig
+        accountsStore.logins = logins
+      } catch (e: unknown) {
+        coreStore.currentProject = next
+        coreStore.projectConfig = null
+        notification.show(getErrorMessage(e))
+      }
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))
     } finally {

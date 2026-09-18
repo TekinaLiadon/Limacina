@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Button, ProgressBar, Skeleton, useDropdownPanel } from '@/06-shared'
+import { Button, Identicon, ProgressBar, Skeleton, useDropdownPanel } from '@/06-shared'
 import AuthTabsWidget from './AuthTabsWidget.vue'
 import StepProgress from '../login/StepProgress.vue'
 import type { AuthSubTab, StepProgressItem } from '@/05-entities'
@@ -48,8 +48,6 @@ const { shown: menuOpen, openUp, maxHeight, toggle: toggleMenu, close: closeMenu
   (): boolean => props.isLoading,
   (): number => 6,
 )
-
-const avatarLetter = computed((): string => props.username.charAt(0).toUpperCase())
 
 const accountLabel = computed((): string =>
   props.hasSession ? 'Текущий аккаунт' : 'Выберите аккаунт',
@@ -110,7 +108,7 @@ const openLoginForm = (): void => {
 
       <template v-else>
         <div class="launch-scene__account">
-          <span v-if="hasSession" class="launch-scene__avatar">{{ avatarLetter }}</span>
+          <Identicon v-if="hasSession" :username="username" :size="64" />
           <div class="launch-scene__account-info">
             <span class="eyebrow">{{ accountLabel }}</span>
             <p class="launch-scene__name">{{ displayName }}</p>
@@ -205,7 +203,7 @@ const openLoginForm = (): void => {
                   @click="selectAccount(login)"
                   @keydown.enter="selectAccount(login)"
                 >
-                  <span class="launch-scene__menu-avatar">{{ login.charAt(0).toUpperCase() }}</span>
+                  <Identicon :username="login" :size="28" />
                   <span class="launch-scene__menu-name">{{ login }}</span>
                   <span v-if="login === selectedUsername" class="launch-scene__menu-check">
                     <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
@@ -286,22 +284,6 @@ const openLoginForm = (): void => {
     justify-content: center;
     gap: var(--space-16);
     margin-bottom: var(--title-gap);
-  }
-
-  &__avatar {
-    width: 64px;
-    height: 64px;
-    border-radius: var(--radius-circle);
-    background: var(--login-accent);
-    color: var(--text-on-accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-display);
-    font-size: var(--text-heading-sm);
-    font-weight: var(--weight-medium);
-    line-height: 1;
-    flex-shrink: 0;
   }
 
   &__account-info {
@@ -416,22 +398,6 @@ const openLoginForm = (): void => {
       color: var(--login-text-primary);
       background: var(--accent-subtle);
     }
-  }
-
-  &__menu-avatar {
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius-circle);
-    background: var(--login-accent);
-    color: var(--text-on-accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-display);
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    line-height: 1;
-    flex-shrink: 0;
   }
 
   &__menu-name {

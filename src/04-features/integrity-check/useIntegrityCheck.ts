@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps } from '@/06-shared/api'
 import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
 import type { UnlistenFn } from '@tauri-apps/api/event'
@@ -21,6 +21,7 @@ export function useIntegrityCheck(): {
   steps: Ref<StepProgressItem[]>
   progress: ComputedRef<number>
   isChecking: Ref<boolean>
+  isPopupHidden: Ref<boolean>
   report: Ref<IntegrityReport | null>
   errorMessage: Ref<string>
   hasResult: ComputedRef<boolean>
@@ -29,10 +30,12 @@ export function useIntegrityCheck(): {
 } {
   const steps = ref<StepProgressItem[]>([])
   const isChecking = ref<boolean>(false)
+  const isPopupHidden = ref<boolean>(false)
   const report = ref<IntegrityReport | null>(null)
   const errorMessage = ref<string>('')
 
   const coreStore = useCoreStore()
+  const notification = useNotificationStore()
 
   const progress = computed((): number => computeStepProgress(steps.value))
 
@@ -64,6 +67,7 @@ export function useIntegrityCheck(): {
   const handleCheck = async (): Promise<void> => {
     if (isChecking.value) return
     isChecking.value = true
+    isPopupHidden.value = false
     prefillSteps()
     report.value = null
     errorMessage.value = ''
@@ -81,18 +85,28 @@ export function useIntegrityCheck(): {
         unlisten = fn
       }
       const result = await checkFilesIntegrity()
-      if (checkId !== currentId) return
+      if (checkId !== currentId || isUnmounted) return
       report.value = result
+      if (isPopupHidden.value) {
+        notification.show(
+          result.failed.length > 0
+            ? `Проверка целостности: не удалось восстановить ${result.failed.length} файлов`
+            : 'Проверка целостности: все файлы в порядке',
+        )
+      }
     } catch (e: unknown) {
-      if (checkId !== currentId) return
+      if (checkId !== currentId || isUnmounted) return
       reportError('Проверка целостности файлов завершилась с ошибкой', e)
       errorMessage.value = getErrorMessage(e)
+      if (isPopupHidden.value) notification.show(`Проверка целостности не удалась: ${errorMessage.value}`)
     } finally {
       if (checkId === currentId) isChecking.value = false
     }
   }
 
   const closeResult = (): void => {
+    isPopupHidden.value = true
+    if (isChecking.value) return
     report.value = null
     errorMessage.value = ''
     steps.value = []
@@ -102,6 +116,7 @@ export function useIntegrityCheck(): {
     steps,
     progress,
     isChecking,
+    isPopupHidden,
     report,
     errorMessage,
     hasResult,

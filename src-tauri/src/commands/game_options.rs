@@ -155,7 +155,9 @@ fn uses_normalized_fov(mc_version: &str) -> bool {
 fn parse_fov(raw: Option<&str>, normalized: bool) -> f64 {
     let value = raw.and_then(|v| v.trim().parse::<f64>().ok().filter(|n| n.is_finite()));
     match value {
-        Some(degrees) if normalized => (degrees * FOV_SCALE + FOV_OFFSET).clamp(FOV_MIN_DEG, FOV_MAX_DEG),
+        Some(degrees) if normalized => {
+            (degrees * FOV_SCALE + FOV_OFFSET).clamp(FOV_MIN_DEG, FOV_MAX_DEG)
+        }
         Some(degrees) => degrees,
         None => FOV_OFFSET,
     }
@@ -240,7 +242,10 @@ fn owned_values(options: &GameOptions, normalized_fov: bool) -> Vec<(&'static st
             "textBackgroundOpacity",
             options.text_background_opacity.to_string(),
         ),
-        ("chatVisibility", format_chat_visibility(&options.chat_visibility)),
+        (
+            "chatVisibility",
+            format_chat_visibility(&options.chat_visibility),
+        ),
         ("chatColors", format_bool(options.chat_colors)),
         ("chatLinks", format_bool(options.chat_links)),
         ("chatLinksPrompt", format_bool(options.chat_links_prompt)),
@@ -365,7 +370,8 @@ pub fn parse_options(content: &str, normalized_fov: bool) -> GameOptions {
             .map_or(defaults.text_background_opacity, |v| {
                 parse_f64(v, defaults.text_background_opacity)
             }),
-        chat_visibility: get("chatVisibility").map_or(defaults.chat_visibility.clone(), parse_chat_visibility),
+        chat_visibility: get("chatVisibility")
+            .map_or(defaults.chat_visibility.clone(), parse_chat_visibility),
         chat_colors: get("chatColors").map_or(defaults.chat_colors, |v| {
             parse_bool(v, defaults.chat_colors)
         }),
@@ -609,11 +615,17 @@ mod tests {
 
         let merged = merge_options(None, &options, true);
 
-        assert!(merged.contains("fov:0.5"), "современные версии хранят fov нормализованным");
+        assert!(
+            merged.contains("fov:0.5"),
+            "современные версии хранят fov нормализованным"
+        );
         assert!(merged.contains("chatVisibility:1"));
 
         let legacy = merge_options(None, &options, false);
-        assert!(legacy.contains("fov:90"), "старые версии хранят fov в градусах");
+        assert!(
+            legacy.contains("fov:90"),
+            "старые версии хранят fov в градусах"
+        );
         assert!(legacy.contains("chatVisibility:1"));
     }
 
@@ -662,11 +674,26 @@ mod tests {
         let clouds_unknown = parse_options("renderClouds:enabled\n", true);
         assert_eq!(clouds_unknown.render_clouds, "true");
 
-        assert_eq!(parse_options("chatVisibility:0\n", true).chat_visibility, "full");
-        assert_eq!(parse_options("chatVisibility:1\n", true).chat_visibility, "system");
-        assert_eq!(parse_options("chatVisibility:2\n", true).chat_visibility, "hidden");
-        assert_eq!(parse_options("chatVisibility:9\n", true).chat_visibility, "full");
-        assert_eq!(parse_options("chatVisibility:hidden\n", true).chat_visibility, "hidden");
+        assert_eq!(
+            parse_options("chatVisibility:0\n", true).chat_visibility,
+            "full"
+        );
+        assert_eq!(
+            parse_options("chatVisibility:1\n", true).chat_visibility,
+            "system"
+        );
+        assert_eq!(
+            parse_options("chatVisibility:2\n", true).chat_visibility,
+            "hidden"
+        );
+        assert_eq!(
+            parse_options("chatVisibility:9\n", true).chat_visibility,
+            "full"
+        );
+        assert_eq!(
+            parse_options("chatVisibility:hidden\n", true).chat_visibility,
+            "hidden"
+        );
     }
 
     #[test]

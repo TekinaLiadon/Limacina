@@ -12,6 +12,7 @@ export { default as Skeleton } from './components/Skeleton.vue'
 export { default as Tooltip } from './components/Tooltip.vue'
 export { default as MarkdownText } from './components/MarkdownText.vue'
 export { default as Preloader } from './components/Preloader.vue'
+export { default as Identicon } from './components/Identicon.vue'
 
 export * from './api'
 

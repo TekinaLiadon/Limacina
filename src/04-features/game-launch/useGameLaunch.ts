@@ -131,6 +131,14 @@ export function useGameLaunch() {
     }
   }
 
+  const failStep = async (error: unknown, isCancelled?: () => boolean): Promise<void> => {
+    if (isCancelled?.()) return
+    await flushLaunchSteps()
+    markActiveStepError(getErrorMessage(error))
+    coreStore.loginError = getErrorMessage(error)
+    store.isLaunching = false
+  }
+
   const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
     let config: ProjectConfig
     try {
@@ -194,11 +202,7 @@ export function useGameLaunch() {
           }
         }
       } catch (error: unknown) {
-        if (isCancelled?.()) return
-        await flushLaunchSteps()
-        markActiveStepError(getErrorMessage(error))
-        coreStore.loginError = getErrorMessage(error)
-        store.isLaunching = false
+        await failStep(error, isCancelled)
         return
       }
     }
@@ -211,11 +215,21 @@ export function useGameLaunch() {
       } catch (e: unknown) {
         reportError('Не удалось очистить журнал установки', e)
       }
-      coreStore.projectConfig = await setInitialized()
+      try {
+        coreStore.projectConfig = await setInitialized()
+      } catch (error: unknown) {
+        await failStep(error, isCancelled)
+        return
+      }
     }
 
     if (coreStore.launcherConfig?.closeAfterLaunch) {
-      await exitLauncher()
+      try {
+        await exitLauncher()
+      } catch (error: unknown) {
+        await failStep(error, isCancelled)
+        return
+      }
       return
     }
 

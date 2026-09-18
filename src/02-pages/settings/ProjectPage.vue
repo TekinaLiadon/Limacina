@@ -50,6 +50,7 @@ const {
   steps: integritySteps,
   progress: integrityProgress,
   isChecking: isIntegrityChecking,
+  isPopupHidden: isIntegrityPopupHidden,
   report: integrityReport,
   errorMessage: integrityError,
   handleCheck: handleIntegrityCheck,
@@ -181,6 +182,7 @@ const handleDownload = async (): Promise<void> => {
     <SettingsSection title="Обслуживание" storage-key="project-maintenance">
       <IntegrityCheck
         :is-checking="isIntegrityChecking"
+        :is-popup-hidden="isIntegrityPopupHidden"
         :steps="integritySteps"
         :progress="integrityProgress"
         :report="integrityReport"

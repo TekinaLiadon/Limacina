@@ -237,6 +237,24 @@ mod tests {
     use crate::utils::http::http_client;
     use mockito::Server;
 
+    const MAX_SEND_ATTEMPTS: usize = 10;
+
+    async fn send_until_response(url: &str) -> Result<reqwest::Response, reqwest::Error> {
+        let client = http_client();
+        let mut attempts_left = MAX_SEND_ATTEMPTS;
+        loop {
+            match client.get(url).send().await {
+                Ok(response) => return Ok(response),
+                Err(error) => {
+                    attempts_left -= 1;
+                    if attempts_left == 0 {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn broken_stream_deletes_part_and_keeps_dest_absent() {
         let dir = LauncherDirGuard::acquire("broken_stream").await;
@@ -253,9 +271,7 @@ mod tests {
 
         let dest = dir.root().join("downloads").join("big-file.bin");
         let url = format!("{}/big-file", server.url());
-        let response = http_client()
-            .get(&url)
-            .send()
+        let response = send_until_response(&url)
             .await
             .expect("запрос к серверу")
             .error_for_status()

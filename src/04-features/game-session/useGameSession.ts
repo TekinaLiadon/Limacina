@@ -14,18 +14,23 @@ export function useGameSession(): {
     if (sessionSyncStarted) return
     sessionSyncStarted = true
 
-    try {
-      coreStore.gameUsername = await getGameState()
-    } catch (e: unknown) {
-      reportError('Не удалось получить состояние игровой сессии', e)
-    }
+    let eventBeforeHydrate = false
 
     await listenGameStarted((username: string): void => {
+      eventBeforeHydrate = true
       coreStore.gameUsername = username
     })
     await listenGameExit((): void => {
+      eventBeforeHydrate = true
       coreStore.gameUsername = null
     })
+
+    try {
+      const username = await getGameState()
+      if (!eventBeforeHydrate) coreStore.gameUsername = username
+    } catch (e: unknown) {
+      reportError('Не удалось получить состояние игровой сессии', e)
+    }
   }
 
   const minimizeToTray = async (): Promise<void> => {

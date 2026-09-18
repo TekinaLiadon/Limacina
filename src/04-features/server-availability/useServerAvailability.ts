@@ -6,6 +6,7 @@ const OK_INTERVAL_MS = 30_000
 const MAX_INTERVAL_MS = 300_000
 
 let pollTimeout: ReturnType<typeof setTimeout> | null = null
+let pollGeneration = 0
 let syncStarted = false
 let currentDelayMs = OK_INTERVAL_MS
 
@@ -15,6 +16,7 @@ export function useServerAvailability(): {
   const coreStore = useCoreStore()
 
   const stopPolling = (): void => {
+    pollGeneration += 1
     if (pollTimeout === null) return
     clearTimeout(pollTimeout)
     pollTimeout = null
@@ -29,9 +31,13 @@ export function useServerAvailability(): {
 
   const poll = async (): Promise<void> => {
     if (!isWatched()) return
+    const generation = pollGeneration
     try {
-      coreStore.isServerReachable = await pingLauncherServer()
+      const reachable = await pingLauncherServer()
+      if (generation !== pollGeneration) return
+      coreStore.isServerReachable = reachable
     } catch {
+      if (generation !== pollGeneration) return
       coreStore.isServerReachable = false
     }
     if (coreStore.isServerReachable === false) {
@@ -46,12 +52,12 @@ export function useServerAvailability(): {
     !coreStore.offlineBuild && coreStore.projectConfig?.online === true
 
   const syncWithProject = (): void => {
+    stopPolling()
     if (isWatched()) {
       currentDelayMs = OK_INTERVAL_MS
       void poll()
       return
     }
-    stopPolling()
     coreStore.isServerReachable = null
   }
 

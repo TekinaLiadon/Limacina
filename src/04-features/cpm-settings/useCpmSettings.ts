@@ -54,6 +54,8 @@ export function useCpmSettings() {
   const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
   const modelsLimit = ref<number | null>(null)
+  const isLimitLoading = ref<boolean>(false)
+  const limitLoadError = ref<string>('')
 
   const modelName = computed((): string => cpmFileName.value.trim() || 'Модель')
 
@@ -178,10 +180,15 @@ export function useCpmSettings() {
   }
 
   const loadModelsLimit = async (): Promise<void> => {
+    isLimitLoading.value = true
+    limitLoadError.value = ''
     try {
       modelsLimit.value = await getPlayerModelsLimit()
     } catch (e: unknown) {
       reportError('Не удалось загрузить лимит моделей', e)
+      limitLoadError.value = getErrorMessage(e)
+    } finally {
+      isLimitLoading.value = false
     }
   }
 
@@ -193,6 +200,7 @@ export function useCpmSettings() {
     try {
       await setPlayerModelsLimit(limit)
       modelsLimit.value = limit
+      limitLoadError.value = ''
     } catch (e: unknown) {
       content.errorMessage.value = getErrorMessage(e)
     }
@@ -216,6 +224,8 @@ export function useCpmSettings() {
     uploadedModels: content.items,
     isListLoading: content.isListLoading,
     modelsLimit,
+    isLimitLoading,
+    limitLoadError,
     isDragOver,
     selectCpmFile,
     resetCpm,

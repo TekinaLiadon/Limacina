@@ -68,6 +68,10 @@ const router = createRouter({
       name: 'Setup',
       component: () => import('@/02-pages/Setup.vue'),
     },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: { name: 'Accounts' },
+    },
   ],
 })
 

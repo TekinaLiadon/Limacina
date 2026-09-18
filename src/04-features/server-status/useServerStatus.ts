@@ -7,6 +7,7 @@ const MAX_INTERVAL_MS = 300_000
 const FAILURE_THRESHOLD = 3
 
 let pollTimeout: ReturnType<typeof setTimeout> | null = null
+let pollGeneration = 0
 let syncStarted = false
 let currentDelayMs = OK_INTERVAL_MS
 let consecutiveFailures = 0
@@ -18,6 +19,7 @@ export function useServerStatus(): {
   const coreStore = useCoreStore()
 
   const stopPolling = (): void => {
+    pollGeneration += 1
     if (pollTimeout === null) return
     clearTimeout(pollTimeout)
     pollTimeout = null
@@ -35,11 +37,14 @@ export function useServerStatus(): {
     currentDelayMs = OK_INTERVAL_MS
   }
 
-  const fetchStatus = async (): Promise<void> => {
+  const fetchStatus = async (generation: number): Promise<void> => {
     try {
-      coreStore.serverStatus = await getServerStatus()
+      const status = await getServerStatus()
+      if (generation !== pollGeneration) return
+      coreStore.serverStatus = status
       resetBackoff()
     } catch {
+      if (generation !== pollGeneration) return
       consecutiveFailures += 1
       if (consecutiveFailures >= FAILURE_THRESHOLD) {
         coreStore.serverStatus = null
@@ -49,17 +54,19 @@ export function useServerStatus(): {
   }
 
   const poll = async (): Promise<void> => {
-    await fetchStatus()
+    const generation = pollGeneration
+    await fetchStatus(generation)
+    if (generation !== pollGeneration) return
     schedule(currentDelayMs)
   }
 
   const syncWithProject = (config: ProjectConfig | null): void => {
+    stopPolling()
     if (config?.online === true) {
       resetBackoff()
       void poll()
       return
     }
-    stopPolling()
     coreStore.serverStatus = null
   }
 
@@ -70,7 +77,7 @@ export function useServerStatus(): {
   }
 
   return {
-    refreshServerStatus: fetchStatus,
+    refreshServerStatus: (): Promise<void> => fetchStatus(pollGeneration),
     startServerStatusSync,
   }
 }
