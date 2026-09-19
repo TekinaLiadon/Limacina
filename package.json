@@ -10,10 +10,9 @@
     "lint": "oxlint",
     "tauri": "tauri",
     "fonts": "bun run scripts/subset-fonts.ts",
-    "build:dist": "bunx tauri build",
+    "build:dist": "bun scripts/build-dist.cjs",
     "clean": "cargo clean",
-    "clean:cache": "rm -rf ~/.local/share/com.tekina.limacina/WebKitCache ~/.local/share/com.tekina.limacina/CacheStorage",
-    "release:latest": "node scripts/release-latest.cjs"
+    "clean:cache": "rm -rf ~/.local/share/com.tekina.limacina/WebKitCache ~/.local/share/com.tekina.limacina/CacheStorage"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.31",
