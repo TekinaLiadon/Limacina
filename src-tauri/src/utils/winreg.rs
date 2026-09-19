@@ -72,7 +72,7 @@ pub(crate) fn machine_guid() -> Option<String> {
 
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key = hklm.open_subkey("SOFTWARE\\Microsoft\\Cryptography").ok()?;
-    key.get_value::<String>("MachineGuid").ok()
+    key.get_value("MachineGuid").ok()
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -733,7 +733,7 @@ Function un.PageConfirm
   SetCtlColors $DIALOG "" ${COLOR_BG}
 
   ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" "DataPath"
-  ${StrCpy} $1 "$PROFILE\${PRODUCTNAME}"
+  StrCpy $1 "$PROFILE\${PRODUCTNAME}"
   ${If} $0 != ""
     StrCpy $1 $0
   ${EndIf}
@@ -1051,7 +1051,7 @@ Section Uninstall
 
     SetShellVarContext current
     ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" "DataPath"
-    ${StrCpy} $1 "${PRODUCTNAME}"
+    StrCpy $1 "${PRODUCTNAME}"
     ${If} $0 != ""
       RmDir /r "$0"
       ${GetFileName} $0 $1
