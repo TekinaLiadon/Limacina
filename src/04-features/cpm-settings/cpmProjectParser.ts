@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import { parseCpmAnimations } from './cpmAnimationParser'
-import type { CPMAnimation, CPMConfig } from '@/05-entities/core/types'
+import type { CPMAnimation, CPMConfig } from '@/05-entities'
 
 export interface CpmProject {
   config: CPMConfig

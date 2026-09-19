@@ -1,8 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use crate::utils::errors::LauncherError;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tokio::fs;
 
 use crate::utils::blocking;
 use crate::utils::download_file::{download_file, write_atomic};
@@ -15,6 +18,7 @@ pub use server::SkinServer;
 mod server;
 
 const AUTHLIB_LATEST_URL: &str = "https://authlib-injector.yushi.moe/artifact/latest.json";
+const AUTHLIB_LATEST_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Deserialize)]
 struct AuthlibLatest {
@@ -30,7 +34,7 @@ struct AuthlibChecksums {
 
 pub fn offline_skin_paths(project_name: &str) -> Result<(PathBuf, PathBuf)> {
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
     let cache_dir = launcher_path(Some(project_name))?.join("profile_skins");
     Ok((
@@ -107,7 +111,7 @@ async fn read_offline_skin(project_name: &str) -> Result<Option<(Vec<u8>, Option
 async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
     let jar_path = game_dir.join("authlib-injector.jar");
     let version_path = game_dir.join("authlib-injector.json");
-    let scratch_path = std::env::temp_dir().join("limacina-authlib-latest.json");
+    let scratch_path = authlib_scratch_path()?;
 
     let latest = match fetch_authlib_latest(&scratch_path).await {
         Ok(latest) => latest,
@@ -164,8 +168,27 @@ async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
     Ok(jar_path)
 }
 
+fn authlib_scratch_path() -> Result<PathBuf> {
+    Ok(launcher_path(None)?
+        .join("manifest")
+        .join("authlib-latest.json"))
+}
+
+async fn authlib_cache_fresh(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path).await else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+    modified.elapsed().is_ok_and(|age| age < AUTHLIB_LATEST_TTL)
+}
+
 async fn fetch_authlib_latest(scratch_path: &Path) -> Result<AuthlibLatest> {
-    download_file(AUTHLIB_LATEST_URL, scratch_path).await?;
+    if !authlib_cache_fresh(scratch_path).await {
+        let _ = fs::remove_file(scratch_path).await;
+        download_file(AUTHLIB_LATEST_URL, scratch_path).await?;
+    }
     let scratch = scratch_path.to_path_buf();
     blocking(
         "Не удалось разобрать манифест authlib-injector",
@@ -197,7 +220,12 @@ async fn installed_authlib_version(version_path: PathBuf) -> Result<Option<Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{offline_skin_paths, parse_offline_skin_model};
+    use super::{
+        authlib_cache_fresh, authlib_scratch_path, offline_skin_paths, parse_offline_skin_model,
+        AUTHLIB_LATEST_TTL,
+    };
+    use crate::test_support::LauncherDirGuard;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn offline_skin_paths_include_project_folder() {
@@ -231,6 +259,50 @@ mod tests {
         assert_eq!(parse_offline_skin_model(br#"{"model":"heroic"}"#), None);
         assert_eq!(parse_offline_skin_model(br#"{"other":1}"#), None);
         assert_eq!(parse_offline_skin_model(b"not json"), None);
+    }
+
+    #[tokio::test]
+    async fn scratch_path_lives_in_launcher_manifest_dir() {
+        let guard = LauncherDirGuard::acquire("authlib_scratch").await;
+
+        let scratch = authlib_scratch_path().expect("путь scratch-файла");
+
+        assert_eq!(
+            scratch,
+            guard.root().join("manifest").join("authlib-latest.json"),
+            "scratch должен лежать в каталоге данных лаунчера, а не в общем temp"
+        );
+    }
+
+    #[tokio::test]
+    async fn cache_fresh_respects_ttl() {
+        let guard = LauncherDirGuard::acquire("authlib_ttl").await;
+        let cache = guard.root().join("manifest").join("authlib-latest.json");
+        tokio::fs::create_dir_all(cache.parent().unwrap())
+            .await
+            .unwrap();
+
+        assert!(
+            !authlib_cache_fresh(&cache).await,
+            "отсутствующий кеш не свежий"
+        );
+
+        tokio::fs::write(&cache, b"{}").await.unwrap();
+        assert!(
+            authlib_cache_fresh(&cache).await,
+            "только что записанный кеш свежий"
+        );
+
+        let stale = SystemTime::now() - AUTHLIB_LATEST_TTL - Duration::from_secs(60);
+        let times = std::fs::FileTimes::new().set_modified(stale);
+        std::fs::File::open(&cache)
+            .unwrap()
+            .set_times(times)
+            .unwrap();
+        assert!(
+            !authlib_cache_fresh(&cache).await,
+            "кеш старше TTL не свежий"
+        );
     }
 
     #[test]

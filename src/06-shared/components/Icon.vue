@@ -42,7 +42,7 @@ const path = computed((): string => ICON_PATHS[props.type])
 
 <style lang="scss">
 .icon {
-  transition: all 0.2s;
+  transition: all var(--duration-base) var(--ease-out);
   display: inline-block;
   width: 1em;
   height: 1em;

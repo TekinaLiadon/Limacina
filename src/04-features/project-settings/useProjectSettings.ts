@@ -1,16 +1,18 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm } from '@/05-entities'
-import { loadSettingsProject, saveSettingsProject, refreshManifests, clearMinecraftConfig, getServerConnectUrl, deleteProject, authLogins } from '@/06-shared/api'
+import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm, type ProjectConfig } from '@/05-entities'
+import { authLogins, clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
 import { copyToClipboard, reportError } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { ProjectConfig } from '@/05-entities/core/types'
 import { splitJvmArgs } from './jvmPresets'
 
 export function useProjectSettings(): {
   config: ComputedRef<ProjectSettingsForm>
   isLoaded: ComputedRef<boolean>
+  isLoading: ComputedRef<boolean>
+  loadError: ComputedRef<string>
+  isDirty: ComputedRef<boolean>
   maxMemoryLimit: ComputedRef<number>
   isSaving: ComputedRef<boolean>
   isClearingConfig: Ref<boolean>
@@ -27,6 +29,7 @@ export function useProjectSettings(): {
   handleGetConnectUrl: () => Promise<void>
   handleCopyConnectUrl: () => Promise<void>
   loadConfig: (project: string, force?: boolean) => Promise<void>
+  retryLoad: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const accountsStore = useAccountsStore()
@@ -37,7 +40,26 @@ export function useProjectSettings(): {
 
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
+  const isLoading = computed((): boolean => store.loadingProject !== '')
+  const loadError = computed((): string => store.loadError)
   const isSaving = computed((): boolean => store.isSaving)
+
+  const DIRTY_FIELDS = ['loaderVersion', 'javaPath', 'jvmArgs', 'memoryRange', 'autoJoinServer'] as const
+
+  const dirtySnapshot = (): string => {
+    const form = store.config
+    return JSON.stringify(Object.fromEntries(DIRTY_FIELDS.map((field) => [field, form[field]])))
+  }
+
+  const initialDirtySnapshot = ref<string>('')
+
+  const isDirty = computed((): boolean =>
+    store.isLoaded && initialDirtySnapshot.value !== '' && initialDirtySnapshot.value !== dirtySnapshot(),
+  )
+
+  watch((): string => store.loadedProject, (): void => {
+    initialDirtySnapshot.value = dirtySnapshot()
+  }, { immediate: true })
 
   const maxMemoryLimit = computed((): number => {
     return Math.max(512, coreStore.totalMemoryMb - 2048)
@@ -81,11 +103,15 @@ export function useProjectSettings(): {
         autoJoinServer: loaded.autoJoinServer,
       })
     } catch (e: unknown) {
+      const message = getErrorMessage(e)
       reportError('Не удалось загрузить настройки проекта', e)
+      store.applyError(project, message)
     } finally {
-      store.finishLoading()
+      store.finishLoading(project)
     }
   }
+
+  const retryLoad = (): Promise<void> => loadConfig(coreStore.currentProject, true)
 
   const serverConnectUrl = ref<string>('')
   const isLoadingConnectUrl = ref<boolean>(false)
@@ -96,6 +122,7 @@ export function useProjectSettings(): {
   }, { immediate: true })
 
   const handleSave = async (): Promise<void> => {
+    if (!store.isLoaded) return
     store.startSaving()
 
     try {
@@ -115,9 +142,10 @@ export function useProjectSettings(): {
         autoJoinServer: config.value.autoJoinServer,
       }
       await saveSettingsProject(projectConfig)
+      initialDirtySnapshot.value = dirtySnapshot()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       store.finishSaving()
     }
@@ -131,7 +159,7 @@ export function useProjectSettings(): {
     try {
       serverConnectUrl.value = await getServerConnectUrl()
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isLoadingConnectUrl.value = false
     }
@@ -143,7 +171,7 @@ export function useProjectSettings(): {
       await copyToClipboard(serverConnectUrl.value)
       notification.show('Ссылка скопирована')
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     }
   }
 
@@ -160,7 +188,7 @@ export function useProjectSettings(): {
       const message = await clearMinecraftConfig()
       notification.show(message)
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isClearingConfig.value = false
     }
@@ -173,7 +201,7 @@ export function useProjectSettings(): {
       const message = await refreshManifests()
       notification.show(message)
     } catch (e: unknown) {
-      notification.show(e instanceof Error ? e.message : String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isRefreshingManifests.value = false
     }
@@ -189,6 +217,10 @@ export function useProjectSettings(): {
     if (isDeleting.value) return
     const projectName = coreStore.currentProject
     if (!projectName) return
+    if (coreStore.gameUsername) {
+      notification.show('Нельзя удалить проект, пока запущена игра')
+      return
+    }
     if (accountsStore.isLaunching) {
       notification.show('Дождитесь завершения запуска игры')
       return
@@ -215,11 +247,19 @@ export function useProjectSettings(): {
         return
       }
 
-      coreStore.currentProject = next
-      coreStore.projectConfig = await loadSettingsProject(next)
-      accountsStore.logins = await authLogins(next)
+      try {
+        const nextConfig = await loadSettingsProject(next)
+        const logins = await authLogins(next)
+        coreStore.currentProject = next
+        coreStore.projectConfig = nextConfig
+        accountsStore.logins = logins
+      } catch (e: unknown) {
+        coreStore.currentProject = next
+        coreStore.projectConfig = null
+        notification.show(getErrorMessage(e))
+      }
     } catch (e: unknown) {
-      notification.show(String(e))
+      notification.show(getErrorMessage(e))
     } finally {
       isDeleting.value = false
     }
@@ -228,6 +268,9 @@ export function useProjectSettings(): {
   return {
     config,
     isLoaded,
+    isLoading,
+    loadError,
+    isDirty,
     maxMemoryLimit,
     isSaving,
     isClearingConfig,
@@ -244,5 +287,6 @@ export function useProjectSettings(): {
     handleGetConnectUrl,
     handleCopyConnectUrl,
     loadConfig,
+    retryLoad,
   }
 }

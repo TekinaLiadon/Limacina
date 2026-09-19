@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Tooltip } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
@@ -23,10 +24,12 @@ const title = computed((): string => {
 </script>
 
 <template>
-  <span v-if="isVisible" class="server-status" :title="title">
-    <span class="server-status__dot"></span>
-    <span class="server-status__players">{{ playersLabel }}</span>
-  </span>
+  <Tooltip v-if="isVisible" :content="title">
+    <span class="server-status">
+      <span class="server-status__dot"></span>
+      <span class="server-status__players">{{ playersLabel }}</span>
+    </span>
+  </Tooltip>
 </template>
 
 <style lang="scss">

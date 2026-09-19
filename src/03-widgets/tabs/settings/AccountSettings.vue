@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Button, Input } from '@/06-shared'
 import { useAccountSettings } from '@/04-features'
+import SettingsInfoRow from './SettingsInfoRow.vue'
 
 const {
   username,
@@ -24,9 +25,10 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
   <div class="account-settings">
     <div class="settings-grid">
       <div class="section-label span-full">Аккаунт</div>
-      <Input
-        :model-value="username"
-        :options="{ label: 'Никнейм', placeholder: 'Никнейм', disabled: true }"
+      <SettingsInfoRow
+        class="settings-row span-full"
+        label="Никнейм"
+        :value="username"
       />
     </div>
 

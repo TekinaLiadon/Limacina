@@ -1,9 +1,8 @@
 import { onBeforeMount, ref } from 'vue'
-import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme } from '@/05-entities'
-import { getAppInitData, checkUpdate, applyUpdateCmd, loadSettingsProject } from '@/06-shared/api'
+import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type LauncherConfig, type ProjectConfig, type UpdateInfo } from '@/05-entities'
+import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage, loadSettingsProject } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
-import type { LauncherConfig, ProjectConfig, UpdateInfo } from '@/05-entities/core/types'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
 
 const STARTUP_ERROR_DURATION = 5000
@@ -14,10 +13,11 @@ export function useAppInit() {
   const notification = useNotificationStore()
   const router = useRouter()
   const preloaderText = ref<string>('')
+  const startupError = ref<string>('')
 
   const showStartupError = (message: string, e: unknown): void => {
     reportError(message, e)
-    const detail = e instanceof Error ? e.message : String(e)
+    const detail = getErrorMessage(e)
     notification.show(detail ? `${message}: ${detail}` : message, STARTUP_ERROR_DURATION)
   }
 
@@ -36,9 +36,11 @@ export function useAppInit() {
     loadSettingsProject(name)
       .then((config: ProjectConfig): void => {
         coreStore.projectConfig = config
+        startupError.value = ''
       })
       .catch((e: unknown): void => {
-        showStartupError('Не удалось загрузить конфиг проекта', e)
+        reportError('Не удалось загрузить конфиг проекта', e)
+        startupError.value = getErrorMessage(e) || 'Не удалось загрузить конфиг проекта'
       })
 
   const init = async (): Promise<void> => {
@@ -112,13 +114,14 @@ export function useAppInit() {
       }
 
       if (coreStore.offlineBuild && coreStore.projects.length === 0) {
-        router.replace({ name: 'OfflineSetup' })
+        router.replace({ name: 'Setup' })
         return
       }
 
       await projectLoad
     } catch (e: unknown) {
-      showStartupError('Ошибка инициализации', e)
+      reportError('Ошибка инициализации', e)
+      startupError.value = getErrorMessage(e)
     } finally {
       const elapsed: number = Date.now() - startTime
       const remaining: number = Math.max(0, 1000 - elapsed)
@@ -128,11 +131,19 @@ export function useAppInit() {
     }
   }
 
+  const retryInit = async (): Promise<void> => {
+    startupError.value = ''
+    coreStore.isLoading = true
+    await init()
+  }
+
   onBeforeMount(() => {
     init()
   })
 
   return {
     preloaderText,
+    startupError,
+    retryInit,
   }
 }

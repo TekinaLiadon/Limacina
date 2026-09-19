@@ -4,7 +4,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
+use crate::state::dto::ProjectConfig;
+use crate::utils::env_info::launcher_path;
+use crate::utils::errors::LauncherError;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Versions {
@@ -75,7 +77,11 @@ pub async fn new_launch_config(
     access_token: &str,
     state_project: &ProjectConfig,
 ) -> Result<LaunchConfig> {
-    let base_dir = launcher_path(Some(&state_project.project_name))?;
+    let base_dir = launcher_path(Some(&state_project.project_name)).map_err(|e| {
+        LauncherError::GameDownload(format!(
+            "Не удалось определить путь к файлам проекта: {e:#}"
+        ))
+    })?;
     let mut jvm_sub_arg = vec![
         state_project.min_memory.clone(),
         state_project.max_memory.clone(),
@@ -149,6 +155,11 @@ pub trait ModLoader: Send + Sync {
     ) -> Result<GameConfig>;
 }
 
-pub const INDEX_CACHE_FILES: [&str; 3] = ["vanilla_index.json", "forge.json", "neoforge.json"];
+pub const INDEX_CACHE_FILES: [&str; 4] = [
+    "vanilla_index.json",
+    "forge.json",
+    "neoforge_index.json",
+    "neoforge.json",
+];
 
 pub const INDEX_CACHE_PREFIXES: [&str; 1] = ["fabric_"];

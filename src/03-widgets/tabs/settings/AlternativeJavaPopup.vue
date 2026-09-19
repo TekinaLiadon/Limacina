@@ -1,42 +1,82 @@
 <script setup lang="ts">
-import { Button, Dropdown, Checkbox } from '@/06-shared'
-import type { JavaDistribution } from '@/05-entities/core/types'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { Button, Checkbox, Dropdown, Skeleton, useFocusTrap } from '@/06-shared'
+import type { JavaDistribution } from '@/05-entities'
 
 const props = defineProps<{
   visible: boolean
   distributions: JavaDistribution[]
   isDownloading: boolean
+  isDistributionsLoading: boolean
+  distributionsError: string
   javaVersion: string
+  versionError: string
 }>()
 
 const emit = defineEmits<{
   close: []
   download: []
+  retry: []
 }>()
 
 const selectedDistribution = defineModel<string>('selectedDistribution', { default: '' })
 const replaceDefault = defineModel<boolean>('replaceDefault', { default: false })
 const versionInput = defineModel<string>('versionInput', { default: '' })
 
+const popupRef = ref<HTMLDivElement | null>(null)
+
+useFocusTrap(popupRef, (): boolean => props.visible)
+
 const dropdownOptions = () =>
   props.distributions.map((d) => ({ title: d.name, value: d.name }))
+
+function handleKeydown(e: KeyboardEvent): void {
+  if (props.visible && !props.isDownloading && e.key === 'Escape') emit('close')
+}
+
+onMounted((): void => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount((): void => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="alt-java-popup">
+    <Transition name="popup">
       <div v-if="visible" class="alt-java-popup-overlay" @click.self="emit('close')">
-        <div class="alt-java-popup">
+        <div ref="popupRef" class="alt-java-popup popup-panel" role="dialog" aria-modal="true">
           <template v-if="!isDownloading">
             <h3 class="alt-java-popup__title">Загрузка Java</h3>
             <div class="alt-java-popup__form">
               <div class="alt-java-popup__field">
                 <span class="alt-java-popup__label eyebrow">Вендор</span>
                 <Dropdown
+                  v-if="distributions.length > 0"
                   v-model="selectedDistribution"
                   :options="dropdownOptions()"
                   width="100%"
                 />
+                <Skeleton
+                  v-else-if="isDistributionsLoading"
+                  variant="line"
+                  height="var(--control-height)"
+                  aria-hidden="true"
+                />
+                <div v-else-if="distributionsError" class="alt-java-popup__error">
+                  <span>{{ distributionsError }}</span>
+                  <Button
+                    class="btn-quiet alt-java-popup__retry"
+                    @click="emit('retry')"
+                  >
+                    Повторить
+                  </Button>
+                </div>
+                <span v-else class="alt-java-popup__empty">
+                  Доступные дистрибутивы не найдены
+                </span>
               </div>
               <div class="alt-java-popup__field">
                 <span class="alt-java-popup__label eyebrow">Версия Java</span>
@@ -46,13 +86,20 @@ const dropdownOptions = () =>
                   type="text"
                   placeholder="Авто (на основе MC)"
                 />
+                <span v-if="versionError" class="alt-java-popup__version-error">
+                  {{ versionError }} — будет использована версия по умолчанию
+                </span>
               </div>
               <Checkbox
                 v-model="replaceDefault"
                 label="Заменить Java по умолчанию"
               />
               <div class="alt-java-popup__actions">
-                <Button class="btn-primary alt-java-popup__btn" @click="emit('download')">
+                <Button
+                  class="btn-primary alt-java-popup__btn"
+                  :is-disabled="distributions.length === 0 || selectedDistribution === ''"
+                  @click="emit('download')"
+                >
                   Загрузить
                 </Button>
                 <Button
@@ -77,10 +124,12 @@ const dropdownOptions = () =>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .alt-java-popup-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -132,7 +181,7 @@ const dropdownOptions = () =>
     outline: none;
     width: 100%;
     box-sizing: border-box;
-    transition: box-shadow 0.2s ease, background-color 0.2s ease;
+    transition: box-shadow var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out);
 
     &::placeholder {
       color: var(--login-text-muted);
@@ -150,6 +199,33 @@ const dropdownOptions = () =>
   &__actions {
     display: flex;
     gap: var(--space-8);
+  }
+
+  &__error {
+    @include mixins.error-box;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+  }
+
+  &__retry {
+    min-height: var(--control-height-sm);
+    flex-shrink: 0;
+    color: var(--error);
+  }
+
+  &__empty {
+    font-size: var(--text-body-sm);
+    color: var(--login-text-muted);
+  }
+
+  &__version-error {
+    font-size: var(--text-caption);
+    color: var(--error);
+    text-align: left;
+    word-break: break-word;
   }
 
   &__btn {
@@ -174,15 +250,5 @@ const dropdownOptions = () =>
     font-size: var(--text-body-sm);
     color: var(--login-text-secondary);
   }
-}
-
-.alt-java-popup-enter-active,
-.alt-java-popup-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.alt-java-popup-enter-from,
-.alt-java-popup-leave-to {
-  opacity: 0;
 }
 </style>

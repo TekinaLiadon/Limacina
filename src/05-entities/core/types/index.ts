@@ -40,22 +40,12 @@ export interface AuthUserData extends LoginForm {
 
 export interface UpdateInfo {
   version: string
-  availablePlatforms: UpdatePlatform[]
 }
 
-export interface UpdatePlatform {
-  os: string
-  arch: string
-}
-
-export interface UpdateVersionInfo {
-  version: string
-  availablePlatforms: UpdatePlatform[]
-}
+export type UpdateVersionInfo = UpdateInfo
 
 export interface UpdateVersions {
   version: string
-  availablePlatforms: UpdatePlatform[]
   versions: UpdateVersionInfo[]
 }
 
@@ -75,6 +65,8 @@ export interface UserContentItem {
   model?: string | null
   active?: boolean
 }
+
+export type SkinModelMode = 'classic' | 'slim'
 
 export interface SessionInfo {
   uuid: string
@@ -125,6 +117,8 @@ export interface StepProgressItem {
   loginError: string
   projectConfig: ProjectConfig | null
   serverStatus: ServerStatus | null
+  gameUsername: string | null
+  isServerReachable: boolean | null
 }
 
 export interface ProjectConfig {
@@ -289,4 +283,73 @@ export interface IntegrityReport {
   repaired: number
   missing: number
   failed: string[]
+}
+
+export type GameCloudsMode = 'true' | 'fast' | 'false'
+
+export type GameChatVisibility = 'full' | 'system' | 'hidden'
+
+export interface GameOptions {
+  fov: number
+  gamma: number
+  renderDistance: number
+  simulationDistance: number
+  maxFps: number
+  enableVsync: boolean
+  graphicsMode: number
+  mipmapLevels: number
+  particles: number
+  entityShadows: boolean
+  ao: boolean
+  renderClouds: GameCloudsMode
+  fullscreen: boolean
+  guiScale: number
+  soundMaster: number
+  soundMusic: number
+  soundRecord: number
+  soundWeather: number
+  soundBlock: number
+  soundHostile: number
+  soundNeutral: number
+  soundPlayer: number
+  soundAmbient: number
+  soundVoice: number
+  chatScale: number
+  chatWidth: number
+  chatOpacity: number
+  chatLineSpacing: number
+  chatDelay: number
+  textBackgroundOpacity: number
+  chatVisibility: GameChatVisibility
+  chatColors: boolean
+  chatLinks: boolean
+  chatLinksPrompt: boolean
+  resourcePacks: string[]
+}
+
+export interface GameOptionsData {
+  options: GameOptions
+  fileExists: boolean
+  availableResourcePacks: string[]
+  hasGlobal: boolean
+}
+
+export interface LauncherSettingsPayload {
+  discordActivity: boolean
+  keepOldConfigs: boolean
+  downloadSpeedLimit: number | null
+  autoUpdate: boolean
+  systemNotifications: boolean
+  debugMode: boolean
+  startWithSystem: boolean
+  closeAfterLaunch: boolean
+  minimizeToTray: boolean
+}
+
+export interface SavePlayerModelPayload {
+  name: string
+  url: string | null
+  modelId: number | null
+  slim: boolean
+  data: number[] | null
 }

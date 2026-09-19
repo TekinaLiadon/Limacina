@@ -22,7 +22,8 @@ use crate::{
     minecraft::structs::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     step_try,
     utils::{
-        env_info::launcher_path, integrity::ensure_files, java::find_java, step_events::StepHandle,
+        env_info::launcher_path, errors::LauncherError, integrity::ensure_files, java::find_java,
+        step_events::StepHandle,
     },
 };
 
@@ -38,8 +39,13 @@ impl MinecraftLoader for Vanilla {
             VERSION_MANIFEST_URL,
             "index",
         )
-        .await?;
-        let manifest = create_manifest_versions(manifest_index.versions)?;
+        .await
+        .map_err(|e| {
+            LauncherError::ManifestParse(format!(
+                "Не удалось загрузить индекс манифеста версий: {e:#}"
+            ))
+        })?;
+        let manifest = create_manifest_versions(manifest_index.versions);
         Ok(manifest)
     }
     async fn setup(&self, state: &ProjectConfig) -> Result<()> {
@@ -55,7 +61,11 @@ impl MinecraftLoader for Vanilla {
             step_try!(version_step, get_manifest_version(version, versions).await);
         version_step.finish(false);
 
-        let base_path = launcher_path(Some(&state.project_name))?;
+        let base_path = launcher_path(Some(&state.project_name)).map_err(|e| {
+            LauncherError::GameDownload(format!(
+                "Не удалось определить путь к файлам проекта: {e:#}"
+            ))
+        })?;
         let project_name = &state.project_name;
         let targets = collect_install_targets(&manifest);
 
@@ -131,12 +141,26 @@ impl MinecraftLoader for Vanilla {
     }
     async fn config(&self, state: &ProjectConfig, config: &LaunchConfig) -> Result<GameConfig> {
         log_info!("Получение Vanilla конфига {}...", config.mc_version);
-        let versions: Vec<Versions> = self.versions().await?;
+        let versions: Vec<Versions> = self.versions().await.map_err(|e| {
+            LauncherError::ManifestParse(format!(
+                "Не удалось получить список версий Vanilla: {e:#}"
+            ))
+        })?;
         let manifest_version: VersionDetailsManifest =
-            get_manifest_version(&config.mc_version, versions).await?;
+            get_manifest_version(&config.mc_version, versions)
+                .await
+                .map_err(|e| {
+                    LauncherError::ManifestParse(format!(
+                        "Не удалось получить манифест версии: {e:#}"
+                    ))
+                })?;
 
         log_info!("Формирование classpath");
-        let game_dir = launcher_path(Some(&state.project_name))?;
+        let game_dir = launcher_path(Some(&state.project_name)).map_err(|e| {
+            LauncherError::GameDownload(format!(
+                "Не удалось определить путь к файлам проекта: {e:#}"
+            ))
+        })?;
         let mut classpath = get_classpath(&manifest_version.libraries, config)?;
         let client_jar = game_dir.join(format!("{}.jar", config.mc_version));
         classpath.push(client_jar.to_string_lossy().to_string());
@@ -148,7 +172,8 @@ impl MinecraftLoader for Vanilla {
         let game_args = get_game_args(&manifest_version, &args_map);
 
         log_info!("Поиск java");
-        let java_path = find_java(state.java_path.clone())?;
+        let java_path =
+            LauncherError::classify(find_java(state.java_path.clone()), LauncherError::Java)?;
 
         Ok(GameConfig::new(
             java_path,

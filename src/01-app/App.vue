@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
-import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, ThemeSwitchAnimation, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useCpmProjectOpen } from '@/04-features'
-import { Sidebar, ServerStatus } from '@/03-widgets'
-import type { TabKey } from '@/05-entities/core/types'
+import { PushNotification, ConfirmPopup, Dropdown, Preloader, Tooltip } from '@/06-shared'
+import { useCoreStore, useNotificationStore, useSettingsStore, type TabKey } from '@/05-entities'
+import { useAppInit, useTheme, useProjectSwitch, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen, useSettingsNav } from '@/04-features'
+import { Sidebar, ServerStatus, ServerUnavailableBanner, StartupError, ThemeSwitchAnimation } from '@/03-widgets'
 
 const router = useRouter()
 const route = useRoute()
 const coreStore = useCoreStore()
 const settingsStore = useSettingsStore()
-const { preloaderText } = useAppInit()
+const { preloaderText, startupError, retryInit } = useAppInit()
 const notificationStore = useNotificationStore()
 
 const { isSwitching, switchDirection } = useTheme()
-const { projectOptions, canSwitch, selectProject } = useProjectSwitch()
+const { projectOptions, canSwitch, isSwitching: isProjectSwitching, selectProject } = useProjectSwitch()
 const { startConsoleStream } = useConsoleStream()
 void startConsoleStream()
 const { startLaunchStepsStream } = useLaunchStepsStream()
@@ -24,6 +23,10 @@ const { startSystemNotifications } = useSystemNotifications()
 void startSystemNotifications()
 const { startServerStatusSync } = useServerStatus()
 void startServerStatusSync()
+const { startServerAvailabilitySync } = useServerAvailability()
+void startServerAvailabilitySync()
+const { startGameSessionSync } = useGameSession()
+void startGameSessionSync()
 useCpmProjectOpen()
 
 interface Tab {
@@ -54,9 +57,11 @@ const tabs = computed((): Tab[] => {
   return items
 })
 
-const settingsRouteNames: string[] = ['SettingsLauncher', 'SettingsProject', 'SettingsSkin', 'SettingsModel', 'SettingsAccount']
+const { items: settingsNavItems } = useSettingsNav()
 
-const fullscreenRouteNames: string[] = ['Setup', 'OfflineSetup']
+const settingsRouteNames = computed((): string[] => settingsNavItems.value.map((item) => item.routeName))
+
+const fullscreenRouteNames: string[] = ['Setup']
 
 const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
 
@@ -67,13 +72,13 @@ const needsOfflineSetup = computed((): boolean =>
 watch(needsOfflineSetup, (needed: boolean): void => {
   const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
   if (needed && !isFullscreenRoute) {
-    router.replace({ name: 'OfflineSetup' })
+    router.replace({ name: 'Setup' })
   }
 })
 
 const currentTab = computed((): TabKey => {
   const name = route.name as string
-  if (settingsRouteNames.includes(name)) return 'settings'
+  if (settingsRouteNames.value.includes(name)) return 'settings'
 
   const tab = tabs.value.find((t) => t.name === name)
   return tab?.key ?? 'accounts'
@@ -82,6 +87,11 @@ const currentTab = computed((): TabKey => {
 const navigateTo = (key: TabKey): void => {
   const tab = tabs.value.find((t) => t.key === key)
   if (tab) router.push({ name: tab.name })
+}
+
+const goSetupFromError = (): void => {
+  startupError.value = ''
+  router.replace({ name: 'Setup' })
 }
 
 watch(isDebugTabVisible, (visible: boolean): void => {
@@ -97,7 +107,6 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     <PushNotification
       :visible="notificationStore.visible"
       :message="notificationStore.message"
-      @update:visible="notificationStore.hide"
     />
     <ConfirmPopup
       :visible="notificationStore.popupVisible"
@@ -107,6 +116,13 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     />
     <transition name="fade">
       <Preloader v-if="coreStore.isLoading" :text="preloaderText" />
+      <StartupError
+        v-else-if="startupError"
+        :message="startupError"
+        :show-setup="!coreStore.hasLauncherConfig"
+        @retry="retryInit"
+        @setup="goSetupFromError"
+      />
       <template v-else>
         <div v-if="showLayout" class="app__layout">
           <div class="app__header">
@@ -115,9 +131,9 @@ watch(isDebugTabVisible, (visible: boolean): void => {
                 :options="projectOptions"
                 :model-value="coreStore.currentProject"
                 @update:model-value="selectProject"
-                :width="'260px'"
+                width="var(--header-project-width)"
                 :max-visible="6"
-                :disabled="!canSwitch"
+                :disabled="!canSwitch || isProjectSwitching"
               >
                 <template #trailing>
                   <ServerStatus />
@@ -125,49 +141,63 @@ watch(isDebugTabVisible, (visible: boolean): void => {
               </Dropdown>
             </div>
             <div class="app__theme-switch" role="group" aria-label="Тема оформления">
-              <button
-                class="app__theme-segment"
-                :class="{ 'app__theme-segment--active': settingsStore.isDark }"
-                :disabled="isSwitching"
-                :aria-pressed="settingsStore.isDark"
-                aria-label="Тёмная тема"
-                title="Тёмная тема"
-                @click="settingsStore.setThemeMode('dark')"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
-              </button>
-              <button
-                class="app__theme-segment"
-                :class="{ 'app__theme-segment--active': !settingsStore.isDark }"
-                :disabled="isSwitching"
-                :aria-pressed="!settingsStore.isDark"
-                aria-label="Светлая тема"
-                title="Светлая тема"
-                @click="settingsStore.setThemeMode('light')"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="5"/>
-                  <line x1="12" y1="1" x2="12" y2="3"/>
-                  <line x1="12" y1="21" x2="12" y2="23"/>
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                  <line x1="1" y1="12" x2="3" y2="12"/>
-                  <line x1="21" y1="12" x2="23" y2="12"/>
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-              </button>
+              <Tooltip content="Тёмная тема">
+                <button
+                  class="app__theme-segment"
+                  :class="{ 'app__theme-segment--active': settingsStore.isDark }"
+                  :disabled="isSwitching"
+                  :aria-pressed="settingsStore.isDark"
+                  aria-label="Тёмная тема"
+                  @click="settingsStore.setThemeMode('dark')"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                </button>
+              </Tooltip>
+              <Tooltip content="Светлая тема">
+                <button
+                  class="app__theme-segment"
+                  :class="{ 'app__theme-segment--active': !settingsStore.isDark }"
+                  :disabled="isSwitching"
+                  :aria-pressed="!settingsStore.isDark"
+                  aria-label="Светлая тема"
+                  @click="settingsStore.setThemeMode('light')"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/>
+                    <line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/>
+                    <line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                </button>
+              </Tooltip>
             </div>
           </div>
 
           <div class="app__body">
-            <Sidebar :active-tab="currentTab" :show-debug="isDebugTabVisible" :show-mods="isOfflineProject" @navigate="navigateTo" />
+            <Sidebar
+              :active-tab="currentTab"
+              :settings-sub-tab="route.name as string"
+              :show-debug="isDebugTabVisible"
+              :show-mods="isOfflineProject"
+              @navigate="navigateTo"
+              @navigate-settings="(routeName: string) => router.push({ name: routeName })"
+            />
 
             <div class="app__content">
               <div class="app__content-inner">
-                <router-view />
+                <ServerUnavailableBanner />
+                <router-view v-slot="{ Component }">
+                  <Transition name="page" mode="out-in">
+                    <component :is="Component" />
+                  </Transition>
+                </router-view>
               </div>
             </div>
           </div>
@@ -196,7 +226,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     letter-spacing: var(--tracking-eyebrow);
     color: var(--login-text-muted);
     font-variant-numeric: tabular-nums;
-    z-index: 1000;
+    z-index: var(--z-version);
   }
 
   &__layout {
@@ -221,13 +251,13 @@ watch(isDebugTabVisible, (visible: boolean): void => {
       mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
       -webkit-mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
       pointer-events: none;
-      z-index: 0;
+      z-index: var(--z-background);
     }
   }
 
   &__header {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-header);
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -256,7 +286,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     background: transparent;
     color: var(--login-text-muted);
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
 
     &:hover:not(:disabled) {
       color: var(--login-text-primary);
@@ -274,7 +304,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
 
   &__body {
     position: relative;
-    z-index: 1;
+    z-index: var(--z-content);
     flex: 1;
     display: flex;
     gap: var(--layout-gap);

@@ -11,7 +11,7 @@ import { ModrinthTab } from '@/03-widgets'
 <style lang="scss">
 .mods-page {
   width: 100%;
-  padding: var(--space-16);
+  padding: var(--page-padding-y) var(--page-padding-x);
   display: flex;
   flex-direction: column;
   height: 100%;

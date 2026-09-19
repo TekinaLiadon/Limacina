@@ -160,7 +160,7 @@ onUnmounted((): void => {
     box-shadow: var(--elevation-inset);
     background-color: var(--surface-input);
     font-family: inherit;
-    transition: box-shadow 0.2s ease, background-color 0.2s ease;
+    transition: box-shadow var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out);
     width: 100%;
     min-height: var(--control-height);
     box-sizing: border-box;
@@ -223,7 +223,7 @@ onUnmounted((): void => {
     padding: var(--space-4) 0;
     max-height: 200px;
     overflow-y: auto;
-    z-index: 100;
+    z-index: var(--z-dropdown);
     box-shadow: var(--elevation-modal);
   }
 
@@ -233,7 +233,7 @@ onUnmounted((): void => {
     color: var(--login-text-secondary);
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 
     &:hover {
       background: var(--surface-hover);
@@ -252,7 +252,7 @@ onUnmounted((): void => {
     align-items: center;
     justify-content: center;
     color: var(--login-text-muted);
-    transition: color 0.2s;
+    transition: color var(--duration-base) var(--ease-out);
 
     &:hover {
       color: var(--login-text-primary);

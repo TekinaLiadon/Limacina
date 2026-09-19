@@ -129,7 +129,6 @@ export function useThreeScene(
     scene,
     camera,
     renderer,
-    controls: orbitControls,
     getOrbitControls: () => orbitControls,
     setPaused,
   }

@@ -1,7 +1,6 @@
-import { useAccountsStore } from '@/05-entities'
-import { listenLaunchSteps } from '@/06-shared/api'
+import { useAccountsStore, useCoreStore, type StepEvent, type StepProgressItem } from '@/05-entities'
+import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
 import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
-import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
 
 const MIN_DISPLAY_MS = 500
 const FLUSH_TIMEOUT_MS = 5000
@@ -23,6 +22,7 @@ export function useLaunchStepsStream(): {
   flushLaunchSteps: () => Promise<void>
 } {
   const store = useAccountsStore()
+  const coreStore = useCoreStore()
 
   const findStep = (key: string): StepProgressItem | undefined =>
     store.launchSteps.find((step) => step.key === key)
@@ -33,6 +33,11 @@ export function useLaunchStepsStream(): {
 
   const apply = (event: StepEvent): void => {
     applyStepEvent(store.launchSteps, event)
+    if (event.type === 'failed') {
+      store.isLaunching = false
+      store.launchInterrupted = false
+      coreStore.loginError = event.message
+    }
   }
 
   const holdForEvent = (event: StepEvent): number => {
@@ -100,10 +105,27 @@ export function useLaunchStepsStream(): {
       status: 'pending',
     }))
     store.activeProgress = 0
+    store.launchInterrupted = false
   }
 
   const resetLaunchSteps = (): void => {
     clearQueueState()
+    store.launchSteps = []
+    store.activeProgress = 0
+    store.launchInterrupted = false
+  }
+
+  const hydrateLaunchState = async (): Promise<void> => {
+    let inProgress = false
+    try {
+      inProgress = await getLaunchState()
+    } catch (e: unknown) {
+      reportError('Не удалось получить состояние запуска игры', e)
+      return
+    }
+    if (!inProgress || store.isLaunching || coreStore.gameUsername !== null) return
+    store.isLaunching = true
+    store.launchInterrupted = true
     store.launchSteps = []
     store.activeProgress = 0
   }
@@ -147,7 +169,9 @@ export function useLaunchStepsStream(): {
     } catch (e: unknown) {
       streamStarted = false
       reportError('Не удалось запустить поток шагов запуска', e)
+      return
     }
+    await hydrateLaunchState()
   }
 
   return {

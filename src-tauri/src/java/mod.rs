@@ -1,12 +1,13 @@
 pub mod alternative_java;
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
     minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL},
@@ -61,10 +62,12 @@ pub async fn install_java(config: &ProjectConfig) -> Result<(PathBuf, String)> {
 
 pub(crate) fn parse_java_major(version: &str) -> Result<u32> {
     let major = version.split('.').next().unwrap_or(version);
-    major
-        .trim()
-        .parse::<u32>()
-        .with_context(|| format!("Не удалось определить мажорную версию Java: {version}"))
+    major.trim().parse::<u32>().map_err(|e| {
+        LauncherError::Java(format!(
+            "Не удалось определить мажорную версию Java: {version}: {e:#}"
+        ))
+        .into()
+    })
 }
 
 async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf> {
@@ -108,7 +111,7 @@ async fn manifest_java_major(mc_version: &str) -> Option<u32> {
         get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
             .await
             .ok()?;
-    let versions = create_manifest_versions(index.versions).ok()?;
+    let versions = create_manifest_versions(index.versions);
     let manifest = get_manifest_version(mc_version, versions).await.ok()?;
     manifest.java_version.map(|j| j.major_version)
 }
@@ -151,9 +154,21 @@ pub(crate) async fn working_archive(
 }
 
 pub(crate) fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
+    extract_archive_with_limit(
+        archive_path,
+        target_dir,
+        crate::utils::zip::MAX_EXTRACT_TOTAL_BYTES,
+    )
+}
+
+pub(crate) fn extract_archive_with_limit(
+    archive_path: &Path,
+    target_dir: &Path,
+    max_total_bytes: u64,
+) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        crate::utils::zip::extract_zip(archive_path, target_dir)?;
+        crate::utils::zip::extract_zip_with_limit(archive_path, target_dir, max_total_bytes)?;
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -165,7 +180,19 @@ pub(crate) fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<
         let file = File::open(archive_path)?;
         let tar = GzDecoder::new(file);
         let mut archive = Archive::new(tar);
-        archive.unpack(target_dir)?;
+
+        let mut total_bytes: u64 = 0;
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            total_bytes += entry.header().size()?;
+            if total_bytes > max_total_bytes {
+                return Err(LauncherError::Java(format!(
+                    "Суммарный размер записей архива превышает лимит {max_total_bytes} байт"
+                ))
+                .into());
+            }
+            entry.unpack_in(target_dir)?;
+        }
     }
 
     Ok(())
@@ -211,13 +238,115 @@ pub(crate) fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
             }
         }
     }
-    bail!("Не удалось найти исполняемый файл Java после распаковки");
+    Err(
+        LauncherError::Java("Не удалось найти исполняемый файл Java после распаковки".to_string())
+            .into(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::get_java_version;
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
+
+    #[cfg(not(target_os = "windows"))]
+    mod archive_limits {
+        use super::super::extract_archive_with_limit;
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        use std::path::PathBuf;
+        use tar::{Builder, Header};
+
+        struct TempDir(PathBuf);
+
+        impl TempDir {
+            fn new(tag: &str) -> Self {
+                let path = std::env::temp_dir().join(format!(
+                    "limacina_tar_test_{}_{}",
+                    tag,
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system time")
+                        .as_nanos()
+                ));
+                std::fs::create_dir_all(&path).expect("создание временной папки");
+                Self(path)
+            }
+        }
+
+        impl Drop for TempDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        fn write_test_tar_gz(archive_path: &PathBuf) {
+            let buffer = std::io::Cursor::new(Vec::new());
+            let mut builder = Builder::new(buffer);
+
+            let mut dir_header = Header::new_gnu();
+            dir_header.set_size(0);
+            dir_header.set_entry_type(tar::EntryType::Directory);
+            dir_header.set_mode(0o755);
+            dir_header.set_cksum();
+            builder
+                .append_data(&mut dir_header, "bin", std::io::empty())
+                .expect("добавление директории в tar");
+
+            for (name, data) in [("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])] {
+                let mut header = Header::new_gnu();
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder
+                    .append_data(&mut header, name, data)
+                    .expect("добавление записи в tar");
+            }
+            let tar_bytes = builder.into_inner().expect("сборка tar").into_inner();
+            let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+            gz.write_all(&tar_bytes).expect("сжатие tar");
+            let bytes = gz.finish().expect("завершение gz");
+            std::fs::write(archive_path, bytes).expect("запись архива");
+        }
+
+        #[test]
+        fn tar_extract_writes_entries_within_limit() {
+            let dir = TempDir::new("ok");
+            let archive_path = dir.0.join("archive.tar.gz");
+            write_test_tar_gz(&archive_path);
+            let target = dir.0.join("out");
+            std::fs::create_dir_all(&target).expect("создание целевой папки");
+
+            extract_archive_with_limit(&archive_path, &target, 1 << 20)
+                .expect("распаковка в лимите");
+
+            assert_eq!(
+                std::fs::read(target.join("bin").join("java")).expect("чтение java"),
+                b"elf"
+            );
+            assert_eq!(
+                std::fs::read(target.join("release")).expect("чтение release"),
+                b"JAVA_HOME"
+            );
+        }
+
+        #[test]
+        fn tar_extract_stops_when_total_size_exceeds_limit() {
+            let dir = TempDir::new("limit");
+            let archive_path = dir.0.join("archive.tar.gz");
+            write_test_tar_gz(&archive_path);
+            let target = dir.0.join("out");
+            std::fs::create_dir_all(&target).expect("создание целевой папки");
+
+            let result = extract_archive_with_limit(&archive_path, &target, 4);
+            assert!(result.is_err(), "превышение лимита должно дать ошибку");
+            assert!(
+                !target.join("release").exists(),
+                "записи сверх лимита не должны распаковываться"
+            );
+        }
+    }
 
     #[test]
     fn java_version_table_covers_known_minecraft_eras() {

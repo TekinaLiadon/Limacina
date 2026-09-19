@@ -1,3 +1,4 @@
+use crate::utils::errors::LauncherError;
 use anyhow::{bail, Context, Result};
 use tokio::sync::Mutex;
 
@@ -77,7 +78,7 @@ async fn clear_minecraft_config_inner(
     keep_old_configs: bool,
 ) -> Result<String> {
     if project_name.trim().is_empty() {
-        bail!("Проект не выбран");
+        bail!(LauncherError::ProjectNotSelected);
     }
 
     let game_dir = launcher_path(Some(project_name))?;

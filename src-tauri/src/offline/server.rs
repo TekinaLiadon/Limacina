@@ -384,9 +384,9 @@ mod tests {
         for chunk in trimmed.chunks(4) {
             let index = |b: &u8| ALPHABET.iter().position(|a| a == b).unwrap();
             let packed = (index(&chunk[0]) << 18)
-                | (chunk.get(1).map(|b| index(b)).unwrap_or(0) << 12)
-                | (chunk.get(2).map(|b| index(b)).unwrap_or(0) << 6)
-                | chunk.get(3).map(|b| index(b)).unwrap_or(0);
+                | (chunk.get(1).map(index).unwrap_or(0) << 12)
+                | (chunk.get(2).map(index).unwrap_or(0) << 6)
+                | chunk.get(3).map(index).unwrap_or(0);
             result.push((packed >> 16) as u8);
             if chunk.len() > 2 {
                 result.push((packed >> 8) as u8);

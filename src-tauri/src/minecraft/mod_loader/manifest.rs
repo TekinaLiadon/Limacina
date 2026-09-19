@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use crate::utils::errors::LauncherError;
+use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -206,7 +207,7 @@ pub fn loader_version_or_err(state: &ProjectConfig) -> Result<&str> {
     state
         .loader_version
         .as_deref()
-        .ok_or_else(|| anyhow!("Лоадер не выбран"))
+        .ok_or(LauncherError::LoaderNotSelected.into())
 }
 
 pub fn current_loader_version(
@@ -220,7 +221,7 @@ pub fn current_loader_version(
         .iter()
         .find(|m| m.id == target_id)
         .cloned()
-        .ok_or_else(|| anyhow!("Версия не найдена"))
+        .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()).into())
 }
 
 pub fn transform_loader_manifest(
@@ -256,7 +257,10 @@ pub fn latest_list_version(
         .filter_map(|v| v.id.strip_prefix(&prefix))
         .max_by(|a, b| compare_versions(a, b))
         .map(str::to_string)
-        .ok_or_else(|| anyhow!("Нет версий {} для MC {}", loader_name, mc_version))
+        .ok_or_else(|| {
+            LauncherError::LoaderSetup(format!("Нет версий {loader_name} для MC {mc_version}"))
+                .into()
+        })
 }
 
 pub async fn read_or_fetch_index<T: DeserializeOwned>(
@@ -279,13 +283,15 @@ pub async fn read_or_fetch_index<T: DeserializeOwned>(
     let index = rebuild().await?;
 
     if let Some(parent) = json_path.parent() {
-        fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("Не удалось создать директорию {:?}", parent))?;
+        fs::create_dir_all(parent).await.map_err(|e| {
+            LauncherError::DiskIo(format!("Не удалось создать директорию {parent:?}: {e:#}"))
+        })?;
     }
     fs::write(json_path, serialize(&index)?)
         .await
-        .with_context(|| format!("Не удалось записать кэш {:?}", json_path))?;
+        .map_err(|e| {
+            LauncherError::DiskIo(format!("Не удалось записать кэш {json_path:?}: {e:#}"))
+        })?;
 
     Ok(index)
 }

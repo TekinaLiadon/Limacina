@@ -32,6 +32,7 @@ const versionOptions = computed((): DropdownOption[] =>
         :options="versionOptions"
         :model-value="selectedVersion"
         :disabled="isLoading || isApplying"
+        :open-up="true"
         @update:model-value="selectVersion"
       />
       <Button
@@ -62,7 +63,7 @@ const versionOptions = computed((): DropdownOption[] =>
     gap: var(--space-8);
     align-items: center;
 
-    .dropdown {
+    .select-base {
       flex: 1;
       min-width: 0;
     }

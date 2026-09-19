@@ -1,12 +1,14 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tokio::{fs, process::Command};
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_err, log_info,
     minecraft::{
         mod_loader::{
+            config::loader_version_jar_name,
             download::library_targets,
             manifest::{loader_libraries, loader_version_or_err, Manifest},
         },
@@ -39,15 +41,15 @@ pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
             }
         });
 
-        let profiles_str =
-            serde_json::to_string_pretty(&profiles).context("Не удалось сериализовать profiles")?;
+        let profiles_str = serde_json::to_string_pretty(&profiles).map_err(|e| {
+            LauncherError::ManifestParse(format!("Не удалось сериализовать profiles: {e:#}"))
+        })?;
         fs::write(&launcher_profiles_path, profiles_str)
             .await
-            .with_context(|| {
-                format!(
-                    "Не удалось создать launcher_profiles.json: {:?}",
-                    launcher_profiles_path
-                )
+            .map_err(|e| {
+                LauncherError::DiskIo(format!(
+                    "Не удалось создать launcher_profiles.json: {launcher_profiles_path:?}: {e:#}"
+                ))
             })?;
     }
     Ok(())
@@ -72,10 +74,11 @@ pub async fn run_loader_installer(
         command.creation_flags(0x08000000);
     }
 
-    let output = command
-        .output()
-        .await
-        .with_context(|| format!("Не удалось запустить {} installer", loader_name))?;
+    let output = command.output().await.map_err(|e| {
+        LauncherError::LoaderSetup(format!(
+            "Не удалось запустить {loader_name} installer: {e:#}"
+        ))
+    })?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !stderr.is_empty() {
@@ -83,12 +86,13 @@ pub async fn run_loader_installer(
     }
 
     if !output.status.success() {
-        bail!(
+        return Err(LauncherError::LoaderSetup(format!(
             "{} installer завершился с ошибкой (код {:?}):\n{}",
             loader_name,
             output.status.code(),
             stderr
-        );
+        ))
+        .into());
     }
 
     Ok(())
@@ -105,21 +109,21 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
 
     let direct = versions_dir.join(mc_version).join(&jar_name);
     if direct.exists() {
-        fs::rename(&direct, &target_jar)
-            .await
-            .with_context(|| format!("Не удалось переместить {:?} в {:?}", direct, target_jar))?;
+        fs::rename(&direct, &target_jar).await.map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось переместить {direct:?} в {target_jar:?}: {e:#}"
+            ))
+        })?;
         return Ok(());
     }
 
     let mut inner_candidates: Vec<PathBuf> = Vec::new();
-    let mut entries = fs::read_dir(&versions_dir)
-        .await
-        .with_context(|| format!("Не удалось прочитать {:?}", versions_dir))?;
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .context("Не удалось прочитать запись в versions")?
-    {
+    let mut entries = fs::read_dir(&versions_dir).await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать {versions_dir:?}: {e:#}"))
+    })?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать запись в versions: {e:#}"))
+    })? {
         let path = entry.path();
         if path.is_dir() {
             let candidate = path.join(&jar_name);
@@ -129,14 +133,17 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
         }
     }
 
-    let source = inner_candidates
-        .first()
-        .cloned()
-        .ok_or_else(|| anyhow!("Jar версии {} не найден в {:?}", mc_version, versions_dir))?;
+    let source = inner_candidates.first().cloned().ok_or_else(|| {
+        LauncherError::LoaderSetup(format!(
+            "Jar версии {mc_version} не найден в {versions_dir:?}"
+        ))
+    })?;
 
-    fs::rename(&source, &target_jar)
-        .await
-        .with_context(|| format!("Не удалось переместить {:?} в {:?}", source, target_jar))?;
+    fs::rename(&source, &target_jar).await.map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось переместить {source:?} в {target_jar:?}: {e:#}"
+        ))
+    })?;
     Ok(())
 }
 
@@ -172,14 +179,12 @@ pub async fn locate_installed_manifest(
         return Ok(json_path);
     }
 
-    let mut entries = fs::read_dir(versions_dir)
-        .await
-        .with_context(|| format!("Не удалось прочитать {:?}", versions_dir))?;
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .context("Не удалось прочитать запись в versions")?
-    {
+    let mut entries = fs::read_dir(versions_dir).await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать {versions_dir:?}: {e:#}"))
+    })?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать запись в versions: {e:#}"))
+    })? {
         let path = entry.path();
         if path.is_dir() {
             if let Some(json_path) = find_manifest_json_in_dir(&path, mc_version).await {
@@ -238,18 +243,15 @@ pub async fn start_installer(
 
     if source != loader_manifest {
         if let Some(parent) = loader_manifest.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .with_context(|| format!("Не удалось создать {:?}", parent))?;
-        }
-        fs::rename(&source, &loader_manifest)
-            .await
-            .with_context(|| {
-                format!(
-                    "Не удалось переместить {:?} в {:?}",
-                    source, loader_manifest
-                )
+            fs::create_dir_all(parent).await.map_err(|e| {
+                LauncherError::DiskIo(format!("Не удалось создать {parent:?}: {e:#}"))
             })?;
+        }
+        fs::rename(&source, &loader_manifest).await.map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось переместить {source:?} в {loader_manifest:?}: {e:#}"
+            ))
+        })?;
     }
 
     let _ = fs::remove_dir_all(versions_dir).await;
@@ -261,13 +263,13 @@ pub(crate) async fn install_loader_files(
     step: StepHandle,
     base: &Path,
     project: &str,
-    target_version: &str,
+    version_id: &str,
     library: &[LibraryMod],
     installer_url: &str,
 ) -> Result<()> {
     let mut targets = library_targets(library)?;
     targets.push(IntegrityTarget {
-        rel_path: PathBuf::from(format!("{}.jar", target_version)),
+        rel_path: PathBuf::from(loader_version_jar_name(version_id)),
         hash: String::new(),
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(installer_url.to_string()),
@@ -278,7 +280,7 @@ pub(crate) async fn install_loader_files(
         record_installed_hash(
             project,
             base,
-            &PathBuf::from(format!("{}.jar", target_version)),
+            &PathBuf::from(loader_version_jar_name(version_id)),
         )
         .await
     );
@@ -298,7 +300,7 @@ pub async fn setup_loader(
     let version_info = manifest
         .iter()
         .find(|v| v.id == target_version)
-        .ok_or_else(|| anyhow!("Версия не найдена"))?;
+        .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()))?;
 
     let step = StepHandle::start("loader", format!("Установка {}", loader_name));
 
@@ -325,7 +327,7 @@ pub async fn setup_loader(
 
     step.detail("Скачивание инсталлера");
     step.set_total(1);
-    let installer_path = base_url.join(format!("{}.jar", &target_version));
+    let installer_path = base_url.join(loader_version_jar_name(&target_version));
     step_try!(
         step,
         download_file(&version_info.url, &installer_path).await

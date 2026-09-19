@@ -1,7 +1,7 @@
 import { computed } from 'vue'
-import { useCoreStore, useAccountsStore } from '@/05-entities'
-import { initializeProject, setInitialized, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
-import type { ProjectConfig, StepProgressItem } from '@/05-entities/core/types'
+import { useCoreStore, useAccountsStore, type ProjectConfig, type StepProgressItem } from '@/05-entities'
+import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
 type StepAction = () => Promise<void>
@@ -58,16 +58,27 @@ function loaderSteps(config: ProjectConfig): StepPlanItem[] {
   return [{ key: 'loader', label }]
 }
 
-function buildInstallPlan(config: ProjectConfig): StepPlanItem[] {
-  const plan: StepPlanItem[] = [...JAVA_STEPS]
+interface ActionStep {
+  key: string | null
+  plan: StepPlanItem[]
+  action: StepAction
+}
+
+function buildInstallSteps(config: ProjectConfig): ActionStep[] {
+  const steps: ActionStep[] = [{ key: 'install.java', plan: JAVA_STEPS, action: downloadJava }]
   if (config.online) {
-    plan.push(...SERVER_FILES_STEPS)
+    steps.push({ key: 'install.files', plan: SERVER_FILES_STEPS, action: downloadServerFile })
     if (config.modLoader !== 'vanilla') {
-      plan.push(...MODS_STEPS)
+      steps.push({ key: 'install.mods', plan: MODS_STEPS, action: downloadServerMods })
     }
   }
-  plan.push(...MINECRAFT_STEPS, ...loaderSteps(config), ...LAUNCH_STEPS)
-  return plan
+  steps.push({
+    key: 'install.minecraft',
+    plan: [...MINECRAFT_STEPS, ...loaderSteps(config)],
+    action: downloadMinecraft,
+  })
+  steps.push({ key: null, plan: LAUNCH_STEPS, action: LAUNCH_ACTION })
+  return steps
 }
 
 function buildLaunchPlan(config: ProjectConfig): StepPlanItem[] {
@@ -82,28 +93,26 @@ function buildLaunchPlan(config: ProjectConfig): StepPlanItem[] {
   return plan
 }
 
-function buildInstallActions(config: ProjectConfig): StepAction[] {
-  const actions: StepAction[] = [downloadJava]
+function buildLaunchActions(config: ProjectConfig): ActionStep[] {
+  const steps: ActionStep[] = []
   if (config.online) {
-    actions.push(downloadServerFile)
+    steps.push({ key: null, plan: [], action: downloadServerFile })
     if (config.modLoader !== 'vanilla') {
-      actions.push(downloadServerMods)
+      steps.push({ key: null, plan: [], action: downloadServerMods })
     }
   }
-  actions.push(downloadMinecraft, LAUNCH_ACTION)
-  return actions
+  steps.push({ key: null, plan: [], action: LAUNCH_ACTION })
+  return steps
 }
 
-function buildLaunchActions(config: ProjectConfig): StepAction[] {
-  const actions: StepAction[] = []
-  if (config.online) {
-    actions.push(downloadServerFile)
-    if (config.modLoader !== 'vanilla') {
-      actions.push(downloadServerMods)
-    }
-  }
-  actions.push(LAUNCH_ACTION)
-  return actions
+function buildInstallFingerprint(config: ProjectConfig): string {
+  return [
+    'v1',
+    config.mcVersion,
+    config.modLoader,
+    config.loaderVersion ?? '',
+    config.online ? (config.serverUrl ?? '') : 'offline',
+  ].join('|')
 }
 
 export function useGameLaunch() {
@@ -122,47 +131,105 @@ export function useGameLaunch() {
     }
   }
 
+  const failStep = async (error: unknown, isCancelled?: () => boolean): Promise<void> => {
+    if (isCancelled?.()) return
+    await flushLaunchSteps()
+    markActiveStepError(getErrorMessage(error))
+    coreStore.loginError = getErrorMessage(error)
+    store.isLaunching = false
+  }
+
   const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
     let config: ProjectConfig
     try {
       config = await initializeProject(coreStore.currentProject)
     } catch (e: unknown) {
       if (isCancelled?.()) return
-      coreStore.loginError = String(e)
+      coreStore.loginError = getErrorMessage(e)
       store.isLaunching = false
       return
     }
     coreStore.projectConfig = config
 
-    const plan = config.initialized ? buildLaunchPlan(config) : buildInstallPlan(config)
-    const actions = config.initialized ? buildLaunchActions(config) : buildInstallActions(config)
+    const isInstall = !config.initialized
+    const actionSteps: ActionStep[] = isInstall
+      ? buildInstallSteps(config)
+      : buildLaunchActions(config)
+    const plan: StepPlanItem[] = isInstall
+      ? actionSteps.flatMap((step) => step.plan)
+      : buildLaunchPlan(config)
 
     prefillLaunchSteps(plan)
     coreStore.loginError = ''
 
-    for (const action of actions) {
+    const fingerprint = buildInstallFingerprint(config)
+    const skipKeys = new Set<string>()
+    if (isInstall) {
+      const journalKeys = actionSteps.flatMap((step) => (step.key !== null ? [step.key] : []))
+      try {
+        for (const key of await loadInstallJournal(coreStore.currentProject, fingerprint, journalKeys)) {
+          skipKeys.add(key)
+        }
+      } catch (e: unknown) {
+        reportError('Не удалось прочитать журнал установки', e)
+      }
+      if (skipKeys.size > 0) {
+        const skippedPlanKeys = new Set(
+          actionSteps
+            .filter((step) => step.key !== null && skipKeys.has(step.key))
+            .flatMap((step) => step.plan.map((item) => item.key)),
+        )
+        for (const item of store.launchSteps) {
+          if (skippedPlanKeys.has(item.key)) {
+            item.status = 'done'
+            item.skipped = true
+          }
+        }
+      }
+    }
+
+    for (const step of actionSteps) {
       if (isCancelled?.()) return
+      if (step.key !== null && skipKeys.has(step.key)) continue
 
       try {
-        await action()
+        await step.action()
+        if (step.key !== null) {
+          try {
+            await recordInstallStep(coreStore.currentProject, fingerprint, step.key)
+          } catch (e: unknown) {
+            reportError('Не удалось записать журнал установки', e)
+          }
+        }
       } catch (error: unknown) {
-        if (isCancelled?.()) return
-        await flushLaunchSteps()
-        markActiveStepError(String(error))
-        coreStore.loginError = String(error)
-        store.isLaunching = false
+        await failStep(error, isCancelled)
         return
       }
     }
 
     if (isCancelled?.()) return
 
-    if (!config.initialized) {
-      coreStore.projectConfig = await setInitialized()
+    if (isInstall) {
+      try {
+        await clearInstallJournal(coreStore.currentProject)
+      } catch (e: unknown) {
+        reportError('Не удалось очистить журнал установки', e)
+      }
+      try {
+        coreStore.projectConfig = await setInitialized()
+      } catch (error: unknown) {
+        await failStep(error, isCancelled)
+        return
+      }
     }
 
     if (coreStore.launcherConfig?.closeAfterLaunch) {
-      await exitLauncher()
+      try {
+        await exitLauncher()
+      } catch (error: unknown) {
+        await failStep(error, isCancelled)
+        return
+      }
       return
     }
 

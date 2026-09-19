@@ -2,10 +2,11 @@
 import { computed } from 'vue'
 import { Button, ProgressBar } from '@/06-shared'
 import { StepProgress } from '@/03-widgets'
-import type { IntegrityReport, StepProgressItem } from '@/05-entities/core/types'
+import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
 const props = defineProps<{
   isChecking: boolean
+  isPopupHidden: boolean
   steps: StepProgressItem[]
   progress: number
   report: IntegrityReport | null
@@ -41,9 +42,9 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
     </Button>
 
     <Teleport to="body">
-      <Transition name="integrity-popup">
-        <div v-if="isChecking || report !== null || errorMessage" class="integrity-popup-overlay" @click.self="emit('close')">
-          <div class="integrity-popup">
+      <Transition name="popup">
+        <div v-if="!isPopupHidden && (isChecking || report !== null || errorMessage)" class="integrity-popup-overlay" @click.self="emit('close')">
+          <div class="integrity-popup popup-panel">
             <h3 class="integrity-popup__title">Проверка целостности файлов</h3>
 
             <template v-if="isCheckingNow">
@@ -103,7 +104,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 .integrity-popup-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-popup);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -186,15 +187,5 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
     flex: 1;
     min-height: var(--control-height);
   }
-}
-
-.integrity-popup-enter-active,
-.integrity-popup-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.integrity-popup-enter-from,
-.integrity-popup-leave-to {
-  opacity: 0;
 }
 </style>

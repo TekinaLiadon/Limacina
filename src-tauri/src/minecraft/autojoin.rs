@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::cmp::Ordering;
 use std::io::Read;
 use std::path::Path;
 
 use crate::utils::compare_versions;
+use crate::utils::errors::LauncherError;
 
 fn split_server_address(address: &str) -> (&str, Option<&str>) {
     let address = address.trim_end_matches(':');
@@ -70,22 +71,26 @@ fn decode_nbt_container(raw: Vec<u8>, path: &Path) -> Result<Vec<u8>> {
         let mut data = Vec::new();
         flate2::read::GzDecoder::new(raw.as_slice())
             .read_to_end(&mut data)
-            .with_context(|| format!("Не удалось распаковать {:?}", path))?;
+            .map_err(|e| {
+                LauncherError::ManifestParse(format!("Не удалось распаковать {path:?}: {e:#}"))
+            })?;
         Ok(data)
     } else if is_zlib_header(&raw) {
         let mut data = Vec::new();
         flate2::read::ZlibDecoder::new(raw.as_slice())
             .read_to_end(&mut data)
-            .with_context(|| format!("Не удалось распаковать {:?}", path))?;
+            .map_err(|e| {
+                LauncherError::ManifestParse(format!("Не удалось распаковать {path:?}: {e:#}"))
+            })?;
         Ok(data)
     } else if raw.first().is_some_and(|byte| *byte <= 12) {
         Ok(raw)
     } else {
-        anyhow::bail!(
-            "Неизвестный формат NBT файла {:?} (первые байты: {:02x?})",
-            path,
+        Err(LauncherError::ManifestParse(format!(
+            "Неизвестный формат NBT файла {path:?} (первые байты: {:02x?})",
             &raw[..raw.len().min(4)]
-        )
+        ))
+        .into())
     }
 }
 
@@ -95,11 +100,13 @@ pub fn first_server_address(game_dir: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let raw = std::fs::read(&path).with_context(|| format!("Не удалось открыть {:?}", path))?;
+    let raw = std::fs::read(&path)
+        .map_err(|e| LauncherError::DiskIo(format!("Не удалось открыть {path:?}: {e:#}")))?;
     let data = decode_nbt_container(raw, &path)?;
 
-    let root: ServersDatRoot = fastnbt::from_bytes(data.as_slice())
-        .with_context(|| format!("Не удалось разобрать {:?}", path))?;
+    let root: ServersDatRoot = fastnbt::from_bytes(data.as_slice()).map_err(|e| {
+        LauncherError::ManifestParse(format!("Не удалось разобрать {path:?}: {e:#}"))
+    })?;
 
     Ok(root
         .servers

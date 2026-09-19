@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import anime from 'animejs'
+import { cssDurationMs, isAnimationsEnabled } from '@/06-shared/utils/animations'
 
 const props = withDefaults(defineProps<{
   progress: number
@@ -11,16 +12,29 @@ const props = withDefaults(defineProps<{
 
 const fillRef = ref<HTMLDivElement | null>(null)
 
-watch(() => props.progress, (val: number) => {
-  if (props.animated && fillRef.value) {
-    anime({
-      targets: fillRef.value,
-      width: `${Math.min(100, Math.max(0, val))}%`,
-      duration: 600,
-      easing: 'easeInOutQuad',
-    })
+const clampedScale = (): number => Math.min(100, Math.max(0, props.progress)) / 100
+
+const isIdle = computed((): boolean => props.progress <= 0 || props.progress >= 100)
+
+const applyScale = (): void => {
+  if (fillRef.value) fillRef.value.style.transform = `scaleX(${clampedScale()})`
+}
+
+watch(() => props.progress, (): void => {
+  if (fillRef.value === null) return
+  if (!props.animated || !isAnimationsEnabled()) {
+    applyScale()
+    return
   }
-}, { immediate: true })
+  anime({
+    targets: fillRef.value,
+    scaleX: clampedScale(),
+    duration: cssDurationMs('--duration-base', 250),
+    easing: 'easeInOutQuad',
+  })
+})
+
+onMounted(applyScale)
 </script>
 
 <template>
@@ -29,7 +43,7 @@ watch(() => props.progress, (val: number) => {
       <div
         ref="fillRef"
         class="progress-bar__fill"
-        :style="{ width: `${Math.min(100, Math.max(0, progress))}%` }"
+        :class="{ 'progress-bar__fill--idle': isIdle }"
       />
     </div>
     <span class="progress-bar__label">{{ Math.round(progress) }}%</span>
@@ -53,9 +67,28 @@ watch(() => props.progress, (val: number) => {
   }
 
   &__fill {
+    position: relative;
+    width: 100%;
     height: 100%;
+    transform: scaleX(0);
+    transform-origin: left;
     background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
     border-radius: var(--radius-pill);
+    overflow: hidden;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, var(--text-on-accent), transparent);
+      opacity: 0.3;
+      animation: progress-bar-shimmer var(--duration-shimmer) var(--ease-in-out) infinite;
+    }
+
+    &--idle::after {
+      content: none;
+    }
   }
 
   &__label {
@@ -65,6 +98,12 @@ watch(() => props.progress, (val: number) => {
     font-size: var(--text-caption);
     color: var(--login-text-secondary);
     font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes progress-bar-shimmer {
+  to {
+    transform: translateX(100%);
   }
 }
 </style>

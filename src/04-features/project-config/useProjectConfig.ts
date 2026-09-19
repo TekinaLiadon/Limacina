@@ -7,11 +7,13 @@ export function useProjectConfig() {
   const coreStore = useCoreStore()
 
   const fetchConfig = async (): Promise<void> => {
-    if (!coreStore.currentProject) return
-    if (coreStore.projectConfig?.projectName === coreStore.currentProject) return
+    const projectName = coreStore.currentProject
+    if (!projectName) return
+    if (coreStore.projectConfig?.projectName === projectName) return
 
     try {
-      const config = await loadSettingsProject(coreStore.currentProject)
+      const config = await loadSettingsProject(projectName)
+      if (coreStore.currentProject !== projectName) return
       coreStore.projectConfig = config
     } catch (e: unknown) {
       reportError('Не удалось загрузить конфиг проекта', e)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, toRef } from 'vue'
 import { useCpmViewer } from '@/04-features'
-import type { CPMData, CPMAnimation } from '@/05-entities/core/types'
+import type { CPMData, CPMAnimation } from '@/05-entities'
 import { useStagePaused, useViewerControls } from './viewerControls'
 
 const props = defineProps<{
@@ -51,7 +51,7 @@ useCpmViewer(
 <style lang="scss">
 .cpm-viewer__canvas {
   width: 100%;
-  height: 360px;
+  height: var(--viewer-height);
   border-radius: var(--radius-card);
   overflow: hidden;
   background: #1a1d2e;

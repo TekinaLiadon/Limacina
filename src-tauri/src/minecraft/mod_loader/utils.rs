@@ -1,13 +1,19 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
+use crate::utils::errors::LauncherError;
+
 fn parse_maven(coord: &str) -> Result<(String, String, String)> {
     let parts: Vec<&str> = coord.split(':').collect();
     let [group_id, artifact_id, version] = parts[..] else {
-        anyhow::bail!("Некорректная Maven-координата: {}", coord);
+        return Err(
+            LauncherError::LoaderSetup(format!("Некорректная Maven-координата: {coord}")).into(),
+        );
     };
     if group_id.is_empty() || artifact_id.is_empty() || version.is_empty() {
-        anyhow::bail!("Некорректная Maven-координата: {}", coord);
+        return Err(
+            LauncherError::LoaderSetup(format!("Некорректная Maven-координата: {coord}")).into(),
+        );
     }
     Ok((
         group_id.replace('.', "/"),
@@ -17,7 +23,9 @@ fn parse_maven(coord: &str) -> Result<(String, String, String)> {
 }
 
 pub fn maven_to_path(name: &str) -> Result<PathBuf> {
-    let (group_path, artifact_id, version) = parse_maven(name)?;
+    let (group_path, artifact_id, version) = parse_maven(name).map_err(|e| {
+        LauncherError::LoaderSetup(format!("Не удалось разобрать Maven-координату: {e:#}"))
+    })?;
     let file_name = format!("{}-{}.jar", artifact_id, version);
 
     Ok(PathBuf::from(format!(
@@ -27,7 +35,9 @@ pub fn maven_to_path(name: &str) -> Result<PathBuf> {
 }
 
 pub fn maven_to_url(coord: &str, url: &str) -> Result<String> {
-    let (group, artifact_id, version) = parse_maven(coord)?;
+    let (group, artifact_id, version) = parse_maven(coord).map_err(|e| {
+        LauncherError::LoaderSetup(format!("Не удалось разобрать Maven-координату: {e:#}"))
+    })?;
 
     Ok(format!(
         "{}/{}/{}/{}/{}-{}.jar",

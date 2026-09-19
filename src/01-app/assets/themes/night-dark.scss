@@ -1,4 +1,4 @@
-[data-theme="test-dark"] {
+[data-theme="night-dark"] {
   --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Manrope", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
@@ -25,9 +25,9 @@
 
   --login-text-primary: #e8eaf6;
   --login-text-secondary: #b0b8d4;
-  --login-text-muted: #7a82a0;
+  --login-text-muted: #8b93b5;
 
-  --login-accent: #6c7fd8;
+  --login-accent: #5b6ed2;
   --login-accent-hover: #8b9fe8;
   --text-on-accent: #ffffff;
   --accent-fill: var(--login-accent);

@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Button, Dropdown, Input, MultiSelect, Preloader } from '@/06-shared'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { Button, Dropdown, Input, MultiSelect, Skeleton } from '@/06-shared'
+import { useCoreStore, useNotificationStore, type ModrinthSearchHit, type ModrinthInstalledMod } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
-import type { ModrinthSearchHit, ModrinthInstalledMod } from '@/05-entities/modrinth/types'
 import ModrinthProjectPopup from './ModrinthProjectPopup.vue'
 import ModrinthIcon from './ModrinthIcon.vue'
 
@@ -28,6 +27,7 @@ const {
   isCheckingUpdates,
   installingId,
   actionError,
+  installedError,
   search,
   loadPage,
   loadInstalled,
@@ -36,6 +36,9 @@ const {
   uninstall,
 } = modrinth
 
+type ModsView = 'catalog' | 'installed'
+
+const activeView = ref<ModsView>('catalog')
 const popupVisible = ref(false)
 const activeHit = ref<ModrinthSearchHit | null>(null)
 
@@ -52,10 +55,19 @@ const categoryOptions = MODRINTH_CATEGORIES.map((option) => ({
 const mcVersionText = computed((): string => coreStore.projectConfig?.mcVersion ?? '')
 
 const isTabLoading = computed((): boolean =>
-  isLoadingInstalled.value || (isSearching.value && hits.value.length === 0),
+  isLoadingInstalled.value && activeView.value === 'installed',
 )
 
-const tabLoadingText = computed((): string => (isLoadingInstalled.value ? 'Загрузка модов' : 'Поиск модов'))
+const isCatalogSearching = computed((): boolean =>
+  activeView.value === 'catalog' && isSearching.value && hits.value.length === 0,
+)
+
+const updatesCount = computed((): number => Object.keys(updates.value).length)
+
+const viewTabs: Array<{ key: ModsView; label: string }> = [
+  { key: 'catalog', label: 'Каталог' },
+  { key: 'installed', label: 'Установленные' },
+]
 
 const paginationItems = computed((): Array<number | 'gap'> => {
   const pages = totalPages.value
@@ -126,9 +138,27 @@ onMounted(() => {
       Моды Modrinth для одиночного профиля{{ mcVersionText ? ` (Minecraft ${mcVersionText})` : '' }}. Требуемые зависимости устанавливаются автоматически.
     </p>
 
-    <section class="modrinth-tab__section">
+    <div class="modrinth-tab__views" role="tablist">
+      <button
+        v-for="view in viewTabs"
+        :key="view.key"
+        type="button"
+        role="tab"
+        class="modrinth-tab__view"
+        :class="{ 'modrinth-tab__view--active': activeView === view.key }"
+        :aria-selected="activeView === view.key"
+        @click="activeView = view.key"
+      >
+        {{ view.label }}
+        <template v-if="view.key === 'installed'">
+          <span class="modrinth-tab__view-count">{{ installed.length }}</span>
+          <span v-if="updatesCount > 0" class="modrinth-tab__view-updates">{{ updatesCount }}</span>
+        </template>
+      </button>
+    </div>
+
+    <section v-if="activeView === 'installed'" class="modrinth-tab__section">
       <div class="modrinth-tab__section-head">
-        <h3 class="modrinth-tab__section-title">Установленные моды</h3>
         <Button
           class="btn-secondary"
           :is-loading="isCheckingUpdates"
@@ -139,8 +169,16 @@ onMounted(() => {
         </Button>
       </div>
 
-      <p v-if="installed.length === 0" class="modrinth-tab__empty">
-        Пока ничего не установлено — найдите моды поиском ниже
+      <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
+      <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
+
+      <div v-if="isTabLoading" class="modrinth-tab__list" aria-hidden="true">
+        <div v-for="index in 5" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
+          <Skeleton variant="list-item" icon-shape="square" :lines="4" />
+        </div>
+      </div>
+      <p v-else-if="installed.length === 0 && !installedError" class="modrinth-tab__empty">
+        Пока ничего не установлено — найдите моды в каталоге
       </p>
       <div v-else class="modrinth-tab__list">
         <article
@@ -182,7 +220,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="modrinth-tab__section">
+    <section v-else class="modrinth-tab__section">
       <div class="modrinth-tab__search">
         <Input
           v-model="query"
@@ -194,14 +232,14 @@ onMounted(() => {
           v-model="sort"
           class="modrinth-tab__search-sort"
           :options="sortOptions"
-          width="220px"
+          width="var(--filter-control-width)"
         />
         <MultiSelect
           v-model="categories"
           class="modrinth-tab__search-categories"
           :options="categoryOptions"
           placeholder="Категории"
-          width="220px"
+          width="var(--filter-control-width)"
           clearable
         />
         <Button class="btn-primary" :is-loading="isSearching" @click="loadPage(1)">
@@ -211,10 +249,32 @@ onMounted(() => {
 
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
+      <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
 
-      <p v-if="hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
-      <div v-else class="modrinth-tab__list">
-        <article v-for="hit in hits" :key="hit.project_id" class="modrinth-tab__row">
+      <div v-if="isCatalogSearching" class="modrinth-tab__summary" aria-hidden="true">
+        <Skeleton
+          class="modrinth-tab__summary-skeleton"
+          width="128px"
+          height="calc(var(--text-caption) * var(--leading-caption))"
+        />
+      </div>
+      <div v-else-if="hits.length > 0" class="modrinth-tab__summary">
+        <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
+      </div>
+
+      <p v-if="!isCatalogSearching && hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
+      <div v-else-if="isCatalogSearching" class="modrinth-tab__list" aria-hidden="true">
+        <div v-for="index in 6" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
+          <Skeleton variant="list-item" icon-shape="square" :lines="4" />
+        </div>
+      </div>
+      <TransitionGroup v-else name="modrinth-rows" tag="div" class="modrinth-tab__list">
+        <article
+          v-for="(hit, index) in hits"
+          :key="hit.project_id"
+          class="modrinth-tab__row"
+          :style="{ '--modrinth-row-index': String(Math.min(index, 11)) }"
+        >
           <ModrinthIcon :src="hit.icon_url" :title="hit.title" />
           <div class="modrinth-tab__row-info">
             <div class="modrinth-tab__row-head">
@@ -250,7 +310,7 @@ onMounted(() => {
             <Button class="btn-secondary" @click="openDetails(hit)">Подробнее</Button>
           </div>
         </article>
-      </div>
+      </TransitionGroup>
 
       <div v-if="totalPages > 1 && hits.length > 0" class="modrinth-tab__pagination">
         <Button
@@ -279,17 +339,20 @@ onMounted(() => {
         >
           ›
         </Button>
-        <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
       </div>
     </section>
 
     <ModrinthProjectPopup
       :visible="popupVisible"
       :hit="activeHit"
+      :is-installed="activeHit !== null && isInstalled(activeHit)"
+      :update-version="(activeHit !== null ? availableUpdate(activeHit) : '') ?? ''"
+      :is-busy="activeHit !== null && isBusy(activeHit.project_id)"
+      :is-busy-any="installingId !== null"
+      @install="activeHit !== null && handleInstall(activeHit)"
+      @update="activeHit !== null && handleUpdate(activeHit)"
       @close="popupVisible = false"
     />
-
-    <Preloader v-if="isTabLoading" local :text="tabLoadingText" />
   </div>
 </template>
 
@@ -309,6 +372,66 @@ onMounted(() => {
     text-align: left;
   }
 
+  &__views {
+    @include mixins.segmented;
+
+    align-self: flex-start;
+  }
+
+  &__view {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-16);
+    border: none;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--login-text-muted);
+    font-family: inherit;
+    font-size: var(--text-body-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+
+    &:hover:not(&--active) {
+      color: var(--login-text-primary);
+      background: var(--surface-light);
+    }
+
+    &--active {
+      @include mixins.segmented-active;
+    }
+  }
+
+  &__view-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--surface-active);
+    color: var(--login-text-secondary);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__view-updates {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--accent-active-bg);
+    color: var(--accent-text);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    font-variant-numeric: tabular-nums;
+  }
+
   &__section {
     display: flex;
     flex-direction: column;
@@ -318,13 +441,9 @@ onMounted(() => {
   &__section-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: var(--space-8);
     flex-wrap: wrap;
-  }
-
-  &__section-title {
-    font-size: var(--text-subtitle);
   }
 
   &__search {
@@ -336,6 +455,11 @@ onMounted(() => {
     &-input {
       flex: 1 1 240px;
     }
+  }
+
+  &__summary {
+    display: flex;
+    justify-content: flex-end;
   }
 
   &__list {
@@ -352,6 +476,32 @@ onMounted(() => {
     border-radius: var(--radius-card);
     background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
+
+    &--skeleton {
+      .skeleton--list-item {
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .skeleton__icon {
+        width: 48px;
+        height: 48px;
+      }
+
+      .skeleton__body {
+        gap: var(--space-4);
+      }
+
+      .skeleton__line {
+        height: calc(var(--text-body-sm) * var(--leading-body-sm));
+      }
+
+      .skeleton__line--short {
+        height: calc(var(--text-caption) * var(--leading-caption));
+      }
+    }
   }
 
   &__row-info {
@@ -370,7 +520,7 @@ onMounted(() => {
   }
 
   &__row-title {
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-medium);
     overflow-wrap: anywhere;
   }
 
@@ -458,5 +608,15 @@ onMounted(() => {
       justify-content: flex-end;
     }
   }
+}
+
+.modrinth-rows-enter-active {
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
+  transition-delay: calc(var(--modrinth-row-index, 0) * var(--stagger-step));
+}
+
+.modrinth-rows-enter-from {
+  opacity: 0;
+  transform: translateY(var(--space-8));
 }
 </style>

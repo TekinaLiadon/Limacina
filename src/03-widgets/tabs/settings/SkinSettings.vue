@@ -13,6 +13,10 @@ const {
   isSkinLoading,
   isOffline,
   uploadedSkins,
+  isListLoading,
+  listError,
+  loadList,
+  isDragOver,
   modelMode,
   selectSkin,
   handleUpload,
@@ -32,6 +36,8 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
 
 <template>
   <div class="skin-settings">
+    <div v-if="isDragOver" class="skin-settings__drop-overlay">Отпустите файл</div>
+
     <p v-if="isOffline" class="skin-settings__hint">
       Локальный профиль: скин сохраняется на этом компьютере и применяется при запуске игры
     </p>
@@ -64,12 +70,12 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     </div>
 
     <div class="skin-settings__actions">
-      <Button class="btn-secondary skin-settings__btn" @click="selectSkin">
+      <Button class="btn-primary skin-settings__btn" @click="selectSkin">
         {{ hasSkin ? 'Заменить скин' : 'Загрузить скин' }}
       </Button>
       <Button
         v-if="hasSkin && !isOffline"
-        class="btn-primary skin-settings__btn skin-settings__btn--upload"
+        class="btn-secondary skin-settings__btn skin-settings__btn--upload"
         :is-loading="isUploading"
         :is-disabled="isUploading"
         @click="handleUpload"
@@ -81,7 +87,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
         class="btn-danger skin-settings__btn skin-settings__btn--reset"
         @click="resetSkin"
       >
-        Удалить
+        Сбросить скин
       </Button>
     </div>
 
@@ -90,11 +96,14 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     </p>
 
     <UserContentList
-      v-if="!isOffline && uploadedSkins.length > 0"
+      v-if="!isOffline && (isListLoading || listError || uploadedSkins.length > 0)"
       title="Загруженные скины"
       :items="uploadedSkins"
+      :is-loading="isListLoading"
+      :error="listError"
       @copy="handleCopyUrl"
       @delete="handleDelete"
+      @retry="loadList"
     >
       <template #item-actions="{ item }">
         <Button
@@ -114,9 +123,14 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
 @use '@/01-app/assets/mixins';
 
 .skin-settings {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
+
+  &__drop-overlay {
+    @include mixins.drop-overlay;
+  }
 
   &__loading {
     height: 360px;
@@ -136,7 +150,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     border-radius: var(--radius-circle);
     border: 2px solid var(--surface-active);
     border-top-color: var(--login-accent);
-    animation: skin-settings-spin 0.8s linear infinite;
+    animation: skin-settings-spin var(--duration-spin) linear infinite;
   }
 
   &__loading-text {
@@ -167,7 +181,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     font-size: var(--text-caption);
     font-weight: var(--weight-medium);
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
     &:hover {
       background: var(--surface-hover);

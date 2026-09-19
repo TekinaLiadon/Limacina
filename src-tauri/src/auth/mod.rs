@@ -7,7 +7,8 @@ use uuid::{Builder, Variant, Version};
 
 use crate::{
     log_info,
-    utils::http::{http_client, request_json},
+    utils::errors::LauncherError,
+    utils::http::{http_client, request_json, with_launcher_id},
 };
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -112,12 +113,15 @@ pub async fn register(server_url: &str, username: &str, password: &str) -> Resul
         password: password.to_string(),
     };
 
-    request_json(
-        http_client().post(&url).json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ авторизации",
+    LauncherError::classify(
+        request_json(
+            with_launcher_id(http_client().post(&url).json(&body)),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ авторизации",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn change_password(
@@ -132,15 +136,20 @@ pub async fn change_password(
         new_password: new_password.to_string(),
     };
 
-    request_json(
-        http_client()
-            .patch(&url)
-            .bearer_auth(access_token)
-            .json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ смены пароля",
+    LauncherError::classify(
+        request_json(
+            with_launcher_id(
+                http_client()
+                    .patch(&url)
+                    .bearer_auth(access_token)
+                    .json(&body),
+            ),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ смены пароля",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
@@ -150,12 +159,15 @@ pub async fn login(server_url: &str, username: &str, password: &str) -> Result<A
         password: password.to_string(),
     };
 
-    request_json(
-        http_client().post(&url).json(&body),
-        "Не удалось подключиться к серверу авторизации",
-        "Не удалось распарсить ответ авторизации",
+    LauncherError::classify(
+        request_json(
+            with_launcher_id(http_client().post(&url).json(&body)),
+            "Не удалось подключиться к серверу авторизации",
+            "Не удалось распарсить ответ авторизации",
+        )
+        .await,
+        LauncherError::AuthServer,
     )
-    .await
 }
 
 pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {
@@ -165,7 +177,7 @@ pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> 
     };
 
     request_json(
-        http_client().post(&url).json(&body),
+        with_launcher_id(http_client().post(&url).json(&body)),
         "Не удалось подключиться к серверу авторизации",
         "Не удалось распарсить ответ авторизации",
     )
@@ -180,24 +192,23 @@ pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
         refresh_token: refresh_token.to_string(),
     };
 
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .context("Не удалось подключиться к серверу авторизации")?;
+    let result = async {
+        let response = with_launcher_id(client.post(&url).json(&body))
+            .send()
+            .await
+            .context("Не удалось подключиться к серверу авторизации")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!(
-            "Сервер авторизации вернул {} при инвалидации токена: {}",
-            status,
-            body
-        );
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Вернул {} при инвалидации токена: {}", status, body);
+        }
+
+        Ok(())
     }
+    .await;
 
-    Ok(())
+    LauncherError::classify(result, LauncherError::AuthServer)
 }
 
 #[cfg(test)]
@@ -234,6 +245,26 @@ mod auth_http_tests {
         assert_eq!(data.tokens.refresh_token, "refresh-1");
         assert_eq!(data.uuid(), "uuid-1");
         assert_eq!(data.username("fallback"), "Cordelia");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn login_sends_launcher_id_header() {
+        crate::utils::install_id::override_install_id_for_tests("test-install-id");
+
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/common/auth/login")
+            .match_header("x-launcher-id", "test-install-id")
+            .with_status(200)
+            .with_body(auth_payload().to_string())
+            .create_async()
+            .await;
+
+        login(&server.url(), "Cordelia", "secret")
+            .await
+            .expect("логин");
+
         mock.assert_async().await;
     }
 

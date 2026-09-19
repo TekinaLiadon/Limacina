@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
-import { useAccounts, useGameLaunch } from '@/04-features'
-import { clearSession, deleteAccount } from '@/06-shared/api'
+import { useAccounts, useGameLaunch, useSystemNotifications } from '@/04-features'
+import { clearSession, deleteAccount, getErrorMessage } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
 export function useAccountsPage() {
@@ -24,14 +24,30 @@ export function useAccountsPage() {
     executeSteps,
   } = useGameLaunch()
 
+  const { sendSystemNotification } = useSystemNotifications()
+
+  const isServerOffline = computed((): boolean =>
+    !coreStore.offlineBuild &&
+    coreStore.projectConfig?.online === true &&
+    coreStore.isServerReachable === false
+  )
+
   const handleLaunch = async (): Promise<void> => {
+    if (store.isLaunching) return
+    if (isServerOffline.value) {
+      notificationStore.show('Сервер лаунчера недоступен, запуск невозможен')
+      void sendSystemNotification('Запуск заблокирован', 'Сервер лаунчера недоступен')
+      return
+    }
     isCancelPending.value = false
     const launchGeneration = ++store.launchGeneration
     store.isLaunching = true
     try {
       await executeSteps(() => launchGeneration !== store.launchGeneration)
     } catch (e: unknown) {
-      coreStore.loginError = String(e)
+      if (launchGeneration === store.launchGeneration) {
+        coreStore.loginError = getErrorMessage(e)
+      }
     } finally {
       if (launchGeneration === store.launchGeneration) {
         store.isLaunching = false
@@ -42,13 +58,17 @@ export function useAccountsPage() {
   }
 
   const hasAccounts = computed((): boolean => logins.value.length > 0)
-  const showAccountList = computed((): boolean => hasAccounts.value && !coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
-  const showCurrentAccount = computed((): boolean => coreStore.isLoggedIn && !store.showAuthForm && !store.isLaunching)
-  const showLaunchProgress = computed((): boolean => store.isLaunching)
-  const showAuthTabs = computed((): boolean => !showAccountList.value && !showCurrentAccount.value && !showLaunchProgress.value)
+  const isLaunching = computed((): boolean => store.isLaunching)
+  const loginsError = computed((): string => store.loginsError)
+  const showAuth = computed((): boolean =>
+    !store.isLaunching
+    && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn && !loginsError.value && !store.isLoginsLoading)),
+  )
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
 
   const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
+
+  const launchInterrupted = computed((): boolean => store.launchInterrupted)
 
   const showLoginForm = (): void => {
     store.showAuthForm = true
@@ -60,6 +80,7 @@ export function useAccountsPage() {
   const finalizeCancel = async (): Promise<void> => {
     isCancelPending.value = false
     store.isLaunching = false
+    store.launchInterrupted = false
     store.showAuthForm = false
     try {
       await clearSession()
@@ -72,7 +93,7 @@ export function useAccountsPage() {
 
   const goToAccounts = async (): Promise<void> => {
     store.launchGeneration++
-    if (store.isLaunching) {
+    if (store.isLaunching && !store.launchInterrupted) {
       isCancelPending.value = true
       return
     }
@@ -84,7 +105,11 @@ export function useAccountsPage() {
     set: (v) => { store.activeSubTab = v },
   })
   const loginError = computed((): string => coreStore.loginError)
-  const sessionUsername = computed((): string => coreStore.session?.username ?? '')
+  const sceneUsername = computed((): string => {
+    if (coreStore.session?.username) return coreStore.session.username
+    if (store.selectedUsername) return store.selectedUsername
+    return logins.value[0] ?? ''
+  })
 
   const handleDeleteAccount = async (username: string): Promise<void> => {
     const confirmed = await notificationStore.confirm(`Вы хотите удалить аккаунт ${username}?`)
@@ -95,7 +120,7 @@ export function useAccountsPage() {
       await loadAccounts()
       notificationStore.show('Аккаунт удалён')
     } catch (e: unknown) {
-      notificationStore.show(String(e))
+      notificationStore.show(getErrorMessage(e))
     }
   }
 
@@ -103,19 +128,21 @@ export function useAccountsPage() {
     isLoading,
     errorMessage,
     logins,
+    loginsError,
+    loadAccounts,
     selectedUsername,
     handleSelect,
-    showAccountList,
-    showCurrentAccount,
-    showLaunchProgress,
-    showAuthTabs,
+    isLaunching,
+    showAuth,
     isSelected,
     activeSubTab,
     launchSteps,
     activeProgress,
+    launchInterrupted,
     loginError,
-    sessionUsername,
+    sceneUsername,
     isCancelPending,
+    isServerOffline,
     handleLaunch,
     showLoginForm,
     goToAccounts,

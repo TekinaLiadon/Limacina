@@ -32,6 +32,11 @@ const router = createRouter({
           component: () => import('@/02-pages/settings/ProjectPage.vue'),
         },
         {
+          path: 'game',
+          name: 'SettingsGame',
+          component: () => import('@/02-pages/settings/GamePage.vue'),
+        },
+        {
           path: 'skin',
           name: 'SettingsSkin',
           component: () => import('@/02-pages/settings/SkinPage.vue'),
@@ -64,9 +69,8 @@ const router = createRouter({
       component: () => import('@/02-pages/Setup.vue'),
     },
     {
-      path: '/offline-setup',
-      name: 'OfflineSetup',
-      component: () => import('@/02-pages/OfflineSetup.vue'),
+      path: '/:pathMatch(.*)*',
+      redirect: { name: 'Accounts' },
     },
   ],
 })

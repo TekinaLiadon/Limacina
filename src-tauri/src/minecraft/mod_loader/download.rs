@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::minecraft::mod_loader::utils::maven_to_path;
 use crate::minecraft::structs::LibraryMod;
+use crate::utils::errors::LauncherError;
 use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
 
 pub fn library_targets(libraries: &[LibraryMod]) -> Result<Vec<IntegrityTarget>> {
@@ -10,7 +11,13 @@ pub fn library_targets(libraries: &[LibraryMod]) -> Result<Vec<IntegrityTarget>>
         .iter()
         .map(|lib| {
             Ok(IntegrityTarget {
-                rel_path: PathBuf::from("libraries").join(maven_to_path(&lib.name)?),
+                rel_path: PathBuf::from("libraries").join(maven_to_path(&lib.name).map_err(
+                    |e| {
+                        LauncherError::LoaderSetup(format!(
+                            "Не удалось разобрать координату библиотеки: {e:#}"
+                        ))
+                    },
+                )?),
                 hash: lib.hash.clone(),
                 hash_kind: HashKind::Sha1,
                 download: TargetDownload::Url(lib.url.clone()),

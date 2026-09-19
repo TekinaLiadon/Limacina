@@ -3,9 +3,30 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdatePlatform, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus } from '@/05-entities/core/types'
-import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
-import type { SkinModelMode } from '@/03-widgets/types'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
+
+export interface CommandErrorPayload {
+  code: string
+  message: string
+}
+
+const INTERNAL_ERROR_CODE = 'internal'
+
+export function getCommandError(e: unknown): CommandErrorPayload {
+  if (typeof e === 'object' && e !== null && 'code' in e && 'message' in e) {
+    const payload = e as { code: unknown; message: unknown }
+    if (typeof payload.code === 'string' && typeof payload.message === 'string') {
+      return { code: payload.code, message: payload.message }
+    }
+  }
+  if (typeof e === 'string') return { code: INTERNAL_ERROR_CODE, message: e }
+  if (e instanceof Error) return { code: INTERNAL_ERROR_CODE, message: e.message }
+  return { code: INTERNAL_ERROR_CODE, message: String(e) }
+}
+
+export function getErrorMessage(e: unknown): string {
+  return getCommandError(e).message
+}
 
 export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
@@ -13,18 +34,15 @@ export async function getAppInitData(): Promise<AppInitData> {
 
 interface UpdateInfoRaw {
   version: string
-  platforms: UpdatePlatform[]
 }
 
 interface UpdateVersionsRaw {
   version: string
-  platforms: UpdatePlatform[]
   versions: UpdateInfoRaw[]
 }
 
 const toUpdateInfo = (raw: UpdateInfoRaw): UpdateInfo => ({
   version: raw.version,
-  availablePlatforms: raw.platforms,
 })
 
 export async function checkUpdate(): Promise<UpdateInfo | null> {
@@ -36,7 +54,6 @@ export async function getLauncherVersions(): Promise<UpdateVersions> {
   const raw = await invoke<UpdateVersionsRaw>('get_launcher_versions')
   return {
     version: raw.version,
-    availablePlatforms: raw.platforms,
     versions: raw.versions.map(toUpdateInfo),
   }
 }
@@ -61,24 +78,28 @@ export async function saveLauncherConfig(parentPath: string): Promise<LauncherCo
   return invoke<LauncherConfig>('save_launcher_config', { parentPath })
 }
 
-export interface LauncherSettingsPayload {
-  discordActivity: boolean
-  keepOldConfigs: boolean
-  downloadSpeedLimit: number | null
-  autoUpdate: boolean
-  systemNotifications: boolean
-  debugMode: boolean
-  startWithSystem: boolean
-  closeAfterLaunch: boolean
-  minimizeToTray: boolean
-}
-
 export async function saveLauncherSettings(settings: LauncherSettingsPayload): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('save_launcher_settings', { settings })
 }
 
 export async function clearMinecraftConfig(): Promise<string> {
   return invoke<string>('clear_minecraft_config')
+}
+
+export async function getGameOptions(projectName: string): Promise<GameOptionsData> {
+  return invoke<GameOptionsData>('get_game_options', { projectName })
+}
+
+export async function saveGameOptions(projectName: string, options: GameOptions): Promise<void> {
+  return invoke('save_game_options', { projectName, options })
+}
+
+export async function saveGlobalGameOptions(options: GameOptions): Promise<void> {
+  return invoke('save_global_game_options', { options })
+}
+
+export async function importGlobalGameOptions(): Promise<GameOptions | null> {
+  return invoke<GameOptions | null>('import_global_game_options')
 }
 
 export async function exitLauncher(): Promise<void> {
@@ -124,6 +145,26 @@ export async function initializeProject(projectName: string): Promise<ProjectCon
 
 export async function setInitialized(): Promise<ProjectConfig> {
   return invoke<ProjectConfig>('set_initialized')
+}
+
+export async function loadInstallJournal(
+  project: string,
+  fingerprint: string,
+  plan: string[]
+): Promise<string[]> {
+  return invoke<string[]>('load_install_journal', { project, fingerprint, plan })
+}
+
+export async function recordInstallStep(
+  project: string,
+  fingerprint: string,
+  key: string
+): Promise<void> {
+  return invoke('record_install_step', { project, fingerprint, key })
+}
+
+export async function clearInstallJournal(project: string): Promise<void> {
+  return invoke('clear_install_journal', { project })
 }
 
 export async function createServerProfile(serverUrl: string): Promise<ProjectConfig> {
@@ -228,6 +269,10 @@ export async function getStartupLogs(): Promise<ConsoleLog[]> {
   return invoke<ConsoleLog[]>('get_startup_logs')
 }
 
+export async function getNotificationIcon(): Promise<string | null> {
+  return invoke<string | null>('get_notification_icon')
+}
+
 export async function sendConsoleLog(line: string, isError: boolean): Promise<void> {
   return invoke('send_frontend_log', { line, isError })
 }
@@ -272,6 +317,30 @@ export async function getSessionInfo(): Promise<SessionInfo | null> {
   return invoke<SessionInfo | null>('get_session_info')
 }
 
+export async function getGameState(): Promise<string | null> {
+  return invoke<string | null>('get_game_state')
+}
+
+export async function getLaunchState(): Promise<boolean> {
+  return invoke<boolean>('get_launch_state')
+}
+
+export async function listenGameStarted(
+  callback: (username: string) => void
+): Promise<UnlistenFn> {
+  return listen<string>('game-started', (event) => {
+    callback(event.payload)
+  })
+}
+
+export async function hideMainWindow(): Promise<void> {
+  await getCurrentWebviewWindow().hide()
+}
+
+export async function pingLauncherServer(): Promise<boolean> {
+  return invoke<boolean>('ping_launcher_server')
+}
+
 export async function clearSession(): Promise<void> {
   return invoke('clear_session')
 }
@@ -296,6 +365,11 @@ export async function setActiveSkin(id: number): Promise<void> {
 
 export async function getProfileSkin(url: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>('get_profile_skin', { url })
+  return new Uint8Array(buffer)
+}
+
+export async function readSkinFile(path: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('read_skin_file', { path })
   return new Uint8Array(buffer)
 }
 
@@ -330,16 +404,16 @@ export async function deleteModel(id: number): Promise<void> {
   return invoke('delete_model', { id })
 }
 
-export interface SavePlayerModelPayload {
-  name: string
-  url: string | null
-  modelId: number | null
-  slim: boolean
-  data: number[] | null
-}
-
 export async function savePlayerModel(payload: SavePlayerModelPayload): Promise<void> {
   return invoke('save_player_model', { ...payload })
+}
+
+export async function getPlayerModelsLimit(): Promise<number | null> {
+  return invoke<number | null>('get_player_models_limit')
+}
+
+export async function setPlayerModelsLimit(limit: number | null): Promise<void> {
+  return invoke('set_player_models_limit', { limit })
 }
 
 export async function readCpmProjectFile(path: string): Promise<ArrayBuffer> {

@@ -1,6 +1,6 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type LauncherConfig } from '@/05-entities'
-import { saveLauncherSettings, saveLauncherConfig, type LauncherSettingsPayload } from '@/06-shared/api'
+import { useCoreStore, useNotificationStore, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
+import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
@@ -18,12 +18,14 @@ export function useLauncherSettings(): {
   downloadSpeedLimitInput: Ref<string>
   settings: ComputedRef<LauncherSettingsPayload>
   isSaving: Ref<boolean>
+  isDirty: Ref<boolean>
   selectLauncherFolder: () => Promise<void>
   handleSave: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
+  const isDirty = ref<boolean>(false)
   const launcherPath = ref<string>('')
   const discordActivity = ref<boolean>(true)
   const autoUpdate = ref<boolean>(true)
@@ -84,8 +86,41 @@ export function useLauncherSettings(): {
         await disableAutostart()
       }
     } catch (e: unknown) {
-      notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${String(e)}`)
+      notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
     }
+  }
+
+  interface DirtySnapshot {
+    launcherPath: string
+    discordActivity: boolean
+    autoUpdate: boolean
+    keepOldConfigs: boolean
+    startWithSystem: boolean
+    closeAfterLaunch: boolean
+    minimizeToTray: boolean
+    systemNotifications: boolean
+    debugMode: boolean
+    downloadSpeedLimit: number | null
+  }
+
+  const snapshot = (): DirtySnapshot => ({
+    launcherPath: launcherPath.value,
+    discordActivity: discordActivity.value,
+    autoUpdate: autoUpdate.value,
+    keepOldConfigs: keepOldConfigs.value,
+    startWithSystem: startWithSystem.value,
+    closeAfterLaunch: closeAfterLaunch.value,
+    minimizeToTray: minimizeToTray.value,
+    systemNotifications: systemNotifications.value,
+    debugMode: debugMode.value,
+    downloadSpeedLimit: parseSpeedLimit(downloadSpeedLimitInput.value),
+  })
+
+  const initialSnapshot = ref<DirtySnapshot | null>(null)
+
+  const refreshDirty = (): void => {
+    const initial = initialSnapshot.value
+    isDirty.value = initial !== null && JSON.stringify(initial) !== JSON.stringify(snapshot())
   }
 
   onMounted((): void => {
@@ -103,7 +138,10 @@ export function useLauncherSettings(): {
       downloadSpeedLimitInput.value =
         config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
     }
-    void syncStartWithSystemState()
+    void syncStartWithSystemState().then((): void => {
+      initialSnapshot.value = snapshot()
+      refreshDirty()
+    })
   })
 
   const selectLauncherFolder = async (): Promise<void> => {
@@ -113,22 +151,36 @@ export function useLauncherSettings(): {
     }
   }
 
+  const resyncLauncherConfig = async (): Promise<void> => {
+    try {
+      const data = await getAppInitData()
+      coreStore.launcherConfig = data.launcherConfig
+      coreStore.hasLauncherConfig = data.launcherConfig !== null
+    } catch (e: unknown) {
+      reportError('Не удалось восстановить состояние настроек', e)
+    }
+  }
+
   const handleSave = async (): Promise<void> => {
     if (isSaving.value) return
     isSaving.value = true
     try {
+      const savedSettings = await saveLauncherSettings(settings.value)
+      coreStore.launcherConfig = savedSettings
+
       const config = coreStore.launcherConfig
       if (config && launcherPath.value !== config.launcherPath) {
         const parentPath = stripPathSuffix(launcherPath.value, coreStore.launcherName)
-        await saveLauncherConfig(parentPath)
+        coreStore.launcherConfig = await saveLauncherConfig(parentPath)
       }
 
-      const updated = await saveLauncherSettings(settings.value)
-      coreStore.launcherConfig = updated
       await applyStartWithSystem(startWithSystem.value)
+      initialSnapshot.value = snapshot()
+      refreshDirty()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
-      notification.show(String(e))
+      await resyncLauncherConfig()
+      notification.show(getErrorMessage(e))
     } finally {
       isSaving.value = false
     }
@@ -147,6 +199,7 @@ export function useLauncherSettings(): {
     downloadSpeedLimitInput,
     settings,
     isSaving,
+    isDirty,
     selectLauncherFolder,
     handleSave,
   }

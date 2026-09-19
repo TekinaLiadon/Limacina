@@ -1,12 +1,11 @@
 import { ref, computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
+  getErrorMessage,
   listSkins, uploadSkin, deleteSkin, setActiveSkin,
   listModels, uploadModel, deleteModel,
 } from '@/06-shared/api'
-import type { UserContentItem } from '@/05-entities/core/types'
-import type { SkinModelMode } from '@/03-widgets/types'
 
 interface SkinUploadPayload {
   fileData: Uint8Array
@@ -30,6 +29,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   const isUploading = ref<boolean>(false)
   const errorMessage = ref<string>('')
   const isListLoading = ref<boolean>(false)
+  const listError = ref<string>('')
 
   const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
 
@@ -39,9 +39,11 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     if (!uuid) return
 
     isListLoading.value = true
+    listError.value = ''
     try {
       items.value = await api.list(uuid)
     } catch (e: unknown) {
+      listError.value = `${api.listLoadErrorMessage}: ${getErrorMessage(e)}`
       reportError(api.listLoadErrorMessage, e)
     } finally {
       isListLoading.value = false
@@ -58,7 +60,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await loadItems()
       return item
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       return null
     } finally {
       isUploading.value = false
@@ -70,7 +72,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await api.delete(id)
       await loadItems()
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     }
   }
 
@@ -80,7 +82,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await api.activate(id)
       await loadItems()
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
     }
   }
 
@@ -99,6 +101,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     items,
     isUploading,
     isListLoading,
+    listError,
     errorMessage,
     isOffline,
     loadItems,

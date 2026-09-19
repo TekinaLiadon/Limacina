@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Ref } from 'vue'
-import type { CPMAnimation, CPMVec3 } from '@/05-entities/core/types'
+import type { CPMAnimation, CPMVec3 } from '@/05-entities'
 
 const PLAYER_PART_IDS: Record<string, number> = {
   head: 0,
@@ -232,7 +232,7 @@ export interface CpmPlayerHost {
   onFinished: () => void
 }
 
-interface SharedClock {
+export interface SharedClock {
   startedAt: number
   pausedAt: number
   speed: number
@@ -246,41 +246,46 @@ interface AnimationEntry {
   clock: SharedClock
 }
 
-const sharedClocks = new Map<string, SharedClock>()
-let defaultSpeed = 1
-let defaultForceLoop = false
-
 export class CpmAnimationPlayer {
   private index: NodeIndex
   private host: CpmPlayerHost
   private entries: AnimationEntry[] = []
+  private clocks: Map<string, SharedClock>
+  private defaultSpeed = 1
+  private defaultForceLoop = false
 
-  constructor(index: NodeIndex, host: CpmPlayerHost) {
+  constructor(index: NodeIndex, host: CpmPlayerHost, clocks?: Map<string, SharedClock>) {
     this.index = index
     this.host = host
+    this.clocks = clocks ?? new Map()
+  }
+
+  dispose(): void {
+    this.clocks.clear()
+    this.entries = []
   }
 
   setAnimations(animations: CPMAnimation[]): void {
     this.resetNodes()
 
     const activeIds = new Set(animations.map((animation) => animation.id))
-    sharedClocks.forEach((_clock, id) => {
-      if (!activeIds.has(id)) sharedClocks.delete(id)
+    this.clocks.forEach((_clock, id) => {
+      if (!activeIds.has(id)) this.clocks.delete(id)
     })
 
     this.entries = [...animations]
       .sort((a, b) => a.priority - b.priority)
       .map((animation) => {
-        let clock = sharedClocks.get(animation.id)
+        let clock = this.clocks.get(animation.id)
         if (!clock) {
           clock = {
             startedAt: performance.now(),
             pausedAt: 0,
-            speed: defaultSpeed,
+            speed: this.defaultSpeed,
             playing: true,
-            forceLoop: defaultForceLoop,
+            forceLoop: this.defaultForceLoop,
           }
-          sharedClocks.set(animation.id, clock)
+          this.clocks.set(animation.id, clock)
         }
         return { animation, tracks: buildTracks(animation, this.index), clock }
       })
@@ -290,11 +295,11 @@ export class CpmAnimationPlayer {
 
   setSpeed(speed: number): void {
     const clamped = Math.max(0.25, Math.min(3, speed))
-    if (sharedClocks.size === 0) {
-      defaultSpeed = clamped
+    if (this.clocks.size === 0) {
+      this.defaultSpeed = clamped
       return
     }
-    sharedClocks.forEach((clock) => {
+    this.clocks.forEach((clock) => {
       if (clock.speed === clamped) return
       if (clock.playing) {
         const virtualElapsed = (performance.now() - clock.startedAt) * clock.speed
@@ -305,8 +310,8 @@ export class CpmAnimationPlayer {
   }
 
   setForceLoop(forceLoop: boolean): void {
-    defaultForceLoop = forceLoop
-    sharedClocks.forEach((clock) => {
+    this.defaultForceLoop = forceLoop
+    this.clocks.forEach((clock) => {
       clock.forceLoop = forceLoop
     })
   }

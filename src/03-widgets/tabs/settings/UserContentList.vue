@@ -1,22 +1,39 @@
 <script setup lang="ts">
-import { Button } from '@/06-shared'
-import type { UserContentItem } from '@/05-entities/core/types'
+import { Button, Skeleton } from '@/06-shared'
+import type { UserContentItem } from '@/05-entities'
 
-defineProps<{
+withDefaults(defineProps<{
   title: string
   items: UserContentItem[]
-}>()
+  isLoading?: boolean
+  error?: string
+}>(), {
+  isLoading: false,
+  error: '',
+})
 
 const emit = defineEmits<{
   copy: [url: string]
   delete: [id: number]
+  retry: []
 }>()
 </script>
 
 <template>
   <div class="user-content-list">
     <div class="user-content-list__title section-label">{{ title }}</div>
-    <div class="user-content-list__items">
+    <div v-if="!isLoading && error" class="user-content-list__error">
+      <span class="user-content-list__error-text">{{ error }}</span>
+      <Button class="btn-quiet" @click="emit('retry')">
+        Повторить
+      </Button>
+    </div>
+    <div v-if="isLoading" class="user-content-list__items" aria-hidden="true">
+      <div v-for="index in 3" :key="index" class="user-content-list__item">
+        <Skeleton variant="line" height="var(--control-height)" />
+      </div>
+    </div>
+    <div v-else class="user-content-list__items">
       <div
         v-for="item in items"
         :key="item.id ?? item.url"
@@ -51,11 +68,26 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .user-content-list {
   margin-top: var(--space-8);
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
+
+  &__error {
+    @include mixins.error-box;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+  }
+
+  &__error-text {
+    min-width: 0;
+  }
 
   &__items {
     display: flex;

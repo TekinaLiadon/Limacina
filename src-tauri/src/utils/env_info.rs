@@ -1,5 +1,6 @@
 use crate::log_info;
-use anyhow::{Context, Result};
+use crate::utils::errors::LauncherError;
+use anyhow::Result;
 use std::env;
 use std::env::consts;
 use std::path::{Component, PathBuf};
@@ -75,7 +76,8 @@ pub fn launcher_path(project: Option<&str>) -> Result<PathBuf> {
 }
 
 pub fn get_home_dir() -> Result<PathBuf> {
-    env::home_dir().context("Не найдена домашняя директория")
+    env::home_dir()
+        .ok_or(LauncherError::DiskIo("Не найдена домашняя директория".to_string()).into())
 }
 
 pub fn get_current_os() -> &'static str {

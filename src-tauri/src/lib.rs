@@ -18,7 +18,10 @@ mod test_support;
 use commands::auth::{
     auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account,
 };
-use commands::cpm_models::{read_cpm_project_file, save_player_model, take_cpm_project_path};
+use commands::cpm_models::{
+    get_player_models_limit, read_cpm_project_file, save_player_model, set_player_models_limit,
+    take_cpm_project_path,
+};
 use commands::download::download_alternative_java;
 use commands::download::download_java;
 use commands::download::download_minecraft;
@@ -26,7 +29,11 @@ use commands::download::download_server_file;
 use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
 use commands::download::get_java_version;
+use commands::game_options::{
+    get_game_options, import_global_game_options, save_game_options, save_global_game_options,
+};
 use commands::init::{initialize_launcher, initialize_project, set_initialized};
+use commands::install_journal::{clear_install_journal, load_install_journal, record_install_step};
 use commands::integrity::check_files_integrity;
 use commands::launcher_config::{
     get_app_init_data, save_animations_enabled, save_launcher_config, save_launcher_settings,
@@ -36,6 +43,7 @@ use commands::modrinth::{
     modrinth_check_updates, modrinth_install, modrinth_installed, modrinth_project,
     modrinth_search, modrinth_uninstall,
 };
+use commands::notification::get_notification_icon;
 use commands::profile::{
     create_offline_profile, create_server_profile, delete_project, get_loader_versions,
     get_minecraft_versions, get_server_connect_url, refresh_manifests, save_current_project,
@@ -44,12 +52,16 @@ use commands::settings_project::clear_minecraft_config;
 use commands::settings_project::load_settings_project;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
+use commands::start::get_game_state;
+use commands::start::get_launch_state;
 use commands::start::start_minecraft;
-use commands::update::{apply_update_cmd, check_update, get_launcher_versions, get_server_status};
+use commands::update::{
+    apply_update_cmd, check_update, get_launcher_versions, get_server_status, ping_launcher_server,
+};
 use commands::user_content::{
     clear_session, delete_model, delete_offline_skin, delete_skin, get_offline_skin,
     get_offline_skin_model, get_profile_skin, get_session_info, list_models, list_skins,
-    save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
+    read_skin_file, save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
 };
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -60,6 +72,7 @@ use crate::state::dto::GlobalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_hook();
     for line in include_str!("../.env").lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -79,9 +92,19 @@ pub fn run() {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
 
+            if let Err(e) = crate::utils::desktop_entry::sync_desktop_entry(app.handle()) {
+                log_err!("Не удалось обновить запись в меню приложений: {e:#}");
+            }
+
             let launcher_config = crate::state::launcher_config::LauncherConfig::load()
                 .ok()
                 .flatten();
+            if let Some(id) = launcher_config
+                .as_ref()
+                .and_then(|c| c.install_id.as_deref())
+            {
+                crate::utils::install_id::set_install_id(id);
+            }
             crate::utils::bandwidth::set_limit(
                 launcher_config
                     .as_ref()
@@ -111,6 +134,9 @@ pub fn run() {
             let _ = std::fs::create_dir_all(base_path.join("project"));
             let _ = std::fs::create_dir_all(base_path.join("manifest"));
             let _ = std::fs::create_dir_all(base_path.join("java"));
+
+            crate::utils::winreg::init_uninstall_registry_key(app.config());
+            crate::utils::winreg::remember_data_path(&base_path);
 
             let discord_enabled = launcher_config
                 .as_ref()
@@ -163,6 +189,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
@@ -192,6 +219,9 @@ pub fn run() {
             initialize_launcher,
             initialize_project,
             set_initialized,
+            load_install_journal,
+            record_install_step,
+            clear_install_journal,
             create_server_profile,
             create_offline_profile,
             delete_project,
@@ -210,14 +240,22 @@ pub fn run() {
             get_java_version,
             start_minecraft,
             exit_launcher,
+            get_game_state,
+            get_launch_state,
             save_settings_project,
             load_settings_project,
             clear_minecraft_config,
+            get_game_options,
+            save_game_options,
+            save_global_game_options,
+            import_global_game_options,
             check_update,
             apply_update_cmd,
             get_launcher_versions,
             get_server_status,
+            ping_launcher_server,
             get_startup_logs,
+            get_notification_icon,
             logger_utils::send_frontend_log,
             select_account,
             get_session_info,
@@ -231,10 +269,13 @@ pub fn run() {
             delete_skin,
             set_active_skin,
             get_profile_skin,
+            read_skin_file,
             upload_model,
             list_models,
             delete_model,
             save_player_model,
+            get_player_models_limit,
+            set_player_models_limit,
             read_cpm_project_file,
             take_cpm_project_path,
             modrinth_search,
@@ -246,4 +287,13 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn install_panic_hook() {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        utils::file_logger::write_panic(info, &backtrace);
+        previous_hook(info);
+    }));
 }

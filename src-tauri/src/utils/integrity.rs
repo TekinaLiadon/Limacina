@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::log_err;
 use crate::log_info;
 use crate::utils::download_file::{download_file, file_sha1};
+use crate::utils::errors::LauncherError;
 use crate::utils::install_manifest::{
     load_install_manifest, merge_installed, save_install_manifest,
 };
@@ -57,14 +58,21 @@ impl IntegrityReport {
     }
 }
 
+struct ScanOutcome {
+    broken: Vec<IntegrityTarget>,
+    missing: u64,
+    failed: Vec<String>,
+}
+
 async fn scan_targets(
     base_path: &Path,
     step: &StepHandle,
     targets: Vec<IntegrityTarget>,
     mut expected_hash: impl FnMut(&IntegrityTarget) -> Option<String>,
-) -> (Vec<IntegrityTarget>, u64) {
+) -> ScanOutcome {
     let mut broken: Vec<IntegrityTarget> = Vec::new();
     let mut missing: u64 = 0;
+    let mut failed: Vec<String> = Vec::new();
 
     for target in targets {
         let file_path = base_path.join(&target.rel_path);
@@ -83,7 +91,8 @@ async fn scan_targets(
                 Ok(matches) => matches,
                 Err(e) => {
                     log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
-                    false
+                    failed.push(target.rel_path.to_string_lossy().into_owned());
+                    true
                 }
             }
         };
@@ -97,7 +106,11 @@ async fn scan_targets(
         step.inc();
     }
 
-    (broken, missing)
+    ScanOutcome {
+        broken,
+        missing,
+        failed,
+    }
 }
 
 async fn download_targets<F, Fut>(
@@ -148,7 +161,11 @@ where
     let total = targets.len() as u64;
     step.set_total(total);
 
-    let (broken, missing) = scan_targets(base_path, &step, targets, |target| {
+    let ScanOutcome {
+        broken,
+        missing,
+        failed,
+    } = scan_targets(base_path, &step, targets, |target| {
         if target.hash.is_empty() {
             None
         } else {
@@ -162,6 +179,7 @@ where
         return Ok(IntegrityReport {
             total,
             missing,
+            failed,
             ..IntegrityReport::default()
         });
     }
@@ -173,7 +191,7 @@ where
     let results = download_targets(base_path, &step, broken, download_fn).await;
 
     let mut repaired: u64 = 0;
-    let mut failed: Vec<String> = Vec::new();
+    let mut failed_files: Vec<String> = failed;
     for (target, result) in results {
         let file_path = base_path.join(&target.rel_path);
         let ok = match result {
@@ -208,9 +226,11 @@ where
         if ok {
             repaired += 1;
         } else {
-            failed.push(target.rel_path.to_string_lossy().into_owned());
+            failed_files.push(target.rel_path.to_string_lossy().into_owned());
         }
     }
+
+    let failed = failed_files;
 
     if failed.is_empty() {
         step.finish(false);
@@ -245,11 +265,19 @@ pub async fn ensure_files(
         return Ok(IntegrityReport::default());
     }
 
-    let mut installed = load_install_manifest(project_name).await?;
+    let mut installed = load_install_manifest(project_name).await.map_err(|e| {
+        LauncherError::ManifestParse(format!(
+            "Не удалось загрузить манифест установленных файлов: {e:#}"
+        ))
+    })?;
     let total = targets.len() as u64;
     step.set_total(total);
 
-    let (broken, _missing) = scan_targets(base_path, step, targets, |target| {
+    let ScanOutcome {
+        broken,
+        missing: _,
+        failed,
+    } = scan_targets(base_path, step, targets, |target| {
         if !target.hash.is_empty() {
             return Some(target.hash.clone());
         }
@@ -265,6 +293,7 @@ pub async fn ensure_files(
         log_info!("[install] Все файлы на месте: {}", total);
         return Ok(IntegrityReport {
             total,
+            failed,
             ..IntegrityReport::default()
         });
     }
@@ -279,7 +308,7 @@ pub async fn ensure_files(
     .await;
 
     let mut repaired: u64 = 0;
-    let mut failed: Vec<String> = Vec::new();
+    let mut failed_files: Vec<String> = failed;
 
     for (target, result) in results {
         let file_path = base_path.join(&target.rel_path);
@@ -295,21 +324,40 @@ pub async fn ensure_files(
             let actual = file_sha1(&file_path).await;
             match actual {
                 Ok(hash) => {
-                    merge_installed(&mut installed, &target.rel_path.to_string_lossy(), &hash);
-                    repaired += 1;
+                    if !target.hash.is_empty() && hash != target.hash {
+                        let _ = tokio::fs::remove_file(&file_path).await;
+                        log_err!(
+                            "Скачанный файл не соответствует хешу {:?}: ожидается {}, получен {}",
+                            file_path,
+                            target.hash,
+                            hash
+                        );
+                        failed_files.push(target.rel_path.to_string_lossy().into_owned());
+                    } else {
+                        merge_installed(&mut installed, &target.rel_path.to_string_lossy(), &hash);
+                        repaired += 1;
+                    }
                 }
                 Err(e) => {
                     log_err!("Не удалось вычислить хеш {:?}: {}", file_path, e);
-                    failed.push(target.rel_path.to_string_lossy().into_owned());
+                    failed_files.push(target.rel_path.to_string_lossy().into_owned());
                 }
             }
         } else {
-            failed.push(target.rel_path.to_string_lossy().into_owned());
+            failed_files.push(target.rel_path.to_string_lossy().into_owned());
         }
     }
 
+    let failed = failed_files;
+
     if failed.is_empty() {
-        save_install_manifest(project_name, &installed).await?;
+        save_install_manifest(project_name, &installed)
+            .await
+            .map_err(|e| {
+                LauncherError::DiskIo(format!(
+                    "Не удалось сохранить манифест установленных файлов: {e:#}"
+                ))
+            })?;
         step.clone().finish(false);
     } else {
         let _ = save_install_manifest(project_name, &installed).await;
@@ -340,11 +388,250 @@ pub async fn record_installed_hash(
 ) -> Result<()> {
     let file_path = base_path.join(rel_path);
     if !file_path.exists() {
-        anyhow::bail!("Файл не существует: {:?}", file_path);
+        return Err(LauncherError::DiskIo(format!("Файл не существует: {file_path:?}")).into());
     }
     let hash = file_sha1(&file_path).await?;
-    let mut manifest = load_install_manifest(project_name).await?;
+    let mut manifest = load_install_manifest(project_name).await.map_err(|e| {
+        LauncherError::ManifestParse(format!(
+            "Не удалось загрузить манифест установленных файлов: {e:#}"
+        ))
+    })?;
     merge_installed(&mut manifest, &rel_path.to_string_lossy(), &hash);
-    save_install_manifest(project_name, &manifest).await?;
+    save_install_manifest(project_name, &manifest)
+        .await
+        .map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось сохранить манифест установленных файлов: {e:#}"
+            ))
+        })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod ensure_files_tests {
+    use super::*;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::utils::install_manifest::InstallManifest;
+    use mockito::Server;
+
+    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+        IntegrityTarget {
+            rel_path: PathBuf::from(rel),
+            hash: hash.to_string(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(url),
+        }
+    }
+
+    #[tokio::test]
+    async fn downloads_missing_file_and_records_hash() {
+        let dir = LauncherDirGuard::acquire("ensure_ok").await;
+        let mut server = Server::new_async().await;
+        let body = b"library bytes".to_vec();
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "libraries/a.jar",
+            &sha1_hex(&body),
+            format!("{}/libs/a.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("установка файлов");
+
+        assert_eq!(report.repaired, 1);
+        assert!(report.failed.is_empty());
+        assert_eq!(std::fs::read(base.join("libraries/a.jar")).unwrap(), body);
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/a.jar"),
+            Some(&sha1_hex(&body))
+        );
+    }
+
+    #[tokio::test]
+    async fn flags_and_deletes_file_with_mismatched_hash() {
+        let dir = LauncherDirGuard::acquire("ensure_bad_hash").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body("corrupt bytes")
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "libraries/a.jar",
+            "0000000000000000000000000000000000000000",
+            format!("{}/libs/a.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("отчёт установки");
+
+        assert_eq!(report.repaired, 0);
+        assert_eq!(report.failed, vec!["libraries/a.jar"]);
+        assert!(
+            !base.join("libraries/a.jar").exists(),
+            "битый файл должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
+    async fn unreadable_file_is_reported_without_deletion() {
+        let dir = LauncherDirGuard::acquire("ensure_unreadable").await;
+        let base = dir.project_dir("Cordelia");
+        let target_path = base.join("libraries/a.jar");
+        std::fs::create_dir_all(&target_path).expect("создание непрочитываемого «файла»");
+
+        let target = url_target(
+            "libraries/a.jar",
+            "0000000000000000000000000000000000000000",
+            "https://invalid.example.test/libs/a.jar".to_string(),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("отчёт установки");
+
+        assert_eq!(report.repaired, 0);
+        assert_eq!(report.failed, vec!["libraries/a.jar".to_string()]);
+        assert!(
+            target_path.exists(),
+            "ошибка чтения не должна приводить к удалению файла"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_hash_when_source_has_no_hash() {
+        let dir = LauncherDirGuard::acquire("ensure_no_hash").await;
+        let mut server = Server::new_async().await;
+        let body = b"installer bytes".to_vec();
+        server
+            .mock("GET", "/installer.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "installer.jar",
+            "",
+            format!("{}/installer.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("установка файла без хеша");
+
+        assert_eq!(report.repaired, 1);
+        assert!(report.failed.is_empty());
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(installed.files.get("installer.jar"), Some(&sha1_hex(&body)));
+    }
+
+    fn write_broken_manifest(dir: &LauncherDirGuard, project: &str) {
+        let manifest_path = dir
+            .root()
+            .join("manifest")
+            .join(format!("installed_{project}.json"));
+        std::fs::create_dir_all(manifest_path.parent().expect("родительская директория")).unwrap();
+        std::fs::write(&manifest_path, "{ это невалидный json").unwrap();
+    }
+
+    #[tokio::test]
+    async fn broken_manifest_does_not_block_ensure_files() {
+        let dir = LauncherDirGuard::acquire("ensure_broken_manifest").await;
+        write_broken_manifest(&dir, "Cordelia");
+        let mut server = Server::new_async().await;
+        let body = b"library bytes".to_vec();
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let target = url_target(
+            "libraries/a.jar",
+            &sha1_hex(&body),
+            format!("{}/libs/a.jar", server.url()),
+        );
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("установка при битом манифесте");
+
+        assert_eq!(report.repaired, 1);
+        assert!(report.failed.is_empty());
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/a.jar"),
+            Some(&sha1_hex(&body))
+        );
+        let raw =
+            std::fs::read_to_string(dir.root().join("manifest").join("installed_Cordelia.json"))
+                .expect("чтение манифеста");
+        assert!(serde_json::from_str::<InstallManifest>(&raw).is_ok());
+    }
+
+    #[tokio::test]
+    async fn broken_manifest_does_not_block_record_installed_hash() {
+        let dir = LauncherDirGuard::acquire("record_broken_manifest").await;
+        write_broken_manifest(&dir, "Cordelia");
+
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
+        let body = b"installer bytes".to_vec();
+        std::fs::write(base.join("libraries").join("installer.jar"), &body).unwrap();
+
+        record_installed_hash("Cordelia", &base, Path::new("libraries/installer.jar"))
+            .await
+            .expect("запись хеша при битом манифесте");
+
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/installer.jar"),
+            Some(&sha1_hex(&body))
+        );
+    }
 }

@@ -1,26 +1,34 @@
 <script setup lang="ts">
-import { useAccountsPage, useProjectConfig } from '@/04-features'
-import { AccountList, CurrentAccount, LaunchProgress, AuthTabsWidget } from '@/03-widgets'
+import { useRouter } from 'vue-router'
+import { useAccountsPage, useGameSession, useProjectConfig, useProjectSwitch } from '@/04-features'
+import { useCoreStore } from '@/05-entities'
+import { Preloader } from '@/06-shared'
+import { LaunchScene, NoProjectsState } from '@/03-widgets'
 
 useProjectConfig()
 
+const router = useRouter()
+const coreStore = useCoreStore()
+const { minimizeToTray } = useGameSession()
+const { isSwitching } = useProjectSwitch()
 const {
   isLoading,
   errorMessage,
   logins,
+  loginsError,
+  loadAccounts,
   selectedUsername,
   handleSelect,
-  showAccountList,
-  showCurrentAccount,
-  showLaunchProgress,
-  showAuthTabs,
-  isSelected,
+  isLaunching,
+  showAuth,
   activeSubTab,
   launchSteps,
   activeProgress,
+  launchInterrupted,
   loginError,
-  sessionUsername,
+  sceneUsername,
   isCancelPending,
+  isServerOffline,
   handleLaunch,
   showLoginForm,
   goToAccounts,
@@ -31,40 +39,38 @@ const {
 
 <template>
   <div class="accounts-page">
-    <AccountList
-      v-if="showAccountList"
+    <Preloader v-if="isSwitching" text="Смена проекта…" />
+    <NoProjectsState
+      v-else-if="coreStore.projects.length === 0"
+      @add-profile="router.push({ name: 'AddProfile' })"
+    />
+    <LaunchScene v-else
+      v-model:active-tab="activeSubTab"
+      :username="sceneUsername"
+      :selected-username="selectedUsername"
+      :has-session="coreStore.isLoggedIn"
       :logins="logins"
       :is-loading="isLoading"
-      :selected-username="selectedUsername"
-      :is-selected="isSelected"
-      :error-message="errorMessage"
-      @select="handleSelect"
-      @delete="handleDeleteAccount"
-      @show-login="showLoginForm"
-    />
-
-    <CurrentAccount
-      v-else-if="showCurrentAccount"
-      :username="sessionUsername"
-      @launch="handleLaunch"
-      @show-login="showLoginForm"
-      @go-to-accounts="goToAccounts"
-    />
-
-    <LaunchProgress
-      v-else-if="showLaunchProgress"
+      :is-launching="isLaunching"
+      :is-cancel-pending="isCancelPending"
+      :is-interrupted="launchInterrupted"
       :progress="activeProgress"
       :steps="launchSteps"
-      :error="loginError"
-      :is-cancel-pending="isCancelPending"
-      @go-to-accounts="goToAccounts"
-    />
-
-    <AuthTabsWidget
-      v-else-if="showAuthTabs"
-      v-model:active-tab="activeSubTab"
+      :session-username="coreStore.gameUsername"
+      :server-offline="isServerOffline"
+      :login-error="loginError"
+      :select-error="errorMessage"
+      :logins-error="loginsError"
+      :show-auth="showAuth"
       :show-back="showBack"
-      @back="goToAccounts"
+      @launch="handleLaunch"
+      @select="handleSelect"
+      @delete-account="handleDeleteAccount"
+      @show-login="showLoginForm"
+      @retry-logins="loadAccounts"
+      @cancel="goToAccounts"
+      @auth-back="goToAccounts"
+      @minimize="minimizeToTray"
     />
   </div>
 </template>

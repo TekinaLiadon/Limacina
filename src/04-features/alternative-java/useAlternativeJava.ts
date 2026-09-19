@@ -1,9 +1,8 @@
 import { ref } from 'vue'
-import { getJavaDistributions, getJavaVersion, downloadAlternativeJava } from '@/06-shared/api'
+import { downloadAlternativeJava, getErrorMessage, getJavaDistributions, getJavaVersion } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import { useNotificationStore } from '@/05-entities'
+import { useNotificationStore, type JavaDistribution } from '@/05-entities'
 import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
-import type { JavaDistribution } from '@/05-entities/core/types'
 
 export function useAlternativeJava() {
   const notification = useNotificationStore()
@@ -14,16 +13,24 @@ export function useAlternativeJava() {
   const replaceDefault = ref<boolean>(false)
   const isDownloading = ref<boolean>(false)
   const isPopupOpen = ref<boolean>(false)
+  const isDistributionsLoading = ref<boolean>(false)
+  const distributionsError = ref<string>('')
+  const versionError = ref<string>('')
 
   const loadJavaVersion = async (mcVersion: string): Promise<void> => {
+    versionError.value = ''
     try {
       javaVersion.value = await getJavaVersion(mcVersion)
     } catch (e: unknown) {
+      javaVersion.value = ''
+      versionError.value = getErrorMessage(e)
       reportError('Не удалось определить требуемую версию Java', e)
     }
   }
 
   const loadDistributions = async (): Promise<void> => {
+    isDistributionsLoading.value = true
+    distributionsError.value = ''
     try {
       distributions.value = await getJavaDistributions()
       if (!selectedDistribution.value) {
@@ -31,7 +38,10 @@ export function useAlternativeJava() {
         if (first !== undefined) selectedDistribution.value = first.name
       }
     } catch (e: unknown) {
+      distributionsError.value = getErrorMessage(e)
       reportError('Не удалось загрузить список Java-дистрибутивов', e)
+    } finally {
+      isDistributionsLoading.value = false
     }
   }
 
@@ -63,7 +73,7 @@ export function useAlternativeJava() {
       isPopupOpen.value = false
       return replaceDefault.value
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e)
+      const message = getErrorMessage(e)
       notification.show(`Ошибка загрузки Java: ${message}`)
       return false
     } finally {
@@ -78,6 +88,9 @@ export function useAlternativeJava() {
     replaceDefault,
     isDownloading,
     isPopupOpen,
+    isDistributionsLoading,
+    distributionsError,
+    versionError,
     openPopup,
     closePopup,
     startDownload,

@@ -5,7 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
+use crate::log_err;
 use crate::state::dto::default_true;
+use crate::utils::download_file::write_atomic_sync;
+use crate::utils::errors::LauncherError;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SavedLogin {
@@ -38,7 +41,7 @@ pub struct LauncherConfig {
     pub keep_old_configs: bool,
     #[serde(default)]
     pub download_speed_limit: Option<u64>,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub auto_update: bool,
     #[serde(default = "default_true")]
     pub system_notifications: bool,
@@ -65,6 +68,9 @@ pub struct LauncherConfig {
 
     #[serde(default)]
     pub projects: HashMap<String, AuthProjectConfig>,
+
+    #[serde(default)]
+    pub install_id: Option<String>,
 }
 
 impl Default for LauncherConfig {
@@ -74,7 +80,7 @@ impl Default for LauncherConfig {
             discord_activity: true,
             keep_old_configs: true,
             download_speed_limit: None,
-            auto_update: true,
+            auto_update: false,
             system_notifications: true,
             debug_mode: false,
             start_with_system: false,
@@ -85,14 +91,18 @@ impl Default for LauncherConfig {
             project_names: Vec::new(),
             current_project: None,
             projects: HashMap::new(),
+            install_id: None,
         }
     }
 }
 
 impl LauncherConfig {
     fn config_file_path() -> Result<std::path::PathBuf> {
-        let config_dir =
-            dirs::config_dir().context("Не удалось определить директорию конфигурации")?;
+        let config_dir = dirs::config_dir().ok_or_else(|| {
+            anyhow::Error::new(LauncherError::DiskIo(
+                "Не удалось определить директорию конфигурации".to_string(),
+            ))
+        })?;
         let launcher_name = crate::utils::env_info::get_launcher_name();
         let primary = config_dir.join(&launcher_name).join("config.json");
         if primary.exists() {
@@ -148,12 +158,18 @@ impl LauncherConfig {
 
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
-        let mut config: LauncherConfig = serde_json::from_str(&content)
-            .with_context(|| format!("Неверный формат {:?}", path))?;
-        if migrate_flattened_projects(&mut config, &content)? {
-            let _ = config.save();
+        match serde_json::from_str::<LauncherConfig>(&content) {
+            Ok(mut config) => {
+                if migrate_flattened_projects(&mut config, &content)? {
+                    let _ = config.save();
+                }
+                Ok(Some(config))
+            }
+            Err(e) => {
+                backup_corrupt_config(&path, &anyhow::Error::from(e));
+                Ok(None)
+            }
         }
-        Ok(Some(config))
     }
 
     pub(crate) fn config_file_path_public() -> Result<PathBuf> {
@@ -161,18 +177,32 @@ impl LauncherConfig {
     }
 
     pub(crate) fn serialize_for_save(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).context("Не удалось сериализовать конфиг")
+        serde_json::to_string_pretty(self).map_err(|e| {
+            anyhow::Error::new(LauncherError::DiskIo(format!(
+                "Не удалось сериализовать конфиг: {}",
+                e
+            )))
+        })
     }
 
     pub(crate) fn write_serialized(path: &Path, content: &str) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        write_config_atomic(path, content.as_bytes())
+        write_atomic_sync(path, content.as_bytes())
+    }
+
+    fn data_path_to_remember(&self) -> PathBuf {
+        if self.launcher_path.trim().is_empty() {
+            Self::fallback_path()
+        } else {
+            normalize_path(&self.launcher_path)
+        }
     }
 
     pub(crate) fn on_saved_update_path(&self) {
         self.update_resolved_path();
+        crate::utils::winreg::remember_data_path(&self.data_path_to_remember());
     }
 
     #[cfg(test)]
@@ -185,7 +215,7 @@ impl LauncherConfig {
         let path = Self::config_file_path()?;
         let content = self.serialize_for_save()?;
         Self::write_serialized(&path, &content)?;
-        self.update_resolved_path();
+        self.on_saved_update_path();
         Ok(())
     }
 
@@ -234,12 +264,16 @@ impl LauncherConfig {
     }
 }
 
-fn write_config_atomic(path: &Path, content: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("json.part");
-    fs::write(&tmp, content).with_context(|| format!("Не удалось записать файл во {:?}", tmp))?;
-    fs::rename(&tmp, path)
-        .with_context(|| format!("Не удалось переместить {:?} в {:?}", tmp, path))?;
-    Ok(())
+fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
+    let backup_path = path.with_extension("json.bak");
+    log_err!(
+        "{}: {:?} — {:?} ({})",
+        LauncherError::ConfigCorrupt,
+        path,
+        backup_path,
+        error
+    );
+    let _ = fs::rename(path, &backup_path);
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -348,7 +382,37 @@ mod tests {
 
         assert_eq!(parsed.current_project, None);
         assert!(parsed.has_project("Cordelia"));
-        assert!(parsed.auto_update);
+        assert!(!parsed.auto_update);
+    }
+
+    #[test]
+    fn old_config_without_install_id_parses_as_none() {
+        let json = r#"{ "launcherPath": "/home/user/Limacina", "projectNames": ["Cordelia"] }"#;
+        let parsed: LauncherConfig = serde_json::from_str(json).expect("разбор старого JSON");
+
+        assert_eq!(parsed.install_id, None);
+    }
+
+    #[test]
+    fn install_id_round_trips_as_camel_case_key() {
+        let mut config = LauncherConfig {
+            launcher_path: "/home/user/Limacina".to_string(),
+            ..Default::default()
+        };
+        config.install_id = Some("v1-0123456789abcdef0123456789abcdef".to_string());
+
+        let json = serde_json::to_string(&config).expect("сериализация в JSON");
+        let raw = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+        assert_eq!(
+            raw["installId"].as_str(),
+            Some("v1-0123456789abcdef0123456789abcdef")
+        );
+
+        let parsed: LauncherConfig = serde_json::from_str(&json).expect("повторный разбор");
+        assert_eq!(
+            parsed.install_id.as_deref(),
+            Some("v1-0123456789abcdef0123456789abcdef")
+        );
     }
 
     #[test]
@@ -387,6 +451,36 @@ mod tests {
         assert!(config.project_names.is_empty());
         assert_eq!(config.current_project, None);
         assert!(config.get_logins("Cordelia").is_empty());
+    }
+
+    struct TempDirGuard(PathBuf);
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn backup_corrupt_config_moves_broken_file_aside() {
+        let root = std::env::temp_dir().join(format!(
+            "limacina_launcher_config_corrupt_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("создание временной директории");
+        let _guard = TempDirGuard(root.clone());
+
+        let path = root.join("config.json");
+        fs::write(&path, "not valid json").expect("запись битого конфига");
+
+        backup_corrupt_config(&path, &anyhow::Error::msg("ошибка разбора"));
+
+        assert!(!path.exists(), "битый конфиг должен быть убран с пути");
+        assert!(
+            root.join("config.json.bak").exists(),
+            "битый конфиг должен быть сохранён в бэкап"
+        );
     }
 
     #[test]

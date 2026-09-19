@@ -10,10 +10,10 @@
     "lint": "oxlint",
     "tauri": "tauri",
     "fonts": "bun run scripts/subset-fonts.ts",
-    "build:update": "bunx tauri build --no-bundle && node scripts/build-update.cjs",
     "build:dist": "bunx tauri build",
     "clean": "cargo clean",
-    "clean:cache": "rm -rf ~/.local/share/com.tekina.limacina/WebKitCache ~/.local/share/com.tekina.limacina/CacheStorage"
+    "clean:cache": "rm -rf ~/.local/share/com.tekina.limacina/WebKitCache ~/.local/share/com.tekina.limacina/CacheStorage",
+    "release:latest": "node scripts/release-latest.cjs"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.31",
@@ -23,7 +23,9 @@
     "@tauri-apps/plugin-notification": "^2.4.0",
     "@tauri-apps/plugin-opener": "^2",
     "animejs": "3",
+    "dompurify": "3.4.15",
     "jszip": "^3.10.1",
+    "marked": "18.0.12",
     "pinia": "^2.1.7",
     "three": "^0.185.1",
     "vue": "^3.5.13",

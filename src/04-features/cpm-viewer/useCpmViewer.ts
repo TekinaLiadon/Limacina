@@ -1,10 +1,9 @@
 import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene, removeGroupFromScene, createManagedTextureLoader } from '@/06-shared'
+import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
 import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
-import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities/core/types'
-import type { ViewerControls } from '@/03-widgets/types'
-import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS } from './cpmAnimationPlayer'
+import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities'
+import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type SharedClock } from './cpmAnimationPlayer'
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -414,6 +413,7 @@ export function useCpmViewer(
   const { scene, camera, getOrbitControls, setPaused: setScenePaused } = useThreeScene(container, { enableZoom: false, autoRotate: false })
   const modelGroup = shallowRef<THREE.Group | null>(null)
   const textureLoader = createManagedTextureLoader(scene)
+  const animationClocks = new Map<string, SharedClock>()
   let player: CpmAnimationPlayer | null = null
   let tickId = 0
   let renderPaused = false
@@ -437,7 +437,7 @@ export function useCpmViewer(
         onFinished: () => {
           options.onAnimationFinished?.()
         },
-      })
+      }, animationClocks)
 
       player.setSpeed(animationSpeed.value)
       player.setForceLoop(isAnimationLooped.value)
@@ -530,6 +530,8 @@ export function useCpmViewer(
     cancelAnimationFrame(tickId)
     removeGroupFromScene(scene, modelGroup)
     textureLoader.dispose()
+    player?.dispose()
+    player = null
   })
 
   return {}

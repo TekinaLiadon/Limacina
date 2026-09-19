@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   src: string | null
@@ -12,6 +12,12 @@ const props = withDefaults(defineProps<{
 const isLoaded = ref(false)
 const isFailed = ref(false)
 
+const resolvedSrc = computed<string | null>(() => {
+  const raw = props.src?.trim() ?? ''
+  if (!raw) return null
+  return raw.startsWith('//') ? `https:${raw}` : raw
+})
+
 watch(
   () => props.src,
   () => {
@@ -23,14 +29,14 @@ watch(
 
 <template>
   <div class="modrinth-icon" :class="`modrinth-icon--${size}`">
-    <span v-if="src === null || isFailed" class="modrinth-icon__fallback">
+    <span v-if="resolvedSrc === null || isFailed" class="modrinth-icon__fallback">
       {{ (title || '?').charAt(0).toUpperCase() }}
     </span>
     <img
       v-else
       class="modrinth-icon__img"
       :class="{ 'modrinth-icon__img--hidden': !isLoaded }"
-      :src="src"
+      :src="resolvedSrc"
       :alt="title"
       @load="isLoaded = true"
       @error="isFailed = true"
@@ -46,7 +52,7 @@ watch(
   border-radius: var(--radius-card);
   background: var(--surface-light);
   color: var(--login-text-muted);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
   flex-shrink: 0;
   overflow: hidden;
 
@@ -58,14 +64,13 @@ watch(
   &--lg {
     width: 56px;
     height: 56px;
-    font-size: var(--text-title);
+    font-size: var(--text-heading-sm);
   }
 
   &__img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: opacity 0.2s ease;
 
     &--hidden {
       opacity: 0;

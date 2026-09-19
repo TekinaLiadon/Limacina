@@ -1,22 +1,24 @@
 import { computed, ref, watch } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import {
+  useCoreStore,
+  useNotificationStore,
+  type ModLoaderKind,
+  type OfflineProfileForm,
+  type ProfileKind,
+  type ProjectConfig,
+  type ServerProfileForm,
+} from '@/05-entities'
 import {
   createOfflineProfile,
   createServerProfile,
   clearSession,
+  getErrorMessage,
   getLoaderVersions,
   getMinecraftVersions,
 } from '@/06-shared/api'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
-import { reportError } from '@/06-shared'
+import { reportError, useAsyncRaceGuard } from '@/06-shared'
 import type { DropdownOption } from '@/06-shared/types'
-import type {
-  ModLoaderKind,
-  OfflineProfileForm,
-  ProfileKind,
-  ProjectConfig,
-  ServerProfileForm,
-} from '@/05-entities/core/types'
 
 const LOADER_OPTIONS: DropdownOption[] = [
   { title: 'Без загрузчика (Vanilla)', value: 'vanilla' },
@@ -30,7 +32,7 @@ export function useAddProfile() {
   const notification = useNotificationStore()
   const { resetAccountsState } = useProjectSwitch()
 
-  const kind = ref<ProfileKind | null>(null)
+  const kind = ref<ProfileKind>('server')
   const isSubmitting = ref<boolean>(false)
   const errorMessage = ref<string>('')
 
@@ -49,8 +51,8 @@ export function useAddProfile() {
   const isLoadingMcVersions = ref<boolean>(false)
   const isLoadingLoaderVersions = ref<boolean>(false)
 
-  let mcVersionsGeneration = 0
-  let loaderVersionsGeneration = 0
+  const mcVersionsGuard = useAsyncRaceGuard()
+  const loaderVersionsGuard = useAsyncRaceGuard()
 
   const loaderOptions = computed((): DropdownOption[] => LOADER_OPTIONS)
 
@@ -74,24 +76,24 @@ export function useAddProfile() {
   })
 
   const loadMcVersions = async (): Promise<void> => {
-    const generation = ++mcVersionsGeneration
+    const generation = mcVersionsGuard.next()
 
     isLoadingMcVersions.value = true
     errorMessage.value = ''
 
     try {
       const versions = await getMinecraftVersions(offlineForm.value.includeSnapshots)
-      if (generation !== mcVersionsGeneration) return
+      if (!mcVersionsGuard.isCurrent(generation)) return
       mcVersions.value = versions
       if (!mcVersions.value.includes(offlineForm.value.mcVersion)) {
         offlineForm.value.mcVersion = mcVersions.value[0] ?? ''
       }
     } catch (e: unknown) {
-      if (generation !== mcVersionsGeneration) return
-      errorMessage.value = String(e)
+      if (!mcVersionsGuard.isCurrent(generation)) return
+      errorMessage.value = getErrorMessage(e)
       mcVersions.value = []
     } finally {
-      if (generation === mcVersionsGeneration) isLoadingMcVersions.value = false
+      if (mcVersionsGuard.isCurrent(generation)) isLoadingMcVersions.value = false
     }
   }
 
@@ -102,7 +104,7 @@ export function useAddProfile() {
       return
     }
 
-    const generation = ++loaderVersionsGeneration
+    const generation = loaderVersionsGuard.next()
 
     isLoadingLoaderVersions.value = true
     errorMessage.value = ''
@@ -112,19 +114,19 @@ export function useAddProfile() {
         offlineForm.value.modLoader,
         offlineForm.value.mcVersion
       )
-      if (generation !== loaderVersionsGeneration) return
+      if (!loaderVersionsGuard.isCurrent(generation)) return
       loaderVersions.value = versions
       offlineForm.value.loaderVersion = loaderVersions.value[0] ?? ''
       if (loaderVersions.value.length === 0) {
         errorMessage.value = `Нет версий ${offlineForm.value.modLoader} для Minecraft ${offlineForm.value.mcVersion}`
       }
     } catch (e: unknown) {
-      if (generation !== loaderVersionsGeneration) return
-      errorMessage.value = String(e)
+      if (!loaderVersionsGuard.isCurrent(generation)) return
+      errorMessage.value = getErrorMessage(e)
       loaderVersions.value = []
       offlineForm.value.loaderVersion = ''
     } finally {
-      if (generation === loaderVersionsGeneration) isLoadingLoaderVersions.value = false
+      if (loaderVersionsGuard.isCurrent(generation)) isLoadingLoaderVersions.value = false
     }
   }
 
@@ -156,11 +158,6 @@ export function useAddProfile() {
     }
   }
 
-  const goBack = (): void => {
-    kind.value = null
-    errorMessage.value = ''
-  }
-
   const submitServer = async (): Promise<ProjectConfig | null> => {
     if (!isServerValid.value) return null
 
@@ -171,11 +168,10 @@ export function useAddProfile() {
       const config = await createServerProfile(serverForm.value.serverUrl.trim())
       await applyCreatedProfile(config)
       serverForm.value.serverUrl = ''
-      kind.value = null
       notification.show(`Сервер «${config.projectName}» добавлен`)
       return config
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       return null
     } finally {
       isSubmitting.value = false
@@ -197,11 +193,10 @@ export function useAddProfile() {
       )
       await applyCreatedProfile(config)
       offlineForm.value.name = ''
-      kind.value = null
       notification.show(`Профиль «${config.projectName}» создан`)
       return config
     } catch (e: unknown) {
-      errorMessage.value = String(e)
+      errorMessage.value = getErrorMessage(e)
       return null
     } finally {
       isSubmitting.value = false
@@ -229,8 +224,7 @@ export function useAddProfile() {
     isServerValid,
     isOfflineValid,
     selectKind,
-    goBack,
     submitServer,
-    submitOffline,
+  submitOffline,
   }
 }

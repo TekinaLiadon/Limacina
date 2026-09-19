@@ -2,8 +2,9 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
+use crate::utils::errors::LauncherError;
 use crate::{
     log_err,
     minecraft::{
@@ -42,7 +43,7 @@ impl ArgumentsMap {
                 config.natives_dir.to_string_lossy().to_string(),
             ),
             ("${launcher_name}", get_launcher_name()),
-            ("${launcher_version}", "1.0".to_string()),
+            ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
             ("${width}", config.window_width.to_string()),
             ("${height}", config.window_height.to_string()),
             ("${clientid}", "1".to_string()),
@@ -61,10 +62,27 @@ impl ArgumentsMap {
         ArgumentsMap { map }
     }
     fn get_value_by_key(&self, arg: &str) -> String {
-        let mut result = arg.to_string();
-        for (placeholder, value) in &self.map {
-            result = result.replace(placeholder, value);
+        let mut result = String::with_capacity(arg.len());
+        let mut remaining = arg;
+        while let Some(start) = remaining.find("${") {
+            result.push_str(&remaining[..start]);
+            let rest = &remaining[start..];
+            match rest.find('}') {
+                Some(end) => {
+                    let placeholder = &rest[..=end];
+                    match self.map.get(placeholder) {
+                        Some(value) => result.push_str(value),
+                        None => result.push_str(placeholder),
+                    }
+                    remaining = &rest[end + 1..];
+                }
+                None => {
+                    result.push_str(rest);
+                    return result;
+                }
+            }
         }
+        result.push_str(remaining);
         result
     }
     fn get_value(&self, arg: &ArgumentValue) -> Vec<String> {
@@ -88,28 +106,53 @@ impl ArgumentsMap {
 
 pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
 
     for lib in libraries {
         if !is_rule_allowed(lib.rules.as_deref()) {
             continue;
         }
 
-        let lib_path = if let Some(downloads) = &lib.downloads {
+        let (lib_path, rel_path, required) = if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
-                config.libraries_dir.join(&artifact.path)
+                (
+                    config.libraries_dir.join(&artifact.path),
+                    artifact.path.clone(),
+                    !artifact.url.is_empty(),
+                )
             } else {
                 continue;
             }
         } else {
-            let local_path = maven_to_path(&lib.name)?;
-            config.libraries_dir.join(local_path)
+            let local_path = maven_to_path(&lib.name).map_err(|e| {
+                LauncherError::ManifestParse(format!(
+                    "Не удалось определить путь библиотеки: {e:#}"
+                ))
+            })?;
+            (
+                config.libraries_dir.join(&local_path),
+                local_path.to_string_lossy().to_string(),
+                true,
+            )
         };
 
         if lib_path.exists() {
             paths.push(lib_path.to_string_lossy().to_string());
+        } else if required {
+            missing.push(rel_path);
         } else {
-            log_err!("Библиотека не найдена: {:?}", lib_path);
+            log_err!(
+                "Библиотека без ссылки для скачивания не найдена: {:?}",
+                lib_path
+            );
         }
+    }
+
+    if !missing.is_empty() {
+        bail!(LauncherError::GameProcess(format!(
+            "Библиотеки не найдены: {}. Запустите проверку целостности в настройках проекта",
+            missing.join(", ")
+        )));
     }
 
     Ok(paths)
@@ -256,8 +299,38 @@ mod tests {
         }
     }
 
+    fn libs_with_one_missing_url() -> Vec<Library> {
+        serde_json::from_str(
+            r#"[
+                {
+                    "name": "com.mojang:logging:1.0.0",
+                    "downloads": {
+                        "artifact": {
+                            "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
+                            "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
+                            "size": 15343,
+                            "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
+                        }
+                    }
+                },
+                {
+                    "name": "com.google.code.gson:gson:2.8.9",
+                    "downloads": {
+                        "artifact": {
+                            "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
+                            "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
+                            "size": 258075,
+                            "url": ""
+                        }
+                    }
+                }
+            ]"#,
+        )
+        .unwrap()
+    }
+
     #[test]
-    fn get_classpath_includes_only_existing_libraries() {
+    fn get_classpath_includes_existing_libraries() {
         let libs: Vec<Library> = serde_json::from_str(
             r#"[
                 {
@@ -298,13 +371,14 @@ mod tests {
         .unwrap();
 
         let root =
-            std::env::temp_dir().join(format!("limacina_classpath_test_{}", std::process::id()));
+            std::env::temp_dir().join(format!("limacina_classpath_ok_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let _guard = TempDirGuard(root.clone());
         let libraries_dir = root.join("libraries");
         let created = [
             "com/mojang/logging/1.0.0/logging-1.0.0.jar",
             "net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
+            "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
         ];
         for rel in created {
             let path = libraries_dir.join(rel);
@@ -328,12 +402,120 @@ mod tests {
 
         let paths = get_classpath(&libs, &config).unwrap();
 
+        assert_eq!(paths.len(), 3);
         for rel in created {
             let expected = libraries_dir.join(rel).to_string_lossy().into_owned();
             assert!(paths.contains(&expected), "{} нет в {:?}", expected, paths);
         }
-        assert_eq!(paths.len(), 2);
-        assert!(!paths.iter().any(|p| p.contains("gson")));
+
+        drop(_guard);
+        assert!(!root.exists(), "временная директория не удалена");
+    }
+
+    #[test]
+    fn get_classpath_errors_for_missing_library() {
+        let libs: Vec<Library> = serde_json::from_str(
+            r#"[
+                {
+                    "name": "com.mojang:logging:1.0.0",
+                    "downloads": {
+                        "artifact": {
+                            "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
+                            "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
+                            "size": 15343,
+                            "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
+                        }
+                    }
+                },
+                {
+                    "name": "com.google.code.gson:gson:2.8.9",
+                    "downloads": {
+                        "artifact": {
+                            "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
+                            "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
+                            "size": 258075,
+                            "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar"
+                        }
+                    }
+                }
+            ]"#,
+        )
+        .unwrap();
+
+        let root =
+            std::env::temp_dir().join(format!("limacina_classpath_missing_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let _guard = TempDirGuard(root.clone());
+        let libraries_dir = root.join("libraries");
+        let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"jar").unwrap();
+
+        let config = LaunchConfig {
+            username: "Test".to_string(),
+            uuid: "test-uuid".to_string(),
+            access_token: "token".to_string(),
+            mc_version: "1.18.2".to_string(),
+            game_dir: root.clone(),
+            assets_dir: root.join("assets"),
+            libraries_dir: libraries_dir.clone(),
+            natives_dir: root.join("natives"),
+            jvm_sub_arg: Vec::new(),
+            window_width: 1280,
+            window_height: 720,
+        };
+
+        let error = get_classpath(&libs, &config).expect_err("отсутствующая библиотека — ошибка");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("com/google/code/gson/gson/2.8.9/gson-2.8.9.jar"),
+            "ошибка должна называть файл библиотеки: {message}"
+        );
+        assert!(
+            message.contains("проверку целостности"),
+            "ошибка должна подсказать проверку целостности: {message}"
+        );
+
+        drop(_guard);
+        assert!(!root.exists(), "временная директория не удалена");
+    }
+
+    #[test]
+    fn get_classpath_allows_missing_library_without_download_url() {
+        let libs = libs_with_one_missing_url();
+
+        let root =
+            std::env::temp_dir().join(format!("limacina_classpath_no_url_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let _guard = TempDirGuard(root.clone());
+        let libraries_dir = root.join("libraries");
+        let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"jar").unwrap();
+
+        let config = LaunchConfig {
+            username: "Test".to_string(),
+            uuid: "test-uuid".to_string(),
+            access_token: "token".to_string(),
+            mc_version: "1.18.2".to_string(),
+            game_dir: root.clone(),
+            assets_dir: root.join("assets"),
+            libraries_dir: libraries_dir.clone(),
+            natives_dir: root.join("natives"),
+            jvm_sub_arg: Vec::new(),
+            window_width: 1280,
+            window_height: 720,
+        };
+
+        let paths = get_classpath(&libs, &config).expect("библиотека без url не требует файла");
+
+        assert_eq!(paths.len(), 1);
+        assert!(
+            !paths.iter().any(|p| p.contains("gson")),
+            "отсутствующая библиотека без url не должна попадать в classpath: {:?}",
+            paths
+        );
 
         drop(_guard);
         assert!(!root.exists(), "временная директория не удалена");
@@ -589,6 +771,39 @@ mod args_pipeline_tests {
         let game_args = get_game_args(&manifest, &args_map);
         assert!(game_args.contains(&"Cordelia".to_string()));
         assert!(game_args.contains(&"1.20.1".to_string()));
+    }
+
+    #[test]
+    fn placeholder_value_is_not_rescanned() {
+        let mut config = launch_config();
+        config.username = "${auth_access_token}".to_string();
+        let args_map = ArgumentsMap::new(&config, "5");
+
+        let value = args_map.get_value_by_key("${auth_player_name}");
+
+        assert_eq!(value, "${auth_access_token}");
+    }
+
+    #[test]
+    fn unknown_placeholder_is_left_as_is() {
+        let config = launch_config();
+        let args_map = ArgumentsMap::new(&config, "5");
+
+        assert_eq!(
+            args_map.get_value_by_key("--unknown${nope} --after"),
+            "--unknown${nope} --after"
+        );
+    }
+
+    #[test]
+    fn launcher_version_uses_cargo_package_version() {
+        let config = launch_config();
+        let args_map = ArgumentsMap::new(&config, "5");
+
+        assert_eq!(
+            args_map.get_value_by_key("${launcher_version}"),
+            env!("CARGO_PKG_VERSION")
+        );
     }
 
     #[test]

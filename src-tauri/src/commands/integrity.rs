@@ -7,6 +7,7 @@ use crate::log_info;
 use crate::minecraft::check_targets::check_minecraft_integrity;
 use crate::state::dto::GlobalState;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
+use crate::utils::errors::LauncherError;
 use crate::utils::integrity::{
     check_integrity, HashKind, IntegrityReport, IntegrityTarget, TargetDownload,
 };
@@ -75,7 +76,7 @@ fn collect_launcher_server_targets(
     let mut targets = Vec::new();
     for (key, hash) in file_list {
         if !is_safe_relative_path(key) {
-            anyhow::bail!("Сервер передал недопустимый путь файла: {}", key);
+            anyhow::bail!(LauncherError::InvalidModFilename(key.clone()));
         }
         targets.push(IntegrityTarget {
             rel_path: std::path::PathBuf::from(key),

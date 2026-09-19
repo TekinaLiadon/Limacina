@@ -1,44 +1,8 @@
 <script setup lang="ts">
-import {onMounted, onUnmounted, watch} from 'vue'
-
-const props = defineProps<{
+defineProps<{
   message: string
   visible: boolean
-  duration?: number
 }>()
-
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-}>()
-
-let timer: ReturnType<typeof setTimeout> | null = null
-
-const startTimer = (): void => {
-  clearTimer()
-  timer = setTimeout(() => {
-    emit('update:visible', false)
-  }, props.duration ?? 3000)
-}
-
-const clearTimer = (): void => {
-  if (!timer) return
-
-  clearTimeout(timer)
-  timer = null
-}
-
-watch(() => props.visible, (val: boolean) => {
-  if (val) startTimer()
-  else clearTimer()
-})
-
-onMounted((): void => {
-  if (props.visible) startTimer()
-})
-
-onUnmounted((): void => {
-  clearTimer()
-})
 </script>
 
 <template>
@@ -56,7 +20,7 @@ onUnmounted((): void => {
   position: fixed;
   top: var(--space-24);
   right: var(--space-24);
-  z-index: 2000;
+  z-index: var(--z-notification);
   background: var(--login-bg-form);
   border-radius: var(--radius-card);
   padding: var(--space-16) var(--space-20);
@@ -73,12 +37,12 @@ onUnmounted((): void => {
 
 .push-notification-enter-active,
 .push-notification-leave-active {
-  transition: all 0.3s ease;
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
 }
 
 .push-notification-enter-from,
 .push-notification-leave-to {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateX(var(--space-20));
 }
 </style>

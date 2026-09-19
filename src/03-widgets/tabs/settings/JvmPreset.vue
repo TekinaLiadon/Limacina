@@ -32,10 +32,10 @@ const { presetOptions, activePresetId, applyPreset } = useJvmPresets(
 .jvm-preset {
   @include mixins.settings-row-body;
 
-  .dropdown {
+  .select-base {
     flex-shrink: 0;
 
-    .dropdown__value {
+    .select-base__value {
       min-width: 200px;
     }
   }

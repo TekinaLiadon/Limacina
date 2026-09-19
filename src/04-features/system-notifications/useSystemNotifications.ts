@@ -1,9 +1,8 @@
-import { useCoreStore } from '@/05-entities'
-import { listenLaunchSteps, listenGameExit } from '@/06-shared/api'
+import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
+import { listenLaunchSteps, listenGameExit, getNotificationIcon } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import type { StepEvent, GameExitInfo } from '@/05-entities/core/types'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
+import { isPermissionGranted, requestPermission, sendNotification, type Options } from '@tauri-apps/plugin-notification'
 
 const DOWNLOAD_STEP_IDS: ReadonlySet<string> = new Set([
   'java.download',
@@ -20,12 +19,26 @@ const FLOW_ENTRY_STEP_IDS: ReadonlySet<string> = new Set(['java.check', 'files.l
 
 let notificationsStarted = false
 let downloadRan = false
+let notificationIcon: string | null | undefined
+
+const resolveNotificationIcon = async (): Promise<string | null> => {
+  if (notificationIcon === undefined) {
+    try {
+      notificationIcon = await getNotificationIcon()
+    } catch (e: unknown) {
+      reportError('Не удалось получить иконку для уведомлений', e)
+      notificationIcon = null
+    }
+  }
+  return notificationIcon
+}
 
 export function useSystemNotifications(): {
   sendSystemNotification: (title: string, body: string) => Promise<void>
   startSystemNotifications: () => Promise<void>
 } {
   const coreStore = useCoreStore()
+  const notification = useNotificationStore()
 
   const isWindowHidden = async (): Promise<boolean> => {
     if (document.visibilityState === 'hidden') return true
@@ -41,7 +54,10 @@ export function useSystemNotifications(): {
         granted = (await requestPermission()) === 'granted'
       }
       if (granted) {
-        sendNotification({ title, body })
+        const payload: Options = { title, body }
+        const icon = await resolveNotificationIcon()
+        if (icon) payload.icon = icon
+        sendNotification(payload)
       }
     } catch (e: unknown) {
       reportError('Не удалось отправить системное уведомление', e)
@@ -71,13 +87,21 @@ export function useSystemNotifications(): {
     }
   }
 
-  const handleGameExit = (info: GameExitInfo): void => {
+  const handleGameExit = async (info: GameExitInfo): Promise<void> => {
     if (info.success) return
-    const body =
+    if (await isWindowHidden()) {
+      const body =
+        info.code != null
+          ? `Процесс игры завершился с кодом ${info.code}`
+          : 'Процесс игры был аварийно завершён'
+      await sendSystemNotification('Игра завершилась с ошибкой', body)
+      return
+    }
+    notification.show(
       info.code != null
-        ? `Процесс игры завершился с кодом ${info.code}`
-        : 'Процесс игры был аварийно завершён'
-    void sendSystemNotification('Игра завершилась с ошибкой', body)
+        ? `Игра завершилась с ошибкой (код ${info.code})`
+        : 'Игра была аварийно завершена'
+    )
   }
 
   const startSystemNotifications = async (): Promise<void> => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {Button, Input} from '@/06-shared'
+import { Button, Input } from '@/06-shared'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   username: string
   password: string
   submitLabel: string
@@ -13,7 +13,14 @@ defineProps<{
   usernamePlaceholder?: string
   passwordPlaceholder?: string
   usernameList?: string[]
-}>()
+}>(), {
+  isBack: false,
+  hidePassword: false,
+  errorMessage: '',
+  usernamePlaceholder: '',
+  passwordPlaceholder: '',
+  usernameList: () => [],
+})
 
 const emit = defineEmits<{
   'update:username': [value: string]
@@ -21,15 +28,20 @@ const emit = defineEmits<{
   'submit': []
   'back': []
 }>()
+
+const handleSubmit = (): void => {
+  if (props.isLoading || props.isDisabled) return
+  emit('submit')
+}
 </script>
 
 <template>
-  <div class="auth-form">
+  <form class="auth-form" @submit.prevent="handleSubmit">
     <div class="auth-form__field">
       <Input
           :model-value="username"
           @update:model-value="emit('update:username', $event)"
-          :options="{ placeholder: usernamePlaceholder ?? 'Никнейм', list: usernameList ?? [] }"
+          :options="{ placeholder: usernamePlaceholder || 'Никнейм', list: usernameList ?? [] }"
       />
     </div>
 
@@ -37,7 +49,7 @@ const emit = defineEmits<{
       <Input
           :model-value="password"
           @update:model-value="emit('update:password', $event)"
-          :options="{ placeholder: passwordPlaceholder ?? 'Пароль', type: 'password' }"
+          :options="{ placeholder: passwordPlaceholder || 'Пароль', type: 'password' }"
       />
     </div>
 
@@ -47,9 +59,9 @@ const emit = defineEmits<{
 
     <Button
         class="btn-primary btn-lg btn-block"
+        type="submit"
         :is-loading="isLoading"
         :is-disabled="isDisabled"
-        @click="emit('submit')"
     >
       {{ submitLabel }}
     </Button>
@@ -60,7 +72,7 @@ const emit = defineEmits<{
     >
       Назад к аккаунтам
     </Button>
-  </div>
+  </form>
 </template>
 
 <style lang="scss">

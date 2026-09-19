@@ -1,4 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
+
+use crate::utils::errors::LauncherError;
 
 pub fn to_hex(data: &[u8]) -> String {
     let mut hex = String::with_capacity(data.len() * 2);
@@ -17,9 +19,11 @@ pub fn from_hex(s: &str) -> Result<Vec<u8>> {
     let mut result = Vec::with_capacity(s.len() / 2);
     let mut chars = s.chars();
     while let Some(hi) = chars.next() {
-        let lo = chars.next().context("Нечётная длина hex строки")?;
-        let byte =
-            u8::from_str_radix(&format!("{}{}", hi, lo), 16).context("Неверный hex символ")?;
+        let lo = chars.next().ok_or(LauncherError::CredentialsStorage(
+            "Нечётная длина hex строки".to_string(),
+        ))?;
+        let byte = u8::from_str_radix(&format!("{}{}", hi, lo), 16)
+            .map_err(|e| LauncherError::CredentialsStorage(format!("Неверный hex символ: {e}")))?;
         result.push(byte);
     }
     Ok(result)

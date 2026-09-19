@@ -1,8 +1,12 @@
 pub mod bandwidth;
+pub mod desktop_entry;
 pub mod download_file;
 pub mod env_info;
+pub mod errors;
+pub mod file_logger;
 pub mod hex;
 pub mod http;
+pub mod install_id;
 pub mod install_manifest;
 pub mod integrity;
 pub mod java;
@@ -10,9 +14,10 @@ pub mod logger_utils;
 pub mod semaphore;
 pub mod step_events;
 pub mod tauri_err;
+pub mod winreg;
 pub mod zip;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use std::cmp::Ordering;
 
 pub async fn blocking<T, F>(error_context: &str, task: F) -> Result<T>
@@ -22,7 +27,7 @@ where
 {
     tauri::async_runtime::spawn_blocking(task)
         .await
-        .map_err(|e| anyhow!("{}: {}", error_context, e))
+        .context(error_context.to_string())
 }
 
 fn split_numeric_part(version: &str) -> Vec<u32> {

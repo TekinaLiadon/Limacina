@@ -1,5 +1,5 @@
 import { inject, provide, ref, type InjectionKey, type Ref } from 'vue'
-import type { ViewerControls } from '@/03-widgets/types'
+import type { ViewerControls } from '@/06-shared'
 
 const VIEWER_CONTROLS_KEY: InjectionKey<ViewerControls> = Symbol('viewer-controls')
 const STAGE_PAUSED_KEY: InjectionKey<Ref<boolean>> = Symbol('viewer-stage-paused')

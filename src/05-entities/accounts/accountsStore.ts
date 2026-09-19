@@ -5,6 +5,8 @@ export interface AccountsState {
   isLoading: boolean
   errorMessage: string
   logins: string[]
+  loginsError: string
+  isLoginsLoading: boolean
   selectedUsername: string
 
   authLoading: boolean
@@ -16,6 +18,8 @@ export interface AccountsState {
   showAuthForm: boolean
   activeSubTab: AuthSubTab
   isLaunching: boolean
+  launchInterrupted: boolean
+  isSwitching: boolean
   launchGeneration: number
 
   launchSteps: StepProgressItem[]
@@ -27,6 +31,8 @@ export const useAccountsStore = defineStore('accounts', {
     isLoading: false,
     errorMessage: '',
     logins: [],
+    loginsError: '',
+    isLoginsLoading: false,
     selectedUsername: '',
 
     authLoading: false,
@@ -46,6 +52,8 @@ export const useAccountsStore = defineStore('accounts', {
     showAuthForm: false,
     activeSubTab: 'login' as AuthSubTab,
     isLaunching: false,
+    launchInterrupted: false,
+    isSwitching: false,
     launchGeneration: 0,
 
     launchSteps: [],

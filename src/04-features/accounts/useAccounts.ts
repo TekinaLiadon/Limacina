@@ -1,6 +1,6 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
-import { authRefresh, getSessionInfo } from '@/06-shared/api'
+import { authRefresh, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
@@ -50,7 +50,7 @@ export function useAccounts() {
       }
     } catch (e: unknown) {
       selectedUsername.value = previousUsername
-      errorMessage.value = e instanceof Error ? e.message : String(e)
+      errorMessage.value = getErrorMessage(e)
       coreStore.isLoggedIn = false
       coreStore.session = null
     } finally {

@@ -10,6 +10,8 @@ use crate::utils::blocking;
 use crate::utils::env_info::{
     default_server_url, get_default_project_name, get_home_dir, get_launcher_name, is_offline_build,
 };
+use crate::utils::errors::LauncherError;
+use crate::utils::install_id::{compute_install_id_blocking, set_install_id};
 use crate::utils::tauri_err::CommandResult;
 
 #[derive(Serialize)]
@@ -37,11 +39,18 @@ pub(crate) async fn update_launcher_config(
 
         mutate(&mut config);
 
-        let content = config
-            .serialize_for_save()
-            .map_err(|e| anyhow::anyhow!("Не удалось сериализовать конфиг: {}", e))?;
-        let path = LauncherConfig::config_file_path_public()
-            .map_err(|e| anyhow::anyhow!("Не удалось определить путь конфига: {}", e))?;
+        let content = config.serialize_for_save().map_err(|e| {
+            anyhow::Error::new(LauncherError::DiskIo(format!(
+                "Не удалось сериализовать конфиг: {}",
+                e
+            )))
+        })?;
+        let path = LauncherConfig::config_file_path_public().map_err(|e| {
+            anyhow::Error::new(LauncherError::DiskIo(format!(
+                "Не удалось определить путь конфига: {}",
+                e
+            )))
+        })?;
 
         guard.launcher_config = Some(config.clone());
         (config, content, path)
@@ -67,19 +76,44 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
         .flatten();
 
     if let Some(ref mut cfg) = config {
+        let mut changed = false;
         if cfg.project_names.is_empty() && !is_offline_build() {
             let default_project = get_default_project_name();
             if !default_project.is_empty() {
                 cfg.project_names = vec![default_project];
-                let cfg_clone = cfg.clone();
-                let _ = blocking(
-                    "Не удалось выполнить запись конфига",
-                    move || cfg_clone.save(),
-                )
-                .await?;
+                changed = true;
             }
         }
+        if cfg.install_id.is_none() {
+            let id = blocking(
+                "Не удалось вычислить ID установки",
+                compute_install_id_blocking,
+            )
+            .await?;
+            cfg.install_id = Some(id);
+            changed = true;
+        }
+        if changed {
+            let cfg_clone = cfg.clone();
+            let _ = blocking(
+                "Не удалось выполнить запись конфига",
+                move || cfg_clone.save(),
+            )
+            .await;
+        }
     }
+
+    let install_id = match config.as_ref().and_then(|cfg| cfg.install_id.clone()) {
+        Some(id) => id,
+        None => {
+            blocking(
+                "Не удалось вычислить ID установки",
+                compute_install_id_blocking,
+            )
+            .await?
+        }
+    };
+    set_install_id(&install_id);
 
     let version;
     {
@@ -142,7 +176,11 @@ pub async fn save_launcher_config(
         move || {
             for dir in dirs_to_create {
                 std::fs::create_dir_all(&dir).map_err(|e| {
-                    anyhow::anyhow!("Не удалось создать папку \"{}\": {}", dir.display(), e)
+                    anyhow::Error::new(LauncherError::DiskIo(format!(
+                        "Не удалось создать папку \"{}\": {}",
+                        dir.display(),
+                        e
+                    )))
                 })?;
             }
             Ok::<(), anyhow::Error>(())

@@ -1,6 +1,10 @@
+export type ModrinthProjectType = 'mod' | 'shader' | 'resourcepack'
+export type ModrinthSide = 'required' | 'optional' | 'unsupported'
+export type ModrinthVersionType = 'release' | 'beta' | 'alpha'
+
 export interface ModrinthSearchHit {
   project_id: string
-  project_type: string
+  project_type: ModrinthProjectType
   slug: string | null
   author: string | null
   title: string
@@ -13,8 +17,8 @@ export interface ModrinthSearchHit {
   date_modified: string | null
   latest_version: string | null
   license: string | null
-  client_side: string | null
-  server_side: string | null
+  client_side: ModrinthSide | null
+  server_side: ModrinthSide | null
 }
 
 export interface ModrinthSearchResult {
@@ -34,7 +38,7 @@ export interface ModrinthLicense {
 export interface ModrinthProject {
   id: string
   slug: string | null
-  project_type: string
+  project_type: ModrinthProjectType
   title: string
   description: string
   body: string
@@ -45,8 +49,8 @@ export interface ModrinthProject {
   date_created: string | null
   date_modified: string | null
   license: ModrinthLicense | null
-  client_side: string | null
-  server_side: string | null
+  client_side: ModrinthSide | null
+  server_side: ModrinthSide | null
   source_url: string | null
   issues_url: string | null
   wiki_url: string | null
@@ -78,7 +82,7 @@ export interface ModrinthVersion {
   dependencies: ModrinthDependency[]
   game_versions: string[]
   loaders: string[]
-  version_type: string
+  version_type: ModrinthVersionType
   date_published: string | null
   downloads: number
   featured: boolean

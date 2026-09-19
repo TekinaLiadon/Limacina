@@ -6,6 +6,7 @@ use tokio::{
     time::{sleep, Instant},
 };
 
+use crate::utils::errors::LauncherError;
 use crate::{log_err, log_info};
 const MAX_CONCURRENT_DOWNLOADS: usize = 15;
 const MAX_RETRIES: usize = 4;
@@ -42,14 +43,16 @@ where
             let _permit = match sem.acquire_owned().await {
                 Ok(permit) => permit,
                 Err(_) => {
-                    return Err(anyhow::anyhow!("Семафор скачивания закрыт"));
+                    return Err(
+                        LauncherError::Download("Семафор скачивания закрыт".to_string()).into(),
+                    );
                 }
             };
             let start_time = Instant::now();
-            let mut final_result = Err(anyhow::anyhow!(
-                "Не удалось скачать файл после {} попыток",
-                MAX_RETRIES
-            ));
+            let mut final_result = Err(LauncherError::Download(format!(
+                "Не удалось скачать файл после {MAX_RETRIES} попыток"
+            ))
+            .into());
 
             for attempt in 1..=MAX_RETRIES {
                 match download_fn(el.url.clone(), path.clone()).await {

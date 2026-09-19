@@ -1,12 +1,16 @@
 import { watch } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { useCoreStore, type ProjectConfig } from '@/05-entities'
 import { getServerStatus } from '@/06-shared/api'
-import type { ProjectConfig } from '@/05-entities/core/types'
 
-const POLL_INTERVAL_MS = 60_000
+const OK_INTERVAL_MS = 60_000
+const MAX_INTERVAL_MS = 300_000
+const FAILURE_THRESHOLD = 3
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollTimeout: ReturnType<typeof setTimeout> | null = null
+let pollGeneration = 0
 let syncStarted = false
+let currentDelayMs = OK_INTERVAL_MS
+let consecutiveFailures = 0
 
 export function useServerStatus(): {
   refreshServerStatus: () => Promise<void>
@@ -15,34 +19,54 @@ export function useServerStatus(): {
   const coreStore = useCoreStore()
 
   const stopPolling = (): void => {
-    if (pollTimer === null) return
-    clearInterval(pollTimer)
-    pollTimer = null
+    pollGeneration += 1
+    if (pollTimeout === null) return
+    clearTimeout(pollTimeout)
+    pollTimeout = null
   }
 
-  const refreshServerStatus = async (): Promise<void> => {
+  const schedule = (delayMs: number): void => {
+    stopPolling()
+    pollTimeout = setTimeout((): void => {
+      void poll()
+    }, delayMs)
+  }
+
+  const resetBackoff = (): void => {
+    consecutiveFailures = 0
+    currentDelayMs = OK_INTERVAL_MS
+  }
+
+  const fetchStatus = async (generation: number): Promise<void> => {
     try {
-      coreStore.serverStatus = await getServerStatus()
+      const status = await getServerStatus()
+      if (generation !== pollGeneration) return
+      coreStore.serverStatus = status
+      resetBackoff()
     } catch {
-      coreStore.serverStatus = null
-      stopPolling()
+      if (generation !== pollGeneration) return
+      consecutiveFailures += 1
+      if (consecutiveFailures >= FAILURE_THRESHOLD) {
+        coreStore.serverStatus = null
+      }
+      currentDelayMs = Math.min(currentDelayMs * 2, MAX_INTERVAL_MS)
     }
   }
 
-  const startPolling = (): void => {
-    stopPolling()
-    void refreshServerStatus()
-    pollTimer = setInterval((): void => {
-      void refreshServerStatus()
-    }, POLL_INTERVAL_MS)
+  const poll = async (): Promise<void> => {
+    const generation = pollGeneration
+    await fetchStatus(generation)
+    if (generation !== pollGeneration) return
+    schedule(currentDelayMs)
   }
 
   const syncWithProject = (config: ProjectConfig | null): void => {
+    stopPolling()
     if (config?.online === true) {
-      startPolling()
+      resetBackoff()
+      void poll()
       return
     }
-    stopPolling()
     coreStore.serverStatus = null
   }
 
@@ -53,7 +77,7 @@ export function useServerStatus(): {
   }
 
   return {
-    refreshServerStatus,
+    refreshServerStatus: (): Promise<void> => fetchStatus(pollGeneration),
     startServerStatusSync,
   }
 }
