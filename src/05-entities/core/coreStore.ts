@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { CoreState } from './types/index'
+import type { CoreState, LauncherConfig } from './types/index'
 
 export const useCoreStore = defineStore('core', {
   state: (): CoreState => ({
@@ -25,4 +25,15 @@ export const useCoreStore = defineStore('core', {
     gameUsername: null,
     isServerReachable: null,
   }),
+
+  actions: {
+    applyLauncherProjects(config: LauncherConfig): void {
+      this.projects = [...config.projectNames]
+      const [first] = this.projects
+      if (first === undefined) return
+
+      const saved = config.currentProject
+      this.currentProject = saved !== null && this.projects.includes(saved) ? saved : first
+    },
+  },
 })

@@ -1,5 +1,5 @@
 import { onBeforeMount, ref } from 'vue'
-import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type LauncherConfig, type ProjectConfig, type UpdateInfo } from '@/05-entities'
+import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type ProjectConfig, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage, loadSettingsProject } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
@@ -19,17 +19,6 @@ export function useAppInit() {
     reportError(message, e)
     const detail = getErrorMessage(e)
     notification.show(detail ? `${message}: ${detail}` : message, STARTUP_ERROR_DURATION)
-  }
-
-  const applyProjects = (config: LauncherConfig): void => {
-    coreStore.projects = [...config.projectNames]
-    const [first] = coreStore.projects
-    if (first === undefined) return
-
-    const saved = config.currentProject
-    coreStore.currentProject = saved && coreStore.projects.includes(saved)
-      ? saved
-      : first
   }
 
   const loadProject = (name: string): Promise<void> =>
@@ -60,14 +49,14 @@ export function useAppInit() {
       coreStore.envProjectName = initData.envProjectName ?? ''
 
       if (initData.launcherConfig) {
-        applyProjects(initData.launcherConfig)
+        coreStore.applyLauncherProjects(initData.launcherConfig)
 
         const savedTheme = normalizeTheme(initData.launcherConfig.theme)
         settingsStore.setTheme(savedTheme)
         settingsStore.setAnimationsEnabled(initData.launcherConfig.animationsEnabled)
       }
 
-      const autoUpdate = initData.launcherConfig?.autoUpdate ?? true
+      const autoUpdate = initData.launcherConfig?.autoUpdate ?? false
       const isUpdateCheckEnabled = autoUpdate && !coreStore.offlineBuild
 
       const loadedProject: string | null = coreStore.currentProject
@@ -96,7 +85,7 @@ export function useAppInit() {
           coreStore.launcherConfig = freshData.launcherConfig
           coreStore.hasLauncherConfig = !!freshData.launcherConfig
           if (freshData.launcherConfig) {
-            applyProjects(freshData.launcherConfig)
+            coreStore.applyLauncherProjects(freshData.launcherConfig)
 
             const refreshedTheme = normalizeTheme(freshData.launcherConfig.theme)
             settingsStore.setTheme(refreshedTheme)

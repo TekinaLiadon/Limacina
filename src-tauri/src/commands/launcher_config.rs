@@ -76,14 +76,7 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
         .flatten();
 
     if let Some(ref mut cfg) = config {
-        let mut changed = false;
-        if cfg.project_names.is_empty() && !is_offline_build() {
-            let default_project = get_default_project_name();
-            if !default_project.is_empty() {
-                cfg.project_names = vec![default_project];
-                changed = true;
-            }
-        }
+        let mut changed = cfg.apply_default_project();
         if cfg.install_id.is_none() {
             let id = blocking(
                 "Не удалось вычислить ID установки",

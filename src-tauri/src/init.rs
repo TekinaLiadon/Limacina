@@ -56,6 +56,7 @@ pub fn init_launcher(parent_path: &str) -> Result<LauncherConfig> {
     paths.create_dirs()?;
 
     let mut config = LauncherConfig::load().ok().flatten().unwrap_or_default();
+    config.apply_default_project();
     config.launcher_path = paths.base.to_string_lossy().to_string();
     config.save()?;
 

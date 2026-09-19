@@ -262,6 +262,23 @@ impl LauncherConfig {
         self.projects.remove(project);
         self.current_project = self.project_names.first().cloned();
     }
+
+    /// Подставляет проект из LAUNCHER_PROJECT_NAME, если список проектов пуст.
+    /// Offline-сборки и сборки без переменной остаются без дефолтного проекта.
+    pub fn apply_default_project(&mut self) -> bool {
+        if !self.project_names.is_empty() || crate::utils::env_info::is_offline_build() {
+            return false;
+        }
+        let default_project = crate::utils::env_info::get_default_project_name();
+        if default_project.is_empty() {
+            return false;
+        }
+        self.project_names = vec![default_project.clone()];
+        if self.current_project.is_none() {
+            self.current_project = Some(default_project);
+        }
+        true
+    }
 }
 
 fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
@@ -481,6 +498,51 @@ mod tests {
             root.join("config.json.bak").exists(),
             "битый конфиг должен быть сохранён в бэкап"
         );
+    }
+
+    struct ProjectNameEnvGuard {
+        original: Option<String>,
+    }
+
+    impl ProjectNameEnvGuard {
+        fn acquire() -> Self {
+            let original = std::env::var("LAUNCHER_PROJECT_NAME").ok();
+            std::env::remove_var("LAUNCHER_PROJECT_NAME");
+            Self { original }
+        }
+    }
+
+    impl Drop for ProjectNameEnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => std::env::set_var("LAUNCHER_PROJECT_NAME", value),
+                None => std::env::remove_var("LAUNCHER_PROJECT_NAME"),
+            }
+        }
+    }
+
+    #[test]
+    fn apply_default_project_follows_env_and_existing_state() {
+        let _guard = ProjectNameEnvGuard::acquire();
+
+        let mut config = LauncherConfig::default();
+        assert!(!config.apply_default_project());
+        assert!(config.project_names.is_empty());
+
+        std::env::set_var("LAUNCHER_PROJECT_NAME", "Avelmor");
+        assert!(config.apply_default_project());
+        assert_eq!(config.project_names, vec!["Avelmor"]);
+        assert_eq!(config.current_project.as_deref(), Some("Avelmor"));
+
+        assert!(!config.apply_default_project(), "повторный вызов без эффекта");
+        assert_eq!(config.project_names.len(), 1);
+
+        let mut kept = LauncherConfig::default();
+        kept.add_project("Her");
+        kept.current_project = None;
+        assert!(!kept.apply_default_project());
+        assert_eq!(kept.project_names, vec!["Her"]);
+        assert!(kept.current_project.is_none());
     }
 
     #[test]

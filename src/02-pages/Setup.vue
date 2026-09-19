@@ -52,6 +52,7 @@ const save = async (): Promise<void> => {
   try {
     const config = await initializeLauncher(selectedPath.value)
     coreStore.launcherConfig = config
+    coreStore.applyLauncherProjects(config)
     coreStore.hasLauncherConfig = true
     if (prefersReducedMotion()) {
       await setAnimationsEnabled(false)

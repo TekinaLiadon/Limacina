@@ -28,7 +28,7 @@ export function useLauncherSettings(): {
   const isDirty = ref<boolean>(false)
   const launcherPath = ref<string>('')
   const discordActivity = ref<boolean>(true)
-  const autoUpdate = ref<boolean>(true)
+  const autoUpdate = ref<boolean>(false)
   const keepOldConfigs = ref<boolean>(false)
   const startWithSystem = ref<boolean>(false)
   const closeAfterLaunch = ref<boolean>(false)
@@ -48,7 +48,7 @@ export function useLauncherSettings(): {
     discordActivity: config?.discordActivity ?? true,
     keepOldConfigs: config?.keepOldConfigs ?? false,
     downloadSpeedLimit: config?.downloadSpeedLimit ?? null,
-    autoUpdate: config?.autoUpdate ?? true,
+    autoUpdate: config?.autoUpdate ?? false,
     systemNotifications: config?.systemNotifications ?? true,
     debugMode: config?.debugMode ?? false,
     startWithSystem: config?.startWithSystem ?? false,
