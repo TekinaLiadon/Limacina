@@ -88,6 +88,8 @@ onBeforeUnmount((): void => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .settings-section {
   display: flex;
   flex-direction: column;
@@ -111,13 +113,9 @@ onBeforeUnmount((): void => {
   }
 
   &__title {
+    @include mixins.eyebrow(var(--text-body-sm), var(--leading-body-sm));
+
     font-family: var(--font-eyebrow);
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-eyebrow);
-    text-transform: uppercase;
-    color: var(--login-text-muted);
     white-space: nowrap;
     font-feature-settings: "tnum" on;
     transition: color var(--duration-base) var(--ease-out);

@@ -76,16 +76,16 @@ const onMaxInput = (e: Event): void => {
 </script>
 
 <template>
-  <div class="dual-range">
-    <div class="dual-range__header">
-      <label class="dual-range__label eyebrow">Память (min — max)</label>
-      <span class="dual-range__values">
+  <div class="memory-slider">
+    <div class="memory-slider__header">
+      <label class="memory-slider__label eyebrow">Память (min — max)</label>
+      <span class="memory-slider__values">
         {{ formatValue(minVal) }} — {{ formatValue(maxVal) }}
       </span>
     </div>
-    <div class="dual-range__track">
+    <div class="memory-slider__track">
       <div
-        class="dual-range__fill"
+        class="memory-slider__fill"
         :style="{
           left: `${minPercent}%`,
           width: `${maxPercent - minPercent}%`,
@@ -93,7 +93,7 @@ const onMaxInput = (e: Event): void => {
       />
       <input
         type="range"
-        class="dual-range__input dual-range__input--min"
+        class="memory-slider__input memory-slider__input--min"
         :min="min"
         :max="maxLimit"
         :step="step"
@@ -102,7 +102,7 @@ const onMaxInput = (e: Event): void => {
       />
       <input
         type="range"
-        class="dual-range__input dual-range__input--max"
+        class="memory-slider__input memory-slider__input--max"
         :min="min"
         :max="maxLimit"
         :step="step"
@@ -114,7 +114,9 @@ const onMaxInput = (e: Event): void => {
 </template>
 
 <style lang="scss">
-.dual-range {
+@use '@/01-app/assets/mixins';
+
+.memory-slider {
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
@@ -135,62 +137,18 @@ const onMaxInput = (e: Event): void => {
   }
 
   &__track {
-    position: relative;
-    height: 6px;
-    background: var(--surface-active);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-pill);
+    @include mixins.slider-track;
   }
 
   &__fill {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
-    border-radius: var(--radius-pill);
-    pointer-events: none;
+    @include mixins.slider-fill;
   }
 
   &__input {
-    position: absolute;
-    top: -7px;
-    left: 0;
-    width: 100%;
-    height: 20px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    cursor: pointer;
+    @include mixins.slider-input;
+
     z-index: var(--z-content);
     pointer-events: none;
-
-    &::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: var(--radius-circle);
-      background: var(--login-accent);
-      border: none;
-      box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
-      cursor: pointer;
-      pointer-events: auto;
-      transition: transform var(--duration-fast) var(--ease-out);
-
-      &:hover {
-        transform: scale(1.15);
-      }
-    }
-
-    &::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
-      border-radius: var(--radius-circle);
-      background: var(--login-accent);
-      border: none;
-      box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
-      cursor: pointer;
-      pointer-events: auto;
-    }
   }
 }
 </style>

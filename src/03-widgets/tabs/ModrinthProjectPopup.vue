@@ -274,27 +274,18 @@ async function handleLink(url: string): Promise<void> {
 @use '@/01-app/assets/mixins';
 
 .modrinth-popup-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-popup);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--overlay);
-  backdrop-filter: blur(4px);
+  @include mixins.popup-overlay;
+
   text-align: left;
 }
 
 .modrinth-popup {
+  @include mixins.popup-card(none, min(720px, calc(100vw - var(--space-16) * 2)));
+
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
-  width: min(720px, calc(100vw - var(--space-16) * 2));
   height: min(85vh, 720px);
-  background: var(--login-bg-form);
-  border-radius: var(--radius-modal);
-  padding: var(--card-padding);
-  box-shadow: var(--elevation-modal);
 
   &__head {
     display: flex;

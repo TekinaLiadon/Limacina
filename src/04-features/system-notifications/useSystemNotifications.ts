@@ -1,21 +1,8 @@
 import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
 import { listenLaunchSteps, listenGameExit, getNotificationIcon } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS } from '@/06-shared'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isPermissionGranted, requestPermission, sendNotification, type Options } from '@tauri-apps/plugin-notification'
-
-const DOWNLOAD_STEP_IDS: ReadonlySet<string> = new Set([
-  'java.download',
-  'files.download',
-  'mc.jar',
-  'mc.libs',
-  'mc.assets',
-  'mc.natives',
-  'loader',
-  'mods.download',
-])
-
-const FLOW_ENTRY_STEP_IDS: ReadonlySet<string> = new Set(['java.check', 'files.list'])
 
 let notificationsStarted = false
 let downloadRan = false
@@ -66,16 +53,16 @@ export function useSystemNotifications(): {
 
   const handleStepEvent = (event: StepEvent): void => {
     if (event.type === 'started') {
-      if (FLOW_ENTRY_STEP_IDS.has(event.id) || event.id === 'java.extract') {
+      if (FLOW_ENTRY_STEP_IDS.has(event.id) || event.id === STEP_IDS.javaExtract) {
         downloadRan = false
       }
-      if (event.id === 'launch.config' && downloadRan) {
+      if (event.id === STEP_IDS.launchConfig && downloadRan) {
         downloadRan = false
         void sendSystemNotification('Файлы загружены', 'Все файлы проекта загружены, запускаем игру')
       }
     }
     if (event.type === 'finished' && !event.skipped) {
-      if (event.id === 'java.extract') {
+      if (event.id === STEP_IDS.javaExtract) {
         void sendSystemNotification('Java установлена', 'Загрузка и распаковка Java завершены')
       }
       if (DOWNLOAD_STEP_IDS.has(event.id)) {

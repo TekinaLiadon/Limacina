@@ -88,27 +88,12 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   }
 
   &__tab {
+    @include mixins.segmented-item($disabled-opacity: 0.4);
+
     flex: 1 1 0;
     min-width: 0;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    color: var(--login-text-muted);
     white-space: normal;
     overflow-wrap: anywhere;
-
-    &:hover:not(.disabled) {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
-    }
-
-    &--active {
-      @include mixins.segmented-active;
-    }
-
-    &.disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
   }
 
   &__content {

@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import { useCoreStore, useAccountsStore, type ProjectConfig, type StepProgressItem } from '@/05-entities'
 import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, STEP_IDS } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
 type StepAction = () => Promise<void>
@@ -14,30 +14,30 @@ interface StepPlanItem {
 }
 
 const JAVA_STEPS: StepPlanItem[] = [
-  { key: 'java.check', label: 'Проверка Java' },
-  { key: 'java.download', label: 'Скачивание Java' },
-  { key: 'java.extract', label: 'Распаковка Java' },
+  { key: STEP_IDS.javaCheck, label: 'Проверка Java' },
+  { key: STEP_IDS.javaDownload, label: 'Скачивание Java' },
+  { key: STEP_IDS.javaExtract, label: 'Распаковка Java' },
 ]
 
 const SERVER_FILES_STEPS: StepPlanItem[] = [
-  { key: 'files.list', label: 'Получение списка файлов' },
-  { key: 'files.download', label: 'Скачивание файлов' },
+  { key: STEP_IDS.filesList, label: 'Получение списка файлов' },
+  { key: STEP_IDS.filesDownload, label: 'Скачивание файлов' },
 ]
 
 const MODS_STEPS: StepPlanItem[] = [
-  { key: 'mods.list', label: 'Получение списка модов' },
-  { key: 'mods.download', label: 'Проверка и скачивание модов' },
-  { key: 'mods.clean', label: 'Очистка лишних модов' },
+  { key: STEP_IDS.modsList, label: 'Получение списка модов' },
+  { key: STEP_IDS.modsDownload, label: 'Проверка и скачивание модов' },
+  { key: STEP_IDS.modsClean, label: 'Очистка лишних модов' },
 ]
 
 const MINECRAFT_STEPS: StepPlanItem[] = [
-  { key: 'mc.manifest', label: 'Загрузка манифеста версий' },
-  { key: 'mc.version', label: 'Загрузка манифеста версии' },
-  { key: 'mc.jar', label: 'Клиент игры' },
-  { key: 'mc.libs', label: 'Библиотеки игры' },
-  { key: 'mc.natives', label: 'Нативные библиотеки' },
-  { key: 'mc.assets.index', label: 'Загрузка индекса ресурсов' },
-  { key: 'mc.assets', label: 'Загрузка ресурсов' },
+  { key: STEP_IDS.mcManifest, label: 'Загрузка манифеста версий' },
+  { key: STEP_IDS.mcVersion, label: 'Загрузка манифеста версии' },
+  { key: STEP_IDS.mcJar, label: 'Клиент игры' },
+  { key: STEP_IDS.mcLibs, label: 'Библиотеки игры' },
+  { key: STEP_IDS.mcNatives, label: 'Нативные библиотеки' },
+  { key: STEP_IDS.mcAssetsIndex, label: 'Загрузка индекса ресурсов' },
+  { key: STEP_IDS.mcAssets, label: 'Загрузка ресурсов' },
 ]
 
 const LOADER_STEPS: Record<string, string> = {
@@ -47,15 +47,15 @@ const LOADER_STEPS: Record<string, string> = {
 }
 
 const LAUNCH_STEPS: StepPlanItem[] = [
-  { key: 'launch.config', label: 'Подготовка конфигурации' },
-  { key: 'launch.process', label: 'Запуск процесса игры' },
-  { key: 'launch.window', label: 'Ожидание окна игры' },
+  { key: STEP_IDS.launchConfig, label: 'Подготовка конфигурации' },
+  { key: STEP_IDS.launchProcess, label: 'Запуск процесса игры' },
+  { key: STEP_IDS.launchWindow, label: 'Ожидание окна игры' },
 ]
 
 function loaderSteps(config: ProjectConfig): StepPlanItem[] {
   const label = LOADER_STEPS[config.modLoader]
   if (label === undefined) return []
-  return [{ key: 'loader', label }]
+  return [{ key: STEP_IDS.loader, label }]
 }
 
 interface ActionStep {

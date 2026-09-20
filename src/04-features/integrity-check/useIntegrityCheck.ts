@@ -1,20 +1,20 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps } from '@/06-shared/api'
-import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
+import { applyStepEvent, computeStepProgress, createStepItem, reportError, STEP_IDS } from '@/06-shared'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 
 const INTEGRITY_STEPS: { key: string; label: string }[] = [
-  { key: 'mc.manifest', label: 'Загрузка манифеста версии' },
-  { key: 'mc.jar', label: 'Клиент игры' },
-  { key: 'mc.libs', label: 'Библиотеки игры' },
-  { key: 'mc.assets.index', label: 'Загрузка индекса ресурсов' },
-  { key: 'mc.assets', label: 'Загрузка ресурсов' },
+  { key: STEP_IDS.mcManifest, label: 'Загрузка манифеста версии' },
+  { key: STEP_IDS.mcJar, label: 'Клиент игры' },
+  { key: STEP_IDS.mcLibs, label: 'Библиотеки игры' },
+  { key: STEP_IDS.mcAssetsIndex, label: 'Загрузка индекса ресурсов' },
+  { key: STEP_IDS.mcAssets, label: 'Загрузка ресурсов' },
 ]
 
 const SERVER_INTEGRITY_STEPS: { key: string; label: string }[] = [
-  { key: 'files.check', label: 'Файлы сервера' },
-  { key: 'mods.check', label: 'Моды' },
+  { key: STEP_IDS.filesCheck, label: 'Файлы сервера' },
+  { key: STEP_IDS.modsCheck, label: 'Моды' },
 ]
 
 export function useIntegrityCheck(): {

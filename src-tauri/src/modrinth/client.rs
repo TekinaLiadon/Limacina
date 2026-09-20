@@ -157,18 +157,26 @@ pub async fn get_projects(ids: &[String]) -> Result<Vec<ModrinthProject>> {
     get_json("/projects", &[("ids", json_param(ids))]).await
 }
 
-pub async fn get_project_versions(
-    id_or_slug: &str,
+fn loaders_game_versions_query(
     loaders: &[String],
     game_versions: &[String],
-) -> Result<Vec<ModrinthVersion>> {
-    let mut query: Vec<(&str, String)> = Vec::new();
+) -> Vec<(&'static str, String)> {
+    let mut query: Vec<(&'static str, String)> = Vec::new();
     if !loaders.is_empty() {
         query.push(("loaders", json_param(loaders)));
     }
     if !game_versions.is_empty() {
         query.push(("game_versions", json_param(game_versions)));
     }
+    query
+}
+
+pub async fn get_project_versions(
+    id_or_slug: &str,
+    loaders: &[String],
+    game_versions: &[String],
+) -> Result<Vec<ModrinthVersion>> {
+    let query = loaders_game_versions_query(loaders, game_versions);
     get_json(&format!("/project/{}/version", id_or_slug), &query).await
 }
 
@@ -185,13 +193,7 @@ pub async fn get_version_from_hash(
     loaders: &[String],
     game_versions: &[String],
 ) -> Result<Option<ModrinthVersion>> {
-    let mut query: Vec<(&str, String)> = Vec::new();
-    if !loaders.is_empty() {
-        query.push(("loaders", json_param(loaders)));
-    }
-    if !game_versions.is_empty() {
-        query.push(("game_versions", json_param(game_versions)));
-    }
+    let query = loaders_game_versions_query(loaders, game_versions);
     let url = format!("{}/version_file/{}/update", api_base(), sha1);
     let response = modrinth_client()
         .get(&url)

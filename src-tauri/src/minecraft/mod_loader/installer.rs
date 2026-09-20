@@ -98,6 +98,22 @@ pub async fn run_loader_installer(
     Ok(())
 }
 
+async fn version_subdirs(versions_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut entries = fs::read_dir(versions_dir).await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать {versions_dir:?}: {e:#}"))
+    })?;
+    let mut subdirs = Vec::new();
+    while let Some(entry) = entries.next_entry().await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать запись в versions: {e:#}"))
+    })? {
+        let path = entry.path();
+        if path.is_dir() {
+            subdirs.push(path);
+        }
+    }
+    Ok(subdirs)
+}
+
 pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     let versions_dir = base_url.join("versions");
     let jar_name = format!("{}.jar", mc_version);
@@ -118,18 +134,10 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     }
 
     let mut inner_candidates: Vec<PathBuf> = Vec::new();
-    let mut entries = fs::read_dir(&versions_dir).await.map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось прочитать {versions_dir:?}: {e:#}"))
-    })?;
-    while let Some(entry) = entries.next_entry().await.map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось прочитать запись в versions: {e:#}"))
-    })? {
-        let path = entry.path();
-        if path.is_dir() {
-            let candidate = path.join(&jar_name);
-            if candidate.exists() {
-                inner_candidates.push(candidate);
-            }
+    for path in version_subdirs(&versions_dir).await? {
+        let candidate = path.join(&jar_name);
+        if candidate.exists() {
+            inner_candidates.push(candidate);
         }
     }
 
@@ -179,17 +187,9 @@ pub async fn locate_installed_manifest(
         return Ok(json_path);
     }
 
-    let mut entries = fs::read_dir(versions_dir).await.map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось прочитать {versions_dir:?}: {e:#}"))
-    })?;
-    while let Some(entry) = entries.next_entry().await.map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось прочитать запись в versions: {e:#}"))
-    })? {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(json_path) = find_manifest_json_in_dir(&path, mc_version).await {
-                return Ok(json_path);
-            }
+    for path in version_subdirs(versions_dir).await? {
+        if let Some(json_path) = find_manifest_json_in_dir(&path, mc_version).await {
+            return Ok(json_path);
         }
     }
 

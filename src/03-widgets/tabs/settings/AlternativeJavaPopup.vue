@@ -127,23 +127,11 @@ onBeforeUnmount((): void => {
 @use '@/01-app/assets/mixins';
 
 .alt-java-popup-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-popup);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--overlay);
-  backdrop-filter: blur(4px);
+  @include mixins.popup-overlay;
 }
 
 .alt-java-popup {
-  background: var(--login-bg-form);
-  border-radius: var(--radius-modal);
-  padding: var(--card-padding);
-  box-shadow: var(--elevation-modal);
-  max-width: 400px;
-  width: 100%;
+  @include mixins.popup-card;
 
   &__title {
     font-family: var(--font-display);

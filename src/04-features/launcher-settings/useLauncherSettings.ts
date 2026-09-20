@@ -1,5 +1,5 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -44,20 +44,7 @@ export function useLauncherSettings(): {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null
   }
 
-  const savedPayload = (config: LauncherConfig | null): LauncherSettingsPayload => ({
-    discordActivity: config?.discordActivity ?? true,
-    keepOldConfigs: config?.keepOldConfigs ?? false,
-    downloadSpeedLimit: config?.downloadSpeedLimit ?? null,
-    autoUpdate: config?.autoUpdate ?? false,
-    systemNotifications: config?.systemNotifications ?? true,
-    debugMode: config?.debugMode ?? false,
-    startWithSystem: config?.startWithSystem ?? false,
-    closeAfterLaunch: config?.closeAfterLaunch ?? false,
-    minimizeToTray: config?.minimizeToTray ?? false,
-  })
-
-  const settings = computed<LauncherSettingsPayload>(() => ({
-    ...savedPayload(coreStore.launcherConfig),
+  const formSettings = (): LauncherSettingsPayload => ({
     discordActivity: discordActivity.value,
     autoUpdate: autoUpdate.value,
     keepOldConfigs: keepOldConfigs.value,
@@ -67,7 +54,9 @@ export function useLauncherSettings(): {
     systemNotifications: systemNotifications.value,
     debugMode: debugMode.value,
     downloadSpeedLimit: parseSpeedLimit(downloadSpeedLimitInput.value),
-  }))
+  })
+
+  const settings = computed<LauncherSettingsPayload>(formSettings)
 
   const syncStartWithSystemState = async (): Promise<void> => {
     try {
@@ -90,30 +79,13 @@ export function useLauncherSettings(): {
     }
   }
 
-  interface DirtySnapshot {
+  interface DirtySnapshot extends LauncherSettingsPayload {
     launcherPath: string
-    discordActivity: boolean
-    autoUpdate: boolean
-    keepOldConfigs: boolean
-    startWithSystem: boolean
-    closeAfterLaunch: boolean
-    minimizeToTray: boolean
-    systemNotifications: boolean
-    debugMode: boolean
-    downloadSpeedLimit: number | null
   }
 
   const snapshot = (): DirtySnapshot => ({
     launcherPath: launcherPath.value,
-    discordActivity: discordActivity.value,
-    autoUpdate: autoUpdate.value,
-    keepOldConfigs: keepOldConfigs.value,
-    startWithSystem: startWithSystem.value,
-    closeAfterLaunch: closeAfterLaunch.value,
-    minimizeToTray: minimizeToTray.value,
-    systemNotifications: systemNotifications.value,
-    debugMode: debugMode.value,
-    downloadSpeedLimit: parseSpeedLimit(downloadSpeedLimitInput.value),
+    ...formSettings(),
   })
 
   const initialSnapshot = ref<DirtySnapshot | null>(null)

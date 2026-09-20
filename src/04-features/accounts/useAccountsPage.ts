@@ -62,7 +62,7 @@ export function useAccountsPage() {
   const loginsError = computed((): string => store.loginsError)
   const showAuth = computed((): boolean =>
     !store.isLaunching
-    && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn && !loginsError.value && !store.isLoginsLoading)),
+    && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn && !loginsError.value)),
   )
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
 

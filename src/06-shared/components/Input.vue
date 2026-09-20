@@ -113,6 +113,8 @@ onUnmounted((): void => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .input {
   &__core {
     container-type: inline-size;
@@ -124,14 +126,10 @@ onUnmounted((): void => {
     gap: var(--space-8);
 
     .label {
+      @include mixins.eyebrow;
+
       margin-bottom: var(--space-4);
       display: block;
-      color: var(--login-text-muted);
-      font-size: var(--text-caption);
-      line-height: var(--leading-caption);
-      font-weight: var(--weight-medium);
-      letter-spacing: var(--tracking-eyebrow);
-      text-transform: uppercase;
       text-align: left;
     }
   }

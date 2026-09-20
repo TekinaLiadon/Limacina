@@ -55,6 +55,8 @@ const onInput = (e: Event): void => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .game-slider-field {
   display: flex;
   flex-direction: column;
@@ -86,59 +88,17 @@ const onInput = (e: Event): void => {
   }
 
   &__track {
-    position: relative;
-    height: 6px;
-    background: var(--surface-active);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-pill);
+    @include mixins.slider-track;
   }
 
   &__fill {
-    position: absolute;
-    top: 0;
+    @include mixins.slider-fill;
+
     left: 0;
-    height: 100%;
-    background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
-    border-radius: var(--radius-pill);
-    pointer-events: none;
   }
 
   &__input {
-    position: absolute;
-    top: -7px;
-    left: 0;
-    width: 100%;
-    height: 20px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    cursor: pointer;
-
-    &::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: var(--radius-circle);
-      background: var(--login-accent);
-      border: none;
-      box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
-      cursor: pointer;
-      transition: transform var(--duration-fast) var(--ease-out);
-
-      &:hover {
-        transform: scale(1.15);
-      }
-    }
-
-    &::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
-      border-radius: var(--radius-circle);
-      background: var(--login-accent);
-      border: none;
-      box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
-      cursor: pointer;
-    }
+    @include mixins.slider-input;
   }
 }
 </style>

@@ -137,28 +137,13 @@ const handleOfflineSubmit = async (): Promise<void> => {
   }
 
   &__kind {
+    @include mixins.segmented-item($disabled-opacity: 0.4);
+
     flex: 1 1 0;
     min-width: 0;
-    border-radius: var(--radius-pill);
-    background: transparent;
     box-shadow: none;
-    color: var(--login-text-muted);
     white-space: normal;
     overflow-wrap: anywhere;
-
-    &:hover:not(.disabled) {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
-    }
-
-    &--active {
-      @include mixins.segmented-active;
-    }
-
-    &.disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
   }
 
   &__hint {

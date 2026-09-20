@@ -562,19 +562,10 @@ mod ensure_files_tests {
         assert_eq!(installed.files.get("installer.jar"), Some(&sha1_hex(&body)));
     }
 
-    fn write_broken_manifest(dir: &LauncherDirGuard, project: &str) {
-        let manifest_path = dir
-            .root()
-            .join("manifest")
-            .join(format!("installed_{project}.json"));
-        std::fs::create_dir_all(manifest_path.parent().expect("родительская директория")).unwrap();
-        std::fs::write(&manifest_path, "{ это невалидный json").unwrap();
-    }
-
     #[tokio::test]
     async fn broken_manifest_does_not_block_ensure_files() {
         let dir = LauncherDirGuard::acquire("ensure_broken_manifest").await;
-        write_broken_manifest(&dir, "Cordelia");
+        dir.write_broken_install_manifest("Cordelia");
         let mut server = Server::new_async().await;
         let body = b"library bytes".to_vec();
         server
@@ -617,7 +608,7 @@ mod ensure_files_tests {
     #[tokio::test]
     async fn broken_manifest_does_not_block_record_installed_hash() {
         let dir = LauncherDirGuard::acquire("record_broken_manifest").await;
-        write_broken_manifest(&dir, "Cordelia");
+        dir.write_broken_install_manifest("Cordelia");
 
         let base = dir.project_dir("Cordelia");
         std::fs::create_dir_all(base.join("libraries")).expect("создание директории");

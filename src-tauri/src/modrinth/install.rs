@@ -398,8 +398,37 @@ mod tests {
     use super::*;
     use crate::modrinth::client::{clear_response_cache_for_tests, override_api_base_for_tests};
     use crate::test_support::{sha1_hex, LauncherDirGuard};
-    use mockito::{Matcher, Server};
+    use mockito::{Matcher, Server, ServerGuard};
     use serde_json::json;
+
+    struct ModrinthEnv {
+        dir: LauncherDirGuard,
+        server: ServerGuard,
+    }
+
+    impl ModrinthEnv {
+        async fn acquire(label: &str) -> Self {
+            let dir = LauncherDirGuard::acquire(label).await;
+            let server = Server::new_async().await;
+            override_api_base_for_tests(format!("{}/v2", server.url()));
+            clear_response_cache_for_tests();
+            Self { dir, server }
+        }
+
+        fn project_dir(&self) -> PathBuf {
+            self.dir.project_dir("Test")
+        }
+
+        fn install_ctx(&self) -> InstallContext {
+            let project_dir = self.project_dir();
+            InstallContext {
+                loaders: vec!["fabric".to_string()],
+                game_versions: vec!["1.21.1".to_string()],
+                mods_dir: project_dir.join("mods"),
+                manifest_path: project_dir.join("modrinth.json"),
+            }
+        }
+    }
 
     fn version_json(
         id: &str,
@@ -450,10 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn install_project_downloads_required_dependencies() {
-        let dir = LauncherDirGuard::acquire("modrinth_install_deps").await;
-        let mut server = Server::new_async().await;
-        override_api_base_for_tests(format!("{}/v2", server.url()));
-        clear_response_cache_for_tests();
+        let mut env = ModrinthEnv::acquire("modrinth_install_deps").await;
 
         let jar_a = b"mod a jar".to_vec();
         let jar_b = b"mod b jar".to_vec();
@@ -462,7 +488,7 @@ mod tests {
             "verA",
             "A",
             "1.0.0",
-            format!("{}/cdn/a.jar", server.url()),
+            format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(&jar_a),
             json!([{"version_id": null, "project_id": "B", "file_name": null, "dependency_type": "required"}]),
         );
@@ -470,57 +496,57 @@ mod tests {
             "verB",
             "B",
             "0.2.0",
-            format!("{}/cdn/b.jar", server.url()),
+            format!("{}/cdn/b.jar", env.server.url()),
             sha1_hex(&jar_b),
             json!([]),
         );
 
-        let va_mock = server
+        let va_mock = env
+            .server
             .mock("GET", "/v2/project/A/version")
             .match_query(Matcher::Any)
             .with_status(200)
             .with_body(json!([version_a]).to_string())
             .create_async()
             .await;
-        let pa_mock = server
+        let pa_mock = env
+            .server
             .mock("GET", "/v2/project/A")
             .with_status(200)
             .with_body(project_json("A", "Mod A").to_string())
             .create_async()
             .await;
-        let vb_mock = server
+        let vb_mock = env
+            .server
             .mock("GET", "/v2/project/B/version")
             .match_query(Matcher::Any)
             .with_status(200)
             .with_body(json!([version_b]).to_string())
             .create_async()
             .await;
-        let pb_mock = server
+        let pb_mock = env
+            .server
             .mock("GET", "/v2/project/B")
             .with_status(200)
             .with_body(project_json("B", "Mod B").to_string())
             .create_async()
             .await;
-        let jar_a_mock = server
+        let jar_a_mock = env
+            .server
             .mock("GET", "/cdn/a.jar")
             .with_status(200)
             .with_body(jar_a.clone())
             .create_async()
             .await;
-        let jar_b_mock = server
+        let jar_b_mock = env
+            .server
             .mock("GET", "/cdn/b.jar")
             .with_status(200)
             .with_body(jar_b.clone())
             .create_async()
             .await;
 
-        let project_dir = dir.project_dir("Test");
-        let ctx = InstallContext {
-            loaders: vec!["fabric".to_string()],
-            game_versions: vec!["1.21.1".to_string()],
-            mods_dir: project_dir.join("mods"),
-            manifest_path: project_dir.join("modrinth.json"),
-        };
+        let ctx = env.install_ctx();
 
         let report = install_project(&ctx, "A").await.expect("установка мода");
 
@@ -543,46 +569,37 @@ mod tests {
 
     #[tokio::test]
     async fn install_rejects_corrupted_download() {
-        let dir = LauncherDirGuard::acquire("modrinth_install_corrupt").await;
-        let mut server = Server::new_async().await;
-        override_api_base_for_tests(format!("{}/v2", server.url()));
-        clear_response_cache_for_tests();
+        let mut env = ModrinthEnv::acquire("modrinth_install_corrupt").await;
 
         let version_a = version_json(
             "verA",
             "A",
             "1.0.0",
-            format!("{}/cdn/a.jar", server.url()),
+            format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(b"expected content"),
             json!([]),
         );
-        server
+        env.server
             .mock("GET", "/v2/project/A/version")
             .match_query(Matcher::Any)
             .with_status(200)
             .with_body(json!([version_a]).to_string())
             .create_async()
             .await;
-        server
+        env.server
             .mock("GET", "/v2/project/A")
             .with_status(200)
             .with_body(project_json("A", "Mod A").to_string())
             .create_async()
             .await;
-        server
+        env.server
             .mock("GET", "/cdn/a.jar")
             .with_status(200)
             .with_body(b"corrupted content")
             .create_async()
             .await;
 
-        let project_dir = dir.project_dir("Test");
-        let ctx = InstallContext {
-            loaders: vec!["fabric".to_string()],
-            game_versions: vec!["1.21.1".to_string()],
-            mods_dir: project_dir.join("mods"),
-            manifest_path: project_dir.join("modrinth.json"),
-        };
+        let ctx = env.install_ctx();
 
         let result = install_project(&ctx, "A").await;
         assert!(result.is_err());
@@ -592,22 +609,19 @@ mod tests {
 
     #[tokio::test]
     async fn install_rejects_unsafe_filename() {
-        let dir = LauncherDirGuard::acquire("modrinth_install_unsafe_filename").await;
-        let mut server = Server::new_async().await;
-        override_api_base_for_tests(format!("{}/v2", server.url()));
-        clear_response_cache_for_tests();
+        let mut env = ModrinthEnv::acquire("modrinth_install_unsafe_filename").await;
 
         let mut version_a = version_json(
             "verA",
             "A",
             "1.0.0",
-            format!("{}/cdn/a.jar", server.url()),
+            format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(b"mod a jar"),
             json!([]),
         );
         version_a["files"][0]["filename"] = json!("../evil.jar");
 
-        server
+        env.server
             .mock("GET", "/v2/project/A/version")
             .match_query(Matcher::Any)
             .with_status(200)
@@ -615,52 +629,43 @@ mod tests {
             .create_async()
             .await;
 
-        let project_dir = dir.project_dir("Test");
-        let ctx = InstallContext {
-            loaders: vec!["fabric".to_string()],
-            game_versions: vec!["1.21.1".to_string()],
-            mods_dir: project_dir.join("mods"),
-            manifest_path: project_dir.join("modrinth.json"),
-        };
+        let ctx = env.install_ctx();
 
         let result = install_project(&ctx, "A").await;
         assert!(result.is_err(), "мод с traversal-именем должен отклоняться");
 
         assert!(!ctx.mods_dir.join("evil.jar").exists());
-        assert!(!project_dir.join("evil.jar").exists());
+        assert!(!env.project_dir().join("evil.jar").exists());
         assert!(load_manifest(&ctx.manifest_path).await.mods.is_empty());
     }
 
     #[tokio::test]
     async fn install_skips_existing_identical_file() {
-        let dir = LauncherDirGuard::acquire("modrinth_install_skip").await;
-        let mut server = Server::new_async().await;
-        override_api_base_for_tests(format!("{}/v2", server.url()));
-        clear_response_cache_for_tests();
+        let mut env = ModrinthEnv::acquire("modrinth_install_skip").await;
 
         let jar_a = b"already installed".to_vec();
         let version_a = version_json(
             "verA",
             "A",
             "1.0.0",
-            format!("{}/cdn/a.jar", server.url()),
+            format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(&jar_a),
             json!([]),
         );
-        server
+        env.server
             .mock("GET", "/v2/project/A/version")
             .match_query(Matcher::Any)
             .with_status(200)
             .with_body(json!([version_a]).to_string())
             .create_async()
             .await;
-        server
+        env.server
             .mock("GET", "/v2/project/A")
             .with_status(200)
             .with_body(project_json("A", "Mod A").to_string())
             .create_async()
             .await;
-        server
+        env.server
             .mock("GET", "/cdn/a.jar")
             .with_status(200)
             .with_body(jar_a.clone())
@@ -668,13 +673,7 @@ mod tests {
             .create_async()
             .await;
 
-        let project_dir = dir.project_dir("Test");
-        let ctx = InstallContext {
-            loaders: vec!["fabric".to_string()],
-            game_versions: vec!["1.21.1".to_string()],
-            mods_dir: project_dir.join("mods"),
-            manifest_path: project_dir.join("modrinth.json"),
-        };
+        let ctx = env.install_ctx();
         tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
         tokio::fs::write(ctx.mods_dir.join("A.jar"), &jar_a)
             .await

@@ -111,29 +111,14 @@ const modes: ModeOption[] = [
   }
 
   &__mode {
+    @include mixins.segmented-item($hover-bg: false);
+
     padding: var(--space-4) var(--space-16);
-    border: none;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    color: var(--login-text-muted);
     font-family: inherit;
     font-size: var(--text-caption);
     font-weight: var(--weight-medium);
     cursor: pointer;
     transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
-
-    &:hover:not(:disabled) {
-      color: var(--login-text-primary);
-    }
-
-    &--active {
-      @include mixins.segmented-active;
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
   }
 
   &__list {

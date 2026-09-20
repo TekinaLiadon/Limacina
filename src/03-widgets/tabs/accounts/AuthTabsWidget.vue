@@ -123,20 +123,9 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
   }
 
   &__tab {
+    @include mixins.segmented-item($disabled-opacity: null);
+
     flex: 1;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    box-shadow: none;
-    color: var(--login-text-muted);
-
-    &:hover:not(.disabled) {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
-    }
-
-    &--active {
-      @include mixins.segmented-active;
-    }
   }
 
   &__content {
