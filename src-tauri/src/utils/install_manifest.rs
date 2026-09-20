@@ -66,15 +66,6 @@ mod tests {
     use super::*;
     use crate::test_support::LauncherDirGuard;
 
-    fn write_broken_manifest(dir: &LauncherDirGuard, project: &str) {
-        let manifest_path = dir
-            .root()
-            .join("manifest")
-            .join(format!("installed_{project}.json"));
-        std::fs::create_dir_all(manifest_path.parent().expect("родительская директория")).unwrap();
-        std::fs::write(&manifest_path, "{ это невалидный json").unwrap();
-    }
-
     #[test]
     fn manifest_round_trip_preserves_files() {
         let mut manifest = InstallManifest::default();
@@ -112,7 +103,7 @@ mod tests {
     #[tokio::test]
     async fn broken_manifest_loads_empty_and_is_repaired_on_save() {
         let dir = LauncherDirGuard::acquire("install_manifest_broken").await;
-        write_broken_manifest(&dir, "Cordelia");
+        dir.write_broken_install_manifest("Cordelia");
 
         let manifest = load_install_manifest("Cordelia")
             .await

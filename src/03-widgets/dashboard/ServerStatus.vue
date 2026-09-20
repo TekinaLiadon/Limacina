@@ -33,15 +33,15 @@ const title = computed((): string => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .server-status {
+  @include mixins.eyebrow($line-height: 1, $transform: none, $weight: null, $color: var(--login-text-secondary));
+
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);
-  color: var(--login-text-secondary);
   font-family: var(--font-eyebrow);
-  font-size: var(--text-caption);
-  line-height: 1;
-  letter-spacing: var(--tracking-eyebrow);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   white-space: nowrap;

@@ -106,22 +106,30 @@ pub fn offline(username: &str) -> AuthData {
     }
 }
 
-pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
-    let url = format!("{}/v1/common/auth/registration", server_url);
-    let body = AuthLoginRequest {
-        username: username.to_string(),
-        password: password.to_string(),
-    };
-
+async fn auth_request(request: reqwest::RequestBuilder, parse_context: &str) -> Result<AuthData> {
     LauncherError::classify(
         request_json(
-            with_launcher_id(http_client().post(&url).json(&body)),
+            with_launcher_id(request),
             "Не удалось подключиться к серверу авторизации",
-            "Не удалось распарсить ответ авторизации",
+            parse_context,
         )
         .await,
         LauncherError::AuthServer,
     )
+}
+
+pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
+    let body = AuthLoginRequest {
+        username: username.to_string(),
+        password: password.to_string(),
+    };
+    auth_request(
+        http_client()
+            .post(format!("{}/v1/common/auth/registration", server_url))
+            .json(&body),
+        "Не удалось распарсить ответ авторизации",
+    )
+    .await
 }
 
 pub async fn change_password(
@@ -130,44 +138,32 @@ pub async fn change_password(
     old_password: &str,
     new_password: &str,
 ) -> Result<AuthData> {
-    let url = format!("{}/v1/common/auth/password", server_url);
     let body = AuthChangePasswordRequest {
         old_password: old_password.to_string(),
         new_password: new_password.to_string(),
     };
-
-    LauncherError::classify(
-        request_json(
-            with_launcher_id(
-                http_client()
-                    .patch(&url)
-                    .bearer_auth(access_token)
-                    .json(&body),
-            ),
-            "Не удалось подключиться к серверу авторизации",
-            "Не удалось распарсить ответ смены пароля",
-        )
-        .await,
-        LauncherError::AuthServer,
+    auth_request(
+        http_client()
+            .patch(format!("{}/v1/common/auth/password", server_url))
+            .bearer_auth(access_token)
+            .json(&body),
+        "Не удалось распарсить ответ смены пароля",
     )
+    .await
 }
 
 pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
-    let url = format!("{}/v1/common/auth/login", server_url);
     let body = AuthLoginRequest {
         username: username.to_string(),
         password: password.to_string(),
     };
-
-    LauncherError::classify(
-        request_json(
-            with_launcher_id(http_client().post(&url).json(&body)),
-            "Не удалось подключиться к серверу авторизации",
-            "Не удалось распарсить ответ авторизации",
-        )
-        .await,
-        LauncherError::AuthServer,
+    auth_request(
+        http_client()
+            .post(format!("{}/v1/common/auth/login", server_url))
+            .json(&body),
+        "Не удалось распарсить ответ авторизации",
     )
+    .await
 }
 
 pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {

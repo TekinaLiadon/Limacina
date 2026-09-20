@@ -286,94 +286,32 @@ fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::get_classpath;
-    use crate::minecraft::structs::LaunchConfig;
     use crate::minecraft::vanilla::structs::Library;
+    use crate::test_support::{
+        gson_library, gson_library_no_url, jopt_simple_library, logging_library,
+        test_launch_config, TempDir,
+    };
     use std::fs;
-    use std::path::PathBuf;
-
-    struct TempDirGuard(PathBuf);
-
-    impl Drop for TempDirGuard {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn libs_with_one_missing_url() -> Vec<Library> {
-        serde_json::from_str(
-            r#"[
-                {
-                    "name": "com.mojang:logging:1.0.0",
-                    "downloads": {
-                        "artifact": {
-                            "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
-                            "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
-                            "size": 15343,
-                            "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
-                        }
-                    }
-                },
-                {
-                    "name": "com.google.code.gson:gson:2.8.9",
-                    "downloads": {
-                        "artifact": {
-                            "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
-                            "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
-                            "size": 258075,
-                            "url": ""
-                        }
-                    }
-                }
-            ]"#,
-        )
+        serde_json::from_value(serde_json::json!([
+            logging_library(),
+            gson_library_no_url()
+        ]))
         .unwrap()
     }
 
     #[test]
     fn get_classpath_includes_existing_libraries() {
-        let libs: Vec<Library> = serde_json::from_str(
-            r#"[
-                {
-                    "name": "com.mojang:logging:1.0.0",
-                    "downloads": {
-                        "artifact": {
-                            "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
-                            "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
-                            "size": 15343,
-                            "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
-                        }
-                    }
-                },
-                {
-                    "name": "net.sf.jopt-simple:jopt-simple:5.0.4",
-                    "downloads": {
-                        "artifact": {
-                            "path": "net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
-                            "sha1": "4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c",
-                            "size": 78146,
-                            "url": "https://libraries.minecraft.net/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
-                        }
-                    }
-                },
-                {
-                    "name": "com.google.code.gson:gson:2.8.9",
-                    "downloads": {
-                        "artifact": {
-                            "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
-                            "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
-                            "size": 258075,
-                            "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar"
-                        }
-                    }
-                }
-            ]"#,
-        )
+        let libs: Vec<Library> = serde_json::from_value(serde_json::json!([
+            logging_library(),
+            jopt_simple_library(),
+            gson_library(),
+        ]))
         .unwrap();
 
-        let root =
-            std::env::temp_dir().join(format!("limacina_classpath_ok_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        let _guard = TempDirGuard(root.clone());
+        let dir = TempDir::new("classpath_ok");
+        let root = dir.0.clone();
         let libraries_dir = root.join("libraries");
         let created = [
             "com/mojang/logging/1.0.0/logging-1.0.0.jar",
@@ -386,19 +324,7 @@ mod tests {
             fs::write(&path, b"jar").unwrap();
         }
 
-        let config = LaunchConfig {
-            username: "Test".to_string(),
-            uuid: "test-uuid".to_string(),
-            access_token: "token".to_string(),
-            mc_version: "1.18.2".to_string(),
-            game_dir: root.clone(),
-            assets_dir: root.join("assets"),
-            libraries_dir: libraries_dir.clone(),
-            natives_dir: root.join("natives"),
-            jvm_sub_arg: Vec::new(),
-            window_width: 1280,
-            window_height: 720,
-        };
+        let config = test_launch_config(&root);
 
         let paths = get_classpath(&libs, &config).unwrap();
 
@@ -408,62 +334,23 @@ mod tests {
             assert!(paths.contains(&expected), "{} нет в {:?}", expected, paths);
         }
 
-        drop(_guard);
+        drop(dir);
         assert!(!root.exists(), "временная директория не удалена");
     }
 
     #[test]
     fn get_classpath_errors_for_missing_library() {
-        let libs: Vec<Library> = serde_json::from_str(
-            r#"[
-                {
-                    "name": "com.mojang:logging:1.0.0",
-                    "downloads": {
-                        "artifact": {
-                            "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
-                            "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
-                            "size": 15343,
-                            "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
-                        }
-                    }
-                },
-                {
-                    "name": "com.google.code.gson:gson:2.8.9",
-                    "downloads": {
-                        "artifact": {
-                            "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
-                            "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
-                            "size": 258075,
-                            "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar"
-                        }
-                    }
-                }
-            ]"#,
-        )
-        .unwrap();
+        let libs: Vec<Library> =
+            serde_json::from_value(serde_json::json!([logging_library(), gson_library()])).unwrap();
 
-        let root =
-            std::env::temp_dir().join(format!("limacina_classpath_missing_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        let _guard = TempDirGuard(root.clone());
+        let dir = TempDir::new("classpath_missing");
+        let root = dir.0.clone();
         let libraries_dir = root.join("libraries");
         let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"jar").unwrap();
 
-        let config = LaunchConfig {
-            username: "Test".to_string(),
-            uuid: "test-uuid".to_string(),
-            access_token: "token".to_string(),
-            mc_version: "1.18.2".to_string(),
-            game_dir: root.clone(),
-            assets_dir: root.join("assets"),
-            libraries_dir: libraries_dir.clone(),
-            natives_dir: root.join("natives"),
-            jvm_sub_arg: Vec::new(),
-            window_width: 1280,
-            window_height: 720,
-        };
+        let config = test_launch_config(&root);
 
         let error = get_classpath(&libs, &config).expect_err("отсутствующая библиотека — ошибка");
 
@@ -477,7 +364,7 @@ mod tests {
             "ошибка должна подсказать проверку целостности: {message}"
         );
 
-        drop(_guard);
+        drop(dir);
         assert!(!root.exists(), "временная директория не удалена");
     }
 
@@ -485,28 +372,14 @@ mod tests {
     fn get_classpath_allows_missing_library_without_download_url() {
         let libs = libs_with_one_missing_url();
 
-        let root =
-            std::env::temp_dir().join(format!("limacina_classpath_no_url_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        let _guard = TempDirGuard(root.clone());
+        let dir = TempDir::new("classpath_no_url");
+        let root = dir.0.clone();
         let libraries_dir = root.join("libraries");
         let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"jar").unwrap();
 
-        let config = LaunchConfig {
-            username: "Test".to_string(),
-            uuid: "test-uuid".to_string(),
-            access_token: "token".to_string(),
-            mc_version: "1.18.2".to_string(),
-            game_dir: root.clone(),
-            assets_dir: root.join("assets"),
-            libraries_dir: libraries_dir.clone(),
-            natives_dir: root.join("natives"),
-            jvm_sub_arg: Vec::new(),
-            window_width: 1280,
-            window_height: 720,
-        };
+        let config = test_launch_config(&root);
 
         let paths = get_classpath(&libs, &config).expect("библиотека без url не требует файла");
 
@@ -517,7 +390,7 @@ mod tests {
             paths
         );
 
-        drop(_guard);
+        drop(dir);
         assert!(!root.exists(), "временная директория не удалена");
     }
 }

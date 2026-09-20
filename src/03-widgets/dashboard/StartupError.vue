@@ -33,6 +33,8 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .startup-error {
   min-height: 100vh;
   width: 100%;
@@ -44,16 +46,7 @@ const emit = defineEmits<{
   position: relative;
 
   &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-    background-size: 80px 80px;
-    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
-    -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
-    pointer-events: none;
+    @include mixins.grid-backdrop;
   }
 }
 

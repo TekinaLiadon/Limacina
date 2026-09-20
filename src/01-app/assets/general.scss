@@ -1,4 +1,5 @@
 @use "@/01-app/assets/breakpoints.scss";
+@use "@/01-app/assets/mixins.scss";
 
 * {
   box-sizing: border-box;
@@ -66,28 +67,20 @@ a {
 
 
 .eyebrow {
+  @include mixins.eyebrow;
+
   display: block;
   font-family: var(--font-eyebrow);
-  font-size: var(--text-caption);
-  line-height: var(--leading-caption);
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--login-text-muted);
   font-feature-settings: "tnum" on;
 }
 
 .section-label {
+  @include mixins.eyebrow;
+
   display: flex;
   align-items: center;
   gap: var(--space-12);
   font-family: var(--font-eyebrow);
-  font-size: var(--text-caption);
-  line-height: var(--leading-caption);
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--login-text-muted);
   white-space: nowrap;
   font-feature-settings: "tnum" on;
 

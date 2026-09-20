@@ -32,19 +32,6 @@ export interface IconButtonProps {
   down?: boolean
 }
 
-export interface PopupOptions {
-  header?: string
-}
-
-
-export interface SliderOptions {
-  min: number
-  max: number
-  step: number
-  label: string
-  unit: string
-}
-
 export interface ViewerControls {
   minZoom: number
   zoomLevel: Ref<number>

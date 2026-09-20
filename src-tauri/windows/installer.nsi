@@ -591,6 +591,7 @@ Function PageWelcome
 FunctionEnd
 
 Function PageReinstall
+  StrCpy $ReinstallPageCheck 1
   StrCpy $0 0
   wix_loop:
     EnumRegKey $1 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
@@ -666,14 +667,15 @@ Function PageReinstall
     !insertmacro LabelHeight 15
     ${NSD_CreateLabel} 0 66u 10u $9u "○"
     Pop $RadioDot1
-    ${NSD_AddStyle} $RadioDot1 0x201
+    ${NSD_AddStyle} $RadioDot1 0x301
     SendMessage $RadioDot1 ${WM_SETFONT} $FontBody 1
     SetCtlColors $RadioDot1 ${COLOR_MUTED} ${COLOR_BG}
+    ${NSD_OnClick} $RadioDot1 PageReinstallSelect1
 
     !insertmacro LabelHeight 15
     ${NSD_CreateLabel} 14u 66u -14u $9u $R2
     Pop $RadioLabel1
-    ${NSD_AddStyle} $RadioLabel1 0x200
+    ${NSD_AddStyle} $RadioLabel1 0x300
     SendMessage $RadioLabel1 ${WM_SETFONT} $FontBody 1
     SetCtlColors $RadioLabel1 ${COLOR_TEXT} ${COLOR_BG}
     ${NSD_OnClick} $RadioLabel1 PageReinstallSelect1
@@ -681,14 +683,15 @@ Function PageReinstall
     !insertmacro LabelHeight 15
     ${NSD_CreateLabel} 0 86u 10u $9u "○"
     Pop $RadioDot2
-    ${NSD_AddStyle} $RadioDot2 0x201
+    ${NSD_AddStyle} $RadioDot2 0x301
     SendMessage $RadioDot2 ${WM_SETFONT} $FontBody 1
     SetCtlColors $RadioDot2 ${COLOR_MUTED} ${COLOR_BG}
+    ${NSD_OnClick} $RadioDot2 PageReinstallSelect2
 
     !insertmacro LabelHeight 15
     ${NSD_CreateLabel} 14u 86u -14u $9u $R3
     Pop $RadioLabel2
-    ${NSD_AddStyle} $RadioLabel2 0x200
+    ${NSD_AddStyle} $RadioLabel2 0x300
     SendMessage $RadioLabel2 ${WM_SETFONT} $FontBody 1
     SetCtlColors $RadioLabel2 ${COLOR_TEXT} ${COLOR_BG}
     ${NSD_OnClick} $RadioLabel2 PageReinstallSelect2
@@ -832,7 +835,7 @@ Function PageDirectory
 
   ${NSD_CreateLabel} 228u 45u 72u 17u "Обзор..."
   Pop $0
-  ${NSD_AddStyle} $0 0x201
+  ${NSD_AddStyle} $0 0x301
   SendMessage $0 ${WM_SETFONT} $FontButton 1
   SetCtlColors $0 0xFFFFFF ${COLOR_ACCENT}
   ${NSD_OnClick} $0 PageDirectoryBrowse
@@ -927,6 +930,7 @@ Function PageFinish
   !insertmacro LabelHeight 15
   ${NSD_CreateLabel} 0 82u 10u $9u "●"
   Pop $RunAppDot
+  ${NSD_AddStyle} $RunAppDot 0x100
   SendMessage $RunAppDot ${WM_SETFONT} $FontBody 1
   SetCtlColors $RunAppDot ${COLOR_ACCENT} ${COLOR_BG}
   ${NSD_OnClick} $RunAppDot PageFinishToggleRun
@@ -934,7 +938,7 @@ Function PageFinish
   !insertmacro LabelHeight 15
   ${NSD_CreateLabel} 14u 82u -14u $9u "Запустить ${PRODUCTNAME}"
   Pop $RunAppLabel
-  ${NSD_AddStyle} $RunAppLabel 0x200
+  ${NSD_AddStyle} $RunAppLabel 0x300
   SendMessage $RunAppLabel ${WM_SETFONT} $FontBody 1
   SetCtlColors $RunAppLabel ${COLOR_TEXT} ${COLOR_BG}
   ${NSD_OnClick} $RunAppLabel PageFinishToggleRun
@@ -942,6 +946,7 @@ Function PageFinish
   !insertmacro LabelHeight 15
   ${NSD_CreateLabel} 0 106u 10u $9u "●"
   Pop $DeskDot
+  ${NSD_AddStyle} $DeskDot 0x100
   SendMessage $DeskDot ${WM_SETFONT} $FontBody 1
   SetCtlColors $DeskDot ${COLOR_ACCENT} ${COLOR_BG}
   ${NSD_OnClick} $DeskDot PageFinishToggleDesk
@@ -949,7 +954,7 @@ Function PageFinish
   !insertmacro LabelHeight 15
   ${NSD_CreateLabel} 14u 106u -14u $9u "Создать ярлык на рабочем столе"
   Pop $DeskLabel
-  ${NSD_AddStyle} $DeskLabel 0x200
+  ${NSD_AddStyle} $DeskLabel 0x300
   SendMessage $DeskLabel ${WM_SETFONT} $FontBody 1
   SetCtlColors $DeskLabel ${COLOR_TEXT} ${COLOR_BG}
   ${NSD_OnClick} $DeskLabel PageFinishToggleDesk

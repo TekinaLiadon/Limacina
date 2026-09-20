@@ -120,12 +120,8 @@ const handleSubmit = (): void => {
   }
 
   &__label {
-    color: var(--login-text-muted);
-    font-size: var(--text-caption);
-    line-height: var(--leading-caption);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-eyebrow);
-    text-transform: uppercase;
+    @include mixins.eyebrow;
+
     text-align: left;
   }
 

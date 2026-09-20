@@ -31,6 +31,33 @@
   color: var(--login-text-primary);
 }
 
+@mixin segmented-item($hover-bg: true, $disabled-opacity: 0.5, $radius: var(--radius-pill)) {
+  border: none;
+  border-radius: $radius;
+  background: transparent;
+  color: var(--login-text-muted);
+
+  &:hover:not(:disabled):not(.disabled) {
+    color: var(--login-text-primary);
+
+    @if $hover-bg {
+      background: var(--surface-light);
+    }
+  }
+
+  &--active {
+    @include segmented-active;
+  }
+
+  &:disabled,
+  &.disabled {
+    @if $disabled-opacity != null {
+      opacity: $disabled-opacity;
+    }
+    cursor: not-allowed;
+  }
+}
+
 @mixin tool-panel {
   padding: var(--space-4);
   background: var(--surface-subtle);
@@ -205,4 +232,112 @@
   font-size: var(--text-body);
   font-weight: var(--weight-medium);
   pointer-events: none;
+}
+
+@mixin popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popup);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+  backdrop-filter: blur(4px);
+}
+
+@mixin popup-card($max-width: 400px, $width: 100%) {
+  background: var(--login-bg-form);
+  border-radius: var(--radius-modal);
+  padding: var(--card-padding);
+  box-shadow: var(--elevation-modal);
+  max-width: $max-width;
+  width: $width;
+}
+
+@mixin slider-track {
+  position: relative;
+  height: 6px;
+  background: var(--surface-active);
+  box-shadow: var(--elevation-inset);
+  border-radius: var(--radius-pill);
+}
+
+@mixin slider-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+}
+
+@mixin slider-input {
+  position: absolute;
+  top: -7px;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-circle);
+    background: var(--login-accent);
+    border: none;
+    box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform var(--duration-fast) var(--ease-out);
+
+    &:hover {
+      transform: scale(1.15);
+    }
+  }
+
+  &::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-circle);
+    background: var(--login-accent);
+    border: none;
+    box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
+    cursor: pointer;
+    pointer-events: auto;
+  }
+}
+
+@mixin grid-backdrop($mask: radial-gradient(ellipse at center, black 0%, transparent 75%)) {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 80px 80px;
+  mask-image: $mask;
+  -webkit-mask-image: $mask;
+  pointer-events: none;
+}
+
+@mixin eyebrow($font-size: var(--text-caption), $line-height: var(--leading-caption), $transform: uppercase, $weight: var(--weight-medium), $color: var(--login-text-muted)) {
+  font-size: $font-size;
+  line-height: $line-height;
+  font-weight: $weight;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: $transform;
+  color: $color;
+}
+
+@mixin load-error-row {
+  @include error-box;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
 }

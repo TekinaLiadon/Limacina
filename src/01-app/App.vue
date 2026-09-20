@@ -218,13 +218,12 @@ watch(isDebugTabVisible, (visible: boolean): void => {
   height: 100%;
 
   &__version {
+    @include mixins.eyebrow($line-height: null, $transform: none, $weight: null);
+
     position: fixed;
     top: 4px;
     right: 8px;
     font-family: var(--font-eyebrow);
-    font-size: var(--text-caption);
-    letter-spacing: var(--tracking-eyebrow);
-    color: var(--login-text-muted);
     font-variant-numeric: tabular-nums;
     z-index: var(--z-version);
   }
@@ -241,16 +240,8 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     overflow: hidden;
 
     &::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background-image:
-        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-      background-size: 80px 80px;
-      mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
-      -webkit-mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%);
-      pointer-events: none;
+      @include mixins.grid-backdrop(radial-gradient(ellipse at 50% 0%, black 0%, transparent 80%));
+
       z-index: var(--z-background);
     }
   }
@@ -276,30 +267,16 @@ watch(isDebugTabVisible, (visible: boolean): void => {
   }
 
   &__theme-segment {
+    @include mixins.segmented-item($hover-bg: false, $radius: var(--radius-circle));
+
     display: flex;
     align-items: center;
     justify-content: center;
     width: var(--control-height-sm);
     height: var(--control-height-sm);
-    border: none;
-    border-radius: var(--radius-circle);
-    background: transparent;
-    color: var(--login-text-muted);
+    font-family: inherit;
     cursor: pointer;
     transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
-
-    &:hover:not(:disabled) {
-      color: var(--login-text-primary);
-    }
-
-    &--active {
-      @include mixins.segmented-active;
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
   }
 
   &__body {

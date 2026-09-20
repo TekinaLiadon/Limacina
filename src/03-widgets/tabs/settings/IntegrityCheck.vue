@@ -102,23 +102,11 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 }
 
 .integrity-popup-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-popup);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--overlay);
-  backdrop-filter: blur(4px);
+  @include mixins.popup-overlay;
 }
 
 .integrity-popup {
-  background: var(--login-bg-form);
-  border-radius: var(--radius-modal);
-  padding: var(--card-padding);
-  box-shadow: var(--elevation-modal);
-  max-width: 400px;
-  width: 100%;
+  @include mixins.popup-card;
   max-height: 80vh;
   overflow-y: auto;
   display: flex;

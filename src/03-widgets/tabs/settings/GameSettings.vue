@@ -102,12 +102,7 @@ const {
   gap: var(--section-gap);
 
   &__load-error {
-    @include mixins.error-box;
-
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-12);
+    @include mixins.load-error-row;
   }
 
   &__load-error-text {

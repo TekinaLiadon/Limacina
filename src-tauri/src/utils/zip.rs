@@ -67,43 +67,7 @@ pub fn extract_zip_with_limit(
 #[cfg(test)]
 mod tests {
     use super::{extract_zip_with_limit, MAX_EXTRACT_TOTAL_BYTES};
-    use std::io::Write;
-    use std::path::PathBuf;
-    use zip::write::{SimpleFileOptions, ZipWriter};
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(tag: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "limacina_zip_test_{}_{}",
-                tag,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("system time")
-                    .as_nanos()
-            ));
-            std::fs::create_dir_all(&path).expect("создание временной папки");
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn write_test_zip(archive_path: &PathBuf, entries: &[(&str, &[u8])]) {
-        let file = std::fs::File::create(archive_path).expect("создание архива");
-        let mut zip = ZipWriter::new(file);
-        for (name, data) in entries {
-            zip.start_file(*name, SimpleFileOptions::default())
-                .expect("запись entry");
-            zip.write_all(data).expect("запись данных");
-        }
-        zip.finish().expect("завершение архива");
-    }
+    use crate::test_support::{write_test_zip, TempDir};
 
     #[test]
     fn extract_writes_entries_within_limit() {

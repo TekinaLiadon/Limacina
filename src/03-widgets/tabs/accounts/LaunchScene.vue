@@ -46,7 +46,7 @@ const emit = defineEmits<{
 }>()
 
 const switcherRef = ref<HTMLDivElement | null>(null)
-const { shown: menuOpen, openUp, maxHeight, toggle: toggleMenu, close: closeMenu } = useDropdownPanel(
+const { shown: menuOpen, openUp, maxHeight, panelRef, toggle: toggleMenu, close: closeMenu } = useDropdownPanel(
   switcherRef,
   (): boolean => props.isLoading,
   (): number => 6,
@@ -196,7 +196,7 @@ const openLoginForm = (): void => {
             </Button>
 
             <Transition name="launch-scene-menu">
-              <div v-if="menuOpen" class="launch-scene__menu" :style="{ maxHeight }">
+              <div v-if="menuOpen" ref="panelRef" class="launch-scene__menu" :style="{ maxHeight }">
                 <template v-if="isLoading && logins.length === 0">
                   <Skeleton
                     v-for="index in 3"

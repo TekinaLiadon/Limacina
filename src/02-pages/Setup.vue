@@ -125,6 +125,7 @@ const save = async (): Promise<void> => {
 
 <style lang="scss">
 @use '@/01-app/assets/breakpoints';
+@use '@/01-app/assets/mixins';
 
 .setup-screen {
   min-height: 100vh;
@@ -137,16 +138,7 @@ const save = async (): Promise<void> => {
   position: relative;
 
   &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-    background-size: 80px 80px;
-    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
-    -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
-    pointer-events: none;
+    @include mixins.grid-backdrop;
   }
 }
 
@@ -204,13 +196,9 @@ const save = async (): Promise<void> => {
   margin-bottom: var(--space-24);
 
   &__item {
+    @include mixins.eyebrow;
+
     font-family: var(--font-eyebrow);
-    font-size: var(--text-caption);
-    line-height: var(--leading-caption);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-eyebrow);
-    text-transform: uppercase;
-    color: var(--login-text-muted);
     font-feature-settings: "tnum" on;
 
     &--active {

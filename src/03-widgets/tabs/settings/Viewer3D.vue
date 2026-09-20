@@ -67,6 +67,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .viewer-3d {
   display: flex;
   flex-direction: column;
@@ -78,14 +80,7 @@ onBeforeUnmount(() => {
 }
 
 .viewer-3d-fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-popup);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--overlay);
-  backdrop-filter: blur(4px);
+  @include mixins.popup-overlay;
 
   &__content {
     display: flex;

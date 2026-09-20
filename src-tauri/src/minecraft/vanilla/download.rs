@@ -410,163 +410,124 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTa
 mod tests {
     use super::{collect_library_targets, extract_natives, get_current_os};
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{
+        gson_library, jopt_simple_library, logging_library, write_test_zip, LauncherDirGuard,
+    };
     use crate::utils::integrity::{HashKind, TargetDownload};
     use std::fs as std_fs;
-    use std::io::Write;
     use std::path::PathBuf;
 
-    fn make_jar(path: &std::path::Path, entries: &[(&str, &[u8])]) {
-        if let Some(parent) = path.parent() {
-            std_fs::create_dir_all(parent).unwrap();
-        }
-        let file = std_fs::File::create(path).unwrap();
-        let mut writer = zip::ZipWriter::new(file);
-        for (name, data) in entries {
-            writer
-                .start_file(name.to_string(), zip::write::SimpleFileOptions::default())
-                .unwrap();
-            writer.write_all(data).unwrap();
-        }
-        writer.finish().unwrap();
+    fn manifest_1_18_2() -> serde_json::Value {
+        let lwjgl = serde_json::json!({
+            "name": "org.lwjgl:lwjgl:3.2.2",
+            "downloads": {
+                "artifact": {
+                    "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                    "sha1": "8ad6294407e15780b43e84929c40e4c5e997972e",
+                    "size": 321900,
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar"
+                }
+            },
+            "rules": [
+                { "action": "allow" },
+                { "action": "disallow", "os": { "name": "osx" } }
+            ]
+        });
+        let lwjgl_natives = serde_json::json!({
+            "name": "org.lwjgl:lwjgl:3.2.2",
+            "downloads": {
+                "artifact": {
+                    "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                    "sha1": "8ad6294407e15780b43e84929c40e4c5e997972e",
+                    "size": 321900,
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar"
+                },
+                "classifiers": {
+                    "natives-linux": {
+                        "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar",
+                        "sha1": "ae7976827ca2a3741f6b9a843a89bacd637af350",
+                        "size": 124776,
+                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar"
+                    },
+                    "natives-windows": {
+                        "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar",
+                        "sha1": "05359f3aa50d36352815fc662ea73e1c00d22170",
+                        "size": 279593,
+                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar"
+                    }
+                }
+            },
+            "natives": {
+                "linux": "natives-linux",
+                "windows": "natives-windows"
+            },
+            "rules": [
+                { "action": "allow" },
+                { "action": "disallow", "os": { "name": "osx" } }
+            ]
+        });
+        let text2speech = serde_json::json!({
+            "name": "com.mojang:text2speech:1.12.4",
+            "downloads": {
+                "artifact": {
+                    "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar",
+                    "sha1": "1f618f522dbdd93218c270bcfd8f8dd84be31717",
+                    "size": 12874,
+                    "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar"
+                },
+                "classifiers": {
+                    "natives-linux": {
+                        "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-linux.jar",
+                        "sha1": "9571b1360a268311d7fa625614186965914f0215",
+                        "size": 7833,
+                        "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-linux.jar"
+                    },
+                    "natives-windows": {
+                        "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-windows.jar",
+                        "sha1": "7e37c535186a058d730ec03491182fae2efb57be",
+                        "size": 81379,
+                        "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-windows.jar"
+                    }
+                }
+            },
+            "extract": { "exclude": ["META-INF/"] },
+            "natives": {
+                "linux": "natives-linux",
+                "windows": "natives-windows"
+            }
+        });
+        serde_json::json!({
+            "id": "1.18.2",
+            "downloads": {
+                "client": {
+                    "sha1": "2e9a3e3107cca00d6bc9c97bf7d149cae163ef21",
+                    "size": 20259661,
+                    "url": "https://piston-data.mojang.com/v1/objects/2e9a3e3107cca00d6bc9c97bf7d149cae163ef21/client.jar"
+                }
+            },
+            "libraries": [
+                logging_library(),
+                jopt_simple_library(),
+                gson_library(),
+                lwjgl,
+                lwjgl_natives,
+                text2speech
+            ],
+            "assetIndex": {
+                "id": "1.18",
+                "sha1": "d31a2e85ae149dd1b1a7070b22cb8887892fda6c",
+                "size": 348724,
+                "url": "https://piston-meta.mojang.com/v1/packages/d31a2e85ae149dd1b1a7070b22cb8887892fda6c/1.18.json",
+                "totalSize": 468892705
+            },
+            "assets": "1.18",
+            "mainClass": "net.minecraft.client.main.Main"
+        })
     }
-
-    const MANIFEST_1_18_2: &str = r#"{
-        "id": "1.18.2",
-        "downloads": {
-            "client": {
-                "sha1": "2e9a3e3107cca00d6bc9c97bf7d149cae163ef21",
-                "size": 20259661,
-                "url": "https://piston-data.mojang.com/v1/objects/2e9a3e3107cca00d6bc9c97bf7d149cae163ef21/client.jar"
-            }
-        },
-        "libraries": [
-            {
-                "name": "com.mojang:logging:1.0.0",
-                "downloads": {
-                    "artifact": {
-                        "path": "com/mojang/logging/1.0.0/logging-1.0.0.jar",
-                        "sha1": "f6ca3b2eee0b80b384e8ed93d368faecb82dfb9b",
-                        "size": 15343,
-                        "url": "https://libraries.minecraft.net/com/mojang/logging/1.0.0/logging-1.0.0.jar"
-                    }
-                }
-            },
-            {
-                "name": "net.sf.jopt-simple:jopt-simple:5.0.4",
-                "downloads": {
-                    "artifact": {
-                        "path": "net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
-                        "sha1": "4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c",
-                        "size": 78146,
-                        "url": "https://libraries.minecraft.net/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
-                    }
-                }
-            },
-            {
-                "name": "com.google.code.gson:gson:2.8.9",
-                "downloads": {
-                    "artifact": {
-                        "path": "com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
-                        "sha1": "8a432c1d6825781e21a02db2e2c33c5fde2833b9",
-                        "size": 258075,
-                        "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar"
-                    }
-                }
-            },
-            {
-                "name": "org.lwjgl:lwjgl:3.2.2",
-                "downloads": {
-                    "artifact": {
-                        "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
-                        "sha1": "8ad6294407e15780b43e84929c40e4c5e997972e",
-                        "size": 321900,
-                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar"
-                    }
-                },
-                "rules": [
-                    { "action": "allow" },
-                    { "action": "disallow", "os": { "name": "osx" } }
-                ]
-            },
-            {
-                "name": "org.lwjgl:lwjgl:3.2.2",
-                "downloads": {
-                    "artifact": {
-                        "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
-                        "sha1": "8ad6294407e15780b43e84929c40e4c5e997972e",
-                        "size": 321900,
-                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar"
-                    },
-                    "classifiers": {
-                        "natives-linux": {
-                            "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar",
-                            "sha1": "ae7976827ca2a3741f6b9a843a89bacd637af350",
-                            "size": 124776,
-                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar"
-                        },
-                        "natives-windows": {
-                            "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar",
-                            "sha1": "05359f3aa50d36352815fc662ea73e1c00d22170",
-                            "size": 279593,
-                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar"
-                        }
-                    }
-                },
-                "natives": {
-                    "linux": "natives-linux",
-                    "windows": "natives-windows"
-                },
-                "rules": [
-                    { "action": "allow" },
-                    { "action": "disallow", "os": { "name": "osx" } }
-                ]
-            },
-            {
-                "name": "com.mojang:text2speech:1.12.4",
-                "downloads": {
-                    "artifact": {
-                        "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar",
-                        "sha1": "1f618f522dbdd93218c270bcfd8f8dd84be31717",
-                        "size": 12874,
-                        "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar"
-                    },
-                    "classifiers": {
-                        "natives-linux": {
-                            "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-linux.jar",
-                            "sha1": "9571b1360a268311d7fa625614186965914f0215",
-                            "size": 7833,
-                            "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-linux.jar"
-                        },
-                        "natives-windows": {
-                            "path": "com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-windows.jar",
-                            "sha1": "7e37c535186a058d730ec03491182fae2efb57be",
-                            "size": 81379,
-                            "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.12.4/text2speech-1.12.4-natives-windows.jar"
-                        }
-                    }
-                },
-                "extract": { "exclude": ["META-INF/"] },
-                "natives": {
-                    "linux": "natives-linux",
-                    "windows": "natives-windows"
-                }
-            }
-        ],
-        "assetIndex": {
-            "id": "1.18",
-            "sha1": "d31a2e85ae149dd1b1a7070b22cb8887892fda6c",
-            "size": 348724,
-            "url": "https://piston-meta.mojang.com/v1/packages/d31a2e85ae149dd1b1a7070b22cb8887892fda6c/1.18.json",
-            "totalSize": 468892705
-        },
-        "assets": "1.18",
-        "mainClass": "net.minecraft.client.main.Main"
-    }"#;
 
     #[test]
     fn collect_library_targets_includes_regular_libraries() {
-        let manifest: VersionDetailsManifest = serde_json::from_str(MANIFEST_1_18_2).unwrap();
+        let manifest: VersionDetailsManifest = serde_json::from_value(manifest_1_18_2()).unwrap();
         let targets = collect_library_targets(&manifest);
         let rel_paths: Vec<String> = targets
             .iter()
@@ -636,7 +597,7 @@ mod tests {
         let dir = LauncherDirGuard::acquire("natives_extract").await;
         let base = dir.project_dir("Cordelia");
 
-        make_jar(
+        write_test_zip(
             &base.join("libraries/lwjgl/lwjgl-natives.jar"),
             &[
                 ("org/lwjgl/lwjgl.dll", b"win dll bytes".as_slice()),
@@ -645,7 +606,7 @@ mod tests {
                 ("README.txt", b"not native".as_slice()),
             ],
         );
-        make_jar(
+        write_test_zip(
             &base.join("libraries/t2s/t2s-natives.jar"),
             &[("libt2s.dylib", b"dylib bytes".as_slice())],
         );
@@ -685,7 +646,7 @@ mod tests {
         let dir = LauncherDirGuard::acquire("natives_fail_retry").await;
         let base = dir.project_dir("Cordelia");
 
-        make_jar(
+        write_test_zip(
             &base.join("libraries/good.jar"),
             &[("libgood.so", b"good".as_slice())],
         );

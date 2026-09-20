@@ -252,36 +252,13 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     mod archive_limits {
         use super::super::extract_archive_with_limit;
+        use crate::test_support::TempDir;
         use flate2::write::GzEncoder;
         use flate2::Compression;
         use std::io::Write;
-        use std::path::PathBuf;
         use tar::{Builder, Header};
 
-        struct TempDir(PathBuf);
-
-        impl TempDir {
-            fn new(tag: &str) -> Self {
-                let path = std::env::temp_dir().join(format!(
-                    "limacina_tar_test_{}_{}",
-                    tag,
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("system time")
-                        .as_nanos()
-                ));
-                std::fs::create_dir_all(&path).expect("создание временной папки");
-                Self(path)
-            }
-        }
-
-        impl Drop for TempDir {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-
-        fn write_test_tar_gz(archive_path: &PathBuf) {
+        fn write_test_tar_gz(archive_path: &std::path::Path) {
             let buffer = std::io::Cursor::new(Vec::new());
             let mut builder = Builder::new(buffer);
 

@@ -16,6 +16,8 @@ const props = withDefaults(defineProps<{
 </script>
 
 <style lang="scss" scoped>
+@use '@/01-app/assets/mixins';
+
 .preloader {
   position: fixed;
   top: 0;
@@ -43,13 +45,10 @@ const props = withDefaults(defineProps<{
   }
 
   &__text {
+    @include mixins.eyebrow($line-height: null);
+
     margin-top: var(--space-20);
     font-family: var(--font-eyebrow);
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-eyebrow);
-    text-transform: uppercase;
-    color: var(--login-text-muted);
   }
 }
 </style>
