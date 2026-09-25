@@ -1,0 +1,7 @@
+{
+  "minTokens": 50,
+  "threshold": 2.5,
+  "reporters": ["console"],
+  "silent": true,
+  "ignore": ["**/assets/themes/**", "**/assets/fonts/**"]
+}

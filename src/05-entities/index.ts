@@ -7,7 +7,6 @@ export type {
   AuthUserData,
   UpdateInfo,
   UpdateVersionInfo,
-  UpdateVersions,
   ServerStatus,
   TabKey,
   AuthSubTab,

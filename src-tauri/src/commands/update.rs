@@ -1,7 +1,7 @@
 use crate::state::dto::GlobalState;
 use crate::updater::{
     compare_with_current, get_launcher_versions as fetch_launcher_versions, is_timeout_error,
-    retain_current_platform, updater_builder, updater_pubkey, UpdateInfo, UpdateVersions,
+    retain_current_platform, updater_builder, updater_pubkey, UpdateInfo, UpdateRelease,
     STARTUP_CHECK_TIMEOUT,
 };
 use crate::utils::errors::LauncherError;
@@ -123,11 +123,11 @@ pub async fn check_update(app: AppHandle) -> CommandResult<Option<UpdateInfo>> {
 }
 
 #[tauri::command]
-pub async fn get_launcher_versions() -> CommandResult<UpdateVersions> {
+pub async fn get_launcher_versions() -> CommandResult<Vec<UpdateRelease>> {
     let result = async {
-        let mut versions = fetch_launcher_versions().await?;
-        retain_current_platform(&mut versions);
-        Ok(versions)
+        let mut releases = fetch_launcher_versions().await?;
+        retain_current_platform(&mut releases);
+        Ok(releases)
     }
     .await;
 
@@ -153,8 +153,8 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
                         v
                     )));
                 }
-                let versions = fetch_launcher_versions().await?;
-                if !versions.versions.iter().any(|entry| entry.version == v) {
+                let releases = fetch_launcher_versions().await?;
+                if !releases.iter().any(|release| release.version == v) {
                     log_err!("Версия v{} отсутствует на сервере", v);
                     return Err(anyhow::Error::new(LauncherError::UpdateVersionMissing(
                         v.clone(),

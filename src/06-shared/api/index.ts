@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersions, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
+import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersionInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
 
 export interface CommandErrorPayload {
   code: string
@@ -36,11 +36,6 @@ interface UpdateInfoRaw {
   version: string
 }
 
-interface UpdateVersionsRaw {
-  version: string
-  versions: UpdateInfoRaw[]
-}
-
 const toUpdateInfo = (raw: UpdateInfoRaw): UpdateInfo => ({
   version: raw.version,
 })
@@ -50,12 +45,9 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
   return raw ? toUpdateInfo(raw) : null
 }
 
-export async function getLauncherVersions(): Promise<UpdateVersions> {
-  const raw = await invoke<UpdateVersionsRaw>('get_launcher_versions')
-  return {
-    version: raw.version,
-    versions: raw.versions.map(toUpdateInfo),
-  }
+export async function getLauncherVersions(): Promise<UpdateVersionInfo[]> {
+  const raw = await invoke<UpdateInfoRaw[]>('get_launcher_versions')
+  return raw.map(toUpdateInfo)
 }
 
 export async function applyUpdateCmd(version: string | null = null): Promise<void> {
