@@ -34,8 +34,7 @@ export function useLauncherUpdate(): {
   const loadVersions = async (): Promise<void> => {
     isLoading.value = true
     try {
-      const data = await getLauncherVersions()
-      versions.value = data.versions
+      versions.value = await getLauncherVersions()
       selectedVersion.value = currentVersion.value
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))

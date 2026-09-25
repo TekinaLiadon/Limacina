@@ -44,11 +44,6 @@ export interface UpdateInfo {
 
 export type UpdateVersionInfo = UpdateInfo
 
-export interface UpdateVersions {
-  version: string
-  versions: UpdateVersionInfo[]
-}
-
 export interface ServerStatus {
   online: number
   max: number

@@ -2,7 +2,7 @@ pub mod version;
 
 pub use version::{
     compare_with_current, get_launcher_versions, is_timeout_error, retain_current_platform,
-    UpdateInfo, UpdateVersions,
+    UpdateInfo, UpdateRelease,
 };
 
 use anyhow::Result;
