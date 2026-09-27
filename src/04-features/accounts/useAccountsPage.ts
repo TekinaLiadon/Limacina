@@ -62,6 +62,7 @@ export function useAccountsPage() {
   const loginsError = computed((): string => store.loginsError)
   const showAuth = computed((): boolean =>
     !store.isLaunching
+    && !store.isLoginsLoading
     && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn && !loginsError.value)),
   )
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
@@ -97,7 +98,11 @@ export function useAccountsPage() {
       isCancelPending.value = true
       return
     }
-    await finalizeCancel()
+    if (store.isLaunching || store.launchInterrupted) {
+      await finalizeCancel()
+      return
+    }
+    store.showAuthForm = false
   }
 
   const activeSubTab = computed({
@@ -117,6 +122,16 @@ export function useAccountsPage() {
 
     try {
       await deleteAccount(coreStore.currentProject, username)
+      if (coreStore.session?.username === username) {
+        try {
+          await clearSession()
+        } catch (e: unknown) {
+          reportError('Не удалось завершить сессию на стороне лаунчера', e)
+        }
+        coreStore.session = null
+        coreStore.isLoggedIn = false
+        store.selectedUsername = ''
+      }
       await loadAccounts()
       notificationStore.show('Аккаунт удалён')
     } catch (e: unknown) {

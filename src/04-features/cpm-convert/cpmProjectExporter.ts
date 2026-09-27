@@ -121,29 +121,39 @@ function flatten(config: CPMConfig): FlatModel {
   const elementIds = new Map<CPMElement | CPMChild, number>()
   let nextId = 10
 
+  const pushPivotCube = (root: CPMElement, parentId: number): number => {
+    const fakeId = nextId++
+    elementIds.set(root, fakeId)
+    cubes.push({
+      size: { x: 0, y: 0, z: 0 },
+      pos: root.pos ?? { x: 0, y: 0, z: 0 },
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
+      parentId,
+      id: fakeId,
+      texSize: 0,
+      u: 0,
+      v: 0,
+      rgb: 0,
+    })
+    return fakeId
+  }
+
   const walk = (elements: (CPMElement | CPMChild)[], parentId: number): void => {
     for (const el of elements) {
       if ('id' in el) {
         const root = el as CPMElement
         if (root.customPart === true || root.dup === true) {
-          const fakeId = nextId++
-          elementIds.set(root, fakeId)
-          cubes.push({
-            size: { x: 0, y: 0, z: 0 },
-            pos: root.pos ?? { x: 0, y: 0, z: 0 },
-            offset: { x: 0, y: 0, z: 0 },
-            rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
-            parentId: PLAYER_PART_INDEX.custom_part ?? 0,
-            id: fakeId,
-            texSize: 0,
-            u: 0,
-            v: 0,
-            rgb: 0,
-          })
+          const fakeId = pushPivotCube(root, PLAYER_PART_INDEX.custom_part ?? 0)
           walk(root.children ?? [], fakeId)
           continue
         }
-        const ordinal = PLAYER_PART_INDEX[root.id] ?? 0
+        const ordinal = PLAYER_PART_INDEX[root.id]
+        if (ordinal === undefined) {
+          const fakeId = pushPivotCube(root, PLAYER_PART_INDEX.custom_part ?? 0)
+          walk(root.children ?? [], fakeId)
+          continue
+        }
         elementIds.set(root, ordinal)
         walk(root.children ?? [], ordinal)
         continue
@@ -359,7 +369,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
         w.writeVarInt(id)
         w.writeEnum(PLAYER_PART_INDEX[el.id] ?? 0)
       })
-    } else if (el.customPart === true) {
+    } else if (el.customPart === true || ROOT_MODEL_TYPE[el.id] !== undefined) {
       if (el.show === false) {
         hideElement(id)
       }

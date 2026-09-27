@@ -17,11 +17,11 @@ function createParts(slim: boolean): BodyPart[] {
   const armW = slim ? 3 : 4
   const armX = slim ? 5.5 : 6
   const rightArmFaces: Array<[number, number]> = slim
-    ? [[40, 20], [46, 20], [44, 16], [47, 16], [43, 20], [49, 20]]
-    : [[40, 20], [48, 20], [44, 16], [48, 16], [44, 20], [52, 20]]
+    ? [[47, 20], [40, 20], [44, 16], [47, 16], [44, 20], [51, 20]]
+    : [[48, 20], [40, 20], [44, 16], [48, 16], [44, 20], [52, 20]]
   const leftArmFaces: Array<[number, number]> = slim
-    ? [[32, 52], [38, 52], [36, 48], [39, 48], [35, 52], [41, 52]]
-    : [[32, 52], [40, 52], [36, 48], [40, 48], [36, 52], [44, 52]]
+    ? [[39, 52], [32, 52], [36, 48], [39, 48], [36, 52], [43, 52]]
+    : [[40, 52], [32, 52], [36, 48], [40, 48], [36, 52], [44, 52]]
 
   return [
     {
@@ -31,7 +31,7 @@ function createParts(slim: boolean): BodyPart[] {
     },
     {
       w: 8, h: 12, d: 4, pos: [0, 0, 0],
-      faces: [[16, 20], [28, 20], [20, 16], [28, 16], [20, 20], [32, 20]],
+      faces: [[28, 20], [16, 20], [20, 16], [28, 16], [20, 20], [32, 20]],
       overlayDelta: [0, 16], inflate: 0.25,
     },
     {
@@ -89,9 +89,12 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
       [part.w, part.h],
     ]
 
+    const flipU = mirrorFrom !== null
+
     for (let i = 0; i < 6; i++) {
       const source = mirrorFrom ?? part
-      const face = source.faces[i]
+      const faceSlot = flipU && i === 0 ? 1 : flipU && i === 1 ? 0 : i
+      const face = source.faces[faceSlot]
       if (face === undefined) continue
       const u = face[0] + uvShift[0]
       const v = face[1] + uvShift[1]
@@ -103,17 +106,19 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
       const v1 = 1 - (v * s + fh * s) / texH
 
       const base = i * 4
+      const uLeft = flipU ? u1 : u0
+      const uRight = flipU ? u0 : u1
 
       if (i === 2 || i === 3) {
-        uvAttr.setXY(base + 0, u0, v1)
-        uvAttr.setXY(base + 1, u1, v1)
-        uvAttr.setXY(base + 2, u0, v0)
-        uvAttr.setXY(base + 3, u1, v0)
+        uvAttr.setXY(base + 0, uLeft, v1)
+        uvAttr.setXY(base + 1, uRight, v1)
+        uvAttr.setXY(base + 2, uLeft, v0)
+        uvAttr.setXY(base + 3, uRight, v0)
       } else {
-        uvAttr.setXY(base + 0, u0, v0)
-        uvAttr.setXY(base + 1, u1, v0)
-        uvAttr.setXY(base + 2, u0, v1)
-        uvAttr.setXY(base + 3, u1, v1)
+        uvAttr.setXY(base + 0, uLeft, v0)
+        uvAttr.setXY(base + 1, uRight, v0)
+        uvAttr.setXY(base + 2, uLeft, v1)
+        uvAttr.setXY(base + 3, uRight, v1)
       }
     }
     uvAttr.needsUpdate = true

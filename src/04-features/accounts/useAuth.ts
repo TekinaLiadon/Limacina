@@ -55,10 +55,9 @@ export function useAuth() {
     )
   })
 
-  const loadSavedCredentials = async (): Promise<void> => {
+  const loadSavedCredentials = (): void => {
     if (coreStore.isLoggedIn) return
 
-    await loadAccounts()
     const [firstLogin] = store.logins
     if (firstLogin !== undefined && !store.loginFormData.username) {
       store.loginFormData.username = firstLogin

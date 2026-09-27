@@ -30,6 +30,7 @@ export function useAccountSettings() {
     return (
       oldPassword.value.length >= MIN_PASSWORD_LENGTH &&
       newPassword.value.length >= MIN_PASSWORD_LENGTH &&
+      confirmPassword.value.length > 0 &&
       passwordsMatch.value &&
       !isSamePassword.value
     )
@@ -54,20 +55,25 @@ export function useAccountSettings() {
         oldPassword.value,
         newPassword.value
       )
+    } catch (e: unknown) {
+      reportError('Не удалось сменить пароль', e)
+      errorMessage.value = getErrorMessage(e)
+      isChanging.value = false
+      return
+    }
 
+    try {
       const session = await getSessionInfo()
       if (session) {
         coreStore.session = session
       }
-
-      notification.show('Пароль изменён')
-      resetForm()
     } catch (e: unknown) {
-      reportError('Не удалось сменить пароль', e)
-      errorMessage.value = getErrorMessage(e)
-    } finally {
-      isChanging.value = false
+      reportError('Не удалось обновить сессию после смены пароля', e)
     }
+
+    notification.show('Пароль изменён')
+    resetForm()
+    isChanging.value = false
   }
 
   return {

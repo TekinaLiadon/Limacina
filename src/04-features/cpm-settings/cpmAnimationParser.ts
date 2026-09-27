@@ -41,7 +41,12 @@ interface RawAnimation {
 
 function detectVanillaPose(posePart: string): string | null {
   const name = posePart.endsWith('.json') ? posePart.slice(0, -5) : posePart
-  return VANILLA_POSES.find((pose) => name.startsWith(pose)) ?? null
+  let best: string | null = null
+  for (const pose of VANILLA_POSES) {
+    if (!name.startsWith(pose)) continue
+    if (best === null || pose.length > best.length) best = pose
+  }
+  return best
 }
 
 function classify(fileName: string, displayName: string): { kind: CPMAnimationKind; name: string } {
