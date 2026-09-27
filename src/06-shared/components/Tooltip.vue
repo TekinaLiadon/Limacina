@@ -128,7 +128,7 @@ onBeforeUnmount((): void => {
 .tooltip__bubble {
   position: fixed;
   z-index: var(--z-tooltip);
-  max-width: 280px;
+  max-width: var(--tooltip-max-width);
   padding: var(--space-4) var(--space-8);
   border-radius: var(--radius-badge);
   background: var(--login-bg-form);

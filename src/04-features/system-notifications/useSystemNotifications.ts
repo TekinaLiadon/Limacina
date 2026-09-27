@@ -93,10 +93,15 @@ export function useSystemNotifications(): {
   const startSystemNotifications = async (): Promise<void> => {
     if (notificationsStarted) return
     notificationsStarted = true
+
+    let unlistenSteps: (() => void) | null = null
+    let unlistenExit: (() => void) | null = null
     try {
-      await listenLaunchSteps(handleStepEvent)
-      await listenGameExit(handleGameExit)
+      unlistenSteps = await listenLaunchSteps(handleStepEvent)
+      unlistenExit = await listenGameExit(handleGameExit)
     } catch (e: unknown) {
+      unlistenSteps?.()
+      unlistenExit?.()
       notificationsStarted = false
       reportError('Не удалось запустить поток системных уведомлений', e)
     }

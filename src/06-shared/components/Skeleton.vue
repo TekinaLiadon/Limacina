@@ -72,8 +72,8 @@ const rootStyle = computed((): Record<string, string> => {
 
   &__icon {
     flex-shrink: 0;
-    width: 40px;
-    height: 40px;
+    width: var(--space-40);
+    height: var(--space-40);
     background: var(--surface-light);
 
     &--circle {
@@ -111,7 +111,7 @@ const rootStyle = computed((): Record<string, string> => {
   }
 
   &--card {
-    height: 96px;
+    height: var(--skeleton-card-height);
   }
 
   &--list-item {

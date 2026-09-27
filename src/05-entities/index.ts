@@ -6,7 +6,6 @@ export type {
   AppInitData,
   AuthUserData,
   UpdateInfo,
-  UpdateVersionInfo,
   ServerStatus,
   TabKey,
   AuthSubTab,

@@ -11,31 +11,15 @@ const ICON_PATHS: Record<IconType, string> = {
   'arrow-right': 'M42.667 413.867h819.2l-153.6-153.6c-42.667-42.667 21.333-110.933 68.267-68.267l234.667 234.667c17.067 17.067 17.067 46.933 0 64l-234.667 234.667c-8.533 8.533-21.333 12.8-34.133 12.8-42.667 0-64-51.2-34.133-81.067l153.6-153.6h-819.2c-64 0-59.733-93.867 0-89.6z',
 }
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   type: IconType
-  up?: boolean
-  down?: boolean
-  left?: boolean
-  right?: boolean
-}>(), {
-  up: false,
-  down: false,
-  left: false,
-  right: false,
-})
-
-const className = computed(() => ({
-  'icon--up': props.up,
-  'icon--down': props.down,
-  'icon--left': props.left,
-  'icon--right': props.right,
-}))
+}>()
 
 const path = computed((): string => ICON_PATHS[props.type])
 </script>
 
 <template>
-  <svg class="icon" :class="className" viewBox="0 0 1024 1024" aria-hidden="true">
+  <svg class="icon" viewBox="0 0 1024 1024" aria-hidden="true">
     <path :d="path" transform="translate(0 960) scale(1 -1)" />
   </svg>
 </template>
@@ -48,21 +32,5 @@ const path = computed((): string => ICON_PATHS[props.type])
   height: 1em;
   fill: currentColor;
   flex-shrink: 0;
-
-  &--up.icon {
-    transform: rotate(0deg);
-  }
-
-  &--down.icon {
-    transform: rotate(180deg);
-  }
-
-  &--left.icon {
-    transform: rotate(-90deg);
-  }
-
-  &--right.icon {
-    transform: rotate(90deg);
-  }
 }
 </style>

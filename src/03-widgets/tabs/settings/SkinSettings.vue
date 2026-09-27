@@ -43,7 +43,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     </p>
 
     <div v-if="isSkinLoading" class="skin-settings__loading">
-      <span class="skin-settings__loading-spinner" aria-hidden="true" />
+      <img src="@/06-shared/components/preloader.svg" alt="" class="skin-settings__loading-spinner" />
       <span class="skin-settings__loading-text">Загрузка скина...</span>
     </div>
 
@@ -133,7 +133,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__loading {
-    height: 360px;
+    height: var(--viewer-height);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -145,12 +145,8 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__loading-spinner {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-circle);
-    border: 2px solid var(--surface-active);
-    border-top-color: var(--login-accent);
-    animation: skin-settings-spin var(--duration-spin) linear infinite;
+    max-width: 80px;
+    width: 100%;
   }
 
   &__loading-text {
@@ -219,12 +215,6 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     color: var(--accent-text);
     font-weight: var(--weight-medium);
     white-space: nowrap;
-  }
-}
-
-@keyframes skin-settings-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 </style>

@@ -167,7 +167,6 @@ const openLoginForm = (): void => {
             <Button
               class="btn-primary btn-lg btn-block"
               :is-disabled="!hasSession || (serverOffline ?? false)"
-              :is-loading="isLaunching"
               @click="emit('launch')"
             >
               Играть
@@ -220,6 +219,7 @@ const openLoginForm = (): void => {
                   tabindex="0"
                   @click="selectAccount(login)"
                   @keydown.enter="selectAccount(login)"
+                  @keydown.space.prevent="selectAccount(login)"
                 >
                   <Identicon :username="login" :size="28" />
                   <span class="launch-scene__menu-name">{{ login }}</span>

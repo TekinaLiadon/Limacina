@@ -157,7 +157,6 @@ const handleDownload = async (): Promise<void> => {
           :popup-visible="isPopupOpen"
           :is-distributions-loading="isDistributionsLoading"
           :distributions-error="distributionsError"
-          :java-version="javaVersion"
           :version-error="versionError"
           v-model:selected-distribution="selectedDistribution"
           v-model:replace-default="replaceDefault"

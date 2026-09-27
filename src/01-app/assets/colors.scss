@@ -45,6 +45,22 @@
   --control-height: 40px;
   --control-height-lg: 48px;
   --control-padding-x: var(--space-12);
+  --control-icon-area: 44px;
+
+  --icon-size-sm: 12px;
+  --icon-size: 18px;
+  --icon-size-lg: 20px;
+  --spinner-size: 14px;
+  --checkbox-size: 18px;
+  --progress-height: 6px;
+  --options-max-height: 200px;
+  --skeleton-card-height: 96px;
+  --tooltip-max-width: 280px;
+  --notification-max-width: 360px;
+  --preloader-max-width: 150px;
+
+  --switch-glow: rgba(108, 127, 216, 0.5);
+  --switch-glow-invert: rgba(255, 255, 255, 0.4);
 
   --duration-fast: 150ms;
   --duration-base: 250ms;

@@ -4,9 +4,14 @@ import { useCoreStore } from '@/05-entities'
 import { listenCpmProjectOpen, takeCpmProjectPath } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
+let cpmOpenSyncStarted = false
+
 export function useCpmProjectOpen(): void {
   const router = useRouter()
   const coreStore = useCoreStore()
+
+  if (cpmOpenSyncStarted) return
+  cpmOpenSyncStarted = true
 
   const openCpmProject = (path: string): void => {
     coreStore.pendingCpmProjectPath = path
@@ -27,6 +32,7 @@ export function useCpmProjectOpen(): void {
     try {
       await listenCpmProjectOpen(openCpmProject)
     } catch (e: unknown) {
+      cpmOpenSyncStarted = false
       reportError('Не удалось подписаться на открытие файла модели', e)
     }
   })

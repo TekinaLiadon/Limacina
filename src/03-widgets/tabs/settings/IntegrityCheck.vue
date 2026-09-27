@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Button, ProgressBar } from '@/06-shared'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Button, ProgressBar, useFocusTrap } from '@/06-shared'
 import StepProgress from '../login/StepProgress.vue'
 import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
@@ -17,6 +17,23 @@ const emit = defineEmits<{
   check: []
   close: []
 }>()
+
+const popupRef = ref<HTMLDivElement | null>(null)
+const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.isChecking || props.report !== null || props.errorMessage !== ''))
+
+useFocusTrap(popupRef, (): boolean => isPopupVisible.value)
+
+function handleKeydown(e: KeyboardEvent): void {
+  if (isPopupVisible.value && e.key === 'Escape') emit('close')
+}
+
+onMounted((): void => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount((): void => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 
 const hasErrors = computed((): boolean => props.report !== null && props.report.failed.length > 0)
 const isClean = computed((): boolean => props.report !== null && props.report.failed.length === 0)
@@ -43,8 +60,8 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 
     <Teleport to="body">
       <Transition name="popup">
-        <div v-if="!isPopupHidden && (isChecking || report !== null || errorMessage)" class="integrity-popup-overlay" @click.self="emit('close')">
-          <div class="integrity-popup popup-panel">
+        <div v-if="isPopupVisible" class="integrity-popup-overlay" @click.self="emit('close')">
+          <div ref="popupRef" class="integrity-popup popup-panel" role="dialog" aria-modal="true" aria-label="Проверка целостности файлов">
             <h3 class="integrity-popup__title">Проверка целостности файлов</h3>
 
             <template v-if="isCheckingNow">

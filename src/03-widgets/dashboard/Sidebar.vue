@@ -52,11 +52,8 @@ const items = computed<TabItem[]>((): TabItem[] => {
         v-for="item in items"
         :key="item.key"
         class="sidebar__item"
-        :class="{
-          'sidebar__item--active': activeTab === item.key,
-          'sidebar__item--disabled': item.disabled,
-        }"
-        @click="!item.disabled && emit('navigate', item.key)"
+        :class="{ 'sidebar__item--active': activeTab === item.key }"
+        @click="emit('navigate', item.key)"
       >
         <IconButton tag="span" :icon="item.icon" />
         <span class="sidebar__label">{{ item.label }}</span>
@@ -167,7 +164,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
     text-align: left;
     width: 100%;
 
-    &:hover:not(&--disabled) {
+    &:hover {
       color: var(--login-text-primary);
       background: var(--surface-light);
     }
@@ -176,12 +173,6 @@ const items = computed<TabItem[]>((): TabItem[] => {
       color: var(--login-text-primary);
       background: var(--surface-light);
       box-shadow: var(--elevation-inset);
-    }
-
-    &--disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      pointer-events: none;
     }
 
     .icon-btn {
@@ -199,7 +190,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
       }
     }
 
-    &:hover:not(&--disabled) .icon-btn {
+    &:hover .icon-btn {
       background-color: var(--surface-hover);
       box-shadow: var(--elevation-inset);
       transform: translateX(2px);

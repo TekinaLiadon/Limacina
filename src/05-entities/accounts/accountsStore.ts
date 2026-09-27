@@ -13,12 +13,12 @@ export interface AccountsState {
   authError: string
   loginFormData: LoginForm
   registerFormData: RegisterForm
-  registerShowForm: boolean
 
   showAuthForm: boolean
   activeSubTab: AuthSubTab
   isLaunching: boolean
   launchInterrupted: boolean
+  isCancelPending: boolean
   isSwitching: boolean
   launchGeneration: number
 
@@ -47,12 +47,12 @@ export const useAccountsStore = defineStore('accounts', {
       password: '',
       confirmPassword: '',
     },
-    registerShowForm: false,
 
     showAuthForm: false,
     activeSubTab: 'login' as AuthSubTab,
     isLaunching: false,
     launchInterrupted: false,
+    isCancelPending: false,
     isSwitching: false,
     launchGeneration: 0,
 

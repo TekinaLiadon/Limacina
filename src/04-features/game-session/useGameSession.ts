@@ -3,6 +3,8 @@ import { getGameState, hideMainWindow, listenGameExit, listenGameStarted } from 
 import { reportError } from '@/06-shared'
 
 let sessionSyncStarted = false
+let unlistenStarted: (() => void) | null = null
+let unlistenExit: (() => void) | null = null
 
 export function useGameSession(): {
   startGameSessionSync: () => Promise<void>
@@ -16,14 +18,24 @@ export function useGameSession(): {
 
     let eventBeforeHydrate = false
 
-    await listenGameStarted((username: string): void => {
-      eventBeforeHydrate = true
-      coreStore.gameUsername = username
-    })
-    await listenGameExit((): void => {
-      eventBeforeHydrate = true
-      coreStore.gameUsername = null
-    })
+    try {
+      unlistenStarted = await listenGameStarted((username: string): void => {
+        eventBeforeHydrate = true
+        coreStore.gameUsername = username
+      })
+      unlistenExit = await listenGameExit((): void => {
+        eventBeforeHydrate = true
+        coreStore.gameUsername = null
+      })
+    } catch (e: unknown) {
+      unlistenStarted?.()
+      unlistenExit?.()
+      unlistenStarted = null
+      unlistenExit = null
+      sessionSyncStarted = false
+      reportError('Не удалось запустить синхронизацию игровой сессии', e)
+      return
+    }
 
     try {
       const username = await getGameState()

@@ -27,10 +27,6 @@ export function useAuth() {
     get: () => store.registerFormData,
     set: (v) => { store.registerFormData = v },
   })
-  const showRegisterForm = computed({
-    get: (): boolean => store.registerShowForm,
-    set: (v: boolean): void => { store.registerShowForm = v },
-  })
 
   const passwordsMatch = computed((): boolean => {
     if (!store.registerFormData.confirmPassword) return true
@@ -117,24 +113,12 @@ export function useAuth() {
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
       store.showAuthForm = false
-      store.registerShowForm = false
       store.activeSubTab = 'login'
     } catch (e: unknown) {
       errorMessage.value = getErrorMessage(e)
     } finally {
       isLoading.value = false
     }
-  }
-
-  const openRegisterForm = (): void => {
-    showRegisterForm.value = true
-    errorMessage.value = ''
-    store.registerFormData = { login: '', password: '', confirmPassword: '' }
-  }
-
-  const closeRegisterForm = (): void => {
-    showRegisterForm.value = false
-    errorMessage.value = ''
   }
 
   onMounted(loadSavedCredentials)
@@ -145,14 +129,11 @@ export function useAuth() {
     logins,
     loginFormData,
     registerFormData,
-    showRegisterForm,
     passwordsMatch,
     isOffline,
     isLoginValid,
     isRegisterValid,
     handleLogin,
     handleRegister,
-    openRegisterForm,
-    closeRegisterForm,
   }
 }

@@ -42,8 +42,6 @@ export interface UpdateInfo {
   version: string
 }
 
-export type UpdateVersionInfo = UpdateInfo
-
 export interface ServerStatus {
   online: number
   max: number
@@ -92,7 +90,9 @@ export interface StepProgressItem {
   detail: string
   error: string
   shownAt: number
-}export interface CoreState {
+}
+
+export interface CoreState {
   isLoading: boolean
   hasLauncherConfig: boolean | null
   launcherName: string
@@ -101,14 +101,11 @@ export interface StepProgressItem {
   version: string
   offlineBuild: boolean
   envProjectName: string
-  activeTab: TabKey
   currentProject: string
   projects: string[]
   totalMemoryMb: number
   isLoggedIn: boolean
   session: SessionInfo | null
-  loginSteps: StepProgressItem[]
-  loginProgress: number
   loginError: string
   projectConfig: ProjectConfig | null
   serverStatus: ServerStatus | null

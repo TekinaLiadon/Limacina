@@ -34,7 +34,7 @@ const props = withDefaults(defineProps<{
   align-items: center;
 
   img {
-    max-width: 150px;
+    max-width: var(--preloader-max-width);
     width: 100%;
     height: auto;
   }

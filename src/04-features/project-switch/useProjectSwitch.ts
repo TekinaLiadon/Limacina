@@ -29,7 +29,6 @@ export function useProjectSwitch() {
     accountsStore.loginFormData = { username: '', password: '', rememberMe: false }
     accountsStore.registerFormData = { login: '', password: '', confirmPassword: '' }
     accountsStore.showAuthForm = false
-    accountsStore.registerShowForm = false
     accountsStore.activeSubTab = 'login'
     accountsStore.isLaunching = false
     resetLaunchSteps()

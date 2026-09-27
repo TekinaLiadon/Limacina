@@ -7,6 +7,5 @@ export interface TabItem {
   key: TabKey
   icon: IconType
   label: string
-  disabled?: boolean
 }
 

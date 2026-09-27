@@ -16,7 +16,7 @@ export { default as Identicon } from './components/Identicon.vue'
 
 export * from './api'
 
-export type { InputOptions, DropdownOption, IconProps, IconButtonProps, ViewerControls } from './types'
+export type { InputOptions, DropdownOption, ViewerControls } from './types'
 export { copyToClipboard, joinPath, stripPathSuffix } from './utils/utils'
 export { reportError } from './utils/reportError'
 export { selectFile } from './utils/useFileUpload'

@@ -1,9 +1,9 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type UpdateVersionInfo } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, getErrorMessage, getLauncherVersions } from '@/06-shared/api'
 
 export function useLauncherUpdate(): {
-  versions: Ref<UpdateVersionInfo[]>
+  versions: Ref<UpdateInfo[]>
   selectedVersion: Ref<string>
   currentVersion: ComputedRef<string>
   isLoading: Ref<boolean>
@@ -15,7 +15,7 @@ export function useLauncherUpdate(): {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
 
-  const versions = ref<UpdateVersionInfo[]>([])
+  const versions = ref<UpdateInfo[]>([])
   const selectedVersion = ref<string>('')
   const isLoading = ref<boolean>(false)
   const isApplying = ref<boolean>(false)

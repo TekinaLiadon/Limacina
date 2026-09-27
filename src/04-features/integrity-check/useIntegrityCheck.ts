@@ -42,7 +42,6 @@ export function useIntegrityCheck(): {
   const hasResult = computed((): boolean => report.value !== null || errorMessage.value !== '')
 
   let unlisten: UnlistenFn | null = null
-  let currentId = 0
   let isUnmounted = false
 
   onBeforeUnmount(() => {
@@ -71,7 +70,6 @@ export function useIntegrityCheck(): {
     prefillSteps()
     report.value = null
     errorMessage.value = ''
-    const checkId = ++currentId
 
     try {
       if (unlisten === null) {
@@ -85,7 +83,7 @@ export function useIntegrityCheck(): {
         unlisten = fn
       }
       const result = await checkFilesIntegrity()
-      if (checkId !== currentId || isUnmounted) return
+      if (isUnmounted) return
       report.value = result
       if (isPopupHidden.value) {
         notification.show(
@@ -95,12 +93,12 @@ export function useIntegrityCheck(): {
         )
       }
     } catch (e: unknown) {
-      if (checkId !== currentId || isUnmounted) return
+      if (isUnmounted) return
       reportError('Проверка целостности файлов завершилась с ошибкой', e)
       errorMessage.value = getErrorMessage(e)
       if (isPopupHidden.value) notification.show(`Проверка целостности не удалась: ${errorMessage.value}`)
     } finally {
-      if (checkId === currentId) isChecking.value = false
+      isChecking.value = false
     }
   }
 

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 const props = withDefaults(defineProps<{
-  label?: string
   isDisabled?: boolean
   isLoading?: boolean
   type?: 'button' | 'submit'
@@ -11,7 +10,7 @@ const props = withDefaults(defineProps<{
 </script>
 
 <template>
-  <button class="btn" :aria-label="props.label" :class="{
+  <button class="btn" :class="{
       disabled: isDisabled || isLoading,
       loading: isLoading,
     }"
@@ -54,8 +53,8 @@ const props = withDefaults(defineProps<{
   }
 
   &__spinner {
-    width: 14px;
-    height: 14px;
+    width: var(--spinner-size);
+    height: var(--spinner-size);
     flex-shrink: 0;
     border-radius: 50%;
     border: 2px solid currentColor;

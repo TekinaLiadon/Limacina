@@ -1,6 +1,6 @@
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
-import { useAccounts, useGameLaunch, useSystemNotifications } from '@/04-features'
+import { useAccounts, useGameLaunch, useLaunchStepsStream, useSystemNotifications } from '@/04-features'
 import { clearSession, deleteAccount, getErrorMessage } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
@@ -25,6 +25,7 @@ export function useAccountsPage() {
   } = useGameLaunch()
 
   const { sendSystemNotification } = useSystemNotifications()
+  const { resetLaunchSteps } = useLaunchStepsStream()
 
   const isServerOffline = computed((): boolean =>
     !coreStore.offlineBuild &&
@@ -39,7 +40,7 @@ export function useAccountsPage() {
       void sendSystemNotification('Запуск заблокирован', 'Сервер лаунчера недоступен')
       return
     }
-    isCancelPending.value = false
+    store.isCancelPending = false
     const launchGeneration = ++store.launchGeneration
     store.isLaunching = true
     try {
@@ -51,7 +52,7 @@ export function useAccountsPage() {
     } finally {
       if (launchGeneration === store.launchGeneration) {
         store.isLaunching = false
-      } else if (isCancelPending.value) {
+      } else if (store.isCancelPending) {
         await finalizeCancel()
       }
     }
@@ -67,22 +68,20 @@ export function useAccountsPage() {
   )
   const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
 
-  const isSelected = (login: string): boolean => coreStore.isLoggedIn && selectedUsername.value === login
-
   const launchInterrupted = computed((): boolean => store.launchInterrupted)
+  const isCancelPending = computed((): boolean => store.isCancelPending)
 
   const showLoginForm = (): void => {
     store.showAuthForm = true
     store.activeSubTab = 'login'
   }
 
-  const isCancelPending = ref<boolean>(false)
-
   const finalizeCancel = async (): Promise<void> => {
-    isCancelPending.value = false
+    resetLaunchSteps()
+    store.isCancelPending = false
     store.isLaunching = false
-    store.launchInterrupted = false
     store.showAuthForm = false
+    coreStore.loginError = ''
     try {
       await clearSession()
     } catch (e: unknown) {
@@ -95,7 +94,7 @@ export function useAccountsPage() {
   const goToAccounts = async (): Promise<void> => {
     store.launchGeneration++
     if (store.isLaunching && !store.launchInterrupted) {
-      isCancelPending.value = true
+      store.isCancelPending = true
       return
     }
     if (store.isLaunching || store.launchInterrupted) {
@@ -149,7 +148,6 @@ export function useAccountsPage() {
     handleSelect,
     isLaunching,
     showAuth,
-    isSelected,
     activeSubTab,
     launchSteps,
     activeProgress,

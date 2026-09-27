@@ -1,7 +1,7 @@
-import { watch, shallowRef, type Ref } from 'vue'
+import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
 import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
-import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
+import { useViewerCamera, fitFovRadians } from '@/04-features/viewer/useViewerCamera'
 
 interface BodyPart {
   w: number
@@ -165,7 +165,7 @@ export function useSkinViewer(
   const textureLoader = createManagedTextureLoader(scene)
   let currentTexture: THREE.Texture | null = null
 
-  const { applyCamera } = useViewerCamera(
+  const { setFitDistance } = useViewerCamera(
       { camera, getOrbitControls },
       playerGroup,
       controls,
@@ -178,12 +178,9 @@ export function useSkinViewer(
 
     const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z)
-    const fov = perspectiveCamera.fov * (Math.PI / 180)
-    const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.2
+    const distance = (maxDim / 2) / Math.tan(fitFovRadians(perspectiveCamera) / 2) * 1.2
 
-    controls.zoomLevel.value = distance
-    controls.fitDistance.value = distance
-    applyCamera()
+    setFitDistance(distance)
   }
 
   function showModel(texture: THREE.Texture): void {
@@ -223,6 +220,12 @@ export function useSkinViewer(
   if (paused) {
     watch(paused, (value: boolean) => setPaused(value), { immediate: true })
   }
+
+  onBeforeUnmount(() => {
+    removeGroupFromScene(scene, playerGroup)
+    textureLoader.dispose()
+    currentTexture = null
+  })
 
   return {}
 }

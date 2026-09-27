@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Button, Checkbox, Dropdown, Skeleton, useFocusTrap } from '@/06-shared'
+import { Button, Checkbox, Dropdown, Input, Skeleton, useFocusTrap } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
 
 const props = defineProps<{
@@ -9,7 +9,6 @@ const props = defineProps<{
   isDownloading: boolean
   isDistributionsLoading: boolean
   distributionsError: string
-  javaVersion: string
   versionError: string
 }>()
 
@@ -80,11 +79,9 @@ onBeforeUnmount((): void => {
               </div>
               <div class="alt-java-popup__field">
                 <span class="alt-java-popup__label eyebrow">Версия Java</span>
-                <input
+                <Input
                   v-model="versionInput"
-                  class="alt-java-popup__input"
-                  type="text"
-                  placeholder="Авто (на основе MC)"
+                  :options="{ placeholder: 'Авто (на основе MC)' }"
                 />
                 <span v-if="versionError" class="alt-java-popup__version-error">
                   {{ versionError }} — будет использована версия по умолчанию
@@ -154,34 +151,6 @@ onBeforeUnmount((): void => {
     flex-direction: column;
     gap: var(--space-8);
     text-align: left;
-  }
-
-  &__input {
-    border: none;
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-input);
-    height: var(--control-height);
-    padding: 0 var(--control-padding-x);
-    color: var(--login-text-primary);
-    background-color: var(--surface-input);
-    font-family: inherit;
-    font-size: var(--text-body-sm);
-    outline: none;
-    width: 100%;
-    box-sizing: border-box;
-    transition: box-shadow var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out);
-
-    &::placeholder {
-      color: var(--login-text-muted);
-    }
-
-    &:hover {
-      background-color: var(--surface-hover);
-    }
-
-    &:focus {
-      box-shadow: var(--elevation-inset-strong);
-    }
   }
 
   &__actions {

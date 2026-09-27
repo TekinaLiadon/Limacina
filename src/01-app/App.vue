@@ -221,8 +221,8 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     @include mixins.eyebrow($line-height: null, $transform: none, $weight: null);
 
     position: fixed;
-    top: 4px;
-    right: 8px;
+    top: var(--space-4);
+    right: var(--space-8);
     font-family: var(--font-eyebrow);
     font-variant-numeric: tabular-nums;
     z-index: var(--z-version);

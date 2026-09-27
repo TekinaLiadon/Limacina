@@ -11,6 +11,7 @@ let eventQueue: StepEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let lastFinishedAt = 0
 let failedSeen = false
+let activeGeneration: number | null = null
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => { setTimeout(resolve, ms) })
@@ -32,6 +33,7 @@ export function useLaunchStepsStream(): {
   }
 
   const apply = (event: StepEvent): void => {
+    if (activeGeneration === null || store.launchGeneration !== activeGeneration) return
     applyStepEvent(store.launchSteps, event)
     if (event.type === 'failed') {
       store.isLaunching = false
@@ -96,10 +98,12 @@ export function useLaunchStepsStream(): {
     }
     lastFinishedAt = 0
     failedSeen = false
+    activeGeneration = null
   }
 
   const prefillLaunchSteps = (plan: { key: string; label: string }[]): void => {
     clearQueueState()
+    activeGeneration = store.launchGeneration
     store.launchSteps = plan.map((item) => ({
       ...createStepItem(item.key, item.label, 0),
       status: 'pending',

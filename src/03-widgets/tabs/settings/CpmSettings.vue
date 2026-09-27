@@ -240,7 +240,7 @@ const applyLimitInput = async (): Promise<void> => {
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-8);
-    max-height: 200px;
+    max-height: var(--options-max-height);
     overflow-y: auto;
     width: 100%;
     padding: var(--space-12);

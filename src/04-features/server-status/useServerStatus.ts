@@ -9,7 +9,6 @@ const FAILURE_THRESHOLD = 3
 let poller: BackoffPoller | null = null
 
 export function useServerStatus(): {
-  refreshServerStatus: () => Promise<void>
   startServerStatusSync: () => void
 } {
   const coreStore = useCoreStore()
@@ -34,10 +33,7 @@ export function useServerStatus(): {
     })
   }
 
-  const engine: BackoffPoller = poller
-
   return {
-    refreshServerStatus: engine.fetchOnce,
-    startServerStatusSync: engine.startSync,
+    startServerStatusSync: poller.startSync,
   }
 }

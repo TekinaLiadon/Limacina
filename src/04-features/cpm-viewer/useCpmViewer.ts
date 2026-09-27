@@ -1,7 +1,7 @@
 import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
 import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
-import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
+import { useViewerCamera, fitFovRadians } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type SharedClock } from './cpmAnimationPlayer'
 
@@ -449,9 +449,7 @@ export function useCpmViewer(
       const radius = modelBoundingSphereRadius()
       const perspectiveCamera = camera.value
       if (radius !== null && perspectiveCamera) {
-        const fovV = perspectiveCamera.fov * (Math.PI / 180)
-        const fovH = 2 * Math.atan(Math.tan(fovV / 2) * perspectiveCamera.aspect)
-        setFitDistance((radius / Math.sin(Math.min(fovV, fovH) / 2)) * 1.08)
+        setFitDistance((radius / Math.sin(fitFovRadians(perspectiveCamera) / 2)) * 1.08)
       }
     })
   }

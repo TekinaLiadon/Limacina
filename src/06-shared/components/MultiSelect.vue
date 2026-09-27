@@ -61,7 +61,7 @@ function clear(): void {
     :is-selected="isSelected"
     @select="toggleOption"
   >
-    <template #trailing>
+    <template #trigger-overlay>
       <button
         v-if="clearable && modelValue.length > 0 && !disabled"
         class="multi-select__clear"
@@ -88,12 +88,17 @@ function clear(): void {
 
 <style lang="scss">
 .multi-select__clear {
+  position: absolute;
+  right: var(--space-8);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: var(--z-content);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: var(--icon-size-lg);
+  height: var(--icon-size-lg);
   padding: 0;
   border: none;
   border-radius: var(--radius-badge);
@@ -103,8 +108,8 @@ function clear(): void {
   transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
   svg {
-    width: 12px;
-    height: 12px;
+    width: var(--icon-size-sm);
+    height: var(--icon-size-sm);
   }
 
   &:hover {
@@ -114,8 +119,8 @@ function clear(): void {
 }
 
 .multi-select__check {
-  width: 18px;
-  height: 18px;
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
   box-shadow: var(--elevation-inset);
   background: var(--surface-input);
   border-radius: var(--radius-badge);
