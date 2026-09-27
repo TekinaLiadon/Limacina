@@ -45,20 +45,23 @@ export function useProjectSettings(): {
   const isSaving = computed((): boolean => store.isSaving)
 
   const DIRTY_FIELDS = ['loaderVersion', 'javaPath', 'jvmArgs', 'memoryRange', 'autoJoinServer'] as const
+  type DirtyField = (typeof DIRTY_FIELDS)[number]
 
-  const dirtySnapshot = (): string => {
-    const form = store.config
-    return JSON.stringify(Object.fromEntries(DIRTY_FIELDS.map((field) => [field, form[field]])))
+  const captureDirtySnapshot = (): Record<DirtyField, string> => {
+    const snapshot = {} as Record<DirtyField, string>
+    for (const field of DIRTY_FIELDS) snapshot[field] = JSON.stringify(store.config[field])
+    return snapshot
   }
 
-  const initialDirtySnapshot = ref<string>('')
+  const initialDirtySnapshot = ref<Record<DirtyField, string>>(captureDirtySnapshot())
 
-  const isDirty = computed((): boolean =>
-    store.isLoaded && initialDirtySnapshot.value !== '' && initialDirtySnapshot.value !== dirtySnapshot(),
-  )
+  const isFieldDirty = (field: DirtyField): boolean =>
+    initialDirtySnapshot.value[field] !== JSON.stringify(store.config[field])
+
+  const isDirty = computed((): boolean => store.isLoaded && DIRTY_FIELDS.some((field) => isFieldDirty(field)))
 
   watch((): string => store.loadedProject, (): void => {
-    initialDirtySnapshot.value = dirtySnapshot()
+    initialDirtySnapshot.value = captureDirtySnapshot()
   }, { immediate: true })
 
   const maxMemoryLimit = computed((): number => {
@@ -126,23 +129,19 @@ export function useProjectSettings(): {
     store.startSaving()
 
     try {
+      const fresh = await loadSettingsProject(config.value.projectName)
       const projectConfig: ProjectConfig = {
-        projectName: config.value.projectName,
-        mcVersion: config.value.mcVersion,
-        modLoader: config.value.modLoader,
-        loaderVersion: config.value.loaderVersion || null,
-        javaPath: config.value.javaPath || null,
-        javaVersion: config.value.javaVersion,
-        jvmArgs: config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : [],
-        minMemory: `-Xms${config.value.memoryRange[0]}M`,
-        maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
-        online: config.value.online,
-        initialized: coreStore.projectConfig?.initialized ?? config.value.initialized,
-        serverUrl: config.value.serverUrl,
-        autoJoinServer: config.value.autoJoinServer,
+        ...fresh,
+        loaderVersion: isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
+        javaPath: isFieldDirty('javaPath') ? config.value.javaPath || null : fresh.javaPath,
+        jvmArgs: isFieldDirty('jvmArgs') ? (config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : []) : fresh.jvmArgs,
+        minMemory: isFieldDirty('memoryRange') ? `-Xms${config.value.memoryRange[0]}M` : fresh.minMemory,
+        maxMemory: isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
+        autoJoinServer: isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
       await saveSettingsProject(projectConfig)
-      initialDirtySnapshot.value = dirtySnapshot()
+      coreStore.projectConfig = projectConfig
+      initialDirtySnapshot.value = captureDirtySnapshot()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))

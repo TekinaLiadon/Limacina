@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useDebugConsole } from '@/04-features'
 import type { ConsoleLog } from '@/05-entities'
@@ -57,13 +57,8 @@ const onScroll = (): void => {
 }
 
 onMounted((): void => {
-  parentRef.value?.addEventListener('scroll', onScroll, { passive: true })
   void nextTick()
     .then(() => scrollToBottom())
-})
-
-onBeforeUnmount((): void => {
-  parentRef.value?.removeEventListener('scroll', onScroll)
 })
 
 watch(() => filteredLogs.value.length, async (): Promise<void> => {
@@ -110,6 +105,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       v-else
       ref="parentRef"
       class="debug-tab__scroll"
+      @scroll.passive="onScroll"
     >
       <div
         :style="{ height: `${virtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }"

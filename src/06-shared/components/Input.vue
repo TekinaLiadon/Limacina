@@ -14,6 +14,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
+defineOptions({ inheritAttrs: false })
+
 const id = ref('')
 const showPassword = ref(false)
 const showDropdown = ref(false)
