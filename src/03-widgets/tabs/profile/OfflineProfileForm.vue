@@ -18,6 +18,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'update:form': [value: OfflineForm]
   submit: []
   back: []
 }>()
@@ -39,7 +40,7 @@ const handleSubmit = (): void => {
 
     <Input
       :model-value="form.name"
-      @update:model-value="form.name = $event"
+      @update:model-value="emit('update:form', { ...form, name: $event })"
       :options="{ label: 'Название профиля', placeholder: 'Например, Sandbox' }"
     />
 
@@ -48,13 +49,13 @@ const handleSubmit = (): void => {
       <Dropdown
         :options="mcVersionOptions"
         :model-value="form.mcVersion"
-        @update:model-value="form.mcVersion = $event"
+        @update:model-value="emit('update:form', { ...form, mcVersion: $event })"
         :max-visible="6"
         :disabled="isLoadingMcVersions || mcVersionOptions.length === 0"
       />
       <Checkbox
         :model-value="form.includeSnapshots"
-        @update:model-value="form.includeSnapshots = $event"
+        @update:model-value="emit('update:form', { ...form, includeSnapshots: $event })"
         label="Показывать снапшоты"
       />
     </div>
@@ -64,7 +65,7 @@ const handleSubmit = (): void => {
       <Dropdown
         :options="loaderOptions"
         :model-value="form.modLoader"
-        @update:model-value="form.modLoader = $event as OfflineForm['modLoader']"
+        @update:model-value="emit('update:form', { ...form, modLoader: $event as OfflineForm['modLoader'] })"
         :max-visible="4"
       />
     </div>
@@ -74,7 +75,7 @@ const handleSubmit = (): void => {
       <Dropdown
         :options="loaderVersionOptions"
         :model-value="form.loaderVersion"
-        @update:model-value="form.loaderVersion = $event"
+        @update:model-value="emit('update:form', { ...form, loaderVersion: $event })"
         :max-visible="6"
         :disabled="isLoadingLoaderVersions || loaderVersionOptions.length === 0"
       />

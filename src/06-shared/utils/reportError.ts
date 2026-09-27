@@ -4,7 +4,11 @@ const formatErrorDetail = (error: unknown): string => {
   if (error === undefined) return ''
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
-  return JSON.stringify(error)
+  try {
+    return JSON.stringify(error) ?? String(error)
+  } catch {
+    return String(error)
+  }
 }
 
 export function reportError(message: string, error?: unknown): void {

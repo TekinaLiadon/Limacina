@@ -24,10 +24,12 @@ export function useAppInit() {
   const loadProject = (name: string): Promise<void> =>
     loadSettingsProject(name)
       .then((config: ProjectConfig): void => {
+        if (coreStore.currentProject !== name) return
         coreStore.projectConfig = config
         startupError.value = ''
       })
       .catch((e: unknown): void => {
+        if (coreStore.currentProject !== name) return
         reportError('Не удалось загрузить конфиг проекта', e)
         startupError.value = getErrorMessage(e) || 'Не удалось загрузить конфиг проекта'
       })

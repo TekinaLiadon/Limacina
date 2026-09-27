@@ -42,7 +42,7 @@ watch(isOfflineProject, (offline) => {
   if (!offline && route.name === 'Mods') {
     router.push({ name: 'Accounts' })
   }
-})
+}, { immediate: true })
 
 const tabs = computed((): Tab[] => {
   const items: Tab[] = [
@@ -98,7 +98,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
   if (!visible && route.name === 'Debug') {
     router.push({ name: 'Accounts' })
   }
-})
+}, { immediate: true })
 </script>
 
 <template>

@@ -5,8 +5,10 @@ withDefaults(defineProps<{
   isSaving: boolean
   isDirty: boolean
   isBlocked?: boolean
+  isLoading?: boolean
 }>(), {
   isBlocked: false,
+  isLoading: false,
 })
 
 defineEmits<{
@@ -21,8 +23,8 @@ defineEmits<{
       <Button
         class="btn-lg settings-save-bar__btn"
         :class="{ 'settings-save-bar__btn--dirty': isDirty }"
-        :is-loading="isSaving"
-        :is-disabled="isSaving || (isBlocked ?? false)"
+        :is-loading="isSaving || (isLoading ?? false)"
+        :is-disabled="isSaving || (isLoading ?? false) || (isBlocked ?? false)"
         @click="$emit('save')"
       >
         Сохранить

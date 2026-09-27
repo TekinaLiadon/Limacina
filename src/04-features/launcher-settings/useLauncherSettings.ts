@@ -1,9 +1,7 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
-import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
-import { open } from '@tauri-apps/plugin-dialog'
-import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
+import { joinPath, stripPathSuffix, reportError, selectDirectory, isAutostartEnabled, enableAutostart, disableAutostart } from '@/06-shared'
 
 export function useLauncherSettings(): {
   launcherPath: Ref<string>
@@ -117,7 +115,7 @@ export function useLauncherSettings(): {
   })
 
   const selectLauncherFolder = async (): Promise<void> => {
-    const selected = await open({ directory: true })
+    const selected = await selectDirectory()
     if (selected) {
       launcherPath.value = joinPath(selected, coreStore.launcherName)
     }

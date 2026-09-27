@@ -2,9 +2,8 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm, type ProjectConfig } from '@/05-entities'
 import { authLogins, clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { copyToClipboard, reportError } from '@/06-shared'
+import { copyToClipboard, reportError, selectDirectory } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features'
-import { open } from '@tauri-apps/plugin-dialog'
 import { splitJvmArgs } from './jvmPresets'
 
 export function useProjectSettings(): {
@@ -80,7 +79,7 @@ export function useProjectSettings(): {
   }
 
   const selectJavaFolder = async (): Promise<void> => {
-    const selected = await open({ directory: true })
+    const selected = await selectDirectory()
     if (selected) config.value.javaPath = selected
   }
 

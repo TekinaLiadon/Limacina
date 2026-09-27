@@ -1,6 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import { useCoreStore } from '@/05-entities'
-import { useProjectSettings } from '@/04-features'
+import { useCoreStore, useProjectSettingsStore } from '@/05-entities'
 
 export type SettingsNavKey = 'launcher' | 'project' | 'game' | 'account' | 'skin' | 'model'
 
@@ -34,12 +33,12 @@ export function useSettingsNav(): {
   items: ComputedRef<SettingsNavItem[]>
 } {
   const coreStore = useCoreStore()
-  const { config, isLoaded, loadError } = useProjectSettings()
+  const settingsStore = useProjectSettingsStore()
 
   const items = computed((): SettingsNavItem[] => {
-    const isProjectReady = isLoaded.value && (coreStore.projectConfig?.initialized ?? config.value.initialized)
-    const isOffline = isLoaded.value && !config.value.online
-    const isLoadFailed = loadError.value !== ''
+    const isProjectReady = settingsStore.isLoaded && (coreStore.projectConfig?.initialized ?? settingsStore.config.initialized)
+    const isOffline = settingsStore.isLoaded && !settingsStore.config.online
+    const isLoadFailed = settingsStore.loadError !== ''
 
     return SEEDS.map((seed): SettingsNavItem => {
       let isAvailable = true

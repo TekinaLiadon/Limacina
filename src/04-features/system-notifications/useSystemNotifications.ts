@@ -1,8 +1,7 @@
 import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
 import { listenLaunchSteps, listenGameExit, getNotificationIcon } from '@/06-shared/api'
-import { reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS } from '@/06-shared'
+import { reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { isPermissionGranted, requestPermission, sendNotification, type Options } from '@tauri-apps/plugin-notification'
 
 let notificationsStarted = false
 let downloadRan = false
@@ -36,15 +35,15 @@ export function useSystemNotifications(): {
     if (!(coreStore.launcherConfig?.systemNotifications ?? true)) return
     try {
       if (!(await isWindowHidden())) return
-      let granted = await isPermissionGranted()
+      let granted = await isNotificationPermissionGranted()
       if (!granted) {
-        granted = (await requestPermission()) === 'granted'
+        granted = (await requestNotificationPermission()) === 'granted'
       }
       if (granted) {
-        const payload: Options = { title, body }
+        const payload: NotificationOptions = { title, body }
         const icon = await resolveNotificationIcon()
         if (icon) payload.icon = icon
-        sendNotification(payload)
+        await sendOsNotification(payload)
       }
     } catch (e: unknown) {
       reportError('Не удалось отправить системное уведомление', e)

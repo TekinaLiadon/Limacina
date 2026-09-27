@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { openUrl } from '@tauri-apps/plugin-opener'
-import { Button, MarkdownText, useFocusTrap, getErrorMessage } from '@/06-shared'
+import { Button, MarkdownText, useFocusTrap, getErrorMessage, openExternalUrl } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
@@ -152,7 +151,7 @@ onBeforeUnmount((): void => {
 
 async function handleLink(url: string): Promise<void> {
   try {
-    await openUrl(url)
+    await openExternalUrl(url)
   } catch (e: unknown) {
     notification.show(getErrorMessage(e))
   }

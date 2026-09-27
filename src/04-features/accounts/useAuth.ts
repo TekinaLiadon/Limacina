@@ -41,8 +41,8 @@ export function useAuth() {
 
   const isLoginValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
-    if (store.loginFormData.username.length < 3) return false
-    return isOffline.value || store.loginFormData.password.length >= 4
+    if (store.loginFormData.username.length < MIN_LOGIN_LENGTH) return false
+    return isOffline.value || store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
   })
 
   const isRegisterValid = computed((): boolean => {
@@ -79,11 +79,11 @@ export function useAuth() {
         rememberMe: store.loginFormData.rememberMe,
       }
       await authLogin(authData)
-      coreStore.isLoggedIn = true
 
       const session = await getSessionInfo()
       if (session) {
         coreStore.session = session
+        coreStore.isLoggedIn = true
       }
 
       await loadAccounts()

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Ref } from 'vue'
 import { useAsyncRaceGuard } from './useAsyncRaceGuard'
+import { reportError } from './reportError'
 
 function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
   texture.magFilter = THREE.NearestFilter
@@ -52,6 +53,9 @@ export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): Mana
         if (currentTexture) currentTexture.dispose()
         currentTexture = texture
         onLoaded(texture, scene.value)
+      }, undefined, () => {
+        if (!guard.isCurrent(generation)) return
+        reportError(`Не удалось загрузить текстуру: ${url}`)
       })
     },
     dispose: (): void => {

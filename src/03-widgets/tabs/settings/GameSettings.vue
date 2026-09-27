@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 import { useGameOptions } from '@/04-features'
-import { SettingsSection, SettingsSaveBar } from '@/03-widgets'
+import SettingsSection from './SettingsSection.vue'
+import SettingsSaveBar from './SettingsSaveBar.vue'
 import GraphicsOptions from './game/GraphicsOptions.vue'
 import SoundOptions from './game/SoundOptions.vue'
 import ChatOptions from './game/ChatOptions.vue'
 import ResourcePacksOptions from './game/ResourcePacksOptions.vue'
+import GameOptionsSkeleton from './game/GameOptionsSkeleton.vue'
 
 const {
   options,
@@ -53,15 +55,18 @@ const {
     </div>
 
     <SettingsSection title="Графика" storage-key="game-graphics">
-      <GraphicsOptions :options="options" @update:options="options = $event" />
+      <GameOptionsSkeleton v-if="isLoading" />
+      <GraphicsOptions v-else :options="options" @update:options="options = $event" />
     </SettingsSection>
 
     <SettingsSection title="Звук" storage-key="game-sound">
-      <SoundOptions :options="options" @update:options="options = $event" />
+      <GameOptionsSkeleton v-if="isLoading" />
+      <SoundOptions v-else :options="options" @update:options="options = $event" />
     </SettingsSection>
 
     <SettingsSection title="Чат" storage-key="game-chat">
-      <ChatOptions :options="options" @update:options="options = $event" />
+      <GameOptionsSkeleton v-if="isLoading" />
+      <ChatOptions v-else :options="options" @update:options="options = $event" />
     </SettingsSection>
 
     <SettingsSection title="Ресурспаки" storage-key="game-packs">
@@ -75,6 +80,7 @@ const {
 
     <SettingsSaveBar
       :is-saving="isSaving"
+      :is-loading="isLoading"
       :is-dirty="isDirty"
       :is-blocked="loadError !== ''"
       @save="handleSave"
@@ -82,8 +88,8 @@ const {
       <template #extra>
         <Button
           class="btn-secondary btn-lg game-settings__save-global"
-          :is-loading="isSavingGlobal"
-          :is-disabled="isSaving || isSavingGlobal || loadError !== ''"
+          :is-loading="isSavingGlobal || isLoading"
+          :is-disabled="isSaving || isSavingGlobal || isLoading || loadError !== ''"
           @click="handleSaveGlobal"
         >
           Сохранить глобально

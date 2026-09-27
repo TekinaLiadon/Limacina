@@ -50,12 +50,14 @@ const formatValue = (val: number): string => {
   return `${val}M`
 }
 
+const clampPercent = (value: number): number => Math.min(100, Math.max(0, value))
+
 const minPercent = computed((): number => {
-  return ((minVal.value - min) / (maxLimit.value - min)) * 100
+  return clampPercent(((minVal.value - min) / (maxLimit.value - min)) * 100)
 })
 
 const maxPercent = computed((): number => {
-  return ((maxVal.value - min) / (maxLimit.value - min)) * 100
+  return clampPercent(((maxVal.value - min) / (maxLimit.value - min)) * 100)
 })
 
 const maxLimit = computed((): number => {

@@ -70,6 +70,7 @@ export const useProjectSettingsStore = defineStore('projectSettings', {
 
     applyError(project: string, message: string): void {
       if (this.loadingProject !== project) return
+      this.config = defaultForm()
       this.loadedProject = ''
       this.isLoaded = false
       this.loadError = message

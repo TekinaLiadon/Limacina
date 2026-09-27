@@ -24,9 +24,16 @@ export const useCoreStore = defineStore('core', {
     serverStatus: null,
     gameUsername: null,
     isServerReachable: null,
+    pendingCpmProjectPath: null,
   }),
 
   actions: {
+    applyLauncherConfig(config: LauncherConfig): void {
+      this.launcherConfig = config
+      this.applyLauncherProjects(config)
+      this.hasLauncherConfig = true
+    },
+
     applyLauncherProjects(config: LauncherConfig): void {
       this.projects = [...config.projectNames]
       const [first] = this.projects

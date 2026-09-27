@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/externalUrl'
 import { getErrorMessage, resolveMarkdownUrl, renderMarkdown } from '@/06-shared'
 
 const props = defineProps<{
@@ -22,7 +22,7 @@ async function handleAnchorClick(event: MouseEvent): Promise<void> {
   if (href === null || href === '') return
   event.preventDefault()
   try {
-    await openUrl(resolveMarkdownUrl(href))
+    await openExternalUrl(resolveMarkdownUrl(href))
   } catch (e: unknown) {
     emit('link-error', getErrorMessage(e))
   }

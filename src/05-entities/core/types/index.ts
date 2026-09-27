@@ -114,6 +114,7 @@ export interface StepProgressItem {
   serverStatus: ServerStatus | null
   gameUsername: string | null
   isServerReachable: boolean | null
+  pendingCpmProjectPath: string | null
 }
 
 export interface ProjectConfig {

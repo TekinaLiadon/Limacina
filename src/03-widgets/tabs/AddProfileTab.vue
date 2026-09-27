@@ -90,6 +90,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
         :is-valid="isServerValid"
         :error-message="errorMessage"
         :can-go-back="canGoBack"
+        @update:form="serverForm = $event"
         @submit="handleServerSubmit"
         @back="handleBack"
       />
@@ -107,6 +108,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
         :is-valid="isOfflineValid"
         :error-message="errorMessage"
         :can-go-back="canGoBack"
+        @update:form="offlineForm = $event"
         @submit="handleOfflineSubmit"
         @back="handleBack"
       />

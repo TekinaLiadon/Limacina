@@ -1,6 +1,6 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
 import { reportError } from '@/06-shared'
-import { useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
 import {
   getErrorMessage,
   getPlayerModelsLimit,
@@ -22,12 +22,6 @@ export interface CpmLayer {
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
-const pendingOpenPath = ref<string | null>(null)
-
-export function setPendingCpmProjectPath(path: string): void {
-  pendingOpenPath.value = path
-}
-
 function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolean, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
@@ -44,6 +38,7 @@ function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolea
 }
 
 export function useCpmSettings() {
+  const coreStore = useCoreStore()
   const content = useModelUserContent()
   const notification = useNotificationStore()
 
@@ -104,9 +99,9 @@ export function useCpmSettings() {
     errorMessage: content.errorMessage,
   })
 
-  watch(pendingOpenPath, (path: string | null): void => {
+  watch((): string | null => coreStore.pendingCpmProjectPath, (path: string | null): void => {
     if (!path) return
-    pendingOpenPath.value = null
+    coreStore.pendingCpmProjectPath = null
     void loadFromPath(path)
   }, { immediate: true })
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Button, ProgressBar } from '@/06-shared'
-import { StepProgress } from '@/03-widgets'
+import StepProgress from '../login/StepProgress.vue'
 import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
 const props = defineProps<{

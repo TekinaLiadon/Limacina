@@ -1,19 +1,21 @@
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCoreStore } from '@/05-entities'
 import { listenCpmProjectOpen, takeCpmProjectPath } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
-import { setPendingCpmProjectPath } from './useCpmSettings'
 
 export function useCpmProjectOpen(): void {
   const router = useRouter()
   const coreStore = useCoreStore()
 
   const openCpmProject = (path: string): void => {
-    setPendingCpmProjectPath(path)
-    if (!coreStore.launcherConfig) return
-    void router.push({ name: 'SettingsModel' })
+    coreStore.pendingCpmProjectPath = path
   }
+
+  watch((): boolean => coreStore.pendingCpmProjectPath !== null && coreStore.launcherConfig !== null, (shouldOpen: boolean): void => {
+    if (!shouldOpen) return
+    void router.push({ name: 'SettingsModel' })
+  }, { immediate: true })
 
   onMounted(async (): Promise<void> => {
     try {

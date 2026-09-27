@@ -119,6 +119,7 @@ export function useGameOptions(): {
   }, { immediate: true })
 
   const handleImportGlobal = async (): Promise<void> => {
+    if (isLoading.value) return
     try {
       const global = await importGlobalGameOptions()
       if (!global) {
@@ -134,7 +135,7 @@ export function useGameOptions(): {
 
   const handleSave = async (): Promise<void> => {
     const project = coreStore.currentProject
-    if (!project || isSaving.value || loadError.value) return
+    if (!project || isLoading.value || isSaving.value || loadError.value) return
 
     isSaving.value = true
     try {
@@ -150,7 +151,7 @@ export function useGameOptions(): {
   }
 
   const handleSaveGlobal = async (): Promise<void> => {
-    if (isSavingGlobal.value || loadError.value) return
+    if (isLoading.value || isSavingGlobal.value || loadError.value) return
 
     isSavingGlobal.value = true
     try {

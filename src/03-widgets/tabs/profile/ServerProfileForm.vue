@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  'update:form': [value: ServerForm]
   submit: []
   back: []
 }>()
@@ -34,7 +35,7 @@ const handleSubmit = (): void => {
 
     <Input
       :model-value="form.serverUrl"
-      @update:model-value="form.serverUrl = $event"
+      @update:model-value="emit('update:form', { ...form, serverUrl: $event })"
       :options="{ label: 'Адрес сервера', placeholder: 'mc.example.com:3000' }"
     />
 
