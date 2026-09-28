@@ -3,7 +3,10 @@ use crate::{
     log_info,
     minecraft::{
         mod_loader::{
-            config::merge_classpath,
+            config::{
+                loader_args_map, loader_game_args, loader_jvm_args, merge_classpath,
+                merge_game_args,
+            },
             installer::setup_loader,
             manifest::{
                 latest_list_version, loader_libraries, loader_manifest_path, loader_version_or_err,
@@ -11,14 +14,10 @@ use crate::{
             },
         },
         structs::{GameConfig, ModLoader, VersionMod},
-        vanilla::config::{filter_classpath, strip_classpath_args},
+        vanilla::config::filter_classpath,
     },
     state::dto::ProjectConfig,
-    utils::{
-        download_file::download_json,
-        env_info::{get_launcher_name, launcher_path},
-        get_classpath_separator,
-    },
+    utils::download_file::download_json,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -67,14 +66,6 @@ impl ModLoader for NeoForge {
                 LauncherError::LoaderSetup(format!("Не удалось скачать манифест NeoForge: {e:#}"))
             })?;
 
-        let base_path = launcher_path(Some(&state.project_name)).map_err(|e| {
-            LauncherError::LoaderSetup(format!(
-                "Не удалось определить путь к файлам проекта: {e:#}"
-            ))
-        })?;
-        let natives_dir = base_path.join("natives").to_string_lossy().to_string();
-        let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
-
         let neoforge_libraries = if version.library.is_empty() {
             loader_libraries(manifest.libraries.clone(), NEOFORGE.maven_base).map_err(|e| {
                 LauncherError::LoaderSetup(format!("Не удалось собрать библиотеки NeoForge: {e:#}"))
@@ -100,27 +91,14 @@ impl ModLoader for NeoForge {
             .collect();
         classpath.extend(vanilla_filtered);
         let clean_classpath = filter_classpath(classpath);
-        let launcher_name = get_launcher_name();
 
-        let neoforge_jvm: Vec<String> = strip_classpath_args(
-            manifest
-                .arguments
-                .jvm_strings()
-                .into_iter()
-                .map(|arg| {
-                    let mut result = arg.replace("${natives_directory}", &natives_dir);
-                    result = result.replace("${library_directory}", &libraries_dir);
-                    result = result.replace("${classpath_separator}", get_classpath_separator());
-                    result = result.replace("${launcher_name}", &launcher_name);
-                    result = result.replace("${launcher_version}", env!("CARGO_PKG_VERSION"));
-                    result
-                })
-                .collect(),
-        );
+        let args_map = loader_args_map(state)?;
+        let neoforge_jvm = loader_jvm_args(&args_map, &manifest);
         let jvm_args = [&vanilla_config.jvm_args[..], &neoforge_jvm[..]].concat();
-
-        let mut game_args = vanilla_config.game_args.clone();
-        game_args = merge_game_args(game_args, manifest.arguments.game_strings());
+        let game_args = merge_game_args(
+            vanilla_config.game_args.clone(),
+            loader_game_args(&args_map, &manifest),
+        );
 
         Ok(vanilla_config
             .with_args(jvm_args, game_args)
@@ -128,84 +106,108 @@ impl ModLoader for NeoForge {
     }
 }
 
-fn merge_game_args(mut game_args: Vec<String>, neoforge_game: Vec<String>) -> Vec<String> {
-    let mut i = 0;
-    while i < neoforge_game.len() {
-        let arg = &neoforge_game[i];
-        if arg.starts_with("--") {
-            let flag = arg.clone();
-            let Some(value) = neoforge_game.get(i + 1).cloned() else {
-                i += 1;
-                continue;
-            };
-            if value.starts_with("${") {
-                i += 1;
-                continue;
-            }
-            if !game_args.iter().any(|a| a == &flag) {
-                game_args.push(flag);
-                game_args.push(value);
-                i += 1;
-            }
-        }
-        i += 1;
-    }
-    game_args
-}
-
 #[cfg(test)]
 mod tests {
-    use super::merge_game_args;
+    use super::NeoForge;
+    use crate::minecraft::structs::{GameConfig, ModLoader, VersionMod};
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::get_classpath_separator;
+    use serde_json::json;
+    use std::fs;
+    use std::path::PathBuf;
 
-    #[test]
-    fn merges_flag_with_value() {
-        let game_args = merge_game_args(
-            vec!["--existing".to_string()],
-            vec!["--fml.forgeVersion".to_string(), "47.0.1".to_string()],
+    #[tokio::test]
+    async fn neoforge_config_expands_jvm_placeholders() {
+        let dir = LauncherDirGuard::acquire("neoforge_config").await;
+
+        let manifest_json = json!({
+            "id": "neoforge-20.4.237",
+            "time": "2023-01-01T00:00:00+00:00",
+            "releaseTime": "2023-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "inheritsFrom": "1.20.4",
+            "arguments": {
+                "game": [
+                    "--fml.neoForgeVersion", "20.4.237",
+                    "--fml.mcVersion", "1.20.4",
+                    "--launchTarget", "forgeclient"
+                ],
+                "jvm": [
+                    "-Djava.net.preferIPv6Addresses=system",
+                    "-DignoreList=securejarhandler-2.1.24.jar,bootstraplauncher-1.1.2.jar,client-extra,neoforge-,${version_name}.jar",
+                    "-DmergeModules=jna-5.10.0.jar,jna-platform-5.10.0.jar",
+                    "-DlibraryDirectory=${library_directory}",
+                    "-p",
+                    "${library_directory}/cpw/mods/securejarhandler/2.1.24/securejarhandler-2.1.24.jar${classpath_separator}${library_directory}/org/ow2/asm/asm/9.5/asm-9.5.jar",
+                    "-cp",
+                    "${classpath}"
+                ]
+            },
+            "libraries": []
+        });
+        let manifest_path = dir.root().join("manifest").join("neoforge_20.4.237.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "NeoPlaceholders".to_string(),
+            mc_version: "1.20.4".to_string(),
+            loader_version: Some("20.4.237".to_string()),
+            ..ProjectConfig::default()
+        };
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.4-20.4.237".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        };
+        let game_root = dir.project_dir("NeoPlaceholders");
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xms512M".to_string()],
+            vec!["--username".to_string(), "Cordelia".to_string()],
+            vec![game_root.join("1.20.4.jar").to_string_lossy().to_string()],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root.clone(),
         );
 
+        let config = NeoForge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг NeoForge");
+
+        let libraries_dir = game_root.join("libraries");
+        let sep = get_classpath_separator();
+        assert!(config.jvm_args.contains(
+            &"-DignoreList=securejarhandler-2.1.24.jar,bootstraplauncher-1.1.2.jar,client-extra,neoforge-,1.20.4.jar".to_string()
+        ));
+        assert!(config
+            .jvm_args
+            .contains(&format!("-DlibraryDirectory={}", libraries_dir.display())));
+        assert!(config.jvm_args.contains(&format!(
+            "{}/cpw/mods/securejarhandler/2.1.24/securejarhandler-2.1.24.jar{sep}{}/org/ow2/asm/asm/9.5/asm-9.5.jar",
+            libraries_dir.display(),
+            libraries_dir.display()
+        )));
+        assert!(config
+            .jvm_args
+            .contains(&"-Djava.net.preferIPv6Addresses=system".to_string()));
+        assert!(!config.jvm_args.contains(&"-cp".to_string()));
+        assert!(config.game_args.contains(&"--launchTarget".to_string()));
+        assert!(config.game_args.contains(&"forgeclient".to_string()));
+        assert!(config
+            .game_args
+            .contains(&"--fml.neoForgeVersion".to_string()));
+        assert!(!config
+            .jvm_args
+            .iter()
+            .chain(config.game_args.iter())
+            .any(|arg| arg.contains("${")));
         assert_eq!(
-            game_args,
-            vec![
-                "--existing".to_string(),
-                "--fml.forgeVersion".to_string(),
-                "47.0.1".to_string()
-            ]
+            config.main_class,
+            "cpw.mods.bootstraplauncher.BootstrapLauncher"
         );
-    }
-
-    #[test]
-    fn trailing_flag_without_value_is_dropped() {
-        let game_args = merge_game_args(vec![], vec!["--fml.forgeVersion".to_string()]);
-
-        assert!(
-            game_args.is_empty(),
-            "флаг без значения не должен добавляться"
-        );
-    }
-
-    #[test]
-    fn duplicate_flag_is_not_added_twice() {
-        let game_args = merge_game_args(
-            vec!["--flag".to_string(), "old".to_string()],
-            vec!["--flag".to_string(), "new".to_string()],
-        );
-
-        assert_eq!(game_args, vec!["--flag".to_string(), "old".to_string()]);
-    }
-
-    #[test]
-    fn flag_with_placeholder_value_is_skipped() {
-        let game_args = merge_game_args(
-            vec![],
-            vec![
-                "--flag".to_string(),
-                "${placeholder}".to_string(),
-                "--after".to_string(),
-                "value".to_string(),
-            ],
-        );
-
-        assert_eq!(game_args, vec!["--after".to_string(), "value".to_string()]);
     }
 }

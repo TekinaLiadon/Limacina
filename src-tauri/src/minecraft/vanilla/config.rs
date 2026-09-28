@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::utils::errors::LauncherError;
 use crate::{
@@ -13,7 +13,12 @@ use crate::{
         vanilla::rules::is_rule_allowed,
         vanilla::structs::{ArgumentValue, Library, StringOrVec, VersionDetailsManifest},
     },
-    utils::{compare_versions, env_info::get_launcher_name, get_classpath_separator},
+    state::dto::ProjectConfig,
+    utils::{
+        compare_versions,
+        env_info::{get_launcher_name, launcher_path},
+        get_classpath_separator,
+    },
 };
 
 pub struct ArgumentsMap {
@@ -59,6 +64,47 @@ impl ArgumentsMap {
         .collect();
         ArgumentsMap { map }
     }
+
+    pub fn for_loader(state: &ProjectConfig) -> Result<Self> {
+        let base_dir = launcher_path(Some(&state.project_name))
+            .context("Не удалось определить путь к файлам проекта")?;
+        let map = [
+            ("${version_name}", state.mc_version.clone()),
+            ("${game_directory}", base_dir.to_string_lossy().to_string()),
+            (
+                "${assets_root}",
+                base_dir.join("assets").to_string_lossy().to_string(),
+            ),
+            (
+                "${natives_directory}",
+                base_dir.join("natives").to_string_lossy().to_string(),
+            ),
+            (
+                "${library_directory}",
+                base_dir.join("libraries").to_string_lossy().to_string(),
+            ),
+            ("${launcher_name}", get_launcher_name()),
+            ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
+            (
+                "${classpath_separator}",
+                get_classpath_separator().to_string(),
+            ),
+            ("${user_type}", "mojang".to_string()),
+            ("${version_type}", "release".to_string()),
+            ("${clientid}", "1".to_string()),
+            ("${auth_xuid}", "1".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        Ok(ArgumentsMap { map })
+    }
+
+    pub fn substitute_all(&self, args: Vec<String>) -> Vec<String> {
+        args.into_iter()
+            .map(|arg| self.get_value_by_key(&arg))
+            .collect()
+    }
+
     fn get_value_by_key(&self, arg: &str) -> String {
         let mut result = String::with_capacity(arg.len());
         let mut remaining = arg;
@@ -526,6 +572,111 @@ mod filter_classpath_tests {
             vec![to_os(
                 "project\\libraries\\org\\ow2\\asm\\asm\\9.7\\asm-9.7.jar"
             )]
+        );
+    }
+}
+
+#[cfg(test)]
+mod for_loader_tests {
+    use super::ArgumentsMap;
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::get_classpath_separator;
+
+    fn project(name: &str, mc_version: &str) -> ProjectConfig {
+        ProjectConfig {
+            project_name: name.to_string(),
+            mc_version: mc_version.to_string(),
+            ..ProjectConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn loader_map_expands_project_paths() {
+        let dir = LauncherDirGuard::acquire("args_map_for_loader").await;
+        let base = dir.project_dir("MapProj");
+
+        let map = ArgumentsMap::for_loader(&project("MapProj", "1.20.1")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![
+                "-DlibraryDirectory=${library_directory}".to_string(),
+                "-Dnatives=${natives_directory}".to_string(),
+                "--gameDir".to_string(),
+                "${game_directory}".to_string(),
+                "${assets_root}".to_string(),
+            ]),
+            vec![
+                format!("-DlibraryDirectory={}", base.join("libraries").display()),
+                format!("-Dnatives={}", base.join("natives").display()),
+                "--gameDir".to_string(),
+                base.display().to_string(),
+                base.join("assets").display().to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_map_expands_version_and_launcher_values() {
+        let _dir = LauncherDirGuard::acquire("args_map_for_loader_version").await;
+
+        let map = ArgumentsMap::for_loader(&project("MapProj2", "1.12.2")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![
+                "-DignoreList=client-extra,${version_name}.jar".to_string(),
+                "${classpath_separator}".to_string(),
+                "${launcher_version}".to_string(),
+            ]),
+            vec![
+                "-DignoreList=client-extra,1.12.2.jar".to_string(),
+                get_classpath_separator().to_string(),
+                env!("CARGO_PKG_VERSION").to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_map_expands_several_placeholders_in_one_arg() {
+        let dir = LauncherDirGuard::acquire("args_map_for_loader_mixed").await;
+        let base = dir.project_dir("MapProj3");
+
+        let map = ArgumentsMap::for_loader(&project("MapProj3", "1.20.1")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![format!(
+                "${{library_directory}}/a.jar${{classpath_separator}}${{library_directory}}/b.jar"
+            )]),
+            vec![format!(
+                "{}/a.jar{sep}{}/b.jar",
+                base.join("libraries").display(),
+                base.join("libraries").display(),
+                sep = get_classpath_separator()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_map_leaves_session_placeholders_untouched() {
+        let _dir = LauncherDirGuard::acquire("args_map_for_loader_session").await;
+
+        let map = ArgumentsMap::for_loader(&project("MapProj4", "1.12.2")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![
+                "${auth_player_name}".to_string(),
+                "${auth_uuid}".to_string(),
+                "${auth_access_token}".to_string(),
+                "${assets_index_name}".to_string(),
+                "${classpath}".to_string(),
+            ]),
+            vec![
+                "${auth_player_name}".to_string(),
+                "${auth_uuid}".to_string(),
+                "${auth_access_token}".to_string(),
+                "${assets_index_name}".to_string(),
+                "${classpath}".to_string(),
+            ]
         );
     }
 }

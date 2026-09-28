@@ -37,6 +37,8 @@ pub struct Manifest {
     pub logging: Logging,
     #[serde(default)]
     pub arguments: Arguments,
+    #[serde(rename = "minecraftArguments", default)]
+    pub minecraft_arguments: Option<String>,
     pub libraries: Vec<Library>,
 }
 
