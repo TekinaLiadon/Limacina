@@ -6,6 +6,7 @@ use anyhow::Result;
 use std::fs as std_fs;
 use std::io as std_io;
 
+use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::{
     log_err, log_info,
@@ -113,9 +114,27 @@ pub fn collect_natives_to_extract(
     natives_to_extract
 }
 
+pub const NATIVES_VERSION_MARKER: &str = ".mc-version";
+
+pub async fn natives_match_version(natives_dir: &Path, mc_version: &str) -> bool {
+    match tokio::fs::read_to_string(natives_dir.join(NATIVES_VERSION_MARKER)).await {
+        Ok(stored) => stored.trim() == mc_version,
+        Err(_) => false,
+    }
+}
+
+async fn write_natives_version_marker(natives_dir: &Path, mc_version: &str) -> Result<()> {
+    write_atomic(
+        &natives_dir.join(NATIVES_VERSION_MARKER),
+        mc_version.as_bytes(),
+    )
+    .await
+}
+
 pub async fn extract_natives(
     base_path: &Path,
     natives_rel_paths: Vec<(PathBuf, Option<Vec<String>>)>,
+    mc_version: &str,
 ) -> Result<()> {
     let natives_dir = base_path.join("natives");
     let natives_to_extract = natives_rel_paths
@@ -124,7 +143,12 @@ pub async fn extract_natives(
         .collect();
 
     clear_natives_dir(&natives_dir).await?;
-    match extract_native(natives_to_extract, natives_dir.clone()).await {
+    let outcome = async {
+        extract_native(natives_to_extract, natives_dir.clone()).await?;
+        write_natives_version_marker(&natives_dir, mc_version).await
+    }
+    .await;
+    match outcome {
         Ok(()) => Ok(()),
         Err(e) => {
             if let Err(wipe_error) = clear_natives_dir(&natives_dir).await {
@@ -411,7 +435,7 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<Inte
 mod tests {
     use super::{
         collect_asset_targets, collect_library_targets, extract_natives, get_current_os,
-        AssetIndexContent,
+        natives_match_version, AssetIndexContent,
     };
     #[test]
     fn asset_targets_reject_short_hashes() {
@@ -655,6 +679,7 @@ mod tests {
                     Some(vec!["META-INF/".to_string()]),
                 ),
             ],
+            "1.18.2",
         )
         .await
         .expect("распаковка natives");
@@ -677,6 +702,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn natives_reextracted_when_project_version_changes() {
+        let dir = LauncherDirGuard::acquire("natives_version_change").await;
+        let base = dir.project_dir("Cordelia");
+
+        write_test_zip(
+            &base.join("libraries/lwjgl-3.2.2-natives.jar"),
+            &[("liblwjgl.so", b"lwjgl 3.2.2".as_slice())],
+        );
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/lwjgl-3.2.2-natives.jar"), None)],
+            "1.18.2",
+        )
+        .await
+        .expect("распаковка natives 1.18.2");
+
+        assert_eq!(
+            std_fs::read(base.join("natives/liblwjgl.so")).unwrap(),
+            b"lwjgl 3.2.2"
+        );
+        assert!(natives_match_version(&base.join("natives"), "1.18.2").await);
+        assert!(!natives_match_version(&base.join("natives"), "1.20.1").await);
+
+        write_test_zip(
+            &base.join("libraries/lwjgl-3.3.3-natives.jar"),
+            &[("liblwjgl.so", b"lwjgl 3.3.3".as_slice())],
+        );
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/lwjgl-3.3.3-natives.jar"), None)],
+            "1.20.1",
+        )
+        .await
+        .expect("пере-распаковка natives 1.20.1");
+
+        assert_eq!(
+            std_fs::read(base.join("natives/liblwjgl.so")).unwrap(),
+            b"lwjgl 3.3.3"
+        );
+        assert!(!base.join("natives/README.txt").exists());
+        assert!(natives_match_version(&base.join("natives"), "1.20.1").await);
+        assert!(!natives_match_version(&base.join("natives"), "1.18.2").await);
+    }
+
+    #[tokio::test]
+    async fn natives_match_version_false_for_legacy_install_without_marker() {
+        let dir = LauncherDirGuard::acquire("natives_legacy_marker").await;
+        let base = dir.project_dir("Cordelia");
+
+        std_fs::create_dir_all(base.join("natives")).unwrap();
+        std_fs::write(base.join("natives/liblwjgl.so"), b"old").unwrap();
+
+        assert!(!natives_match_version(&base.join("natives"), "1.18.2").await);
+    }
+
+    #[tokio::test]
     async fn extract_natives_failure_wipes_dir_and_retry_recovers() {
         let dir = LauncherDirGuard::acquire("natives_fail_retry").await;
         let base = dir.project_dir("Cordelia");
@@ -694,6 +775,7 @@ mod tests {
                 (PathBuf::from("libraries/good.jar"), None),
                 (PathBuf::from("libraries/missing.jar"), None),
             ],
+            "1.18.2",
         )
         .await;
 
@@ -706,9 +788,13 @@ mod tests {
             "после сбоя папка natives должна быть пуста для чистой повторной попытки"
         );
 
-        extract_natives(&base, vec![(PathBuf::from("libraries/good.jar"), None)])
-            .await
-            .expect("повторная распаковка после сбоя");
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/good.jar"), None)],
+            "1.18.2",
+        )
+        .await
+        .expect("повторная распаковка после сбоя");
 
         assert_eq!(
             std_fs::read(base.join("natives/libgood.so")).unwrap(),

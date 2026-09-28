@@ -12,7 +12,8 @@ use crate::minecraft::vanilla::config::get_classpath;
 use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
 use crate::minecraft::vanilla::download::{
     collect_asset_targets, collect_install_targets, collect_natives_to_extract, extract_natives,
-    read_asset_index, PHASE_ASSETS, PHASE_ASSET_INDEX, PHASE_CLIENT, PHASE_LIBRARIES,
+    natives_match_version, read_asset_index, PHASE_ASSETS, PHASE_ASSET_INDEX, PHASE_CLIENT,
+    PHASE_LIBRARIES,
 };
 use crate::minecraft::vanilla::manifest::create_manifest_versions;
 use crate::minecraft::vanilla::structs::{VanillaVersionsManifest, VersionDetailsManifest};
@@ -86,20 +87,15 @@ impl MinecraftLoader for Vanilla {
         let natives_rel = collect_natives_to_extract(&manifest);
         let natives_step = StepHandle::start("mc.natives", "Нативные библиотеки");
         let natives_dir = base_path.join("natives");
-        let natives_empty = match tokio::fs::read_dir(&natives_dir).await {
-            Ok(mut entries) => entries
-                .next_entry()
-                .await
-                .map(|e| e.is_none())
-                .unwrap_or(true),
-            Err(_) => true,
-        };
-        if natives_empty {
-            natives_step.detail("Распаковка");
-            step_try!(natives_step, extract_natives(&base_path, natives_rel).await);
-            natives_step.finish(false);
-        } else {
+        if natives_match_version(&natives_dir, version).await {
             natives_step.finish(true);
+        } else {
+            natives_step.detail("Распаковка");
+            step_try!(
+                natives_step,
+                extract_natives(&base_path, natives_rel, version).await
+            );
+            natives_step.finish(false);
         }
 
         let index_step = StepHandle::start(PHASE_ASSET_INDEX.id, PHASE_ASSET_INDEX.label);

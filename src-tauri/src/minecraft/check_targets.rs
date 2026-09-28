@@ -155,7 +155,7 @@ async fn check_natives_integrity(
     step.set_total(total);
     step.detail("Распаковка");
 
-    match extract_natives(base_path, natives_rel).await {
+    match extract_natives(base_path, natives_rel, &manifest.id).await {
         Ok(()) => {
             step.finish(false);
             Ok(IntegrityReport {

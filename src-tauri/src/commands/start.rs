@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
@@ -284,10 +284,38 @@ async fn start_minecraft_inner(
     Ok(())
 }
 
+enum ExitBehavior {
+    MinimizeToTray,
+    Terminate,
+}
+
+fn exit_behavior(minimize_to_tray: bool) -> ExitBehavior {
+    if minimize_to_tray {
+        ExitBehavior::MinimizeToTray
+    } else {
+        ExitBehavior::Terminate
+    }
+}
+
 #[tauri::command]
 pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
-    log_info!("Закрытие лаунчера после запуска игры");
-    app.exit(0);
+    match exit_behavior(crate::tray::minimize_to_tray_enabled()) {
+        ExitBehavior::MinimizeToTray => {
+            log_info!("Закрытие лаунчера после запуска игры: сворачивание в трей");
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    if let Err(e) = window.close() {
+                        log_err!("Не удалось спрятать окно лаунчера в трей: {}", e);
+                    }
+                }
+                None => app.exit(0),
+            }
+        }
+        ExitBehavior::Terminate => {
+            log_info!("Закрытие лаунчера после запуска игры");
+            app.exit(0);
+        }
+    }
     Ok(())
 }
 
@@ -367,6 +395,17 @@ async fn force_narrator_off(game_dir: &Path) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod exit_launcher_tests {
+    use super::{exit_behavior, ExitBehavior};
+
+    #[test]
+    fn exit_behavior_follows_minimize_to_tray_setting() {
+        assert!(matches!(exit_behavior(true), ExitBehavior::MinimizeToTray));
+        assert!(matches!(exit_behavior(false), ExitBehavior::Terminate));
+    }
 }
 
 #[cfg(test)]
