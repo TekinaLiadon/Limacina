@@ -1,5 +1,5 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
-import JSZip from 'jszip'
+import { readCpmProjectZip } from '@/04-features/cpm-settings/cpmProjectParser'
 import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
@@ -181,23 +181,13 @@ function flatten(config: CPMConfig): FlatModel {
   return { cubes, elementIds }
 }
 
-async function parseCpmProject(data: ArrayBuffer): Promise<{ config: CPMConfig; skinPng: Uint8Array | null }> {
-  const zip = await JSZip.loadAsync(data)
-  const configFile = zip.file('config.json')
-  if (!configFile) throw new Error('ZIP не содержит config.json')
-  const config: CPMConfig = JSON.parse(await configFile.async('string'))
-  const skinFile = zip.file('skin.png')
-  const skinPng = skinFile ? new Uint8Array(await skinFile.async('arraybuffer')) : null
-  return { config, skinPng }
-}
-
 export async function cpmProjectToBytes(data: ArrayBuffer): Promise<Uint8Array> {
-  const { config, skinPng } = await parseCpmProject(data)
+  const { config, skinPng } = await readCpmProjectZip(data)
   return cpmConfigToBytes(config, skinPng)
 }
 
 export async function cpmProjectToLinkBase64(data: ArrayBuffer): Promise<string> {
-  const { config, skinPng } = await parseCpmProject(data)
+  const { config, skinPng } = await readCpmProjectZip(data)
   return bytesToBase64(cpmConfigToLinkBytes(config, skinPng))
 }
 

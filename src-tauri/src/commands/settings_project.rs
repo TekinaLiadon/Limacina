@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::init::init_project_config;
 use crate::log_info;
-use crate::state::config::load_config;
+use crate::state::config::{load_config, update_project_config};
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::env_info::launcher_path;
 use crate::utils::tauri_err::CommandResult;
@@ -14,11 +14,18 @@ pub async fn save_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     config: ProjectConfig,
 ) -> CommandResult<()> {
-    let mut config = config;
-    config.java_version = resolve_saved_java_version(&config).await;
-    config.save_config().await?;
-    let mut state = state.lock().await;
-    state.project_config = config;
+    save_project_settings(&state, config).await?;
+    Ok(())
+}
+
+async fn save_project_settings(state: &Mutex<GlobalState>, config: ProjectConfig) -> Result<()> {
+    update_project_config(state, async |stored: &mut ProjectConfig| {
+        let mut incoming = config;
+        incoming.java_version = resolve_saved_java_version(&incoming).await;
+        *stored = incoming;
+        Ok(())
+    })
+    .await?;
     Ok(())
 }
 
@@ -110,5 +117,56 @@ async fn clear_minecraft_config_inner(
             .with_context(|| format!("Не удалось удалить папку {:?}", config_dir))?;
         log_info!("Папка config проекта {} удалена", project_name);
         Ok("Папка конфигов удалена".to_string())
+    }
+}
+
+#[cfg(test)]
+mod save_settings_tests {
+    use super::save_project_settings;
+    use crate::state::config::{load_config, update_project_config};
+    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::test_support::LauncherDirGuard;
+    use std::time::Duration;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn settings_save_survives_parallel_config_update() {
+        let _guard = LauncherDirGuard::acquire("project_config_settings_race").await;
+        let base = ProjectConfig {
+            project_name: "RaceSave".to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+        base.save_config()
+            .await
+            .expect("сохранение базового конфига");
+        let state = Mutex::new(GlobalState {
+            project_config: base,
+            ..Default::default()
+        });
+
+        let payload = ProjectConfig {
+            project_name: "RaceSave".to_string(),
+            mc_version: "1.20.1".to_string(),
+            max_memory: "-Xmx8G".to_string(),
+            ..ProjectConfig::default()
+        };
+
+        let (update_result, save_result) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                config.java_path = Some("java-path".to_string());
+                Ok(())
+            }),
+            save_project_settings(&state, payload),
+        );
+        update_result.expect("мутация java_path");
+        save_result.expect("сохранение настроек");
+
+        let saved = load_config("RaceSave").await.expect("чтение конфига");
+        assert_eq!(
+            saved.max_memory, "-Xmx8G",
+            "параллельное сохранение настроек не должно теряться"
+        );
     }
 }

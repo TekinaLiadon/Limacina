@@ -32,6 +32,8 @@ export { applyStepEvent, computeStepProgress, createStepItem } from './utils/ste
 export { STEP_IDS, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS } from './utils/stepIds'
 export type { StepId } from './utils/stepIds'
 export { useDropdownPanel } from './utils/useDropdownPanel'
+export { useDirtySnapshot } from './utils/useDirtySnapshot'
+export type { DirtySnapshotState } from './utils/useDirtySnapshot'
 export type { AsyncRaceGuard } from './utils/useAsyncRaceGuard'
 export { useAsyncRaceGuard } from './utils/useAsyncRaceGuard'
 export { createBackoffPoller } from './utils/createBackoffPoller'

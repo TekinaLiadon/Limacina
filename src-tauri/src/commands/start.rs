@@ -308,7 +308,7 @@ async fn repair_stale_java_path(
     let Some(stored) = config.java_path.clone() else {
         return config;
     };
-    let stored_path = PathBuf::from(stored);
+    let stored_path = PathBuf::from(&stored);
     if stored_path.exists() {
         return config;
     }
@@ -320,12 +320,20 @@ async fn repair_stale_java_path(
         stored_path,
         repaired
     );
-    config.java_path = Some(repaired.to_string_lossy().into_owned());
-    if let Err(e) = config.save_config().await {
+    let repaired_path = repaired.to_string_lossy().into_owned();
+    let broken_path = stored;
+    if let Err(e) =
+        crate::state::config::update_project_config(state, async |stored: &mut ProjectConfig| {
+            if stored.java_path.as_deref() == Some(broken_path.as_str()) {
+                stored.java_path = Some(repaired_path);
+            }
+            Ok(())
+        })
+        .await
+    {
         log_err!("[start] Не удалось сохранить исправленный путь Java: {}", e);
-        return config;
     }
-    state.lock().await.project_config = config.clone();
+    config.java_path = Some(repaired.to_string_lossy().into_owned());
     config
 }
 

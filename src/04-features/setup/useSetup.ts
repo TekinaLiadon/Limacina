@@ -25,7 +25,7 @@ export function useSetup(): {
   const isLoading = ref<boolean>(false)
   const step = ref<1 | 2>(1)
 
-  const needsProfile = computed((): boolean => coreStore.offlineBuild && coreStore.projects.length === 0)
+  const needsProfile = computed((): boolean => coreStore.needsOfflineSetup)
 
   watch((): boolean => coreStore.hasLauncherConfig === true, (hasConfig) => {
     if (!hasConfig) {

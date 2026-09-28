@@ -24,6 +24,10 @@ export const useCoreStore = defineStore('core', {
     pendingCpmProjectPath: null,
   }),
 
+  getters: {
+    needsOfflineSetup: (state): boolean => state.offlineBuild && state.projects.length === 0,
+  },
+
   actions: {
     applyLauncherConfig(config: LauncherConfig): void {
       this.launcherConfig = config

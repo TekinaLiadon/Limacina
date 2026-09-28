@@ -36,6 +36,17 @@ export function useProjectSwitch() {
 
   const isSwitching = computed((): boolean => accountsStore.isSwitching)
 
+  const applyProjectSwitch = async (projectName: string): Promise<void> => {
+    const projectConfig = await loadSettingsProject(projectName)
+    const logins = await authLogins(projectName)
+    await clearSession()
+
+    coreStore.currentProject = projectName
+    coreStore.projectConfig = projectConfig
+    resetAccountsState()
+    accountsStore.logins = logins
+  }
+
   const selectProject = async (projectName: string): Promise<void> => {
     if (!projectName || projectName === coreStore.currentProject) return
     if (accountsStore.isSwitching) return
@@ -52,14 +63,7 @@ export function useProjectSwitch() {
 
     try {
       await saveCurrentProject(projectName)
-      const projectConfig = await loadSettingsProject(projectName)
-      const logins = await authLogins(projectName)
-      await clearSession()
-
-      coreStore.currentProject = projectName
-      coreStore.projectConfig = projectConfig
-      resetAccountsState()
-      accountsStore.logins = logins
+      await applyProjectSwitch(projectName)
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))
     } finally {
@@ -73,5 +77,6 @@ export function useProjectSwitch() {
     isSwitching,
     resetAccountsState,
     selectProject,
+    applyProjectSwitch,
   }
 }

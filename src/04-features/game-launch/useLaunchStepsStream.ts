@@ -57,6 +57,20 @@ export function useLaunchStepsStream(): {
     return 0
   }
 
+  const drainNextEvent = (): boolean => {
+    const [event] = eventQueue
+    if (event === undefined) return false
+    if (event.type === 'finished') lastFinishedAt = Date.now()
+    eventQueue.shift()
+    apply(event)
+    if (event.type === 'failed') {
+      failedSeen = true
+      eventQueue = []
+      return false
+    }
+    return true
+  }
+
   const processQueue = (): void => {
     if (failedSeen) {
       eventQueue = []
@@ -77,14 +91,7 @@ export function useLaunchStepsStream(): {
         return
       }
 
-      if (event.type === 'finished') lastFinishedAt = Date.now()
-      eventQueue.shift()
-      apply(event)
-      if (event.type === 'failed') {
-        failedSeen = true
-        eventQueue = []
-        break
-      }
+      if (!drainNextEvent()) break
     }
 
     recomputeProgress()
@@ -147,16 +154,7 @@ export function useLaunchStepsStream(): {
       flushTimer = null
     }
     while (eventQueue.length > 0) {
-      const [event] = eventQueue
-      if (event === undefined) break
-      if (event.type === 'finished') lastFinishedAt = Date.now()
-      eventQueue.shift()
-      apply(event)
-      if (event.type === 'failed') {
-        failedSeen = true
-        eventQueue = []
-        break
-      }
+      if (!drainNextEvent()) break
     }
     recomputeProgress()
   }

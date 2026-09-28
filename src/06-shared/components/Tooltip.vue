@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { randomId } from '../utils/utils'
 
 const SHOW_DELAY_MS = 300
 const VIEWPORT_MARGIN = 8
 const GAP = 6
-
-let tooltipCounter = 0
 
 const props = withDefaults(defineProps<{
   content: string
@@ -14,7 +13,7 @@ const props = withDefaults(defineProps<{
   disabled: false,
 })
 
-const bubbleId = `tooltip-bubble-${++tooltipCounter}`
+const bubbleId = randomId()
 
 const rootRef = ref<HTMLElement | null>(null)
 const bubbleRef = ref<HTMLElement | null>(null)

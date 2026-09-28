@@ -54,11 +54,10 @@ async fn initialize_project_inner(
 
 #[tauri::command]
 pub async fn set_initialized(state: State<'_, Mutex<GlobalState>>) -> CommandResult<ProjectConfig> {
-    let config = {
-        let mut state = state.lock().await;
-        state.project_config.initialized = true;
-        state.project_config.clone()
-    };
-    config.save_config().await?;
-    Ok(config)
+    crate::state::config::update_project_config(&state, async |config: &mut ProjectConfig| {
+        config.initialized = true;
+        Ok(())
+    })
+    .await
+    .map_err(Into::into)
 }

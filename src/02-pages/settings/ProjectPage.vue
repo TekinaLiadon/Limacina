@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
-import { PathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck, JvmPreset, ServerConnect, ProjectDelete, SettingsSection, SettingsSaveBar, SettingsInfoRow } from '@/03-widgets'
+import { PathPicker, AlternativeJavaButton, MemorySlider, DangerActionButton, IntegrityCheck, JvmPreset, ServerConnect, SettingsSection, SettingsSaveBar, SettingsInfoRow } from '@/03-widgets'
 import { Button, Checkbox, Input } from '@/06-shared'
 
 const coreStore = useCoreStore()
@@ -193,8 +193,18 @@ const handleDownload = async (): Promise<void> => {
 
     <SettingsSection title="Опасная зона" storage-key="project-danger">
       <div class="project-settings__danger">
-        <ConfigCleanup :is-clearing="isClearingConfig" @clear="handleClearMinecraftConfig" />
-        <ProjectDelete v-if="canDeleteProject" :is-deleting="isDeleting" @delete="handleDeleteProject" />
+        <DangerActionButton
+          label="Очистить конфиги игры"
+          :is-loading="isClearingConfig"
+          @action="handleClearMinecraftConfig"
+        />
+        <DangerActionButton
+          v-if="canDeleteProject"
+          class="project-settings__danger-button"
+          label="Удалить проект"
+          :is-loading="isDeleting"
+          @action="handleDeleteProject"
+        />
       </div>
     </SettingsSection>
 
@@ -204,6 +214,10 @@ const handleDownload = async (): Promise<void> => {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
+.project-settings__danger-button {
+  width: 100%;
+}
 
 .project-settings {
   display: flex;

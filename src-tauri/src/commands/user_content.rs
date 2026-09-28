@@ -6,7 +6,7 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::auth;
-use crate::commands::auth::{persist_session_credentials, restore_session};
+use crate::commands::auth::restore_and_persist_session;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
 use crate::state::config::load_config_or_default;
@@ -32,7 +32,7 @@ pub async fn select_account(
     let project = load_config_or_default(&project_name).await?;
 
     let auth_data = if project.online {
-        restore_session(&project_name, &username, None).await?
+        restore_and_persist_session(&project_name, &username, None).await?
     } else {
         auth::offline(&username)
     };
@@ -48,10 +48,6 @@ pub async fn select_account(
             username: username_str.clone(),
             project_name: project_name.clone(),
         });
-    }
-
-    if project.online {
-        persist_session_credentials(&project_name, &username, &auth_data).await?;
     }
 
     log_info!("Аккаунт выбран: {}", username_str);

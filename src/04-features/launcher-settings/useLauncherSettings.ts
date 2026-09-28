@@ -1,7 +1,16 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
-import { joinPath, stripPathSuffix, reportError, selectDirectory, isAutostartEnabled, enableAutostart, disableAutostart } from '@/06-shared'
+import {
+  joinPath,
+  stripPathSuffix,
+  reportError,
+  selectDirectory,
+  isAutostartEnabled,
+  enableAutostart,
+  disableAutostart,
+  useDirtySnapshot,
+} from '@/06-shared'
 
 export function useLauncherSettings(): {
   launcherPath: Ref<string>
@@ -16,14 +25,22 @@ export function useLauncherSettings(): {
   downloadSpeedLimitInput: Ref<string>
   settings: ComputedRef<LauncherSettingsPayload>
   isSaving: Ref<boolean>
-  isDirty: Ref<boolean>
+  isDirty: ComputedRef<boolean>
   selectLauncherFolder: () => Promise<void>
   handleSave: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
-  const isDirty = ref<boolean>(false)
+  interface DirtySnapshot extends LauncherSettingsPayload {
+    launcherPath: string
+  }
+
+  const dirtyState = useDirtySnapshot((): DirtySnapshot => ({
+    launcherPath: launcherPath.value,
+    ...formSettings(),
+  }))
+  const { isDirty } = dirtyState
   const launcherPath = ref<string>('')
   const discordActivity = ref<boolean>(true)
   const autoUpdate = ref<boolean>(false)
@@ -77,22 +94,6 @@ export function useLauncherSettings(): {
     }
   }
 
-  interface DirtySnapshot extends LauncherSettingsPayload {
-    launcherPath: string
-  }
-
-  const snapshot = (): DirtySnapshot => ({
-    launcherPath: launcherPath.value,
-    ...formSettings(),
-  })
-
-  const initialSnapshot = ref<DirtySnapshot | null>(null)
-
-  const refreshDirty = (): void => {
-    const initial = initialSnapshot.value
-    isDirty.value = initial !== null && JSON.stringify(initial) !== JSON.stringify(snapshot())
-  }
-
   onMounted((): void => {
     const config = coreStore.launcherConfig
     if (config) {
@@ -109,8 +110,7 @@ export function useLauncherSettings(): {
         config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
     }
     void syncStartWithSystemState().then((): void => {
-      initialSnapshot.value = snapshot()
-      refreshDirty()
+      dirtyState.captureBaseline()
     })
   })
 
@@ -145,8 +145,7 @@ export function useLauncherSettings(): {
       }
 
       await applyStartWithSystem(startWithSystem.value)
-      initialSnapshot.value = snapshot()
-      refreshDirty()
+      dirtyState.captureBaseline()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       await resyncLauncherConfig()

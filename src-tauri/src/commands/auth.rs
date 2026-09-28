@@ -79,6 +79,19 @@ fn is_refresh_rejected(e: &anyhow::Error) -> bool {
     })
 }
 
+static SESSION_RESTORE_LOCK: Mutex<()> = Mutex::const_new(());
+
+pub(crate) async fn restore_and_persist_session(
+    project_name: &str,
+    username: &str,
+    password: Option<&str>,
+) -> Result<AuthData> {
+    let _guard = SESSION_RESTORE_LOCK.lock().await;
+    let data = restore_session(project_name, username, password).await?;
+    persist_session_credentials(project_name, username, &data).await?;
+    Ok(data)
+}
+
 async fn project_server_url(project_name: &str, offline_reason: &str) -> Result<String> {
     let project = load_config_or_default(project_name).await?;
     if !project.online {
@@ -111,10 +124,15 @@ pub(crate) async fn restore_session(
             Ok(data) => return Ok(data),
             Err(e) if is_refresh_rejected(&e) => {
                 log_err!(
-                    "restore_session: сервер отклонил refresh-токен ({}), пробуем вход по паролю",
+                    "restore_session: сервер отклонил refresh-токен ({}), сверяем хранилище",
                     e
                 );
-                let _ = storage::delete_credential(project_name, username, "refresh_token").await;
+                if let Some(data) =
+                    refresh_after_rejection(project_name, username, &server_url, &refresh_token)
+                        .await?
+                {
+                    return Ok(data);
+                }
             }
             Err(e) => {
                 log_err!(
@@ -134,6 +152,49 @@ pub(crate) async fn restore_session(
     match stored_password {
         Some(password) => auth::login(&server_url, username, &password).await,
         None => bail!(LauncherError::NoSavedCredentials(username.to_string())),
+    }
+}
+
+async fn refresh_after_rejection(
+    project_name: &str,
+    username: &str,
+    server_url: &str,
+    rejected_token: &str,
+) -> Result<Option<AuthData>> {
+    let current = storage::get_credential(project_name, username, "refresh_token").await;
+    match current {
+        Ok(current) if current != rejected_token => {
+            log_err!(
+                "restore_session: refresh-токен уже сменён параллельным вызовом, повторяем с новым"
+            );
+            match auth::refresh(server_url, &current).await {
+                Ok(data) => Ok(Some(data)),
+                Err(e) if is_refresh_rejected(&e) => {
+                    log_err!(
+                        "restore_session: сервер отклонил и обновлённый токен ({}), удаляем",
+                        e
+                    );
+                    let _ =
+                        storage::delete_credential(project_name, username, "refresh_token").await;
+                    Ok(None)
+                }
+                Err(e) => {
+                    log_err!(
+                        "restore_session: временный сбой повторного refresh ({}), токен сохранён",
+                        e
+                    );
+                    LauncherError::classify(Err::<AuthData, _>(e), LauncherError::AuthServer)
+                        .map(Some)
+                        .context(
+                            "Не удалось обновить сессию. Проверьте подключение к серверу и повторите попытку",
+                        )
+                }
+            }
+        }
+        _ => {
+            let _ = storage::delete_credential(project_name, username, "refresh_token").await;
+            Ok(None)
+        }
     }
 }
 
@@ -194,18 +255,28 @@ async fn login_account(
         return Ok(());
     }
 
-    let data = restore_session(project_name, username, Some(password)).await?;
+    let data = login_online_session(project_name, username, password, remember_me).await?;
 
     store_session(state, &data, username, project_name).await;
     remember_login(state, project_name, username, remember_me).await?;
 
+    Ok(())
+}
+
+async fn login_online_session(
+    project_name: &str,
+    username: &str,
+    password: &str,
+    remember_me: bool,
+) -> Result<AuthData> {
+    let _guard = SESSION_RESTORE_LOCK.lock().await;
+    let data = restore_session(project_name, username, Some(password)).await?;
     if remember_me {
         persist_session_credentials(project_name, username, &data).await?;
     } else {
         wipe_project_credentials(project_name, &[username.to_string()]).await;
     }
-
-    Ok(())
+    Ok(data)
 }
 
 #[tauri::command]
@@ -222,10 +293,8 @@ pub async fn auth_refresh(
         return Ok(());
     }
 
-    let auth_data = restore_session(&project_name, &username, None).await?;
+    let auth_data = restore_and_persist_session(&project_name, &username, None).await?;
     store_session(&state, &auth_data, &username, &project_name).await;
-
-    persist_session_credentials(&project_name, &username, &auth_data).await?;
 
     Ok(())
 }
@@ -340,15 +409,24 @@ pub async fn delete_account(
 
 #[cfg(test)]
 mod restore_session_tests {
-    use super::restore_session;
+    use super::{restore_and_persist_session, restore_session, wipe_project_credentials};
     use crate::auth::storage;
     use crate::state::dto::ProjectConfig;
     use crate::test_support::LauncherDirGuard;
-    use mockito::Server;
+    use mockito::{Matcher, Server};
+    use serde_json::json;
 
-    async fn seed_online_project(server_url: &str) {
+    fn rotation_payload(access: &str, refresh: &str) -> String {
+        json!({
+            "tokens": { "access_token": access, "refresh_token": refresh },
+            "profile": { "uuid": "uuid-1", "username": "Steve" }
+        })
+        .to_string()
+    }
+
+    async fn seed_online_project(project_name: &str, server_url: &str) {
         let config = ProjectConfig {
-            project_name: "TestProj".to_string(),
+            project_name: project_name.to_string(),
             mc_version: "1.20.1".to_string(),
             server_url: Some(server_url.to_string()),
             online: true,
@@ -367,7 +445,7 @@ mod restore_session_tests {
         let port = listener.local_addr().expect("адрес").port();
         drop(listener);
 
-        seed_online_project(&format!("http://127.0.0.1:{port}")).await;
+        seed_online_project("TestProj", &format!("http://127.0.0.1:{port}")).await;
         storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
             .expect("сохранение токена");
 
@@ -398,7 +476,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project(&server.url()).await;
+        seed_online_project("TestProj", &server.url()).await;
         storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
             .expect("сохранение токена");
 
@@ -430,7 +508,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project(&server.url()).await;
+        seed_online_project("TestProj", &server.url()).await;
         storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-dead")
             .expect("сохранение токена");
 
@@ -471,7 +549,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project(&server.url()).await;
+        seed_online_project("TestProj", &server.url()).await;
         storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-dead")
             .expect("сохранение токена");
 
@@ -486,6 +564,73 @@ mod restore_session_tests {
                 .await
                 .is_err(),
             "отклонённый токен должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_rotations_keep_valid_refresh_token() {
+        let _guard = LauncherDirGuard::acquire("restore_session_concurrent").await;
+        let mut server = Server::new_async().await;
+        let project = "RaceProj";
+        let username = "Racer";
+
+        let first_rotation = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-old"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-2", "tok-2"))
+            .expect(1)
+            .create_async()
+            .await;
+        let _rejected_old = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-old"}).to_string(),
+            ))
+            .with_status(401)
+            .with_body("{\"message\": \"invalid token\"}")
+            .create_async()
+            .await;
+        let second_rotation = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-2"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-3", "tok-3"))
+            .expect(1)
+            .create_async()
+            .await;
+
+        seed_online_project(project, &server.url()).await;
+        storage::save_fallback(project, username, "refresh_token", "tok-old")
+            .expect("сохранение токена");
+
+        let (first, second) = tokio::join!(
+            restore_and_persist_session(project, username, None),
+            restore_and_persist_session(project, username, None),
+        );
+        first.expect("первая ротация");
+        second.expect("вторая ротация");
+
+        let token = storage::get_credential(project, username, "refresh_token")
+            .await
+            .expect("валидный токен не должен удаляться параллельной ротацией");
+        assert!(
+            token == "tok-2" || token == "tok-3",
+            "неожиданный токен: {token}"
+        );
+        first_rotation.assert_async().await;
+        second_rotation.assert_async().await;
+
+        wipe_project_credentials(project, &[username.to_string()]).await;
+        assert!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .is_err(),
+            "тест должен убирать за собой записи хранилища"
         );
     }
 }

@@ -1,10 +1,14 @@
 use crate::log_err;
+use crate::state::dto::GlobalState;
 use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
 use anyhow::{Context, Result};
 use tokio::fs::{create_dir_all, read_to_string, rename};
+use tokio::sync::Mutex;
 use toml::{from_str, to_string_pretty};
+
+static PROJECT_CONFIG_WRITE_LOCK: Mutex<()> = Mutex::const_new(());
 
 pub fn validate_project_name(name: &str) -> Result<()> {
     let trimmed = name.trim();
@@ -39,6 +43,24 @@ impl ProjectConfig {
         .with_context(|| format!("Не удалось записать конфиг профиля {:?}", self.project_name))?;
         Ok(())
     }
+}
+
+pub(crate) async fn update_project_config(
+    state: &Mutex<GlobalState>,
+    mutate: impl AsyncFnOnce(&mut ProjectConfig) -> Result<()>,
+) -> Result<ProjectConfig> {
+    let _write_guard = PROJECT_CONFIG_WRITE_LOCK.lock().await;
+    let mut project_config = {
+        let guard = state.lock().await;
+        guard.project_config.clone()
+    };
+    mutate(&mut project_config).await?;
+    project_config.save_config().await?;
+    {
+        let mut guard = state.lock().await;
+        guard.project_config = project_config.clone();
+    }
+    Ok(project_config)
 }
 
 pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
@@ -105,9 +127,12 @@ async fn recover_corrupt_config(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_config, load_config_or_default, validate_project_name};
-    use crate::state::dto::ProjectConfig;
+    use super::{
+        load_config, load_config_or_default, update_project_config, validate_project_name,
+    };
+    use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::LauncherDirGuard;
+    use tokio::sync::Mutex;
 
     #[test]
     fn validate_accepts_normal_names() {
@@ -241,5 +266,47 @@ mod tests {
             .await
             .expect("чтение после повторного сохранения");
         assert_eq!(again.mc_version, "1.20.1");
+    }
+
+    async fn seeded_state(label: &str, name: &str) -> (LauncherDirGuard, Mutex<GlobalState>) {
+        let guard = LauncherDirGuard::acquire(label).await;
+        let base = ProjectConfig {
+            project_name: name.to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+        base.save_config()
+            .await
+            .expect("сохранение базового конфига");
+        let state = Mutex::new(GlobalState {
+            project_config: base,
+            ..Default::default()
+        });
+        (guard, state)
+    }
+
+    #[tokio::test]
+    async fn concurrent_updates_keep_both_project_changes() {
+        let (_guard, state) = seeded_state("project_config_concurrent", "RaceTwo").await;
+
+        let (first, second) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                config.java_path = Some("java-a".to_string());
+                Ok(())
+            }),
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                config.max_memory = "-Xmx8G".to_string();
+                Ok(())
+            }),
+        );
+        first.expect("первая мутация");
+        second.expect("вторая мутация");
+
+        let saved = load_config("RaceTwo").await.expect("чтение конфига");
+        assert_eq!(saved.java_path.as_deref(), Some("java-a"));
+        assert_eq!(
+            saved.max_memory, "-Xmx8G",
+            "параллельная мутация не должна теряться"
+        );
     }
 }

@@ -59,6 +59,17 @@ describe('useCoreStore', () => {
     expect(store.currentProject).toBe('Alpha')
   })
 
+  it('needsOfflineSetup is true only for an offline build without projects', () => {
+    const store = useCoreStore()
+    expect(store.needsOfflineSetup).toBe(false)
+
+    store.offlineBuild = true
+    expect(store.needsOfflineSetup).toBe(true)
+
+    store.projects = ['Alpha']
+    expect(store.needsOfflineSetup).toBe(false)
+  })
+
   it('applyLauncherProjects falls back to the first project when nothing is saved', () => {
     const store = useCoreStore()
     store.applyLauncherProjects(makeConfig(['Alpha'], null))

@@ -65,11 +65,7 @@ const fullscreenRouteNames: string[] = ['Setup']
 
 const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
 
-const needsOfflineSetup = computed((): boolean =>
-  coreStore.offlineBuild && coreStore.projects.length === 0
-)
-
-watch(needsOfflineSetup, (needed: boolean): void => {
+watch((): boolean => coreStore.needsOfflineSetup, (needed: boolean): void => {
   const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
   if (needed && !isFullscreenRoute) {
     router.replace({ name: 'Setup' })

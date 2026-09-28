@@ -1,8 +1,8 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm, type ProjectConfig } from '@/05-entities'
-import { authLogins, clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { copyToClipboard, reportError, selectDirectory } from '@/06-shared'
+import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
+import { copyToClipboard, reportError, selectDirectory, useDirtySnapshot } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features'
 import { splitJvmArgs } from './jvmPresets'
 
@@ -35,7 +35,7 @@ export function useProjectSettings(): {
   const notification = useNotificationStore()
   const store = useProjectSettingsStore()
   const router = useRouter()
-  const { resetAccountsState } = useProjectSwitch()
+  const { resetAccountsState, applyProjectSwitch } = useProjectSwitch()
 
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
@@ -43,24 +43,24 @@ export function useProjectSettings(): {
   const loadError = computed((): string => store.loadError)
   const isSaving = computed((): boolean => store.isSaving)
 
-  const DIRTY_FIELDS = ['loaderVersion', 'javaPath', 'jvmArgs', 'memoryRange', 'autoJoinServer'] as const
-  type DirtyField = (typeof DIRTY_FIELDS)[number]
+  type DirtyFields = Pick<
+    ProjectSettingsForm,
+    'loaderVersion' | 'javaPath' | 'jvmArgs' | 'memoryRange' | 'autoJoinServer'
+  >
 
-  const captureDirtySnapshot = (): Record<DirtyField, string> => {
-    const snapshot = {} as Record<DirtyField, string>
-    for (const field of DIRTY_FIELDS) snapshot[field] = JSON.stringify(store.config[field])
-    return snapshot
-  }
+  const dirtyState = useDirtySnapshot((): DirtyFields => ({
+    loaderVersion: store.config.loaderVersion,
+    javaPath: store.config.javaPath,
+    jvmArgs: store.config.jvmArgs,
+    memoryRange: store.config.memoryRange,
+    autoJoinServer: store.config.autoJoinServer,
+  }))
+  const { isFieldDirty } = dirtyState
 
-  const initialDirtySnapshot = ref<Record<DirtyField, string>>(captureDirtySnapshot())
-
-  const isFieldDirty = (field: DirtyField): boolean =>
-    initialDirtySnapshot.value[field] !== JSON.stringify(store.config[field])
-
-  const isDirty = computed((): boolean => store.isLoaded && DIRTY_FIELDS.some((field) => isFieldDirty(field)))
+  const isDirty = computed((): boolean => store.isLoaded && dirtyState.isDirty.value)
 
   watch((): string => store.loadedProject, (): void => {
-    initialDirtySnapshot.value = captureDirtySnapshot()
+    dirtyState.captureBaseline()
   }, { immediate: true })
 
   const maxMemoryLimit = computed((): number => {
@@ -140,7 +140,7 @@ export function useProjectSettings(): {
       }
       await saveSettingsProject(projectConfig)
       coreStore.projectConfig = projectConfig
-      initialDirtySnapshot.value = captureDirtySnapshot()
+      dirtyState.captureBaseline()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))
@@ -246,11 +246,7 @@ export function useProjectSettings(): {
       }
 
       try {
-        const nextConfig = await loadSettingsProject(next)
-        const logins = await authLogins(next)
-        coreStore.currentProject = next
-        coreStore.projectConfig = nextConfig
-        accountsStore.logins = logins
+        await applyProjectSwitch(next)
       } catch (e: unknown) {
         coreStore.currentProject = next
         coreStore.projectConfig = null
