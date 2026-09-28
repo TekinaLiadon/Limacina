@@ -18,7 +18,7 @@ use crate::{
     utils::{
         compare_versions,
         download_file::{download_json, download_xml, write_atomic},
-        env_info::launcher_path,
+        env_info::{ensure_safe_relative_path, launcher_path},
     },
 };
 
@@ -169,6 +169,7 @@ pub async fn get_loader_index(
 }
 
 pub fn loader_manifest_path(prefix: &str, version: &str) -> Result<PathBuf> {
+    ensure_safe_relative_path(version, "версии лоадера")?;
     Ok(launcher_path(None)?
         .join("manifest")
         .join(format!("{prefix}_{version}.json")))
@@ -678,5 +679,26 @@ mod neoforge_index_tests {
         };
         let resolved = current_loader_version(&state, &manifest).expect("версия найдена");
         assert_eq!(resolved.id, "1.21-21.0.143");
+    }
+
+    #[test]
+    fn loader_manifest_path_rejects_traversal_version() {
+        let error = loader_manifest_path("forge", "../../evil")
+            .expect_err("версия лоадера с обходом пути должна быть отклонена");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии лоадера"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+        assert!(loader_manifest_path("forge", "..\\evil").is_err());
+    }
+
+    #[test]
+    fn loader_manifest_path_accepts_normal_version() {
+        let path = loader_manifest_path("forge", "47.2.0").expect("валидная версия лоадера");
+        assert!(path
+            .to_string_lossy()
+            .ends_with("manifest/forge_47.2.0.json"));
     }
 }

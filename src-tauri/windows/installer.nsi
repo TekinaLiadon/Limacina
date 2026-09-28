@@ -74,6 +74,10 @@ ${StrLoc}
 !define /ifndef SS_CENTER 0x00000001
 !define /ifndef SS_CENTERIMAGE 0x00000200
 !define /ifndef WS_EX_TRANSPARENT 0x00000020
+!define /ifndef WS_TABSTOP 0x00010000
+!define /ifndef WS_GROUP 0x00020000
+!define /ifndef BST_CHECKED 0x0001
+!define /ifndef DM_SETDEFID 0x0401
 
 Var PassiveMode
 Var UpdateMode
@@ -94,10 +98,6 @@ Var BrandingFixed
 Var DirField
 Var RunAppCheckbox
 Var DesktopShortcutCheckbox
-Var RunAppDot
-Var RunAppLabel
-Var DeskDot
-Var DeskLabel
 Var NavOverlay1
 Var NavOverlay2
 Var NavOverlay3
@@ -115,10 +115,16 @@ Var NavCacheX1
 Var NavCacheW1
 Var NavCacheX2
 Var NavCacheW2
-Var RadioDot1
-Var RadioDot2
-Var RadioLabel1
-Var RadioLabel2
+Var FocusPill
+Var Radio1
+Var Radio2
+Var StepDot1
+Var StepDot2
+Var StepDot3
+Var KeepGameData
+Var KeepDataCheckbox
+Var DataStateLabel
+Var ConfirmDataPath
 
 !macro NavReadRect _hwnd
   System::Call '*(i 0, i 0, i 0, i 0) p.r1'
@@ -143,7 +149,7 @@ Var RadioLabel2
   IntOp $9 $9 + 8
 !macroend
 
-!macro MakeNavOverlay _var _id _text _fg _bg
+!macro MakeNavOverlay _var _id _text _fg _bg _tab
   StrCpy `${_var}` 0
   StrCpy $NavPill${_id} 0
   !if `${_id}` == "1"
@@ -194,7 +200,11 @@ Var RadioLabel2
         StrCpy $6 $NavW
         StrCpy $7 $NavCacheH
       !endif
-      System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w `${_text}`, i 0x50000301, i r2, i r3, i r6, i r7, p $HWNDPARENT, p `${_id}`, p 0, p 0) p.s'
+      !if "${_tab}" == "1"
+        System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w `${_text}`, i 0x50010301, i r2, i r3, i r6, i r7, p $HWNDPARENT, p `${_id}`, p 0, p 0) p.s'
+      !else
+        System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w `${_text}`, i 0x50000301, i r2, i r3, i r6, i r7, p $HWNDPARENT, p `${_id}`, p 0, p 0) p.s'
+      !endif
       Pop `${_var}`
       SetCtlColors `${_var}` `${_fg}` `${_bg}`
       SendMessage `${_var}` ${WM_SETFONT} $FontButton 1
@@ -202,11 +212,20 @@ Var RadioLabel2
   !endif
 !macroend
 
-!macro NavButtons _t1 _t2 _t3
+!macro NavButtons _t1 _t2 _t3 _tab
   !insertmacro DestroyNavOverlaysCore
-  !insertmacro MakeNavOverlay $NavOverlay1 1 `${_t1}` 0xFFFFFF ${COLOR_ACCENT}
-  !insertmacro MakeNavOverlay $NavOverlay2 2 `${_t2}` ${COLOR_MUTED} ${COLOR_SURFACE}
-  !insertmacro MakeNavOverlay $NavOverlay3 3 `${_t3}` ${COLOR_TEXT} ${COLOR_SURFACE}
+  !insertmacro MakeNavOverlay $NavOverlay1 1 `${_t1}` 0xFFFFFF ${COLOR_ACCENT} ${_tab}
+  !insertmacro MakeNavOverlay $NavOverlay2 2 `${_t2}` ${COLOR_MUTED} ${COLOR_SURFACE} ${_tab}
+  !insertmacro MakeNavOverlay $NavOverlay3 3 `${_t3}` ${COLOR_TEXT} ${COLOR_SURFACE} ${_tab}
+!macroend
+
+!macro DisableNavOverlaysExceptCancel
+  ${If} $NavOverlay1 <> 0
+    EnableWindow $NavOverlay1 0
+  ${EndIf}
+  ${If} $NavOverlay3 <> 0
+    EnableWindow $NavOverlay3 0
+  ${EndIf}
 !macroend
 
 !macro DestroyNavOverlaysCore
@@ -234,6 +253,10 @@ Var RadioLabel2
     System::Call 'user32::DestroyWindow(p $NavPill3)'
     StrCpy $NavPill3 0
   ${EndIf}
+  ${If} $FocusPill <> 0
+    System::Call 'user32::DestroyWindow(p $FocusPill)'
+    StrCpy $FocusPill 0
+  ${EndIf}
 !macroend
 
 Function DestroyNavOverlays
@@ -243,6 +266,117 @@ FunctionEnd
 Function un.DestroyNavOverlays
   !insertmacro DestroyNavOverlaysCore
 FunctionEnd
+
+!macro FocusRing _overlay _color
+  !insertmacro NavReadRect `${_overlay}`
+  IntOp $4 $DPI * 2
+  IntOp $4 $4 / 96
+  IntOp $2 $2 - $4
+  IntOp $3 $3 - $4
+  IntOp $6 $6 + $4
+  IntOp $6 $6 + $4
+  IntOp $7 $7 + $4
+  IntOp $7 $7 + $4
+  ${If} $FocusPill = 0
+    System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i 0x40000000, i r2, i r3, i r6, i r7, p $HWNDPARENT, p 0, p 0, p 0) p.s'
+    Pop $FocusPill
+  ${EndIf}
+  SetCtlColors $FocusPill "" `${_color}`
+  System::Call 'user32::SetWindowPos(p $FocusPill, p `${_overlay}`, i r2, i r3, i r6, i r7, i 0x50)'
+!macroend
+
+!macro FocusPollCore
+  System::Call 'user32::GetFocus() p.r0'
+  ${If} $0 = 0
+    Return
+  ${EndIf}
+  ${If} $0 = $NavOverlay1
+    !insertmacro FocusRing $NavOverlay1 0xFFFFFF
+    SendMessage $HWNDPARENT ${DM_SETDEFID} 1 0
+  ${ElseIf} $0 = $NavOverlay2
+    !insertmacro FocusRing $NavOverlay2 ${COLOR_ACCENT}
+    SendMessage $HWNDPARENT ${DM_SETDEFID} 2 0
+  ${ElseIf} $0 = $NavOverlay3
+    !insertmacro FocusRing $NavOverlay3 ${COLOR_ACCENT}
+    SendMessage $HWNDPARENT ${DM_SETDEFID} 3 0
+  ${Else}
+    ${If} $FocusPill <> 0
+      ShowWindow $FocusPill 0
+    ${EndIf}
+    SendMessage $HWNDPARENT ${DM_SETDEFID} 1 0
+  ${EndIf}
+!macroend
+
+Function FocusPoll
+  !insertmacro FocusPollCore
+FunctionEnd
+
+Function un.FocusPoll
+  !insertmacro FocusPollCore
+FunctionEnd
+
+!macro DestroyStepDotsCore
+  ${If} $StepDot1 <> 0
+    System::Call 'user32::DestroyWindow(p $StepDot1)'
+    StrCpy $StepDot1 0
+  ${EndIf}
+  ${If} $StepDot2 <> 0
+    System::Call 'user32::DestroyWindow(p $StepDot2)'
+    StrCpy $StepDot2 0
+  ${EndIf}
+  ${If} $StepDot3 <> 0
+    System::Call 'user32::DestroyWindow(p $StepDot3)'
+    StrCpy $StepDot3 0
+  ${EndIf}
+!macroend
+
+!macro CreateStepDot _var _num _fg _bg
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "${_num}", i 0x50000201, i r5, i r9, i r1, i r1, p $HWNDPARENT, p 0, p 0, p 0) p.s'
+  Pop ${_var}
+  SetCtlColors ${_var} ${_fg} ${_bg}
+  SendMessage ${_var} ${WM_SETFONT} $FontCaption 1
+!macroend
+
+!macro ShowStepDots _active
+  !insertmacro DestroyStepDotsCore
+  !if "${_active}" != "0"
+    GetDlgItem $0 $HWNDPARENT 1037
+    ${If} $0 <> 0
+      !insertmacro NavReadRect $0
+      IntOp $1 $DPI * 12
+      IntOp $1 $1 / 96
+      IntOp $4 $DPI * 6
+      IntOp $4 $4 / 96
+      IntOp $8 $1 * 3
+      IntOp $5 $4 * 2
+      IntOp $8 $8 + $5
+      IntOp $5 $2 + $6
+      IntOp $5 $5 - $8
+      IntOp $8 $7 / 2
+      IntOp $9 $3 + $8
+      IntOp $8 $1 / 2
+      IntOp $9 $9 - $8
+      IntOp $8 $1 + $4
+      !if "${_active}" == "1"
+        !insertmacro CreateStepDot $StepDot1 "1" 0xFFFFFF ${COLOR_ACCENT}
+      !else
+        !insertmacro CreateStepDot $StepDot1 "1" ${COLOR_MUTED} ${COLOR_BG}
+      !endif
+      IntOp $5 $5 + $8
+      !if "${_active}" == "2"
+        !insertmacro CreateStepDot $StepDot2 "2" 0xFFFFFF ${COLOR_ACCENT}
+      !else
+        !insertmacro CreateStepDot $StepDot2 "2" ${COLOR_MUTED} ${COLOR_BG}
+      !endif
+      IntOp $5 $5 + $8
+      !if "${_active}" == "3"
+        !insertmacro CreateStepDot $StepDot3 "3" 0xFFFFFF ${COLOR_ACCENT}
+      !else
+        !insertmacro CreateStepDot $StepDot3 "3" ${COLOR_MUTED} ${COLOR_BG}
+      !endif
+    ${EndIf}
+  !endif
+!macroend
 
 Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
@@ -564,27 +698,67 @@ Function PageWelcome
     Abort
   ${EndIf}
   Call StyleWizard
+  !insertmacro ShowStepDots 0
   !insertmacro MUI_HEADER_TEXT "Добро пожаловать" ""
   nsDialogs::Create 1018
   Pop $DIALOG
   SetCtlColors $DIALOG "" ${COLOR_BG}
 
-  !insertmacro LabelHeight 15
-  ${NSD_CreateLabel} 0 62u 100% $9u "Нужно пройти несколько шагов перед запуском лаунчера"
+  !insertmacro LabelHeight 22
+  ${NSD_CreateLabel} 0 6u 100% $9u "${PRODUCTNAME}"
   Pop $0
   ${NSD_AddStyle} $0 ${SS_CENTER}
+  SendMessage $0 ${WM_SETFONT} $FontHeading 1
+  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
+
+  !insertmacro LabelHeight 15
+  ${NSD_CreateLabel} 0 32u 10u $9u "1"
+  Pop $0
+  ${NSD_AddStyle} $0 0x201
   SendMessage $0 ${WM_SETFONT} $FontBody 1
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+  SetCtlColors $0 ${COLOR_ACCENT} ${COLOR_BG}
+  ${NSD_CreateLabel} 14u 32u -14u $9u "Папка установки"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
+
+  ${NSD_CreateLabel} 0 51u 10u $9u "2"
+  Pop $0
+  ${NSD_AddStyle} $0 0x201
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  SetCtlColors $0 ${COLOR_ACCENT} ${COLOR_BG}
+  ${NSD_CreateLabel} 14u 51u -14u $9u "Установка"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
+
+  ${NSD_CreateLabel} 0 70u 10u $9u "3"
+  Pop $0
+  ${NSD_AddStyle} $0 0x201
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  SetCtlColors $0 ${COLOR_ACCENT} ${COLOR_BG}
+  ${NSD_CreateLabel} 14u 70u -14u $9u "Готово"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
 
   !insertmacro LabelHeight 12
+  ${NSD_CreateLabel} 0 -46u 100% $9u "Если WebView2 отсутствует, он будет скачан из интернета во время установки"
+  Pop $0
+  ${NSD_AddStyle} $0 ${SS_CENTER}
+  SendMessage $0 ${WM_SETFONT} $FontCaption 1
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+
   ${NSD_CreateLabel} 0 -26u 100% $9u "Версия ${VERSION}"
   Pop $0
   ${NSD_AddStyle} $0 ${SS_CENTER}
   SendMessage $0 ${WM_SETFONT} $FontCaption 1
   SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
 
-  !insertmacro NavButtons "Далее" "Отмена" ""
+  !insertmacro NavButtons "Далее" "Отмена" "" 1
+  ${NSD_CreateTimer} FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} FocusPoll
   Call DestroyNavOverlays
 FunctionEnd
 
@@ -649,6 +823,7 @@ Function PageReinstall
     Call PageLeaveReinstall
   ${Else}
     Call StyleWizard
+    !insertmacro ShowStepDots 0
     nsDialogs::Create 1018
     Pop $R4
     ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
@@ -663,74 +838,46 @@ Function PageReinstall
     SetCtlColors $R1 ${COLOR_MUTED} ${COLOR_BG}
 
     !insertmacro LabelHeight 15
-    ${NSD_CreateLabel} 0 66u 10u $9u "○"
-    Pop $RadioDot1
-    ${NSD_AddStyle} $RadioDot1 0x301
-    SendMessage $RadioDot1 ${WM_SETFONT} $FontBody 1
-    SetCtlColors $RadioDot1 ${COLOR_MUTED} ${COLOR_BG}
-    ${NSD_OnClick} $RadioDot1 PageReinstallSelect1
+    ${NSD_CreateRadioButton} 0 66u -14u $9u $R2
+    Pop $Radio1
+    ${NSD_AddStyle} $Radio1 ${WS_GROUP}
+    System::Call 'uxtheme::SetWindowTheme(p $Radio1, w "", w "")'
+    SendMessage $Radio1 ${WM_SETFONT} $FontBody 1
+    SetCtlColors $Radio1 ${COLOR_TEXT} ${COLOR_BG}
+    ${NSD_OnClick} $Radio1 PageReinstallSelect1
 
     !insertmacro LabelHeight 15
-    ${NSD_CreateLabel} 14u 66u -14u $9u $R2
-    Pop $RadioLabel1
-    ${NSD_AddStyle} $RadioLabel1 0x300
-    SendMessage $RadioLabel1 ${WM_SETFONT} $FontBody 1
-    SetCtlColors $RadioLabel1 ${COLOR_TEXT} ${COLOR_BG}
-    ${NSD_OnClick} $RadioLabel1 PageReinstallSelect1
+    ${NSD_CreateRadioButton} 0 86u -14u $9u $R3
+    Pop $Radio2
+    System::Call 'uxtheme::SetWindowTheme(p $Radio2, w "", w "")'
+    SendMessage $Radio2 ${WM_SETFONT} $FontBody 1
+    SetCtlColors $Radio2 ${COLOR_TEXT} ${COLOR_BG}
+    ${NSD_OnClick} $Radio2 PageReinstallSelect2
 
-    !insertmacro LabelHeight 15
-    ${NSD_CreateLabel} 0 86u 10u $9u "○"
-    Pop $RadioDot2
-    ${NSD_AddStyle} $RadioDot2 0x301
-    SendMessage $RadioDot2 ${WM_SETFONT} $FontBody 1
-    SetCtlColors $RadioDot2 ${COLOR_MUTED} ${COLOR_BG}
-    ${NSD_OnClick} $RadioDot2 PageReinstallSelect2
-
-    !insertmacro LabelHeight 15
-    ${NSD_CreateLabel} 14u 86u -14u $9u $R3
-    Pop $RadioLabel2
-    ${NSD_AddStyle} $RadioLabel2 0x300
-    SendMessage $RadioLabel2 ${WM_SETFONT} $FontBody 1
-    SetCtlColors $RadioLabel2 ${COLOR_TEXT} ${COLOR_BG}
-    ${NSD_OnClick} $RadioLabel2 PageReinstallSelect2
+    ${NSD_Check} $Radio1
 
     !if "${ALLOWDOWNGRADES}" == "false"
       ${If} $R0 = -1
-        EnableWindow $RadioLabel2 0
-        SetCtlColors $RadioLabel2 ${COLOR_MUTED} ${COLOR_BG}
+        EnableWindow $Radio2 0
+        SetCtlColors $Radio2 ${COLOR_MUTED} ${COLOR_BG}
         StrCpy $ReinstallPageCheck 1
       ${EndIf}
     !endif
 
-    Call PageReinstallUpdateRadioVisuals
-    !insertmacro NavButtons "Далее" "Отмена" "Назад"
+    !insertmacro NavButtons "Далее" "Отмена" "Назад" 1
+    ${NSD_CreateTimer} FocusPoll 50
     nsDialogs::Show
+    ${NSD_KillTimer} FocusPoll
     Call DestroyNavOverlays
   ${EndIf}
 FunctionEnd
 
 Function PageReinstallSelect1
   StrCpy $ReinstallPageCheck 1
-  Call PageReinstallUpdateRadioVisuals
 FunctionEnd
 
 Function PageReinstallSelect2
   StrCpy $ReinstallPageCheck 2
-  Call PageReinstallUpdateRadioVisuals
-FunctionEnd
-
-Function PageReinstallUpdateRadioVisuals
-  ${If} $ReinstallPageCheck = 2
-    ${NSD_SetText} $RadioDot1 "○"
-    SetCtlColors $RadioDot1 ${COLOR_MUTED} ${COLOR_BG}
-    ${NSD_SetText} $RadioDot2 "●"
-    SetCtlColors $RadioDot2 ${COLOR_ACCENT} ${COLOR_BG}
-  ${Else}
-    ${NSD_SetText} $RadioDot1 "●"
-    SetCtlColors $RadioDot1 ${COLOR_ACCENT} ${COLOR_BG}
-    ${NSD_SetText} $RadioDot2 "○"
-    SetCtlColors $RadioDot2 ${COLOR_MUTED} ${COLOR_BG}
-  ${EndIf}
 FunctionEnd
 Function PageLeaveReinstall
   StrCpy $R1 $ReinstallPageCheck
@@ -805,7 +952,7 @@ Function PageDirectory
     Abort
   ${EndIf}
   Call StyleWizard
-  !insertmacro MUI_HEADER_TEXT "Папка установки" "Выберите, куда установить ${PRODUCTNAME}"
+  !insertmacro MUI_HEADER_TEXT "Папка установки" "Шаг 1 из 3"
   nsDialogs::Create 1018
   Pop $DIALOG
   SetCtlColors $DIALOG "" ${COLOR_BG}
@@ -846,8 +993,11 @@ Function PageDirectory
   SendMessage $0 ${WM_SETFONT} $FontCaption 1
   SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
 
-  !insertmacro NavButtons "Установить" "Отмена" "Назад"
+  !insertmacro NavButtons "Установить" "Отмена" "Назад" 1
+  !insertmacro ShowStepDots 1
+  ${NSD_CreateTimer} FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} FocusPoll
   Call DestroyNavOverlays
 FunctionEnd
 
@@ -878,6 +1028,7 @@ FunctionEnd
 
 Function StyleInstFiles
   Call StyleWizard
+  !insertmacro MUI_HEADER_TEXT "Установка" "Шаг 2 из 3"
   FindWindow $1 "#32770" "" $HWNDPARENT
   SetCtlColors $1 "" ${COLOR_BG}
   GetDlgItem $0 $1 1006
@@ -896,7 +1047,9 @@ Function StyleInstFiles
   System::Call 'uxtheme::SetWindowTheme(p $0, w "", w "")'
   SendMessage $0 ${PBM_SETBARCOLOR} 0 ${COLOR_ACCENT}
   SendMessage $0 ${PBM_SETBKCOLOR} 0 ${COLOR_BG_INPUT}
-  !insertmacro NavButtons "Далее" "Отмена" "Назад"
+  !insertmacro NavButtons "Далее" "Отмена" "Назад" 0
+  !insertmacro DisableNavOverlaysExceptCancel
+  !insertmacro ShowStepDots 2
   SetAutoClose false
 FunctionEnd
 
@@ -905,7 +1058,7 @@ Function PageFinish
     Abort
   ${EndIf}
   Call StyleWizard
-  !insertmacro MUI_HEADER_TEXT "" ""
+  !insertmacro MUI_HEADER_TEXT "Готово" "Шаг 3 из 3"
   nsDialogs::Create 1018
   Pop $DIALOG
   SetCtlColors $DIALOG "" ${COLOR_BG}
@@ -926,39 +1079,20 @@ Function PageFinish
   SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
 
   !insertmacro LabelHeight 15
-  ${NSD_CreateLabel} 0 82u 10u $9u "●"
-  Pop $RunAppDot
-  ${NSD_AddStyle} $RunAppDot 0x100
-  SendMessage $RunAppDot ${WM_SETFONT} $FontBody 1
-  SetCtlColors $RunAppDot ${COLOR_ACCENT} ${COLOR_BG}
-  ${NSD_OnClick} $RunAppDot PageFinishToggleRun
+  ${NSD_CreateCheckbox} 0 82u -14u $9u "Запустить ${PRODUCTNAME}"
+  Pop $RunAppCheckbox
+  System::Call 'uxtheme::SetWindowTheme(p $RunAppCheckbox, w "", w "")'
+  SendMessage $RunAppCheckbox ${WM_SETFONT} $FontBody 1
+  SetCtlColors $RunAppCheckbox ${COLOR_TEXT} ${COLOR_BG}
+  ${NSD_Check} $RunAppCheckbox
 
   !insertmacro LabelHeight 15
-  ${NSD_CreateLabel} 14u 82u -14u $9u "Запустить ${PRODUCTNAME}"
-  Pop $RunAppLabel
-  ${NSD_AddStyle} $RunAppLabel 0x300
-  SendMessage $RunAppLabel ${WM_SETFONT} $FontBody 1
-  SetCtlColors $RunAppLabel ${COLOR_TEXT} ${COLOR_BG}
-  ${NSD_OnClick} $RunAppLabel PageFinishToggleRun
-
-  !insertmacro LabelHeight 15
-  ${NSD_CreateLabel} 0 106u 10u $9u "●"
-  Pop $DeskDot
-  ${NSD_AddStyle} $DeskDot 0x100
-  SendMessage $DeskDot ${WM_SETFONT} $FontBody 1
-  SetCtlColors $DeskDot ${COLOR_ACCENT} ${COLOR_BG}
-  ${NSD_OnClick} $DeskDot PageFinishToggleDesk
-
-  !insertmacro LabelHeight 15
-  ${NSD_CreateLabel} 14u 106u -14u $9u "Создать ярлык на рабочем столе"
-  Pop $DeskLabel
-  ${NSD_AddStyle} $DeskLabel 0x300
-  SendMessage $DeskLabel ${WM_SETFONT} $FontBody 1
-  SetCtlColors $DeskLabel ${COLOR_TEXT} ${COLOR_BG}
-  ${NSD_OnClick} $DeskLabel PageFinishToggleDesk
-
-  StrCpy $RunAppCheckbox 1
-  StrCpy $DesktopShortcutCheckbox 1
+  ${NSD_CreateCheckbox} 0 106u -14u $9u "Создать ярлык на рабочем столе"
+  Pop $DesktopShortcutCheckbox
+  System::Call 'uxtheme::SetWindowTheme(p $DesktopShortcutCheckbox, w "", w "")'
+  SendMessage $DesktopShortcutCheckbox ${WM_SETFONT} $FontBody 1
+  SetCtlColors $DesktopShortcutCheckbox ${COLOR_TEXT} ${COLOR_BG}
+  ${NSD_Check} $DesktopShortcutCheckbox
 
   GetDlgItem $0 $HWNDPARENT 1
   SendMessage $0 ${WM_SETTEXT} 0 "STR:Готово"
@@ -967,33 +1101,12 @@ Function PageFinish
   GetDlgItem $0 $HWNDPARENT 3
   ShowWindow $0 0
 
-  !insertmacro NavButtons "Готово" "" ""
+  !insertmacro NavButtons "Готово" "" "" 1
+  !insertmacro ShowStepDots 3
+  ${NSD_CreateTimer} FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} FocusPoll
   Call DestroyNavOverlays
-FunctionEnd
-
-Function PageFinishToggleRun
-  ${If} $RunAppCheckbox = 1
-    StrCpy $RunAppCheckbox 0
-    ${NSD_SetText} $RunAppDot "○"
-    SetCtlColors $RunAppDot ${COLOR_MUTED} ${COLOR_BG}
-  ${Else}
-    StrCpy $RunAppCheckbox 1
-    ${NSD_SetText} $RunAppDot "●"
-    SetCtlColors $RunAppDot ${COLOR_ACCENT} ${COLOR_BG}
-  ${EndIf}
-FunctionEnd
-
-Function PageFinishToggleDesk
-  ${If} $DesktopShortcutCheckbox = 1
-    StrCpy $DesktopShortcutCheckbox 0
-    ${NSD_SetText} $DeskDot "○"
-    SetCtlColors $DeskDot ${COLOR_MUTED} ${COLOR_BG}
-  ${Else}
-    StrCpy $DesktopShortcutCheckbox 1
-    ${NSD_SetText} $DeskDot "●"
-    SetCtlColors $DeskDot ${COLOR_ACCENT} ${COLOR_BG}
-  ${EndIf}
 FunctionEnd
 
 Function PageFinishLeave
@@ -1002,10 +1115,12 @@ Function PageFinishLeave
   ${OrIf} ${Silent}
     Return
   ${EndIf}
-  ${If} $DesktopShortcutCheckbox = 1
+  ${NSD_GetState} $DesktopShortcutCheckbox $0
+  ${If} $0 = ${BST_CHECKED}
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
-  ${If} $RunAppCheckbox = 1
+  ${NSD_GetState} $RunAppCheckbox $0
+  ${If} $0 = ${BST_CHECKED}
     Call RunMainBinary
   ${EndIf}
 FunctionEnd
@@ -1034,48 +1149,8 @@ Function un.StyleInstFiles
   System::Call 'uxtheme::SetWindowTheme(p $0, w "", w "")'
   SendMessage $0 ${PBM_SETBARCOLOR} 0 ${COLOR_ACCENT}
   SendMessage $0 ${PBM_SETBKCOLOR} 0 ${COLOR_BG_INPUT}
-  !insertmacro NavButtons "Далее" "Отмена" "Назад"
-FunctionEnd
-
-Function un.PageConfirm
-  ${If} $PassiveMode = 1
-    Abort
-  ${EndIf}
-  ${If} $UpdateMode = 1
-    Abort
-  ${EndIf}
-  Call un.StyleWizard
-  !insertmacro MUI_HEADER_TEXT "" ""
-  nsDialogs::Create 1018
-  Pop $DIALOG
-  SetCtlColors $DIALOG "" ${COLOR_BG}
-
-  ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" "DataPath"
-  StrCpy $1 "$PROFILE\${PRODUCTNAME}"
-  ${If} $0 != ""
-    StrCpy $1 $0
-  ${EndIf}
-
-  !insertmacro LabelHeight 22
-  ${NSD_CreateLabel} 0 6u 100% $9u "Удалить ${PRODUCTNAME}?"
-  Pop $0
-  SendMessage $0 ${WM_SETFONT} $FontHeading 1
-  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
-
-  !insertmacro LabelHeight 15
-  IntOp $9 $9 * 5
-  IntOp $9 $9 + 8
-  ${NSD_CreateLabel} 0 30u 100% $9u "Действие нельзя отменить.$\n$\nБудут удалены:$\n— файлы программы: $INSTDIR$\n— папка данных: $1 (конфиги, сессии, файлы игр)"
-  Pop $0
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-
-  GetDlgItem $0 $HWNDPARENT 1
-  SendMessage $0 ${WM_SETTEXT} 0 "STR:Удалить"
-
-  !insertmacro NavButtons "Удалить" "Отмена" ""
-  nsDialogs::Show
-  Call un.DestroyNavOverlays
+  !insertmacro NavButtons "Далее" "Отмена" "Назад" 0
+  !insertmacro DisableNavOverlaysExceptCancel
 FunctionEnd
 
 Function un.onInit
@@ -1096,6 +1171,84 @@ Function un.onInit
   ${IfNot} ${Errors}
     StrCpy $UpdateMode 1
   ${EndIf}
+
+  StrCpy $KeepGameData 1
+FunctionEnd
+
+Function un.PageConfirmToggle
+  ${NSD_GetState} $KeepDataCheckbox $0
+  StrCpy $KeepGameData $0
+  ${If} $KeepGameData = 1
+    ${NSD_SetText} $DataStateLabel "Данные игр (будут сохранены): $ConfirmDataPath"
+    SetCtlColors $DataStateLabel ${COLOR_MUTED} ${COLOR_BG}
+  ${Else}
+    ${NSD_SetText} $DataStateLabel "Данные игр (БУДУТ УДАЛЕНЫ): $ConfirmDataPath"
+    SetCtlColors $DataStateLabel ${COLOR_ACCENT} ${COLOR_BG}
+  ${EndIf}
+FunctionEnd
+
+Function un.PageConfirm
+  ${If} $PassiveMode = 1
+    Abort
+  ${EndIf}
+  ${If} $UpdateMode = 1
+    Abort
+  ${EndIf}
+  Call un.StyleWizard
+  !insertmacro MUI_HEADER_TEXT "" ""
+  nsDialogs::Create 1018
+  Pop $DIALOG
+  SetCtlColors $DIALOG "" ${COLOR_BG}
+
+  ReadRegStr $ConfirmDataPath SHCTX "${MANUPRODUCTKEY}" "DataPath"
+  ${If} $ConfirmDataPath == ""
+    StrCpy $ConfirmDataPath "$PROFILE\${PRODUCTNAME}"
+  ${EndIf}
+
+  !insertmacro LabelHeight 22
+  ${NSD_CreateLabel} 0 6u 100% $9u "Удалить ${PRODUCTNAME}?"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontHeading 1
+  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_BG}
+
+  !insertmacro LabelHeight 15
+  ${NSD_CreateCheckbox} 0 34u -14u $9u "Сохранить данные игр (профили, миры)"
+  Pop $KeepDataCheckbox
+  System::Call 'uxtheme::SetWindowTheme(p $KeepDataCheckbox, w "", w "")'
+  SendMessage $KeepDataCheckbox ${WM_SETFONT} $FontBody 1
+  SetCtlColors $KeepDataCheckbox ${COLOR_TEXT} ${COLOR_BG}
+  ${NSD_Check} $KeepDataCheckbox
+  ${NSD_OnClick} $KeepDataCheckbox un.PageConfirmToggle
+
+  !insertmacro LabelHeight 12
+  ${NSD_CreateLabel} 0 56u 100% $9u "Данные игр (будут сохранены): $ConfirmDataPath"
+  Pop $DataStateLabel
+  SendMessage $DataStateLabel ${WM_SETFONT} $FontCaption 1
+  SetCtlColors $DataStateLabel ${COLOR_MUTED} ${COLOR_BG}
+
+  ${NSD_CreateLabel} 0 80u 100% $9u "Действие нельзя отменить. Будут удалены:"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontCaption 1
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+
+  ${NSD_CreateLabel} 0 100u 100% $9u "— файлы программы: $INSTDIR"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontCaption 1
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+
+  ${NSD_CreateLabel} 0 120u 100% $9u "— настройки и сессии лаунчера"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $FontCaption 1
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+
+  GetDlgItem $0 $HWNDPARENT 1
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:Удалить"
+
+  !insertmacro NavButtons "Удалить" "Отмена" "" 1
+  ${NSD_CreateTimer} un.FocusPoll 50
+  nsDialogs::Show
+  ${NSD_KillTimer} un.FocusPoll
+  Call un.DestroyNavOverlays
 FunctionEnd
 
 Section EarlyChecks
@@ -1366,6 +1519,18 @@ Section Uninstall
   ${EndIf}
 
   ${If} $UpdateMode <> 1
+    SetShellVarContext current
+    ReadRegStr $ConfirmDataPath SHCTX "${MANUPRODUCTKEY}" "DataPath"
+    ${If} $ConfirmDataPath == ""
+      StrCpy $ConfirmDataPath "$PROFILE\${PRODUCTNAME}"
+    ${EndIf}
+    ${If} $KeepGameData = 1
+      DetailPrint "Данные игр сохранены: $ConfirmDataPath"
+    ${Else}
+      DetailPrint "Удаление данных игр: $ConfirmDataPath"
+      RmDir /r "$ConfirmDataPath"
+    ${EndIf}
+
     DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty SHCTX "${MANUKEY}"
 
@@ -1373,15 +1538,7 @@ Section Uninstall
     DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty HKCU "${MANUKEY}"
 
-    SetShellVarContext current
-    ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" "DataPath"
-    StrCpy $1 "${PRODUCTNAME}"
-    ${If} $0 != ""
-      RmDir /r "$0"
-      ${GetFileName} $0 $1
-    ${EndIf}
-    RmDir /r "$PROFILE\$1"
-    RmDir /r "$APPDATA\$1"
+    RmDir /r "$APPDATA\${PRODUCTNAME}"
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
   ${EndIf}

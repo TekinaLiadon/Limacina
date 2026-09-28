@@ -25,6 +25,8 @@ const {
   isOffline,
   isLoginValid,
   isRegisterValid,
+  registerLoginHint,
+  registerPasswordHint,
   handleLogin,
   handleRegister,
 } = useAuth()
@@ -93,6 +95,8 @@ const switchTab = (tab: AuthSubTab): void => {
         :is-loading="isLoading"
         :is-disabled="!isRegisterValid"
         :error-message="errorMessage"
+        :username-hint="registerLoginHint ?? ''"
+        :password-hint="registerPasswordHint ?? ''"
         username-placeholder="Логин"
         @submit="handleRegister"
         @back="emit('back')"

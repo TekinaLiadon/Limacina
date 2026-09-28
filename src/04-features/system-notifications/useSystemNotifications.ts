@@ -73,20 +73,23 @@ export function useSystemNotifications(): {
     }
   }
 
+  const exitBody = (info: GameExitInfo): string =>
+    info.reason ??
+    (info.code != null
+      ? `Процесс игры завершился с кодом ${info.code}`
+      : 'Процесс игры был аварийно завершён')
+
   const handleGameExit = async (info: GameExitInfo): Promise<void> => {
     if (info.success) return
     if (await isWindowHidden()) {
-      const body =
-        info.code != null
-          ? `Процесс игры завершился с кодом ${info.code}`
-          : 'Процесс игры был аварийно завершён'
-      await sendSystemNotification('Игра завершилась с ошибкой', body)
+      await sendSystemNotification('Игра завершилась с ошибкой', exitBody(info))
       return
     }
     notification.show(
-      info.code != null
-        ? `Игра завершилась с ошибкой (код ${info.code})`
-        : 'Игра была аварийно завершена'
+      info.reason ??
+        (info.code != null
+          ? `Игра завершилась с ошибкой (код ${info.code})`
+          : 'Игра была аварийно завершена')
     )
   }
 

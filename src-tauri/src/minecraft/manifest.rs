@@ -5,7 +5,10 @@ use crate::utils::errors::LauncherError;
 use crate::{
     minecraft::structs::Versions,
     minecraft::vanilla::structs::VersionDetailsManifest,
-    utils::{download_file::download_json, env_info::launcher_path},
+    utils::{
+        download_file::download_json,
+        env_info::{ensure_safe_relative_path, launcher_path},
+    },
 };
 
 pub const VERSION_MANIFEST_URL: &str =
@@ -27,6 +30,7 @@ pub async fn get_manifest_version(
     version: &str,
     manifest: Vec<Versions>,
 ) -> Result<VersionDetailsManifest> {
+    ensure_safe_relative_path(version, "версии игры")?;
     let json_path = launcher_path(None)?
         .join("manifest")
         .join(format!("{}.json", version));
@@ -39,4 +43,27 @@ pub async fn get_manifest_version(
     let manifest: VersionDetailsManifest =
         download_json(Some(&version_url), json_path.as_path()).await?;
     Ok(manifest)
+}
+
+#[cfg(test)]
+mod version_validation_tests {
+    use super::get_manifest_version;
+
+    #[tokio::test]
+    async fn traversal_version_is_rejected_before_lookup() {
+        let error = get_manifest_version("../evil", vec![])
+            .await
+            .expect_err("версия с обходом пути должна быть отклонена");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии игры"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn windows_style_traversal_version_is_rejected() {
+        assert!(get_manifest_version("..\\evil", vec![]).await.is_err());
+    }
 }

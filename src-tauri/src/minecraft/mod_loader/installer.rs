@@ -19,7 +19,7 @@ use crate::{
     step_try,
     utils::{
         download_file::{download_file, download_json, write_atomic},
-        env_info::launcher_path,
+        env_info::{ensure_safe_relative_path, launcher_path},
         integrity::{
             ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload,
         },
@@ -233,6 +233,7 @@ pub async fn start_installer(
     vanilla_dir: &Path,
     state_project: &ProjectConfig,
 ) -> Result<Manifest> {
+    ensure_safe_relative_path(&state_project.mc_version, "версии игры")?;
     run_loader_installer(loader_name, installer_path, vanilla_dir, state_project).await?;
 
     let (loader_manifest, base_url) = manifest_paths(state_project, manifest_prefix)?;
@@ -395,6 +396,29 @@ mod loader_install_tests {
     use mockito::Server;
     use serde_json::json;
     use std::fs;
+
+    #[tokio::test]
+    async fn start_installer_rejects_traversal_mc_version_before_installer() {
+        let state_project = ProjectConfig {
+            mc_version: "../evil".to_string(),
+            ..ProjectConfig::default()
+        };
+        let error = start_installer(
+            "forge",
+            "forge",
+            Path::new("unused-installer.jar"),
+            Path::new("unused-vanilla"),
+            &state_project,
+        )
+        .await
+        .expect_err("версия с обходом пути должна быть отклонена до инсталлятора");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии игры"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
 
     fn project_config(project: &str) -> ProjectConfig {
         ProjectConfig {

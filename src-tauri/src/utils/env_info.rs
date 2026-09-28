@@ -64,6 +64,13 @@ pub fn is_safe_relative_path(key: &str) -> bool {
     })
 }
 
+pub fn ensure_safe_relative_path(value: &str, what: &str) -> Result<()> {
+    if is_safe_relative_path(value) {
+        return Ok(());
+    }
+    Err(LauncherError::InvalidInput(format!("Некорректное значение {what}: {value}")).into())
+}
+
 pub fn launcher_path(project: Option<&str>) -> Result<PathBuf> {
     let base_path = crate::state::launcher_config::LauncherConfig::resolved_launcher_path();
 
@@ -102,7 +109,21 @@ pub fn get_arch() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_safe_relative_path, normalize_server_url};
+    use super::{ensure_safe_relative_path, is_safe_relative_path, normalize_server_url};
+
+    #[test]
+    fn ensure_safe_relative_path_rejects_traversal_and_accepts_plain() {
+        let error = ensure_safe_relative_path("../evil", "версии игры")
+            .expect_err("обход пути должен быть отклонён");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии игры"),
+            "ошибка должна называть проверяемое значение: {error}"
+        );
+        assert!(ensure_safe_relative_path("..\\evil", "версия игры").is_err());
+        assert!(ensure_safe_relative_path("1.20.1", "версии игры").is_ok());
+    }
 
     #[test]
     fn normalize_adds_scheme_and_strips_trailing_slash() {

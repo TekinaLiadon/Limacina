@@ -1,5 +1,5 @@
 export { useCoreStore } from './core/coreStore'
-export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH } from './core/authPolicy'
+export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage } from './core/authPolicy'
 export type {
   CoreState,
   LauncherConfig,

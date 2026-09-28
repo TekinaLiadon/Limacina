@@ -21,23 +21,33 @@ use crate::{
 pub struct VanillaPhaseInfo {
     pub id: &'static str,
     pub label: &'static str,
+    pub integrity_noun: &'static str,
 }
 
 pub const PHASE_CLIENT: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.jar",
     label: "Клиент игры",
+    integrity_noun: "клиентский jar",
 };
 pub const PHASE_LIBRARIES: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.libs",
     label: "Библиотеки игры",
+    integrity_noun: "библиотеки",
+};
+pub const PHASE_NATIVES: VanillaPhaseInfo = VanillaPhaseInfo {
+    id: "mc.natives",
+    label: "Нативные библиотеки",
+    integrity_noun: "нативные библиотеки",
 };
 pub const PHASE_ASSET_INDEX: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.assets.index",
     label: "Загрузка индекса ресурсов",
+    integrity_noun: "индекс ассетов",
 };
 pub const PHASE_ASSETS: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.assets",
     label: "Загрузка ресурсов",
+    integrity_noun: "ассеты",
 };
 
 pub struct VanillaTargetSet {

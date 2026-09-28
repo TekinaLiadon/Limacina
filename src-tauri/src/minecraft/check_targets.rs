@@ -1,36 +1,38 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use futures::future::BoxFuture;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::log_err;
-use crate::log_info;
-use crate::minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL};
-use crate::minecraft::vanilla::download::{
-    collect_asset_targets, collect_install_targets, collect_natives_to_extract, extract_natives,
-    read_asset_index, PHASE_ASSETS, PHASE_ASSET_INDEX, PHASE_CLIENT, PHASE_LIBRARIES,
+use crate::{
+    log_err, log_info,
+    minecraft::{
+        manifest::get_manifest_version,
+        vanilla::{
+            download::{
+                extract_natives, read_asset_index, VanillaPhaseInfo, PHASE_ASSET_INDEX,
+                PHASE_NATIVES,
+            },
+            manifest::load_vanilla_index,
+            pipeline::{run_vanilla_phases, VanillaPhaseExecutor},
+            structs::{AssetIndexContent, VersionDetailsManifest},
+        },
+    },
+    state::dto::ProjectConfig,
+    utils::{
+        download_file::download_file,
+        env_info::launcher_path,
+        errors::LauncherError,
+        integrity::{check_integrity, IntegrityReport, IntegrityTarget},
+        step_events::{StepChannel, StepHandle},
+    },
 };
-use crate::minecraft::vanilla::manifest::create_manifest_versions;
-use crate::minecraft::vanilla::structs::{VanillaVersionsManifest, VersionDetailsManifest};
-use crate::state::dto::ProjectConfig;
-use crate::utils::download_file::download_file;
-use crate::utils::env_info::launcher_path;
-use crate::utils::errors::LauncherError;
-use crate::utils::integrity::{check_integrity, IntegrityReport};
-use crate::utils::step_events::{StepChannel, StepHandle};
 
-pub async fn load_version_manifest(
-    project: &ProjectConfig,
-) -> Result<crate::minecraft::vanilla::structs::VersionDetailsManifest> {
-    let manifest_index =
-        get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
-            .await
-            .map_err(|e| {
-                LauncherError::GameDownload(format!(
-                    "Не удалось загрузить индекс манифеста версий: {e:#}"
-                ))
-            })?;
-
-    let versions = create_manifest_versions(manifest_index.versions);
+pub async fn load_version_manifest(project: &ProjectConfig) -> Result<VersionDetailsManifest> {
+    let versions = load_vanilla_index().await.map_err(|e| {
+        LauncherError::GameDownload(format!(
+            "Не удалось загрузить индекс манифеста версий: {e:#}"
+        ))
+    })?;
 
     let manifest = get_manifest_version(&project.mc_version, versions)
         .await
@@ -55,6 +57,71 @@ fn url_download_fn(
     }
 }
 
+struct IntegrityPhases {
+    base_path: PathBuf,
+    report: IntegrityReport,
+}
+
+#[async_trait]
+impl VanillaPhaseExecutor for IntegrityPhases {
+    async fn fetch(
+        &mut self,
+        phase: &'static VanillaPhaseInfo,
+        targets: Vec<IntegrityTarget>,
+    ) -> Result<()> {
+        let report = check_integrity(
+            &self.base_path,
+            targets,
+            phase.id,
+            phase.label,
+            url_download_fn(),
+        )
+        .await
+        .map_err(|e| {
+            LauncherError::GameDownload(format!(
+                "Не удалось проверить {}: {e:#}",
+                phase.integrity_noun
+            ))
+        })?;
+        self.report.merge(report);
+        Ok(())
+    }
+
+    async fn natives(
+        &mut self,
+        mc_version: &str,
+        natives_rel: Vec<(PathBuf, Option<Vec<String>>)>,
+    ) -> Result<()> {
+        let report = check_natives_integrity(&self.base_path, natives_rel, mc_version).await?;
+        self.report.merge(report);
+        Ok(())
+    }
+
+    async fn asset_index(&mut self, target: IntegrityTarget) -> Result<AssetIndexContent> {
+        let index_path = self.base_path.join(&target.rel_path);
+        let report = check_integrity(
+            &self.base_path,
+            vec![target],
+            PHASE_ASSET_INDEX.id,
+            PHASE_ASSET_INDEX.label,
+            url_download_fn(),
+        )
+        .await
+        .map_err(|e| {
+            LauncherError::GameDownload(format!(
+                "Не удалось проверить {}: {e:#}",
+                PHASE_ASSET_INDEX.integrity_noun
+            ))
+        })?;
+        self.report.merge(report);
+
+        let asset_index = read_asset_index(&index_path).await.map_err(|e| {
+            LauncherError::GameDownload(format!("Не удалось прочитать индекс ассетов: {e:#}"))
+        })?;
+        Ok(asset_index)
+    }
+}
+
 pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<IntegrityReport> {
     let project_name = project.project_name.clone();
 
@@ -73,65 +140,14 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
             "Не удалось определить путь к файлам проекта: {e:#}"
         ))
     })?;
-    let targets = collect_install_targets(&manifest);
 
-    let jar_report = check_integrity(
-        &base_path,
-        vec![targets.client],
-        PHASE_CLIENT.id,
-        PHASE_CLIENT.label,
-        url_download_fn(),
-    )
-    .await
-    .map_err(|e| {
-        LauncherError::GameDownload(format!("Не удалось проверить клиентский jar: {e:#}"))
-    })?;
+    let mut phases = IntegrityPhases {
+        base_path,
+        report: IntegrityReport::default(),
+    };
+    run_vanilla_phases(&mut phases, &manifest).await?;
 
-    let libs_report = check_integrity(
-        &base_path,
-        targets.libraries,
-        PHASE_LIBRARIES.id,
-        PHASE_LIBRARIES.label,
-        url_download_fn(),
-    )
-    .await
-    .map_err(|e| LauncherError::GameDownload(format!("Не удалось проверить библиотеки: {e:#}")))?;
-
-    let natives_report = check_natives_integrity(&base_path, &manifest).await?;
-
-    let index_report = check_integrity(
-        &base_path,
-        vec![targets.asset_index.clone()],
-        PHASE_ASSET_INDEX.id,
-        PHASE_ASSET_INDEX.label,
-        url_download_fn(),
-    )
-    .await
-    .map_err(|e| {
-        LauncherError::GameDownload(format!("Не удалось проверить индекс ассетов: {e:#}"))
-    })?;
-
-    let index_path = base_path.join(&targets.asset_index.rel_path);
-    let asset_index = read_asset_index(&index_path).await.map_err(|e| {
-        LauncherError::GameDownload(format!("Не удалось прочитать индекс ассетов: {e:#}"))
-    })?;
-
-    let assets_report = check_integrity(
-        &base_path,
-        collect_asset_targets(&asset_index)?,
-        PHASE_ASSETS.id,
-        PHASE_ASSETS.label,
-        url_download_fn(),
-    )
-    .await
-    .map_err(|e| LauncherError::GameDownload(format!("Не удалось проверить ассеты: {e:#}")))?;
-
-    let mut report = jar_report;
-    report.merge(libs_report);
-    report.merge(natives_report);
-    report.merge(index_report);
-    report.merge(assets_report);
-
+    let report = phases.report;
     log_info!(
         "[integrity] Minecraft {}: проверено {}, повреждено {}, восстановлено {}, ошибок {}",
         project_name,
@@ -146,16 +162,19 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
 
 async fn check_natives_integrity(
     base_path: &Path,
-    manifest: &VersionDetailsManifest,
+    natives_rel: Vec<(PathBuf, Option<Vec<String>>)>,
+    mc_version: &str,
 ) -> Result<IntegrityReport> {
-    let step =
-        StepHandle::start_channel(StepChannel::Integrity, "mc.natives", "Нативные библиотеки");
-    let natives_rel = collect_natives_to_extract(manifest);
+    let step = StepHandle::start_channel(
+        StepChannel::Integrity,
+        PHASE_NATIVES.id,
+        PHASE_NATIVES.label,
+    );
     let total = natives_rel.len() as u64;
     step.set_total(total);
     step.detail("Распаковка");
 
-    match extract_natives(base_path, natives_rel, &manifest.id).await {
+    match extract_natives(base_path, natives_rel, mc_version).await {
         Ok(()) => {
             step.finish(false);
             Ok(IntegrityReport {
@@ -179,6 +198,7 @@ async fn check_natives_integrity(
 #[cfg(test)]
 mod tests {
     use super::check_natives_integrity;
+    use crate::minecraft::vanilla::download::collect_natives_to_extract;
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
     use crate::test_support::LauncherDirGuard;
     use crate::utils::env_info::get_current_os;
@@ -257,9 +277,10 @@ mod tests {
         let manifest: VersionDetailsManifest =
             serde_json::from_value(natives_manifest_json()).unwrap();
 
-        let report = check_natives_integrity(&base, &manifest)
-            .await
-            .expect("фаза natives проверки целостности");
+        let report =
+            check_natives_integrity(&base, collect_natives_to_extract(&manifest), &manifest.id)
+                .await
+                .expect("фаза natives проверки целостности");
 
         assert!(report.failed.is_empty());
         assert_eq!(
@@ -269,9 +290,10 @@ mod tests {
 
         std::fs::remove_file(&natives_jar).unwrap();
 
-        let report = check_natives_integrity(&base, &manifest)
-            .await
-            .expect("отчёт фазы natives при сбое");
+        let report =
+            check_natives_integrity(&base, collect_natives_to_extract(&manifest), &manifest.id)
+                .await
+                .expect("отчёт фазы natives при сбое");
 
         assert_eq!(report.failed, vec!["natives".to_string()]);
         let natives_clean = std::fs::read_dir(base.join("natives"))

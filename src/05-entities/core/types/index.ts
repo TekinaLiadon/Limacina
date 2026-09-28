@@ -268,6 +268,7 @@ export interface JavaDistribution {
 export interface GameExitInfo {
   success: boolean
   code: number | null
+  reason: string | null
 }
 
 export interface IntegrityReport {

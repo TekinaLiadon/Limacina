@@ -1,5 +1,5 @@
 import { computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, type AuthUserData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, type AuthUserData } from '@/05-entities'
 import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
@@ -49,6 +49,18 @@ export function useAuth() {
       store.registerFormData.confirmPassword.length > 0 &&
       passwordsMatch.value
     )
+  })
+
+  const registerLoginHint = computed((): string | null => {
+    const { login } = store.registerFormData
+    if (!login || login.length >= MIN_LOGIN_LENGTH) return null
+    return `Логин — ${minLengthMessage(MIN_LOGIN_LENGTH)}`
+  })
+
+  const registerPasswordHint = computed((): string | null => {
+    const { password } = store.registerFormData
+    if (!password || password.length >= MIN_PASSWORD_LENGTH) return null
+    return `Пароль — ${minLengthMessage(MIN_PASSWORD_LENGTH)}`
   })
 
   const loadSavedCredentials = (): void => {
@@ -133,6 +145,8 @@ export function useAuth() {
     isOffline,
     isLoginValid,
     isRegisterValid,
+    registerLoginHint,
+    registerPasswordHint,
     handleLogin,
     handleRegister,
   }

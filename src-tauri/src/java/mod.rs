@@ -10,8 +10,8 @@ use walkdir::WalkDir;
 use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
-    minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL},
-    minecraft::vanilla::{manifest::create_manifest_versions, structs::VanillaVersionsManifest},
+    minecraft::manifest::get_manifest_version,
+    minecraft::vanilla::manifest::load_vanilla_index,
     state::dto::ProjectConfig,
     step_try,
     utils::{
@@ -119,11 +119,7 @@ pub(crate) fn get_java_version(mc_version: &str) -> String {
 }
 
 async fn manifest_java_major(mc_version: &str) -> Option<u32> {
-    let index =
-        get_manifest_index::<VanillaVersionsManifest>("vanilla", VERSION_MANIFEST_URL, "index")
-            .await
-            .ok()?;
-    let versions = create_manifest_versions(index.versions);
+    let versions = load_vanilla_index().await.ok()?;
     let manifest = get_manifest_version(mc_version, versions).await.ok()?;
     manifest.java_version.map(|j| j.major_version)
 }

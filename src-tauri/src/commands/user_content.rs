@@ -12,7 +12,7 @@ use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offlin
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::download_file::{download_file, write_atomic};
-use crate::utils::env_info::launcher_path;
+use crate::utils::env_info::{ensure_safe_relative_path, launcher_path};
 use crate::utils::hex::digest_hex;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
@@ -136,9 +136,11 @@ pub async fn set_active_skin(state: State<'_, Mutex<GlobalState>>, id: i64) -> C
     Ok(())
 }
 
-fn skin_cache_name(uuid: &str, url: &str) -> String {
+fn skin_cache_name(uuid: &str, url: &str) -> Result<String> {
     let hash = Md5::digest(url.as_bytes());
-    format!("{}_{}.png", uuid, digest_hex(hash))
+    let name = format!("{}_{}.png", uuid, digest_hex(hash));
+    ensure_safe_relative_path(&name, "uuid профиля")?;
+    Ok(name)
 }
 
 async fn get_profile_skin_inner(
@@ -160,7 +162,7 @@ async fn get_profile_skin_inner(
     }
 
     let cache_dir = launcher_path(Some(&project_name))?.join("profile_skins");
-    let file_name = skin_cache_name(&uuid, url);
+    let file_name = skin_cache_name(&uuid, url)?;
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
@@ -396,6 +398,42 @@ mod skin_size_tests {
         assert!(
             error.to_string().contains("слишком большой"),
             "ошибка должна объяснять превышение лимита: {error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod skin_cache_name_tests {
+    use super::{digest_hex, skin_cache_name};
+    use md5::{Digest, Md5};
+
+    #[test]
+    fn traversal_uuid_is_rejected() {
+        let error = skin_cache_name("../../evil", "https://example.invalid/skin.png")
+            .expect_err("uuid с обходом пути должен быть отклонён");
+        assert!(
+            error.to_string().contains("Некорректное значение uuid"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
+
+    #[test]
+    fn windows_style_traversal_uuid_is_rejected() {
+        assert!(skin_cache_name("..\\evil", "https://example.invalid/skin.png").is_err());
+    }
+
+    #[test]
+    fn normal_uuid_builds_cache_name() {
+        let url = "https://example.invalid/skin.png";
+        let name =
+            skin_cache_name("069a79f4-44e9-4726-a5be-fca90e38aaf5", url).expect("валидный uuid");
+        let hash = Md5::digest(url.as_bytes());
+        assert_eq!(
+            name,
+            format!(
+                "069a79f4-44e9-4726-a5be-fca90e38aaf5_{}.png",
+                digest_hex(hash)
+            )
         );
     }
 }

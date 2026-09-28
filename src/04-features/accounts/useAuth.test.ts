@@ -3,7 +3,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { authLogin, authLogins, authRegister, getSessionInfo } from '@/06-shared/api'
 import { useAuth } from './useAuth'
 import { withSetup } from '@/test-support/withSetup'
-import { useAccountsStore, useCoreStore, useNotificationStore, type ProjectConfig } from '@/05-entities'
+import {
+  useAccountsStore,
+  useCoreStore,
+  useNotificationStore,
+  MIN_LOGIN_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  type ProjectConfig,
+} from '@/05-entities'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -93,6 +100,38 @@ describe('useAuth', () => {
     store.registerFormData.confirmPassword = 'password'
     expect(auth.isRegisterValid.value).toBe(true)
     expect(auth.passwordsMatch.value).toBe(true)
+    unmount()
+  })
+
+  it('explains the login requirement while the registration login is too short', () => {
+    useCoreStore().currentProject = 'proj'
+    const store = useAccountsStore()
+    const { auth, unmount } = setupAuth()
+
+    expect(auth.registerLoginHint.value).toBeNull()
+
+    store.registerFormData.login = 'abc'
+    expect(auth.registerLoginHint.value).toBe(`Логин — минимум ${MIN_LOGIN_LENGTH} символа`)
+    expect(auth.registerLoginHint.value).toContain(String(MIN_LOGIN_LENGTH))
+
+    store.registerFormData.login = 'user'
+    expect(auth.registerLoginHint.value).toBeNull()
+    unmount()
+  })
+
+  it('explains the password requirement while the registration password is too short', () => {
+    useCoreStore().currentProject = 'proj'
+    const store = useAccountsStore()
+    const { auth, unmount } = setupAuth()
+
+    expect(auth.registerPasswordHint.value).toBeNull()
+
+    store.registerFormData.password = 'pas'
+    expect(auth.registerPasswordHint.value).toBe(`Пароль — минимум ${MIN_PASSWORD_LENGTH} символов`)
+    expect(auth.registerPasswordHint.value).toContain(String(MIN_PASSWORD_LENGTH))
+
+    store.registerFormData.password = 'password'
+    expect(auth.registerPasswordHint.value).toBeNull()
     unmount()
   })
 
