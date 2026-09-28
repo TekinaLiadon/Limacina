@@ -148,7 +148,7 @@ impl ArgumentsMap {
     }
 }
 
-pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec<String>> {
+pub async fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
 
@@ -180,7 +180,7 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
             )
         };
 
-        if lib_path.exists() {
+        if tokio::fs::try_exists(&lib_path).await.unwrap_or(false) {
             paths.push(lib_path.to_string_lossy().to_string());
         } else if required {
             missing.push(rel_path);
@@ -345,8 +345,8 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
-    fn get_classpath_includes_existing_libraries() {
+    #[tokio::test]
+    async fn get_classpath_includes_existing_libraries() {
         let libs: Vec<Library> = serde_json::from_value(serde_json::json!([
             logging_library(),
             jopt_simple_library(),
@@ -370,7 +370,7 @@ mod tests {
 
         let config = test_launch_config(&root);
 
-        let paths = get_classpath(&libs, &config).unwrap();
+        let paths = get_classpath(&libs, &config).await.unwrap();
 
         assert_eq!(paths.len(), 3);
         for rel in created {
@@ -382,8 +382,8 @@ mod tests {
         assert!(!root.exists(), "временная директория не удалена");
     }
 
-    #[test]
-    fn get_classpath_errors_for_missing_library() {
+    #[tokio::test]
+    async fn get_classpath_errors_for_missing_library() {
         let libs: Vec<Library> =
             serde_json::from_value(serde_json::json!([logging_library(), gson_library()])).unwrap();
 
@@ -396,7 +396,9 @@ mod tests {
 
         let config = test_launch_config(&root);
 
-        let error = get_classpath(&libs, &config).expect_err("отсутствующая библиотека — ошибка");
+        let error = get_classpath(&libs, &config)
+            .await
+            .expect_err("отсутствующая библиотека — ошибка");
 
         let message = error.to_string();
         assert!(
@@ -412,8 +414,8 @@ mod tests {
         assert!(!root.exists(), "временная директория не удалена");
     }
 
-    #[test]
-    fn get_classpath_allows_missing_library_without_download_url() {
+    #[tokio::test]
+    async fn get_classpath_allows_missing_library_without_download_url() {
         let libs = libs_with_one_missing_url();
 
         let dir = TempDir::new("classpath_no_url");
@@ -425,7 +427,9 @@ mod tests {
 
         let config = test_launch_config(&root);
 
-        let paths = get_classpath(&libs, &config).expect("библиотека без url не требует файла");
+        let paths = get_classpath(&libs, &config)
+            .await
+            .expect("библиотека без url не требует файла");
 
         assert_eq!(paths.len(), 1);
         assert!(

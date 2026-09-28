@@ -199,10 +199,15 @@ async fn read_manifest(project_name: &str) -> Result<CpmModelManifest> {
 async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {
     let path = manifest_path(project_name)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
     }
-    let content = serde_json::to_string_pretty(manifest)?;
-    write_atomic(&path, content.as_bytes()).await?;
+    let content = serde_json::to_string_pretty(manifest)
+        .context("Не удалось сериализовать манифест моделей")?;
+    write_atomic(&path, content.as_bytes())
+        .await
+        .with_context(|| format!("Не удалось записать манифест моделей {:?}", path))?;
     Ok(())
 }
 
@@ -525,7 +530,9 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
             let data_block =
                 build_link_definition(&url, entry.skin_type.unwrap_or(SKIN_TYPE_DEFAULT))?;
             let container = build_player_model_file(&entry.name, &data_block);
-            write_atomic(&path, &container).await?;
+            write_atomic(&path, &container)
+                .await
+                .with_context(|| format!("Не удалось записать модель {:?}", path))?;
             changed = true;
         }
     }

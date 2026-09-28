@@ -62,7 +62,7 @@ pub fn merge_game_args(mut game_args: Vec<String>, loader_game: Vec<String>) -> 
     game_args
 }
 
-pub fn merge_classpath(
+pub async fn merge_classpath(
     project_name: &str,
     version_id: &str,
     libraries: &[LibraryMod],
@@ -76,9 +76,11 @@ pub fn merge_classpath(
     let version_jar = base_path.join(loader_version_jar_name(version_id));
     let libraries_path = base_path.join("libraries");
 
-    let mut classpath = build_mod_classpath(libraries, &libraries_path).map_err(|e| {
-        LauncherError::LoaderSetup(format!("Не удалось собрать classpath модов: {e:#}"))
-    })?;
+    let mut classpath = build_mod_classpath(libraries, &libraries_path)
+        .await
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось собрать classpath модов: {e:#}"))
+        })?;
     classpath.push(version_jar.to_string_lossy().to_string());
 
     let mut result_classpath = vanilla_classpath.to_vec();
@@ -86,13 +88,16 @@ pub fn merge_classpath(
     Ok(result_classpath)
 }
 
-fn build_mod_classpath(libraries: &[LibraryMod], libraries_dir: &Path) -> Result<Vec<String>> {
+async fn build_mod_classpath(
+    libraries: &[LibraryMod],
+    libraries_dir: &Path,
+) -> Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
 
     for lib in libraries {
         let lib_path = libraries_dir.join(library_rel_path(lib)?);
 
-        if lib_path.exists() {
+        if tokio::fs::try_exists(&lib_path).await.unwrap_or(false) {
             paths.push(lib_path.to_string_lossy().to_string());
         } else {
             return Err(
@@ -124,8 +129,9 @@ mod tests {
             "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar",
         )];
 
-        let classpath =
-            merge_classpath("CpProj", "1.20.1-21.1.80", &libraries, &[]).expect("classpath");
+        let classpath = merge_classpath("CpProj", "1.20.1-21.1.80", &libraries, &[])
+            .await
+            .expect("classpath");
 
         assert!(
             classpath.contains(&lib_path.to_string_lossy().into_owned()),
@@ -148,7 +154,7 @@ mod tests {
             "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar",
         )];
 
-        let result = merge_classpath("CpProjMissing", "1.20.1-21.1.80", &libraries, &[]);
+        let result = merge_classpath("CpProjMissing", "1.20.1-21.1.80", &libraries, &[]).await;
 
         assert!(result.is_err(), "отсутствующая библиотека — ошибка");
     }

@@ -25,14 +25,18 @@ pub fn validate_project_name(name: &str) -> Result<()> {
 
 impl ProjectConfig {
     pub async fn save_config(&self) -> Result<()> {
-        let toml_string = to_string_pretty(self)?;
+        let toml_string =
+            to_string_pretty(self).context("Не удалось сериализовать конфиг профиля")?;
         let config_dir = launcher_path(Some("config"))?;
-        create_dir_all(&config_dir).await?;
+        create_dir_all(&config_dir)
+            .await
+            .with_context(|| format!("Не удалось создать каталог конфигов {config_dir:?}"))?;
         write_atomic(
             &config_dir.join(format!("{}.toml", self.project_name)),
             toml_string.as_bytes(),
         )
-        .await?;
+        .await
+        .with_context(|| format!("Не удалось записать конфиг профиля {:?}", self.project_name))?;
         Ok(())
     }
 }

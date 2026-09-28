@@ -5,6 +5,7 @@ use tokio::fs::{create_dir_all, read_dir, remove_file, rename};
 use tokio::task::spawn_blocking;
 
 use crate::java::{extract_archive, find_java_executable, resolve_java_version};
+use crate::utils::blocking;
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::{get_arch, get_current_os, launcher_path};
 use crate::utils::errors::LauncherError;
@@ -211,6 +212,10 @@ pub async fn download_alt_java(
         }
     }
 
-    let exe = find_java_executable(&java_path)?;
+    let exe = blocking(
+        "Не удалось найти исполняемый файл Java",
+        move || find_java_executable(&java_path),
+    )
+    .await??;
     Ok((exe, version))
 }

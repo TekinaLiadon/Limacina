@@ -27,6 +27,9 @@ const WINDOW_OPEN_MARKERS: &[&str] = &[
     "LWJGL Version:",
 ];
 
+#[cfg(target_os = "windows")]
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 const OUTPUT_TAIL_LIMIT: usize = 20;
 const ERROR_TAIL_LINES: usize = 5;
 
@@ -200,7 +203,7 @@ pub fn spawn_game_process(
 
     #[cfg(target_os = "windows")]
     {
-        command.creation_flags(0x08000000);
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
     let mut child = command.spawn().map_err(|e| {

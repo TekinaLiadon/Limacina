@@ -75,7 +75,7 @@ pub async fn get_session_info(
 
 #[tauri::command]
 pub async fn clear_session(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    crate::state::launch_state::set_launch_in_progress(false);
+    crate::state::launch_state::force_release();
     let mut state = state.lock().await;
     state.session = None;
     Ok(())

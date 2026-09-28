@@ -11,6 +11,7 @@ use crate::minecraft::autojoin::{auto_join_args, first_server_address};
 use crate::minecraft::process::spawn_game_process;
 use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+use crate::utils::blocking;
 use crate::utils::download_file::write_atomic;
 use crate::utils::step_events::StepHandle;
 use crate::{
@@ -25,9 +26,8 @@ pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let result = start_minecraft_inner(app, state).await;
-    crate::state::launch_state::set_launch_in_progress(false);
-    result
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    start_minecraft_inner(app, state).await
 }
 
 async fn start_minecraft_inner(
@@ -189,13 +189,17 @@ async fn start_minecraft_inner(
     };
 
     if project_config.auto_join_server {
+        let game_dir = game_config.game_dir.clone();
         let address = step_try!(
             config_step,
             LauncherError::classify(
-                first_server_address(&game_config.game_dir).with_context(|| format!(
-                    "Не удалось прочитать servers.dat (проект: {})",
-                    project
-                )),
+                blocking(
+                    "Не удалось прочитать servers.dat",
+                    move || { first_server_address(&game_dir) }
+                )
+                .await
+                .and_then(|inner| inner)
+                .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project)),
                 LauncherError::DiskIo
             )
             .and_then(|address| {
@@ -221,6 +225,7 @@ async fn start_minecraft_inner(
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
+    crate::tray::set_game_state(&app, true, &username);
     let spawn_result = LauncherError::classify(
         spawn_game_process(app.clone(), game_config, authlib_server_url.as_deref())
             .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project)),
@@ -229,6 +234,7 @@ async fn start_minecraft_inner(
     let process = match spawn_result {
         Ok(process) => process,
         Err(e) => {
+            crate::tray::set_game_state(&app, false, "");
             if let Some(server) = offline_skin_server.take() {
                 server.stop();
             }
@@ -237,7 +243,6 @@ async fn start_minecraft_inner(
         }
     };
     process_step.finish(false);
-    crate::tray::set_game_state(&app, true, &username);
     let _ = app.emit("game-started", username.clone());
 
     if let Some(server) = offline_skin_server.take() {

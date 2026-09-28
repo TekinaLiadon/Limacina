@@ -1,7 +1,8 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use tokio::{fs, process::Command};
+use std::time::Duration;
+use tokio::{fs, process::Command, time::timeout};
 
 use crate::utils::errors::LauncherError;
 use crate::{
@@ -17,7 +18,7 @@ use crate::{
     state::dto::ProjectConfig,
     step_try,
     utils::{
-        download_file::{download_file, download_json},
+        download_file::{download_file, download_json, write_atomic},
         env_info::launcher_path,
         integrity::{
             ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload,
@@ -26,9 +27,17 @@ use crate::{
     },
 };
 
+#[cfg(target_os = "windows")]
+use crate::minecraft::process::CREATE_NO_WINDOW;
+
+const INSTALLER_TIMEOUT: Duration = Duration::from_secs(600);
+
 pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
     let launcher_profiles_path = base_url.join("launcher_profiles.json");
-    if !launcher_profiles_path.exists() {
+    if !tokio::fs::try_exists(&launcher_profiles_path)
+        .await
+        .unwrap_or(false)
+    {
         let profiles = json!({
             "profiles": {},
             "selectedProfile": "",
@@ -44,7 +53,7 @@ pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
         let profiles_str = serde_json::to_string_pretty(&profiles).map_err(|e| {
             LauncherError::ManifestParse(format!("Не удалось сериализовать profiles: {e:#}"))
         })?;
-        fs::write(&launcher_profiles_path, profiles_str)
+        write_atomic(&launcher_profiles_path, profiles_str.as_bytes())
             .await
             .map_err(|e| {
                 LauncherError::DiskIo(format!(
@@ -67,18 +76,27 @@ pub async fn run_loader_installer(
         .arg("-jar")
         .arg(installer_path)
         .arg("--installClient")
-        .arg(vanilla_dir);
+        .arg(vanilla_dir)
+        .kill_on_drop(true);
 
     #[cfg(target_os = "windows")]
     {
-        command.creation_flags(0x08000000);
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = command.output().await.map_err(|e| {
-        LauncherError::LoaderSetup(format!(
-            "Не удалось запустить {loader_name} installer: {e:#}"
-        ))
-    })?;
+    let output = timeout(INSTALLER_TIMEOUT, command.output())
+        .await
+        .map_err(|_| {
+            LauncherError::LoaderSetup(format!(
+                "{loader_name} installer не завершился за {} сек и был прерван",
+                INSTALLER_TIMEOUT.as_secs()
+            ))
+        })?
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!(
+                "Не удалось запустить {loader_name} installer: {e:#}"
+            ))
+        })?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !stderr.is_empty() {
@@ -119,12 +137,12 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     let jar_name = format!("{}.jar", mc_version);
     let target_jar = base_url.join(&jar_name);
 
-    if target_jar.exists() {
+    if tokio::fs::try_exists(&target_jar).await.unwrap_or(false) {
         return Ok(());
     }
 
     let direct = versions_dir.join(mc_version).join(&jar_name);
-    if direct.exists() {
+    if tokio::fs::try_exists(&direct).await.unwrap_or(false) {
         fs::rename(&direct, &target_jar).await.map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось переместить {direct:?} в {target_jar:?}: {e:#}"
@@ -136,7 +154,7 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     let mut inner_candidates: Vec<PathBuf> = Vec::new();
     for path in version_subdirs(&versions_dir).await? {
         let candidate = path.join(&jar_name);
-        if candidate.exists() {
+        if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
             inner_candidates.push(candidate);
         }
     }
@@ -230,7 +248,7 @@ pub async fn start_installer(
         .join(&fast_name)
         .join(format!("{}.json", fast_name));
 
-    let source = if fast_manifest.exists() {
+    let source = if tokio::fs::try_exists(&fast_manifest).await.unwrap_or(false) {
         fast_manifest
     } else {
         locate_installed_manifest(&versions_dir, &state_project.mc_version, &loader_manifest)
@@ -304,7 +322,10 @@ pub async fn setup_loader(
 
     let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
 
-    if loader_manifest_file.exists() {
+    if tokio::fs::try_exists(&loader_manifest_file)
+        .await
+        .unwrap_or(false)
+    {
         let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         let library = loader_libraries(version_manifest.libraries, maven_base)?;
         install_loader_files(

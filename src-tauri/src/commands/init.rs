@@ -30,9 +30,8 @@ pub async fn initialize_project(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    crate::state::launch_state::set_launch_in_progress(true);
-    let result = initialize_project_inner(state, project_name).await;
-    crate::state::launch_state::clear_on_error(result)
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    initialize_project_inner(state, project_name).await
 }
 
 async fn initialize_project_inner(

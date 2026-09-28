@@ -14,6 +14,8 @@ use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 
+const SEARCH_PAGE_LIMIT: u32 = 20;
+
 #[derive(Serialize)]
 pub struct SearchDto {
     pub hits: Vec<SearchHit>,
@@ -187,7 +189,7 @@ pub async fn modrinth_search(
         &facets,
         index.as_deref().unwrap_or("relevance"),
         offset,
-        20,
+        SEARCH_PAGE_LIMIT,
     )
     .await?;
 

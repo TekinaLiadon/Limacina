@@ -452,7 +452,7 @@ mod ensure_files_tests {
         server
             .mock("GET", mock_path)
             .with_status(200)
-            .with_body(body.to_vec())
+            .with_body(body)
             .create_async()
             .await;
         let target = url_target(rel, &sha1_hex(body), format!("{}{mock_path}", server.url()));

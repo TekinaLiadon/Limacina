@@ -34,8 +34,8 @@ async fn update_project_config(
 
 #[tauri::command]
 pub async fn download_minecraft(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let result = download_minecraft_inner(state).await;
-    crate::state::launch_state::clear_on_error(result)
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    download_minecraft_inner(state).await
 }
 
 async fn download_minecraft_inner(
@@ -96,18 +96,16 @@ async fn download_minecraft_inner(
 pub async fn download_server_file(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let result = async {
-        let project_name = state.lock().await.project_config.project_name.clone();
-        download_all_files(project_name, &state).await?;
-        Ok(())
-    }
-    .await;
-    crate::state::launch_state::clear_on_error(result)
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    let project_name = state.lock().await.project_config.project_name.clone();
+    download_all_files(project_name, &state).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let result = update_project_config(&state, async |project_config: &mut ProjectConfig| {
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    update_project_config(&state, async |project_config: &mut ProjectConfig| {
         let (java_path, java_version) =
             LauncherError::classify(install_java(project_config).await, LauncherError::Java)?;
         project_config.java_path = Some(java_path.to_string_lossy().into_owned());
@@ -115,21 +113,17 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
         Ok(())
     })
     .await
-    .map(|_| ());
-    crate::state::launch_state::clear_on_error(result)
+    .map(|_| ())
 }
 
 #[tauri::command]
 pub async fn download_server_mods(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let result = async {
-        let project_name = state.lock().await.project_config.project_name.clone();
-        download_mods(project_name, &state).await?;
-        Ok(())
-    }
-    .await;
-    crate::state::launch_state::clear_on_error(result)
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    let project_name = state.lock().await.project_config.project_name.clone();
+    download_mods(project_name, &state).await?;
+    Ok(())
 }
 
 #[tauri::command]

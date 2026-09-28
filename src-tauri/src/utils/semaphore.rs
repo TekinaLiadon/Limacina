@@ -8,12 +8,34 @@ use tokio::{
 
 use crate::utils::errors::LauncherError;
 use crate::{log_err, log_info};
-const MAX_CONCURRENT_DOWNLOADS: usize = 15;
+pub(crate) const MAX_CONCURRENT_DOWNLOADS: usize = 15;
 const MAX_RETRIES: usize = 4;
 
 pub struct SemaphoreInfo {
     pub url: String,
     pub dest: PathBuf,
+}
+
+fn is_retryable_failure(error: &Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(typed) = cause.downcast_ref::<LauncherError>() {
+            match typed {
+                LauncherError::HttpStatus { status, .. } => *status >= 500,
+                LauncherError::Download(_) | LauncherError::LauncherServer(_) => true,
+                _ => false,
+            }
+        } else if let Some(request_error) = cause.downcast_ref::<reqwest::Error>() {
+            request_error.is_timeout()
+                || request_error.is_connect()
+                || request_error.is_body()
+                || request_error.is_decode()
+                || request_error
+                    .status()
+                    .is_some_and(|status| status.as_u16() >= 500)
+        } else {
+            false
+        }
+    })
 }
 
 pub fn semaphore_core<F, Fut, C>(
@@ -64,7 +86,7 @@ where
                         final_result = Ok(());
                         break;
                     }
-                    Err(e) if attempt < MAX_RETRIES => {
+                    Err(e) if attempt < MAX_RETRIES && is_retryable_failure(&e) => {
                         log_err!(
                             "[semaphore] Ошибка скачивания {} (попытка {}/{}): {:?}",
                             el.url,
@@ -101,4 +123,68 @@ where
         });
     }
     download_futures
+}
+
+#[cfg(test)]
+mod retry_classification_tests {
+    use super::is_retryable_failure;
+    use crate::utils::errors::LauncherError;
+    use anyhow::anyhow;
+
+    fn http_status(status: u16) -> anyhow::Error {
+        LauncherError::HttpStatus {
+            status,
+            message: format!("статус {status}"),
+        }
+        .into()
+    }
+
+    #[test]
+    fn retries_network_failures_and_server_errors() {
+        for error in [
+            LauncherError::Download("обрыв соединения".to_string()).into(),
+            LauncherError::LauncherServer("Не удалось отправить запрос".to_string()).into(),
+            http_status(500),
+            http_status(502),
+            http_status(503),
+        ] {
+            assert!(
+                is_retryable_failure(&error),
+                "сетевые ошибки и 5xx должны ретраиться: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_retry_deterministic_failures() {
+        for error in [
+            http_status(404),
+            http_status(403),
+            http_status(429),
+            LauncherError::HashMismatch("хеш не совпал".to_string()).into(),
+            LauncherError::DiskIo("диск переполнен".to_string()).into(),
+            LauncherError::ManifestParse("битый манифест".to_string()).into(),
+            LauncherError::GameDownload("JAR файл не существует".to_string()).into(),
+            anyhow!("неизвестная ошибка без типа"),
+        ] {
+            assert!(
+                !is_retryable_failure(&error),
+                "детерминированные ошибки не должны ретраиться: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn classification_sees_through_contexts() {
+        let wrapped = anyhow!(LauncherError::HttpStatus {
+            status: 404,
+            message: "нет файла".to_string()
+        })
+        .context("Не удалось скачать файл");
+        assert!(!is_retryable_failure(&wrapped));
+
+        let wrapped_network = anyhow!(LauncherError::Download("таймаут".to_string()))
+            .context("Не удалось скачать файл");
+        assert!(is_retryable_failure(&wrapped_network));
+    }
 }

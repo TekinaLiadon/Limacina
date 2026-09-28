@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 
@@ -23,7 +23,7 @@ pub(crate) fn api_base() -> String {
     API_BASE_OVERRIDE
         .get_or_init(|| std::sync::RwLock::new(None))
         .read()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .unwrap_or_else(|| API_BASE_PROD.to_string())
 }
@@ -33,23 +33,28 @@ pub(crate) fn override_api_base_for_tests(base: String) {
     *API_BASE_OVERRIDE
         .get_or_init(|| std::sync::RwLock::new(None))
         .write()
-        .unwrap() = Some(base);
+        .unwrap_or_else(|e| e.into_inner()) = Some(base);
 }
 
 #[cfg(test)]
 pub(crate) fn clear_response_cache_for_tests() {
-    response_cache().lock().unwrap().clear();
+    if let Some(mut guard) = response_cache_guard() {
+        guard.clear();
+    }
 }
 
-static MODRINTH_CLIENT: OnceLock<Client> = OnceLock::new();
+static MODRINTH_CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
 
-pub fn modrinth_client() -> &'static Client {
-    MODRINTH_CLIENT.get_or_init(|| {
-        crate::utils::http::base_client_builder()
-            .user_agent(USER_AGENT)
-            .build()
-            .expect("Не удалось создать HTTP клиент Modrinth")
-    })
+pub fn modrinth_client() -> Result<&'static Client> {
+    MODRINTH_CLIENT
+        .get_or_init(|| {
+            crate::utils::http::base_client_builder()
+                .user_agent(USER_AGENT)
+                .build()
+                .map_err(|e| format!("Не удалось создать HTTP клиент Modrinth: {e:#}"))
+        })
+        .as_ref()
+        .map_err(|e| anyhow!(e.clone()))
 }
 
 fn json_param(values: &[String]) -> String {
@@ -57,6 +62,7 @@ fn json_param(values: &[String]) -> String {
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
+const CACHE_MAX_ENTRIES: usize = 256;
 
 type ResponseCache = HashMap<String, (std::time::Instant, serde_json::Value)>;
 
@@ -76,6 +82,23 @@ fn response_cache_guard() -> Option<std::sync::MutexGuard<'static, ResponseCache
             None
         }
     }
+}
+
+fn cache_insert(cache_key: String, value: serde_json::Value) {
+    let Some(mut guard) = response_cache_guard() else {
+        return;
+    };
+    guard.retain(|_, (stored_at, _)| stored_at.elapsed() < CACHE_TTL);
+    if guard.len() >= CACHE_MAX_ENTRIES {
+        let oldest = guard
+            .iter()
+            .min_by_key(|(_, (stored_at, _))| *stored_at)
+            .map(|(key, _)| key.clone());
+        if let Some(oldest) = oldest {
+            guard.remove(&oldest);
+        }
+    }
+    guard.insert(cache_key, (std::time::Instant::now(), value));
 }
 
 async fn send_and_check(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
@@ -104,14 +127,13 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
         }
     }
 
-    let response = send_and_check(modrinth_client().get(&url).query(query), &url).await?;
+    let client = modrinth_client()?;
+    let response = send_and_check(client.get(&url).query(query), &url).await?;
     let value: serde_json::Value = response.json().await.map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
     })?;
 
-    if let Some(mut guard) = response_cache_guard() {
-        guard.insert(cache_key, (std::time::Instant::now(), value.clone()));
-    }
+    cache_insert(cache_key, value.clone());
 
     serde_json::from_value(value).map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось разобрать ответ от {url}: {e:#}")).into()
@@ -194,14 +216,10 @@ pub async fn get_version_from_hash(
 ) -> Result<Option<ModrinthVersion>> {
     let query = loaders_game_versions_query(loaders, game_versions);
     let url = format!("{}/version_file/{}/update", api_base(), sha1);
-    let response = modrinth_client()
-        .get(&url)
-        .query(&query)
-        .send()
-        .await
-        .map_err(|e| {
-            LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
-        })?;
+    let client = modrinth_client()?;
+    let response = client.get(&url).query(&query).send().await.map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
+    })?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
@@ -236,7 +254,8 @@ pub async fn get_versions_from_hashes(
         game_versions: game_versions.to_vec(),
     };
     let url = format!("{}/version_files", api_base());
-    let response = send_and_check(modrinth_client().post(&url).json(&body), &url).await?;
+    let client = modrinth_client()?;
+    let response = send_and_check(client.post(&url).json(&body), &url).await?;
     response.json().await.map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}")).into()
     })
@@ -289,5 +308,31 @@ mod tests {
     #[test]
     fn user_agent_contains_package_version() {
         assert!(USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn response_cache_caps_size_and_drops_expired() {
+        clear_cache();
+        {
+            let mut guard = response_cache_guard().expect("кеш ответов");
+            guard.insert(
+                "cache-evict-expired".to_string(),
+                (std::time::Instant::now() - 2 * CACHE_TTL, json!("old")),
+            );
+        }
+        for i in 0..CACHE_MAX_ENTRIES {
+            cache_insert(format!("cache-evict-{i}"), json!(i));
+        }
+
+        let guard = response_cache_guard().expect("кеш ответов");
+        assert!(
+            !guard.contains_key("cache-evict-expired"),
+            "просроченная запись должна вытесняться при вставке"
+        );
+        assert!(
+            guard.len() <= CACHE_MAX_ENTRIES,
+            "кеш не должен расти неограниченно: {}",
+            guard.len()
+        );
     }
 }

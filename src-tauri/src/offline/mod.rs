@@ -109,11 +109,15 @@ async fn read_offline_skin(project_name: &str) -> Result<Option<(Vec<u8>, Option
 }
 
 async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
+    ensure_authlib_jar_from(game_dir, AUTHLIB_LATEST_URL).await
+}
+
+async fn ensure_authlib_jar_from(game_dir: &Path, latest_url: &str) -> Result<PathBuf> {
     let jar_path = game_dir.join("authlib-injector.jar");
     let version_path = game_dir.join("authlib-injector.json");
     let scratch_path = authlib_scratch_path()?;
 
-    let latest = match fetch_authlib_latest(&scratch_path).await {
+    let latest = match fetch_authlib_latest(latest_url, &scratch_path).await {
         Ok(latest) => latest,
         Err(e) => {
             if jar_path.exists() {
@@ -137,6 +141,8 @@ async fn ensure_authlib_jar(game_dir: &Path) -> Result<PathBuf> {
             installed_version.unwrap_or_default(),
             latest.version
         );
+        let _ = fs::remove_file(&jar_path).await;
+        let _ = fs::remove_file(&version_path).await;
     } else {
         log_info!("Скачивание authlib-injector {}...", latest.version);
     }
@@ -184,10 +190,10 @@ async fn authlib_cache_fresh(path: &Path) -> bool {
     modified.elapsed().is_ok_and(|age| age < AUTHLIB_LATEST_TTL)
 }
 
-async fn fetch_authlib_latest(scratch_path: &Path) -> Result<AuthlibLatest> {
+async fn fetch_authlib_latest(latest_url: &str, scratch_path: &Path) -> Result<AuthlibLatest> {
     if !authlib_cache_fresh(scratch_path).await {
         let _ = fs::remove_file(scratch_path).await;
-        download_file(AUTHLIB_LATEST_URL, scratch_path).await?;
+        download_file(latest_url, scratch_path).await?;
     }
     let scratch = scratch_path.to_path_buf();
     blocking(
@@ -221,11 +227,55 @@ async fn installed_authlib_version(version_path: PathBuf) -> Result<Option<Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        authlib_cache_fresh, authlib_scratch_path, offline_skin_paths, parse_offline_skin_model,
-        AUTHLIB_LATEST_TTL,
+        authlib_cache_fresh, authlib_scratch_path, ensure_authlib_jar_from, offline_skin_paths,
+        parse_offline_skin_model, AUTHLIB_LATEST_TTL,
     };
     use crate::test_support::LauncherDirGuard;
+    use crate::utils::hex::digest_hex;
+    use mockito::Server;
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    use std::path::Path;
     use std::time::{Duration, SystemTime};
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        digest_hex(Sha256::digest(bytes))
+    }
+
+    async fn mock_artifact(
+        server: &mut Server,
+        manifest_path: &str,
+        jar_path: &str,
+        version: &str,
+        jar: &[u8],
+    ) -> (mockito::Mock, mockito::Mock) {
+        let manifest = json!({
+            "version": version,
+            "download_url": format!("{}{}", server.url(), jar_path),
+            "checksums": {"sha256": sha256_hex(jar)}
+        });
+        let manifest_mock = server
+            .mock("GET", manifest_path)
+            .with_status(200)
+            .with_body(manifest.to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let jar_mock = server
+            .mock("GET", jar_path)
+            .with_status(200)
+            .with_body(jar)
+            .expect(1)
+            .create_async()
+            .await;
+        (manifest_mock, jar_mock)
+    }
+
+    fn sidecar_version(game_dir: &Path) -> String {
+        let bytes =
+            std::fs::read(game_dir.join("authlib-injector.json")).expect("чтение sidecar версии");
+        String::from_utf8(bytes).expect("sidecar — utf8 json")
+    }
 
     #[test]
     fn offline_skin_paths_include_project_folder() {
@@ -305,26 +355,88 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore = "требует доступ к authlib-injector.yushi.moe"]
-    fn ensure_authlib_jar_downloads_and_caches() {
-        let game_dir =
-            std::env::temp_dir().join(format!("limacina-authlib-test-{}", std::process::id()));
-        std::fs::create_dir_all(&game_dir).expect("каталог должен создаться");
+    #[tokio::test]
+    async fn ensure_authlib_jar_replaces_outdated_jar() {
+        let guard = LauncherDirGuard::acquire("authlib_update").await;
+        let mut server = Server::new_async().await;
+        let game_dir = guard.root().join("project/AuthGame");
 
-        let jar = tokio::runtime::Runtime::new()
-            .expect("runtime должен создаться")
-            .block_on(async { super::ensure_authlib_jar(&game_dir).await })
-            .expect("докачка jar должна удаться");
-        assert!(jar.exists());
-        assert_eq!(jar.file_name().unwrap(), "authlib-injector.jar");
+        let jar_v1 = b"authlib agent v1".to_vec();
+        let jar_v2 = b"authlib agent v2".to_vec();
+        let (manifest_v1_mock, jar_v1_mock) = mock_artifact(
+            &mut server,
+            "/artifact/latest.json",
+            "/artifact/authlib-1.jar",
+            "1.0.0",
+            &jar_v1,
+        )
+        .await;
 
-        let second = tokio::runtime::Runtime::new()
-            .expect("runtime должен создаться")
-            .block_on(async { super::ensure_authlib_jar(&game_dir).await })
-            .expect("повторный вызов должен отдать кеш");
-        assert_eq!(second, jar);
+        let latest_url = format!("{}/artifact/latest.json", server.url());
+        let jar = ensure_authlib_jar_from(&game_dir, &latest_url)
+            .await
+            .expect("первая установка authlib-injector");
+        assert_eq!(jar, game_dir.join("authlib-injector.jar"));
+        assert_eq!(std::fs::read(&jar).expect("jar v1"), jar_v1);
+        assert!(sidecar_version(&game_dir).contains("1.0.0"));
 
-        std::fs::remove_dir_all(&game_dir).ok();
+        tokio::fs::remove_file(authlib_scratch_path().expect("scratch путь"))
+            .await
+            .expect("сброс кеша манифеста — имитация нового релиза");
+
+        let (manifest_v2_mock, jar_v2_mock) = mock_artifact(
+            &mut server,
+            "/artifact/latest-2.json",
+            "/artifact/authlib-2.jar",
+            "2.0.0",
+            &jar_v2,
+        )
+        .await;
+
+        let latest_url_v2 = format!("{}/artifact/latest-2.json", server.url());
+        let jar = ensure_authlib_jar_from(&game_dir, &latest_url_v2)
+            .await
+            .expect("обновление authlib-injector должно заменить jar без ошибок");
+        assert_eq!(std::fs::read(&jar).expect("jar v2"), jar_v2);
+        assert!(
+            sidecar_version(&game_dir).contains("2.0.0"),
+            "sidecar версии должен обновиться: {}",
+            sidecar_version(&game_dir)
+        );
+
+        manifest_v1_mock.assert_async().await;
+        jar_v1_mock.assert_async().await;
+        manifest_v2_mock.assert_async().await;
+        jar_v2_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn ensure_authlib_jar_uses_cached_jar_when_version_matches() {
+        let guard = LauncherDirGuard::acquire("authlib_cached").await;
+        let mut server = Server::new_async().await;
+        let game_dir = guard.root().join("project/AuthGame");
+
+        let jar_v1 = b"authlib agent v1".to_vec();
+        let (manifest_mock, jar_mock) = mock_artifact(
+            &mut server,
+            "/artifact/latest.json",
+            "/artifact/authlib-1.jar",
+            "1.0.0",
+            &jar_v1,
+        )
+        .await;
+
+        let latest_url = format!("{}/artifact/latest.json", server.url());
+        let first = ensure_authlib_jar_from(&game_dir, &latest_url)
+            .await
+            .expect("первая установка authlib-injector");
+        let second = ensure_authlib_jar_from(&game_dir, &latest_url)
+            .await
+            .expect("повторный вызов должен отдать скачанный jar");
+
+        assert_eq!(first, second);
+        assert_eq!(std::fs::read(&first).expect("jar"), jar_v1);
+        manifest_mock.assert_async().await;
+        jar_mock.assert_async().await;
     }
 }

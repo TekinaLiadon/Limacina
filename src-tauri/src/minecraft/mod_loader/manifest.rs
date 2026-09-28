@@ -3,7 +3,7 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
@@ -17,7 +17,7 @@ use crate::{
     state::dto::ProjectConfig,
     utils::{
         compare_versions,
-        download_file::{download_json, download_xml},
+        download_file::{download_json, download_xml, write_atomic},
         env_info::launcher_path,
     },
 };
@@ -292,7 +292,8 @@ pub async fn read_or_fetch_index<T: DeserializeOwned>(
             LauncherError::DiskIo(format!("Не удалось создать директорию {parent:?}: {e:#}"))
         })?;
     }
-    fs::write(json_path, serialize(&index)?)
+    let serialized = serialize(&index)?;
+    write_atomic(json_path, serialized.as_bytes())
         .await
         .map_err(|e| {
             LauncherError::DiskIo(format!("Не удалось записать кэш {json_path:?}: {e:#}"))
@@ -337,7 +338,7 @@ pub struct LoaderArtifact {
     pub size: i64,
 }
 
-pub type LoaderIndex = HashMap<String, Vec<String>>;
+pub type LoaderIndex = BTreeMap<String, Vec<String>>;
 
 pub(crate) struct LoaderDef {
     pub name: &'static str,
@@ -387,7 +388,7 @@ const FORGE_METADATA_URL: &str =
 const FORGE_CACHE_FILE: &str = "forge.json";
 
 fn group_forge_versions(metadata: Metadata) -> LoaderIndex {
-    let mut grouped_versions: LoaderIndex = std::collections::HashMap::new();
+    let mut grouped_versions: LoaderIndex = BTreeMap::new();
 
     for v in metadata.versioning.versions.version_list {
         if let Some((mc_ver, forge_ver)) = v.split_once('-') {
@@ -425,7 +426,7 @@ pub(crate) const NEOFORGE_MAVEN_BASE: &str = "https://maven.neoforged.net";
 pub(crate) const NEOFORGE_MANIFEST_PREFIX: &str = "neoforge";
 
 fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
-    let mut grouped_versions: LoaderIndex = std::collections::HashMap::new();
+    let mut grouped_versions: LoaderIndex = BTreeMap::new();
 
     for v in metadata.versioning.versions.version_list {
         let parts: Vec<&str> = v.split('.').collect();
@@ -500,6 +501,33 @@ mod latest_version_tests {
         let result = latest_list_version(&versions, "1.19.4", "Forge");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn transform_loader_manifest_orders_versions_deterministically() {
+        let mut index = LoaderIndex::new();
+        index.insert("1.20.1".to_string(), vec!["47.1.0".to_string()]);
+        index.insert("1.7.10".to_string(), vec!["10.13.4".to_string()]);
+        index.insert("1.21".to_string(), vec!["21.0.143".to_string()]);
+
+        let first: Vec<String> = transform_loader_manifest(index.clone(), |id, _| id.to_string())
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+        let second: Vec<String> = transform_loader_manifest(index, |id, _| id.to_string())
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            vec![
+                "1.20.1-47.1.0".to_string(),
+                "1.21-21.0.143".to_string(),
+                "1.7.10-10.13.4".to_string()
+            ]
+        );
     }
 }
 

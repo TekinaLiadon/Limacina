@@ -79,6 +79,7 @@ impl ModLoader for NeoForge {
             &neoforge_libraries,
             &Vec::new(),
         )
+        .await
         .map_err(|e| {
             LauncherError::LoaderSetup(format!("Не удалось собрать classpath NeoForge: {e:#}"))
         })?;

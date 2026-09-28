@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::log_err;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
-use crate::log_err;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct InstallJournal {
@@ -49,10 +49,15 @@ async fn read_journal(project: &str) -> Result<Option<InstallJournal>> {
 async fn write_journal(project: &str, journal: &InstallJournal) -> Result<()> {
     let path = journal_path(project)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
     }
-    let content = serde_json::to_string(journal)?;
-    write_atomic(&path, content.as_bytes()).await?;
+    let content =
+        serde_json::to_string(journal).context("Не удалось сериализовать журнал установки")?;
+    write_atomic(&path, content.as_bytes())
+        .await
+        .with_context(|| format!("Не удалось записать журнал установки {:?}", path))?;
     Ok(())
 }
 

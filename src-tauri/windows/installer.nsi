@@ -421,8 +421,6 @@ FunctionEnd
 Function StyleWizard
   Call CreateWizardFonts
   SetCtlColors $HWNDPARENT "" ${COLOR_BG}
-  ; 1039 (иконка NSIS) и 1256 (дубль брендинга под 1028) зашиты в resource-диалог
-  ; modern.exe самой инсталляции NSIS и из шаблона не удаляются — убираем их один раз здесь
   ${If} $BrandingFixed = 0
     StrCpy $BrandingFixed 1
     GetDlgItem $0 $HWNDPARENT 1039

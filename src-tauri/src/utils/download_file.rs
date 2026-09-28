@@ -26,7 +26,10 @@ async fn fetch_response(url: &str) -> Result<reqwest::Response> {
     })?;
     let response = response
         .error_for_status()
-        .map_err(|e| LauncherError::Download(format!("Сервер вернул ошибку для {url}: {e:#}")))?;
+        .map_err(|e| LauncherError::HttpStatus {
+            status: e.status().map(|s| s.as_u16()).unwrap_or(0),
+            message: format!("Сервер вернул ошибку для {url}: {e:#}"),
+        })?;
     Ok(response)
 }
 

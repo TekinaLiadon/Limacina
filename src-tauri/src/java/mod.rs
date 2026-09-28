@@ -15,7 +15,7 @@ use crate::{
     state::dto::ProjectConfig,
     step_try,
     utils::{
-        compare_versions,
+        blocking, compare_versions,
         download_file::download_file,
         env_info::{get_arch, get_current_os, launcher_path},
         step_events::StepHandle,
@@ -31,7 +31,15 @@ pub async fn install_java(config: &ProjectConfig) -> Result<(PathBuf, String)> {
     let java_dir = launcher_path(None)?.join("java").join(&java_version);
 
     let check_step = StepHandle::start("java.check", "Проверка Java");
-    if let Ok(executable_path) = find_java_executable(&java_dir) {
+    let check_dir = java_dir.clone();
+    let installed = blocking(
+        "Не удалось проверить установленную Java",
+        move || find_java_executable(&check_dir),
+    )
+    .await
+    .and_then(|inner| inner)
+    .ok();
+    if let Some(executable_path) = installed {
         log_info!(
             "[java] Java {} уже установлена: {:?}",
             java_version,
@@ -56,7 +64,11 @@ pub async fn install_java(config: &ProjectConfig) -> Result<(PathBuf, String)> {
     );
     extract_step.finish(false);
 
-    let executable_path = find_java_executable(&java_dir)?;
+    let executable_path = blocking(
+        "Не удалось найти исполняемый файл Java",
+        move || find_java_executable(&java_dir),
+    )
+    .await??;
     Ok((executable_path, java_version))
 }
 

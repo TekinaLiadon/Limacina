@@ -263,8 +263,6 @@ impl LauncherConfig {
         self.current_project = self.project_names.first().cloned();
     }
 
-    /// Подставляет проект из LAUNCHER_PROJECT_NAME, если список проектов пуст.
-    /// Offline-сборки и сборки без переменной остаются без дефолтного проекта.
     pub fn apply_default_project(&mut self) -> bool {
         if !self.project_names.is_empty() || crate::utils::env_info::is_offline_build() {
             return false;

@@ -80,7 +80,8 @@ pub(crate) fn save_fallback(
         .unwrap_or_else(|e| e.into_inner());
     let path = fallback_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
     }
 
     let mut store: CredentialStore = if path.exists() {
@@ -133,7 +134,8 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
         .context("Credentials не найдены в хранилище")?;
 
     let key = derive_key(project, username, key_suffix);
-    let ciphertext = from_hex(&entry.obfuscated)?;
+    let ciphertext = from_hex(&entry.obfuscated)
+        .context("Не удалось декодировать запись хранилища credentials")?;
     let decrypted = xor_crypt(&ciphertext, &key);
     String::from_utf8(decrypted).context("Не удалось расшифровать credentials")
 }
@@ -147,15 +149,18 @@ pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -
         return Ok(());
     }
 
-    let content = fs::read_to_string(&path)?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
     let mut store: CredentialStore = read_fallback_store(&path, &content);
     let key_name = fallback_entry_key(project, username, key_suffix);
     let legacy_name = legacy_fallback_entry_key(username, key_suffix);
     store
         .entries
         .retain(|e| e.username != key_name && e.username != legacy_name);
-    let content = serde_json::to_string_pretty(&store)?;
-    write_atomic_sync(&path, content.as_bytes())?;
+    let content = serde_json::to_string_pretty(&store)
+        .context("Не удалось сериализовать хранилище credentials")?;
+    write_atomic_sync(&path, content.as_bytes())
+        .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
 }
 
@@ -289,15 +294,13 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
     let service = get_launcher_name();
 
     let keyring_result = (|| -> Result<()> {
-        let entry =
-            keyring::Entry::new(&service, &key).context("Не удалось получить доступ к хранилищу")?;
+        let entry = keyring::Entry::new(&service, &key)
+            .context("Не удалось получить доступ к хранилищу")?;
         match entry.delete_credential() {
             Ok(()) => Ok(()),
             Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(anyhow::Error::new(e).context(format!(
-                "Не удалось удалить {} из keyring",
-                key_suffix
-            ))),
+            Err(e) => Err(anyhow::Error::new(e)
+                .context(format!("Не удалось удалить {} из keyring", key_suffix))),
         }
     })();
 
@@ -433,7 +436,10 @@ mod tests {
             }));
         }
         for handle in handles {
-            handle.await.expect("задача сохранения credentials");
+            handle
+                .await
+                .expect("задача сохранения credentials")
+                .expect("сохранение credentials");
         }
 
         let stored = std::fs::read_to_string(dir.root().join("credentials.json"))

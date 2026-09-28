@@ -59,6 +59,7 @@ impl ModLoader for Forge {
             &version.library,
             &vanilla_config.classpath,
         )
+        .await
         .map_err(|e| {
             LauncherError::LoaderSetup(format!("Не удалось собрать classpath Forge: {e:#}"))
         })?;

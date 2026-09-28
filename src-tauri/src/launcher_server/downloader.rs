@@ -1,5 +1,5 @@
 use crate::{log_err, log_info, step_try, utils::errors::LauncherError};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
@@ -10,7 +10,7 @@ use crate::launcher_server::api_context;
 use crate::state::dto::GlobalState;
 use crate::utils::download_file::{file_sha1, write_stream_to_atomic};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
-use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
+use crate::utils::semaphore::{semaphore_core, SemaphoreInfo, MAX_CONCURRENT_DOWNLOADS};
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
 
@@ -85,9 +85,12 @@ async fn download_file(
             url,
             body
         );
-        return Err(LauncherError::LauncherServer(format!(
-            "Сервер вернул {status} при скачивании {url}: {body} (путь: {file_path:?})"
-        ))
+        return Err(LauncherError::HttpStatus {
+            status: status.as_u16(),
+            message: format!(
+                "Сервер вернул {status} при скачивании {url}: {body} (путь: {file_path:?})"
+            ),
+        }
         .into());
     }
 
@@ -335,10 +338,11 @@ async fn sync_server_files(
         .collect();
 
     log_info!(
-        "{} Начало скачивания {} {} (макс. 15 параллельно)",
+        "{} Начало скачивания {} {} (макс. {} параллельно)",
         prefix,
         total,
-        labels.noun
+        labels.noun,
+        MAX_CONCURRENT_DOWNLOADS
     );
     let step_counter = step.clone();
     let verify_hashes: HashMap<String, String> = files_to_download
@@ -460,7 +464,9 @@ pub async fn download_mods(
 
         let mods_dir = launcher_path(Some(&project_name))?.join("mods");
 
-        tokio::fs::create_dir_all(&mods_dir).await?;
+        tokio::fs::create_dir_all(&mods_dir)
+            .await
+            .with_context(|| format!("Не удалось создать папку модов {mods_dir:?}"))?;
 
         let server_mods: HashSet<&str> = mods
             .keys()
@@ -477,7 +483,8 @@ pub async fn download_mods(
             &MODS_LABELS,
             |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
         )
-        .await?;
+        .await
+        .context("Не удалось синхронизировать моды с сервером")?;
 
         let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
         cleanup_extra_mods(&mods_dir, &server_mods).await?;
@@ -491,7 +498,11 @@ pub async fn download_mods(
 
 async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Result<()> {
     let mut entries = tokio::fs::read_dir(mods_dir).await.map_err(|e| {
-        log_err!("[mods] Не удалось открыть папку модов {:?}: {}", mods_dir, e);
+        log_err!(
+            "[mods] Не удалось открыть папку модов {:?}: {}",
+            mods_dir,
+            e
+        );
         LauncherError::DiskIo(format!("Не удалось открыть папку модов {mods_dir:?}: {e}"))
     })?;
 

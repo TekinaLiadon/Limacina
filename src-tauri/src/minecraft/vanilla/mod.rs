@@ -156,7 +156,7 @@ impl MinecraftLoader for Vanilla {
                 "Не удалось определить путь к файлам проекта: {e:#}"
             ))
         })?;
-        let mut classpath = get_classpath(&manifest_version.libraries, config)?;
+        let mut classpath = get_classpath(&manifest_version.libraries, config).await?;
         let client_jar = game_dir.join(format!("{}.jar", config.mc_version));
         classpath.push(client_jar.to_string_lossy().to_string());
 
