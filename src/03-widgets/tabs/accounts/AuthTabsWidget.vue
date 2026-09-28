@@ -41,6 +41,12 @@ const tabs: AuthButtonTab[] = [
 
 const showTabs = computed((): boolean => !isOffline.value)
 const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props.activeTab))
+
+const switchTab = (tab: AuthSubTab): void => {
+  if (tab === props.activeTab) return
+  errorMessage.value = ''
+  emit('update:activeTab', tab)
+}
 </script>
 
 <template>
@@ -51,7 +57,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
           :key="el.key"
           class="auth-tabs__tab"
           :class="{ 'auth-tabs__tab--active': activeTab === el.key }"
-          @click="emit('update:activeTab', el.key)"
+          @click="switchTab(el.key)"
         >
         {{el.text}}
       </Button>

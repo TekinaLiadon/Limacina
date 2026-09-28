@@ -180,6 +180,7 @@ export function useSkinSettings() {
     skinUrl,
     errorMessage: content.errorMessage,
     isUploading: content.isUploading,
+    isMutating: content.isMutating,
     isOffline: content.isOffline,
     uploadedSkins: content.items,
     isListLoading: content.isListLoading,

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use crate::{
-    log_err,
+    log_err, log_info,
     utils::download_file::write_atomic_sync,
     utils::env_info::{get_launcher_name, launcher_path},
     utils::errors::LauncherError,
@@ -35,6 +35,23 @@ struct CredentialStore {
 fn fallback_path() -> Result<PathBuf> {
     let base = launcher_path(None)?;
     Ok(base.join("credentials.json"))
+}
+
+fn read_fallback_store(path: &std::path::Path, content: &str) -> CredentialStore {
+    match serde_json::from_str(content) {
+        Ok(store) => store,
+        Err(e) => {
+            let backup_path = path.with_extension("json.bak");
+            log_err!(
+                "Хранилище credentials повреждено: {:?} — битый файл сохранён в {:?} ({})",
+                path,
+                backup_path,
+                e
+            );
+            let _ = fs::rename(path, &backup_path);
+            CredentialStore::default()
+        }
+    }
 }
 
 fn derive_key(project: &str, username: &str, key_suffix: &str) -> [u8; 8] {
@@ -69,7 +86,7 @@ pub(crate) fn save_fallback(
     let mut store: CredentialStore = if path.exists() {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
-        serde_json::from_str(&content).unwrap_or_default()
+        read_fallback_store(&path, &content)
     } else {
         CredentialStore::default()
     };
@@ -131,7 +148,7 @@ pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -
     }
 
     let content = fs::read_to_string(&path)?;
-    let mut store: CredentialStore = serde_json::from_str(&content).unwrap_or_default();
+    let mut store: CredentialStore = read_fallback_store(&path, &content);
     let key_name = fallback_entry_key(project, username, key_suffix);
     let legacy_name = legacy_fallback_entry_key(username, key_suffix);
     store
@@ -227,18 +244,25 @@ fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resul
     let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    let keyring_result = (|| -> Result<String> {
-        let entry = keyring::Entry::new(&service, &key)
-            .context("Не удалось получить доступ к хранилищу")?;
-        entry
-            .get_password()
-            .context(format!("Не найден {} в keyring", key_suffix))
-    })();
-
-    match keyring_result {
-        Ok(val) => Ok(val),
+    let entry = match keyring::Entry::new(&service, &key) {
+        Ok(entry) => entry,
         Err(e) => {
-            log_err!("Keyring load {}: ОШИБКА — {:?}", key_suffix, e);
+            log_err!("Keyring load {}: ОШИБКА — {}", key_suffix, e);
+            return load_fallback(project, username, key_suffix);
+        }
+    };
+
+    match entry.get_password() {
+        Ok(value) => Ok(value),
+        Err(keyring::Error::NoEntry) => {
+            log_info!(
+                "Keyring load {}: записи нет — читаю fallback-хранилище",
+                key_suffix
+            );
+            load_fallback(project, username, key_suffix)
+        }
+        Err(e) => {
+            log_err!("Keyring load {}: ОШИБКА — {}", key_suffix, e);
             load_fallback(project, username, key_suffix)
         }
     }
@@ -265,9 +289,16 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
     let service = get_launcher_name();
 
     let keyring_result = (|| -> Result<()> {
-        let entry = keyring::Entry::new(&service, &key)?;
-        entry.delete_credential()?;
-        Ok(())
+        let entry =
+            keyring::Entry::new(&service, &key).context("Не удалось получить доступ к хранилищу")?;
+        match entry.delete_credential() {
+            Ok(()) => Ok(()),
+            Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(anyhow::Error::new(e).context(format!(
+                "Не удалось удалить {} из keyring",
+                key_suffix
+            ))),
+        }
     })();
 
     if let Err(e) = &keyring_result {
@@ -431,5 +462,35 @@ mod tests {
             load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
             "legacy-token"
         );
+    }
+
+    #[tokio::test]
+    async fn corrupt_store_backed_up_before_overwrite() {
+        let dir = LauncherDirGuard::acquire("credentials_corrupt_save").await;
+        write_atomic_sync(&dir.root().join("credentials.json"), b"{ broken").unwrap();
+
+        save_fallback("Cordelia", "Steve", "refresh_token", "token")
+            .expect("сохранение после битого хранилища");
+
+        let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
+            .expect("битое хранилище должно быть забэкаплено");
+        assert!(backup.contains("broken"));
+        assert_eq!(
+            load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
+            "token"
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_store_backed_up_on_delete() {
+        let dir = LauncherDirGuard::acquire("credentials_corrupt_delete").await;
+        write_atomic_sync(&dir.root().join("credentials.json"), b"{ broken").unwrap();
+
+        delete_fallback("Cordelia", "Steve", "refresh_token")
+            .expect("удаление после битого хранилища");
+
+        let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
+            .expect("битое хранилище должно быть забэкаплено");
+        assert!(backup.contains("broken"));
     }
 }

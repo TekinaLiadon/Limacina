@@ -78,6 +78,15 @@ fn response_cache_guard() -> Option<std::sync::MutexGuard<'static, ResponseCache
     }
 }
 
+async fn send_and_check(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
+    let response = request.send().await.map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
+    })?;
+    let response = response
+        .error_for_status()
+        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
+    Ok(response)
+}
 async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
     let url = format!("{}{}", api_base(), path);
     let cache_key = format!("GET {url} {}", json_param_str(query));
@@ -95,17 +104,7 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
         }
     }
 
-    let response = modrinth_client()
-        .get(&url)
-        .query(query)
-        .send()
-        .await
-        .map_err(|e| {
-            LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
-        })?;
-    let response = response
-        .error_for_status()
-        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
+    let response = send_and_check(modrinth_client().get(&url).query(query), &url).await?;
     let value: serde_json::Value = response.json().await.map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
     })?;
@@ -237,17 +236,7 @@ pub async fn get_versions_from_hashes(
         game_versions: game_versions.to_vec(),
     };
     let url = format!("{}/version_files", api_base());
-    let response = modrinth_client()
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| {
-            LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
-        })?;
-    let response = response
-        .error_for_status()
-        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
+    let response = send_and_check(modrinth_client().post(&url).json(&body), &url).await?;
     response.json().await.map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}")).into()
     })

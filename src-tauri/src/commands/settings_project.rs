@@ -90,14 +90,18 @@ async fn clear_minecraft_config_inner(
 
     if keep_old_configs {
         let old_dir = game_dir.join("old_config");
+        let staging_dir = game_dir.join("old_config.part");
+        tokio::fs::rename(&config_dir, &staging_dir)
+            .await
+            .with_context(|| format!("Не удалось переименовать папку {:?}", config_dir))?;
         if old_dir.exists() {
             tokio::fs::remove_dir_all(&old_dir)
                 .await
                 .with_context(|| format!("Не удалось удалить старую папку {:?}", old_dir))?;
         }
-        tokio::fs::rename(&config_dir, &old_dir)
+        tokio::fs::rename(&staging_dir, &old_dir)
             .await
-            .with_context(|| format!("Не удалось переименовать папку {:?}", config_dir))?;
+            .with_context(|| format!("Не удалось переименовать папку {:?}", staging_dir))?;
         log_info!("Конфиги проекта {} перемещены в old_config", project_name);
         Ok("Конфиги перемещены в резервную копию".to_string())
     } else {

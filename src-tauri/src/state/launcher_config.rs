@@ -534,7 +534,10 @@ mod tests {
         assert_eq!(config.project_names, vec!["Avelmor"]);
         assert_eq!(config.current_project.as_deref(), Some("Avelmor"));
 
-        assert!(!config.apply_default_project(), "повторный вызов без эффекта");
+        assert!(
+            !config.apply_default_project(),
+            "повторный вызов без эффекта"
+        );
         assert_eq!(config.project_names.len(), 1);
 
         let mut kept = LauncherConfig::default();

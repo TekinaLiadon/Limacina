@@ -122,7 +122,7 @@ async fn collect_installed_hashes(
                     "[modrinth] Не удалось прочитать запись в папке модов: {}",
                     e
                 );
-                continue;
+                break;
             }
         };
 
@@ -232,9 +232,13 @@ pub async fn modrinth_project(
             .context("Не удалось получить информацию о моде"),
         LauncherError::Modrinth,
     )?;
-    let versions = client::get_project_versions(&id, &[], &[])
-        .await
-        .unwrap_or_default();
+    let versions = match client::get_project_versions(&id, &[], &[]).await {
+        Ok(versions) => versions,
+        Err(e) => {
+            log_err!("[modrinth] Не удалось получить версии мода {}: {}", id, e);
+            Vec::new()
+        }
+    };
     Ok(ProjectDetails { project, versions })
 }
 

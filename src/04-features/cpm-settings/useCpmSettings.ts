@@ -51,6 +51,8 @@ export function useCpmSettings() {
   const modelsLimit = ref<number | null>(null)
   const isLimitLoading = ref<boolean>(false)
   const limitLoadError = ref<string>('')
+  const isSavingLimit = ref<boolean>(false)
+  const limitSaveError = ref<string>('')
 
   const modelName = computed((): string => cpmFileName.value.trim() || 'Модель')
 
@@ -188,19 +190,25 @@ export function useCpmSettings() {
   }
 
   const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
+    if (isSavingLimit.value) return
     if (limit !== null && (!Number.isFinite(limit) || limit < 1)) {
-      content.errorMessage.value = 'Лимит моделей — положительное число или пустое значение'
+      limitSaveError.value = 'Лимит моделей — положительное число или пустое значение'
       return
     }
+    isSavingLimit.value = true
+    limitSaveError.value = ''
     try {
       await setPlayerModelsLimit(limit)
       modelsLimit.value = limit
       limitLoadError.value = ''
     } catch (e: unknown) {
-      content.errorMessage.value = getErrorMessage(e)
+      limitSaveError.value = getErrorMessage(e)
+    } finally {
+      isSavingLimit.value = false
     }
   }
 
+  void content.loadItems()
   void loadModelsLimit()
 
   onScopeDispose((): void => {
@@ -223,6 +231,8 @@ export function useCpmSettings() {
     modelsLimit,
     isLimitLoading,
     limitLoadError,
+    isSavingLimit,
+    limitSaveError,
     isDragOver,
     selectCpmFile,
     resetCpm,

@@ -44,8 +44,6 @@ impl ArgumentsMap {
             ),
             ("${launcher_name}", get_launcher_name()),
             ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
-            ("${width}", config.window_width.to_string()),
-            ("${height}", config.window_height.to_string()),
             ("${clientid}", "1".to_string()),
             ("${auth_xuid}", "1".to_string()),
             (
@@ -550,8 +548,6 @@ mod args_pipeline_tests {
             libraries_dir: PathBuf::from("/game/libraries"),
             natives_dir: PathBuf::from("/game/natives"),
             jvm_sub_arg: vec!["-Xms512M".to_string(), "-Xmx4G".to_string()],
-            window_width: 1280,
-            window_height: 720,
         }
     }
 

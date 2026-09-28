@@ -187,13 +187,8 @@ export function useModrinth() {
     }
   }
 
-  const fetchProjectDetails = async (projectId: string): Promise<ModrinthProjectDetails | null> => {
-    try {
-      return await modrinthProject(projectId)
-    } catch (e: unknown) {
-      actionError.value = getErrorMessage(e)
-      return null
-    }
+  const fetchProjectDetails = async (projectId: string): Promise<ModrinthProjectDetails> => {
+    return modrinthProject(projectId)
   }
 
   return {

@@ -9,10 +9,12 @@ const {
   selectedVersion,
   currentVersion,
   isLoading,
+  loadError,
   isApplying,
   isApplyDisabled,
   selectVersion,
   handleApplyVersion,
+  retryLoad,
 } = useLauncherUpdate()
 
 const versionOptions = computed((): DropdownOption[] =>
@@ -26,6 +28,18 @@ const versionOptions = computed((): DropdownOption[] =>
 <template>
   <div class="launcher-update">
     <span class="launcher-update__label eyebrow">Версия лаунчера</span>
+
+    <div v-if="loadError" class="launcher-update__load-error" role="alert">
+      <p class="launcher-update__load-error-text">{{ loadError }}</p>
+      <Button
+        class="btn-secondary launcher-update__load-error-btn"
+        :is-loading="isLoading"
+        :is-disabled="isLoading"
+        @click="retryLoad"
+      >
+        Повторить
+      </Button>
+    </div>
 
     <div class="launcher-update__row">
       <Dropdown
@@ -48,6 +62,8 @@ const versionOptions = computed((): DropdownOption[] =>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .launcher-update {
   display: flex;
   flex-direction: column;
@@ -56,6 +72,18 @@ const versionOptions = computed((): DropdownOption[] =>
   &__label {
     display: block;
     text-align: left;
+  }
+
+  &__load-error {
+    @include mixins.load-error-row;
+  }
+
+  &__load-error-text {
+    margin: 0;
+  }
+
+  &__load-error-btn {
+    flex-shrink: 0;
   }
 
   &__row {

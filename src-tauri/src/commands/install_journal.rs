@@ -7,6 +7,7 @@ use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
+use crate::log_err;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct InstallJournal {
@@ -29,7 +30,14 @@ async fn read_journal(project: &str) -> Result<Option<InstallJournal>> {
     match tokio::fs::read_to_string(&path).await {
         Ok(content) => match serde_json::from_str(&content) {
             Ok(journal) => Ok(Some(journal)),
-            Err(_) => Ok(None),
+            Err(e) => {
+                log_err!(
+                    "Журнал установки {:?} повреждён, установка начнётся заново: {}",
+                    path,
+                    e
+                );
+                Ok(None)
+            }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => {
@@ -106,7 +114,13 @@ pub async fn load_install_journal(
     if project.trim().is_empty() {
         return Err(LauncherError::ProjectNotSelected.into());
     }
-    let journal = read_journal(&project).await.unwrap_or_default();
+    let journal = match read_journal(&project).await {
+        Ok(journal) => journal,
+        Err(e) => {
+            log_err!("Не удалось прочитать журнал установки: {}", e);
+            None
+        }
+    };
     Ok(completed_from_journal(
         journal,
         &project,

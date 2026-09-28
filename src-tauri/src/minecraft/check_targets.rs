@@ -118,7 +118,7 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
 
     let assets_report = check_integrity(
         &base_path,
-        collect_asset_targets(&asset_index),
+        collect_asset_targets(&asset_index)?,
         PHASE_ASSETS.id,
         PHASE_ASSETS.label,
         url_download_fn(),

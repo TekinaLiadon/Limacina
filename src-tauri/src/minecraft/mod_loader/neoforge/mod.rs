@@ -1,5 +1,3 @@
-pub mod manifest;
-
 use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
@@ -8,11 +6,8 @@ use crate::{
             config::merge_classpath,
             installer::setup_loader,
             manifest::{
-                apply_installed_manifest, current_loader_version, latest_list_version,
-                loader_libraries, loader_version_or_err, Manifest,
-            },
-            neoforge::manifest::{
-                get_manifest_index, transform_neoforge_manifest, MANIFEST_PREFIX, MAVEN_BASE,
+                latest_list_version, loader_libraries, loader_manifest_path, loader_version_or_err,
+                versions_with_installed, Manifest, NEOFORGE,
             },
         },
         structs::{GameConfig, ModLoader, VersionMod},
@@ -32,25 +27,7 @@ pub struct NeoForge;
 #[async_trait]
 impl ModLoader for NeoForge {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        let mut manifest =
-            transform_neoforge_manifest(get_manifest_index().await.map_err(|e| {
-                LauncherError::LoaderSetup(format!("Не удалось получить индекс NeoForge: {e:#}"))
-            })?);
-        apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest)
-            .await
-            .map_err(|e| {
-                LauncherError::LoaderSetup(format!(
-                    "Не удалось применить установленный манифест NeoForge: {e:#}"
-                ))
-            })?;
-        Ok(manifest)
-    }
-    async fn version_current(
-        &self,
-        state: &ProjectConfig,
-        versions: &[VersionMod],
-    ) -> Result<VersionMod> {
-        current_loader_version(state, versions)
+        versions_with_installed(&NEOFORGE, state).await
     }
     async fn latest_version(
         &self,
@@ -60,7 +37,14 @@ impl ModLoader for NeoForge {
         latest_list_version(versions, &state.mc_version, "NeoForge")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        setup_loader("NeoForge", MANIFEST_PREFIX, state, manifest, MAVEN_BASE).await
+        setup_loader(
+            NEOFORGE.name,
+            NEOFORGE.manifest_prefix,
+            state,
+            manifest,
+            NEOFORGE.maven_base,
+        )
+        .await
     }
     async fn config(
         &self,
@@ -71,14 +55,12 @@ impl ModLoader for NeoForge {
         log_info!("Соединение classpath NeoForge");
         let target_version = loader_version_or_err(state)?;
 
-        let neoforge_manifest = launcher_path(None)
+        let neoforge_manifest = loader_manifest_path(NEOFORGE.manifest_prefix, target_version)
             .map_err(|e| {
                 LauncherError::LoaderSetup(format!(
                     "Не удалось определить путь к файлам лаунчера: {e:#}"
                 ))
-            })?
-            .join("manifest")
-            .join(format!("neoforge_{}.json", target_version));
+            })?;
         let manifest = download_json::<Manifest>(None, &neoforge_manifest)
             .await
             .map_err(|e| {
@@ -94,7 +76,7 @@ impl ModLoader for NeoForge {
         let libraries_dir = base_path.join("libraries").to_string_lossy().to_string();
 
         let neoforge_libraries = if version.library.is_empty() {
-            loader_libraries(manifest.libraries.clone(), MAVEN_BASE).map_err(|e| {
+            loader_libraries(manifest.libraries.clone(), NEOFORGE.maven_base).map_err(|e| {
                 LauncherError::LoaderSetup(format!("Не удалось собрать библиотеки NeoForge: {e:#}"))
             })?
         } else {

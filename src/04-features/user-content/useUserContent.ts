@@ -1,4 +1,4 @@
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { copyToClipboard, reportError } from '@/06-shared'
 import {
@@ -27,6 +27,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 
   const items = ref<UserContentItem[]>([])
   const isUploading = ref<boolean>(false)
+  const isMutating = ref<boolean>(false)
   const errorMessage = ref<string>('')
   const isListLoading = ref<boolean>(false)
   const listError = ref<string>('')
@@ -68,21 +69,30 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   }
 
   const handleDelete = async (id: number): Promise<void> => {
+    if (isMutating.value) return
+    isMutating.value = true
+    errorMessage.value = ''
     try {
       await api.delete(id)
       await loadItems()
     } catch (e: unknown) {
       errorMessage.value = getErrorMessage(e)
+    } finally {
+      isMutating.value = false
     }
   }
 
   const handleActivate = async (id: number): Promise<void> => {
-    if (api.activate === undefined) return
+    if (api.activate === undefined || isMutating.value) return
+    isMutating.value = true
+    errorMessage.value = ''
     try {
       await api.activate(id)
       await loadItems()
     } catch (e: unknown) {
       errorMessage.value = getErrorMessage(e)
+    } finally {
+      isMutating.value = false
     }
   }
 
@@ -95,11 +105,10 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     }
   }
 
-  onMounted(loadItems)
-
   return {
     items,
     isUploading,
+    isMutating,
     isListLoading,
     listError,
     errorMessage,

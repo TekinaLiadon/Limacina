@@ -125,15 +125,10 @@ impl MinecraftLoader for Vanilla {
         index_step.finish(false);
 
         let assets_step = StepHandle::start(PHASE_ASSETS.id, PHASE_ASSETS.label);
+        let asset_targets = collect_asset_targets(&asset_index)?;
         step_try!(
             assets_step,
-            ensure_files(
-                &assets_step,
-                &base_path,
-                project_name,
-                collect_asset_targets(&asset_index),
-            )
-            .await
+            ensure_files(&assets_step, &base_path, project_name, asset_targets,).await
         );
         assets_step.finish(false);
 

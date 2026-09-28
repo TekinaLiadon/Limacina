@@ -10,7 +10,7 @@ use crate::{
         mod_loader::{
             config::loader_version_jar_name,
             download::library_targets,
-            manifest::{loader_libraries, loader_version_or_err, Manifest},
+            manifest::{loader_libraries, loader_manifest_path, loader_version_or_err, Manifest},
         },
         structs::{LibraryMod, VersionMod},
     },
@@ -203,9 +203,7 @@ pub async fn locate_installed_manifest(
 
 pub fn manifest_paths(state_project: &ProjectConfig, prefix: &str) -> Result<(PathBuf, PathBuf)> {
     let version = loader_version_or_err(state_project)?;
-    let manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("{}_{}.json", prefix, version));
+    let manifest_path = loader_manifest_path(prefix, version)?;
     let project_dir = launcher_path(Some(&state_project.project_name))?;
     Ok((manifest_path, project_dir))
 }
@@ -304,12 +302,10 @@ pub async fn setup_loader(
 
     let step = StepHandle::start("loader", format!("Установка {}", loader_name));
 
-    let loader_manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("{}_{}.json", manifest_prefix, loader_version));
+    let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
 
-    if loader_manifest_path.exists() {
-        let version_manifest = download_json::<Manifest>(None, &loader_manifest_path).await?;
+    if loader_manifest_file.exists() {
+        let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         let library = loader_libraries(version_manifest.libraries, maven_base)?;
         install_loader_files(
             step.clone(),
@@ -500,6 +496,100 @@ mod loader_install_tests {
         assert!(installed
             .files
             .contains_key("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar"));
+    }
+
+    fn neoforge_manifest_json() -> serde_json::Value {
+        let mergetool_sha1 = sha1_hex(b"mergetool bytes");
+        json!({
+            "id": "1.20.1-neoforge-21.1.80",
+            "time": "2024-01-01T00:00:00+00:00",
+            "releaseTime": "2024-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "net.neoforged.bootstrap.Bootstrap",
+            "inheritsFrom": "1.20.1",
+            "libraries": [
+                {
+                    "name": "net.neoforged:mergetool:2.0.3:api@jar",
+                    "downloads": {
+                        "artifact": {
+                            "path": "net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
+                            "url": "",
+                            "sha1": mergetool_sha1,
+                            "size": b"mergetool bytes".len() as i64
+                        }
+                    }
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn setup_loader_fast_path_uses_manifest_paths_for_classified_libraries() {
+        let dir = LauncherDirGuard::acquire("loader_setup_neoforge").await;
+        let mut server = Server::new_async().await;
+
+        let mergetool_jar = b"mergetool bytes".to_vec();
+        let installer_jar = b"installer bytes".to_vec();
+
+        server
+            .mock(
+                "GET",
+                "/maven/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
+            )
+            .with_status(200)
+            .with_body(mergetool_jar.clone())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/installer/1.20.1-21.1.80.jar")
+            .with_status(200)
+            .with_body(installer_jar.clone())
+            .create_async()
+            .await;
+
+        let manifest_path = dir.root().join("manifest").join("neoforge_21.1.80.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, neoforge_manifest_json().to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "NeoProj".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("21.1.80".to_string()),
+            ..ProjectConfig::default()
+        };
+        let manifest = vec![VersionMod {
+            url: format!("{}/installer/1.20.1-21.1.80.jar", server.url()),
+            id: "1.20.1-21.1.80".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+        let maven_base = format!("{}/maven", server.url());
+
+        setup_loader("NeoForge", "neoforge", &state, &manifest, &maven_base)
+            .await
+            .expect("установка NeoForge");
+
+        let project = dir.project_dir("NeoProj");
+        assert_eq!(
+            fs::read(
+                project.join("libraries/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar")
+            )
+            .unwrap(),
+            b"mergetool bytes"
+        );
+        assert!(
+            !project
+                .join("libraries/net/neoforged/mergetool/2.0.3@jar")
+                .exists(),
+            "файл не должен попадать в каталог версии с суффиксом @jar"
+        );
+
+        let installed = crate::utils::install_manifest::load_install_manifest("NeoProj")
+            .await
+            .expect("install-манифест");
+        assert!(installed
+            .files
+            .contains_key("libraries/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"));
     }
 
     #[tokio::test]

@@ -454,6 +454,9 @@ pub async fn get_game_options(project_name: String) -> CommandResult<GameOptions
 }
 
 async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
+    if project_name.trim().is_empty() {
+        anyhow::bail!(LauncherError::ProjectNotSelected);
+    }
     let path = options_file_path(project_name)?;
     let content = read_options_content(&path).await?;
     let file_exists = content.is_some();
@@ -551,7 +554,7 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_options, parse_options, write_options_file};
+    use super::{get_game_options_inner, merge_options, parse_options, write_options_file};
     use crate::test_support::LauncherDirGuard;
 
     #[test]
@@ -751,5 +754,17 @@ mod tests {
             .expect("повторная запись options.txt");
         assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "fov:90\n");
         assert!(!part.exists(), ".part не должен оставаться после записи");
+    }
+
+    #[tokio::test]
+    async fn get_game_options_rejects_empty_project_name() {
+        let _guard = LauncherDirGuard::acquire("game_options_empty").await;
+
+        let result = get_game_options_inner("").await;
+
+        assert!(
+            result.is_err(),
+            "пустое имя проекта не должно читать options.txt из корня лаунчера"
+        );
     }
 }

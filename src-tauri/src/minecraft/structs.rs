@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::minecraft::mod_loader::manifest::current_loader_version;
 use crate::state::dto::ProjectConfig;
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
@@ -25,8 +26,6 @@ pub struct LaunchConfig {
     pub libraries_dir: PathBuf,
     pub natives_dir: PathBuf,
     pub jvm_sub_arg: Vec<String>,
-    pub window_width: u32,
-    pub window_height: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -104,8 +103,6 @@ pub async fn new_launch_config(
         libraries_dir: base_dir.join("libraries"),
         natives_dir: base_dir.join("natives"),
         jvm_sub_arg,
-        window_width: 1280,
-        window_height: 720,
     })
 }
 
@@ -128,6 +125,8 @@ pub struct VersionMod {
 #[serde(rename_all = "camelCase")]
 pub struct LibraryMod {
     pub name: String,
+    #[serde(default)]
+    pub path: String,
     pub url: String,
     pub hash: String,
     pub size: i64,
@@ -140,7 +139,9 @@ pub trait ModLoader: Send + Sync {
         &self,
         state: &ProjectConfig,
         versions: &[VersionMod],
-    ) -> Result<VersionMod>;
+    ) -> Result<VersionMod> {
+        current_loader_version(state, versions)
+    }
     async fn latest_version(
         &self,
         state: &ProjectConfig,

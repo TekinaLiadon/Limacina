@@ -1,25 +1,20 @@
-pub mod manifest;
-
 use crate::utils::errors::LauncherError;
 use crate::{
     log_info,
     minecraft::{
         mod_loader::{
             config::merge_classpath,
-            forge::manifest::{
-                get_manifest_index, transform_forge_manifest, MANIFEST_PREFIX, MAVEN_BASE,
-            },
             installer::setup_loader,
             manifest::{
-                apply_installed_manifest, current_loader_version, latest_list_version,
-                loader_version_or_err, Manifest,
+                latest_list_version, loader_manifest_path, loader_version_or_err,
+                versions_with_installed, Manifest, FORGE,
             },
         },
         structs::{GameConfig, ModLoader, VersionMod},
         vanilla::config::{filter_classpath, strip_classpath_args},
     },
     state::dto::ProjectConfig,
-    utils::{download_file::download_json, env_info::launcher_path},
+    utils::download_file::download_json,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -28,24 +23,7 @@ pub struct Forge;
 #[async_trait]
 impl ModLoader for Forge {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        let mut manifest = transform_forge_manifest(get_manifest_index().await.map_err(|e| {
-            LauncherError::LoaderSetup(format!("Не удалось получить индекс Forge: {e:#}"))
-        })?);
-        apply_installed_manifest(state, MANIFEST_PREFIX, MAVEN_BASE, &mut manifest)
-            .await
-            .map_err(|e| {
-                LauncherError::LoaderSetup(format!(
-                    "Не удалось применить установленный манифест Forge: {e:#}"
-                ))
-            })?;
-        Ok(manifest)
-    }
-    async fn version_current(
-        &self,
-        state: &ProjectConfig,
-        versions: &[VersionMod],
-    ) -> Result<VersionMod> {
-        current_loader_version(state, versions)
+        versions_with_installed(&FORGE, state).await
     }
     async fn latest_version(
         &self,
@@ -55,7 +33,14 @@ impl ModLoader for Forge {
         latest_list_version(versions, &state.mc_version, "Forge")
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        setup_loader("Forge", MANIFEST_PREFIX, state, manifest, MAVEN_BASE).await
+        setup_loader(
+            FORGE.name,
+            FORGE.manifest_prefix,
+            state,
+            manifest,
+            FORGE.maven_base,
+        )
+        .await
     }
     async fn config(
         &self,
@@ -76,14 +61,12 @@ impl ModLoader for Forge {
         })?;
         let clean_classpath = filter_classpath(classpath);
 
-        let forge_manifest = launcher_path(None)
-            .map_err(|e| {
+        let forge_manifest =
+            loader_manifest_path(FORGE.manifest_prefix, target_version).map_err(|e| {
                 LauncherError::LoaderSetup(format!(
                     "Не удалось определить путь к файлам лаунчера: {e:#}"
                 ))
-            })?
-            .join("manifest")
-            .join(format!("forge_{}.json", target_version));
+            })?;
         let manifest = download_json::<Manifest>(None, &forge_manifest)
             .await
             .map_err(|e| {
@@ -156,6 +139,7 @@ mod config_tests {
             main_class: "LoaderMain".to_string(),
             library: vec![LibraryMod {
                 name: "net.fabricmc:fabric-loader:0.16.9".to_string(),
+                path: String::new(),
                 url: "http://unused.test/lib.jar".to_string(),
                 hash: String::new(),
                 size: 0,

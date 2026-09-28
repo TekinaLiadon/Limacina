@@ -12,17 +12,19 @@ const props = withDefaults(defineProps<{
 })
 
 const rootRef = ref<HTMLDivElement | null>(null)
-const activeRef = ref<HTMLDivElement | null>(null)
 
 watch(() => props.steps.map(s => s.status).join(','), () => {
-  if (!isAnimationsEnabled() || !activeRef.value) return
+  const root = rootRef.value
+  if (root === null || !isAnimationsEnabled()) return
+  const indicator = root.querySelector('.step-progress__item--active .step-progress__indicator')
+  if (indicator === null) return
   anime({
-    targets: activeRef.value.querySelector('.step-progress__indicator'),
+    targets: indicator,
     scale: [1, 1.3, 1],
     duration: 600,
     easing: 'easeInOutQuad',
   })
-})
+}, { flush: 'post' })
 
 const visibleSteps = computed((): StepProgressItem[] => {
   if (!props.hideCompleted) return props.steps
@@ -112,7 +114,6 @@ const subLabel = (step: StepProgressItem): string => {
       <div
         v-for="step in visibleSteps"
         :key="step.key"
-        :ref="(el) => { activeRef = step.status === 'active' ? (el as HTMLDivElement | null) : null }"
         class="step-progress__item"
         :class="`step-progress__item--${step.status}`"
       >

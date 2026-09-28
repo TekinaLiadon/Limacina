@@ -74,17 +74,29 @@ pub fn updater_builder(
     }
 }
 
+fn cleanup_path(path: &std::path::Path, description: &str, is_dir: bool) {
+    if !path.exists() {
+        return;
+    }
+    let remove = |path: &std::path::Path| {
+        if is_dir {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        }
+    };
+    match remove(path)
+        .map_err(|e| LauncherError::DiskIo(format!("Не удалось удалить {description}: {e:#}")))
+    {
+        Ok(()) => log_info!("Удалён(а) {description}: {:?}", path),
+        Err(e) => log_err!("{:?}", e),
+    }
+}
+
 pub fn cleanup_old_binaries() {
     if let Ok(current_exe) = std::env::current_exe() {
         let old_path = old_binary_path(&current_exe);
-        if old_path.exists() {
-            match std::fs::remove_file(&old_path).map_err(|e| {
-                LauncherError::DiskIo(format!("Не удалось удалить старый бинарник: {e:#}"))
-            }) {
-                Ok(()) => log_info!("Удалён старый бинарник: {:?}", old_path),
-                Err(e) => log_err!("{:?}", e),
-            }
-        }
+        cleanup_path(&old_path, "старый бинарник", false);
 
         let staged_path = current_exe.with_file_name(format!(
             "{}.new",
@@ -93,19 +105,7 @@ pub fn cleanup_old_binaries() {
                 .unwrap_or_default()
                 .to_string_lossy()
         ));
-        if staged_path.exists() {
-            match std::fs::remove_file(&staged_path).map_err(|e| {
-                LauncherError::DiskIo(format!(
-                    "Не удалось удалить незавершённое обновление: {e:#}"
-                ))
-            }) {
-                Ok(()) => log_info!(
-                    "Удалён незавершённый бинарник обновления: {:?}",
-                    staged_path
-                ),
-                Err(e) => log_err!("{:?}", e),
-            }
-        }
+        cleanup_path(&staged_path, "незавершённый бинарник обновления", false);
 
         let old_dir = current_exe.with_file_name(format!(
             "{}.app.old",
@@ -117,14 +117,7 @@ pub fn cleanup_old_binaries() {
                 .to_string_lossy()
                 .trim_end_matches(".app")
         ));
-        if old_dir.exists() {
-            match std::fs::remove_dir_all(&old_dir).map_err(|e| {
-                LauncherError::DiskIo(format!("Не удалось удалить старый бандл: {e:#}"))
-            }) {
-                Ok(()) => log_info!("Удалён старый бандл: {:?}", old_dir),
-                Err(e) => log_err!("{:?}", e),
-            }
-        }
+        cleanup_path(&old_dir, "старый бандл", true);
     }
 }
 

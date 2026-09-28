@@ -12,7 +12,7 @@ use crate::{
     minecraft::vanilla::rules::is_rule_allowed,
     minecraft::vanilla::structs::{Artifact, AssetIndexContent, Library, VersionDetailsManifest},
     utils::{
-        env_info::get_current_os,
+        env_info::{get_arch, get_current_os},
         integrity::{HashKind, IntegrityTarget, TargetDownload},
     },
 };
@@ -56,11 +56,7 @@ pub fn collect_install_targets(manifest: &VersionDetailsManifest) -> VanillaTarg
 fn native_artifact_for_os<'a>(lib: &'a Library, current_os: &str) -> Option<&'a Artifact> {
     let natives_map = lib.natives.as_ref()?;
     let classifier_template = natives_map.get(current_os)?;
-    let arch = if cfg!(target_arch = "x86_64") {
-        "64"
-    } else {
-        "32"
-    };
+    let arch = if get_arch() == "x86" { "32" } else { "64" };
     let classifier = classifier_template.replace("${arch}", arch);
     let classifiers = &lib.downloads.as_ref()?.classifiers.as_ref()?;
     classifiers.get(&classifier)
@@ -389,26 +385,65 @@ pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> Integrit
     }
 }
 
-pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTarget> {
+pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<IntegrityTarget>> {
     let mut targets = Vec::new();
     for asset in asset_index.objects.values() {
-        let hash_prefix = asset.hash[..2].to_string();
+        let hash_prefix = asset.hash.get(..2).ok_or_else(|| {
+            LauncherError::ManifestParse(format!(
+                "Некорректный хеш ассета в индексе: {}",
+                asset.hash
+            ))
+        })?;
         targets.push(IntegrityTarget {
-            rel_path: PathBuf::from(format!("assets/objects/{}/{}", hash_prefix, asset.hash)),
+            rel_path: PathBuf::from(format!("assets/objects/{hash_prefix}/{}", asset.hash)),
             hash: asset.hash.clone(),
             hash_kind: HashKind::Sha1,
             download: TargetDownload::Url(format!(
-                "https://resources.download.minecraft.net/{}/{}",
-                hash_prefix, asset.hash
+                "https://resources.download.minecraft.net/{hash_prefix}/{}",
+                asset.hash
             )),
         });
     }
-    targets
+    Ok(targets)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_library_targets, extract_natives, get_current_os};
+    use super::{
+        collect_asset_targets, collect_library_targets, extract_natives, get_current_os,
+        AssetIndexContent,
+    };
+    #[test]
+    fn asset_targets_reject_short_hashes() {
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "x", "size": 1 } }
+        }))
+        .unwrap();
+
+        let result = collect_asset_targets(&index);
+
+        assert!(
+            result.is_err(),
+            "хеш короче двух символов не должен паниковать, а давать ошибку"
+        );
+    }
+
+    #[test]
+    fn asset_targets_map_hash_prefixes() {
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "abcdef1234567890abcdef1234567890abcdef12", "size": 1 } }
+        }))
+        .unwrap();
+
+        let targets = collect_asset_targets(&index).expect("валидные ассеты");
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(
+            targets[0].rel_path,
+            PathBuf::from("assets/objects/ab/abcdef1234567890abcdef1234567890abcdef12")
+        );
+    }
+
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
     use crate::test_support::{
         gson_library, jopt_simple_library, logging_library, write_test_zip, LauncherDirGuard,

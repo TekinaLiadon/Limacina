@@ -24,6 +24,8 @@ const {
   modelsLimit,
   isLimitLoading,
   limitLoadError,
+  isSavingLimit,
+  limitSaveError,
   isDragOver,
   selectCpmFile,
   resetCpm,
@@ -60,7 +62,7 @@ const limitOptions = computed<InputOptions>((): InputOptions => ({
   label: 'Лимит хранимых моделей',
   placeholder: limitLoadError.value
     ? 'Недоступно'
-    : isLimitLoading.value
+    : isLimitLoading.value || isSavingLimit.value
       ? 'Загрузка…'
       : 'Не ограничен',
   disabled: isLimitLoading.value,
@@ -181,7 +183,10 @@ const applyLimitInput = async (): Promise<void> => {
         @keydown.enter="applyLimitInput"
         @blur="applyLimitInput"
       />
-      <div v-if="limitLoadError" class="cpm-settings__limit-error">
+      <div v-if="limitSaveError" class="cpm-settings__limit-error" role="alert">
+        {{ limitSaveError }}
+      </div>
+      <div v-if="limitLoadError" class="cpm-settings__limit-error" role="alert">
         Не удалось загрузить лимит моделей: {{ limitLoadError }}
       </div>
       <p class="cpm-settings__hint cpm-settings__limit-hint">

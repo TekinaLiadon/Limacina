@@ -41,8 +41,7 @@ async fn check_server_integrity(
     project: &crate::state::dto::ProjectConfig,
     state: &tauri::State<'_, Mutex<GlobalState>>,
 ) -> anyhow::Result<IntegrityReport> {
-    let ApiContext { client, server_url } =
-        require_api_client(state.inner(), "Необходима авторизация для проверки файлов").await?;
+    let ApiContext { client, server_url } = require_api_client(state.inner()).await?;
     let base_path = launcher_path(Some(&project.project_name))?;
 
     let file_list = fetch_file_list(&client, &server_url, &project.project_name).await?;

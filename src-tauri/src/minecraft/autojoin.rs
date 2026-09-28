@@ -7,12 +7,30 @@ use crate::utils::compare_versions;
 use crate::utils::errors::LauncherError;
 
 fn split_server_address(address: &str) -> (&str, Option<&str>) {
-    let address = address.trim_end_matches(':');
-    match address.rsplit_once(':') {
-        Some((host, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => {
+    let trimmed = address.trim();
+
+    if let Some(rest) = trimmed.strip_prefix('[') {
+        if let Some((host, tail)) = rest.split_once(']') {
+            let port = tail
+                .strip_prefix(':')
+                .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+            return (host, port);
+        }
+        return (trimmed, None);
+    }
+
+    if trimmed.matches(':').count() > 1 {
+        return (trimmed, None);
+    }
+
+    let trimmed = trimmed.trim_end_matches(':');
+    match trimmed.rsplit_once(':') {
+        Some((host, port))
+            if !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) =>
+        {
             (host, Some(port))
         }
-        _ => (address, None),
+        _ => (trimmed, None),
     }
 }
 
@@ -27,9 +45,13 @@ pub fn auto_join_args(address: &str, mc_version: &str) -> Vec<String> {
 
     if compare_versions(base_version, "1.20") != Ordering::Less {
         match port {
+            Some(port) if host.contains(':') => vec![
+                "--quickPlayMultiplayer".to_string(),
+                format!("[{host}]:{port}"),
+            ],
             Some(port) => vec![
                 "--quickPlayMultiplayer".to_string(),
-                format!("{}:{}", host, port),
+                format!("{host}:{port}"),
             ],
             None => vec!["--quickPlayMultiplayer".to_string(), host.to_string()],
         }
@@ -173,6 +195,42 @@ mod tests {
         assert_eq!(
             auto_join_args("play.example.com:", "1.12.2"),
             vec!["--server".to_string(), "play.example.com".to_string()]
+        );
+    }
+
+    #[test]
+    fn ipv6_with_brackets_splits_host_and_port() {
+        assert_eq!(
+            auto_join_args("[::1]:25565", "1.21.1"),
+            vec![
+                "--quickPlayMultiplayer".to_string(),
+                "[::1]:25565".to_string()
+            ]
+        );
+        assert_eq!(
+            auto_join_args("[2001:db8::1]", "1.12.2"),
+            vec!["--server".to_string(), "2001:db8::1".to_string()]
+        );
+        assert_eq!(
+            auto_join_args("[::1]:25565", "1.12.2"),
+            vec![
+                "--server".to_string(),
+                "::1".to_string(),
+                "--port".to_string(),
+                "25565".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn bare_ipv6_is_passed_verbatim_without_port() {
+        assert_eq!(
+            auto_join_args("::1", "1.21.1"),
+            vec!["--quickPlayMultiplayer".to_string(), "::1".to_string()]
+        );
+        assert_eq!(
+            auto_join_args("2001:db8::1:25565", "1.19.4"),
+            vec!["--server".to_string(), "2001:db8::1:25565".to_string()]
         );
     }
 }

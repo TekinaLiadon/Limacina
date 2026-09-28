@@ -262,7 +262,7 @@ onMounted(() => {
         <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
       </div>
 
-      <p v-if="!isCatalogSearching && hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
+      <p v-if="!isCatalogSearching && hits.length === 0 && !searchError" class="modrinth-tab__empty">Ничего не найдено</p>
       <div v-else-if="isCatalogSearching" class="modrinth-tab__list" aria-hidden="true">
         <div v-for="index in 6" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
           <Skeleton variant="list-item" icon-shape="square" :lines="4" />

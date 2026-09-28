@@ -10,6 +10,7 @@ const {
   skinUrl,
   errorMessage,
   isUploading,
+  isMutating,
   isSkinLoading,
   isOffline,
   uploadedSkins,
@@ -109,6 +110,8 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
         <Button
           v-if="item.id != null && item.active !== true"
           class="btn-primary"
+          :is-loading="isMutating"
+          :is-disabled="isMutating"
           @click="handleActivate(item.id!)"
         >
           Активировать

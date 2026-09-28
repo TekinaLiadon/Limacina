@@ -79,20 +79,30 @@ fn is_refresh_rejected(e: &anyhow::Error) -> bool {
     })
 }
 
+async fn project_server_url(project_name: &str, offline_reason: &str) -> Result<String> {
+    let project = load_config_or_default(project_name).await?;
+    if !project.online {
+        bail!(LauncherError::OfflineProfile(offline_reason.to_string()));
+    }
+    project
+        .resolved_server_url()
+        .ok_or(LauncherError::ServerUrlMissing.into())
+}
+
+pub(crate) async fn wipe_project_credentials(project_name: &str, usernames: &[String]) {
+    for username in usernames {
+        for kind in ["password", "refresh_token", "uuid"] {
+            let _ = storage::delete_credential(project_name, username, kind).await;
+        }
+    }
+}
+
 pub(crate) async fn restore_session(
     project_name: &str,
     username: &str,
     password: Option<&str>,
 ) -> Result<AuthData> {
-    let project = load_config_or_default(project_name).await?;
-    if !project.online {
-        bail!(LauncherError::OfflineProfile(
-            "серверная авторизация недоступна".to_string()
-        ));
-    }
-    let server_url = project
-        .resolved_server_url()
-        .ok_or(LauncherError::ServerUrlMissing)?;
+    let server_url = project_server_url(project_name, "серверная авторизация недоступна").await?;
 
     if let Ok(refresh_token) =
         storage::get_credential(project_name, username, "refresh_token").await
@@ -144,15 +154,7 @@ async fn register_account(
     username: &str,
     password: &str,
 ) -> Result<()> {
-    let project = load_config_or_default(project_name).await?;
-    if !project.online {
-        bail!(LauncherError::OfflineProfile(
-            "регистрация недоступна".to_string()
-        ));
-    }
-    let server_url = project
-        .resolved_server_url()
-        .ok_or(LauncherError::ServerUrlMissing)?;
+    let server_url = project_server_url(project_name, "регистрация недоступна").await?;
 
     auth::register(&server_url, username, password).await?;
 
@@ -200,9 +202,7 @@ async fn login_account(
     if remember_me {
         persist_session_credentials(project_name, username, &data).await?;
     } else {
-        let _ = storage::delete_credential(project_name, username, "password").await;
-        let _ = storage::delete_credential(project_name, username, "refresh_token").await;
-        let _ = storage::delete_credential(project_name, username, "uuid").await;
+        wipe_project_credentials(project_name, &[username.to_string()]).await;
     }
 
     Ok(())
@@ -271,15 +271,7 @@ async fn change_password_flow(
         (session.username.clone(), session.access_token.clone())
     };
 
-    let project = load_config_or_default(project_name).await?;
-    if !project.online {
-        bail!(LauncherError::OfflineProfile(
-            "смена пароля недоступна".to_string()
-        ));
-    }
-    let server_url = project
-        .resolved_server_url()
-        .ok_or(LauncherError::ServerUrlMissing)?;
+    let server_url = project_server_url(project_name, "смена пароля недоступна").await?;
 
     let data = auth::change_password(&server_url, &access_token, old_password, new_password)
         .await
@@ -329,21 +321,17 @@ pub async fn delete_account(
         storage::get_credential(&project_name, &username, "refresh_token").await
     {
         if !refresh_token.is_empty() {
-            if let Ok(project) = load_config_or_default(&project_name).await {
-                if project.online {
-                    if let Some(server_url) = project.resolved_server_url() {
-                        if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                            log_err!("Не удалось инвалидировать токен на сервере: {}", e);
-                        }
-                    }
+            if let Ok(server_url) =
+                project_server_url(&project_name, "удаление аккаунта недоступно").await
+            {
+                if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
+                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
                 }
             }
         }
     }
 
-    let _ = storage::delete_credential(&project_name, &username, "password").await;
-    let _ = storage::delete_credential(&project_name, &username, "refresh_token").await;
-    let _ = storage::delete_credential(&project_name, &username, "uuid").await;
+    wipe_project_credentials(&project_name, &[username.to_string()]).await;
 
     remember_login(&state, &project_name, &username, false).await?;
 

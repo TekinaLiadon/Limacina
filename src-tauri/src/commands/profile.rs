@@ -8,8 +8,7 @@ use crate::commands::launcher_config::update_launcher_config;
 use crate::log_info;
 use crate::minecraft::manifest::VERSION_MANIFEST_URL;
 use crate::minecraft::mod_loader::fabric::Fabric;
-use crate::minecraft::mod_loader::forge::manifest::get_manifest_index as forge_manifest_index;
-use crate::minecraft::mod_loader::neoforge::manifest::get_manifest_index as neoforge_manifest_index;
+use crate::minecraft::mod_loader::manifest::{forge_manifest_index, neoforge_manifest_index};
 use crate::minecraft::structs::{
     ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
 };
@@ -318,12 +317,7 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
 }
 
 async fn delete_project_credentials(project_name: &str, logins: Vec<String>) {
-    for username in logins {
-        for key_suffix in ["password", "refresh_token", "uuid"] {
-            let _ =
-                crate::auth::storage::delete_credential(project_name, &username, key_suffix).await;
-        }
-    }
+    crate::commands::auth::wipe_project_credentials(project_name, &logins).await;
 }
 
 async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result<LauncherConfig> {

@@ -58,12 +58,7 @@ impl SkinServer {
         &self.url
     }
 
-    pub fn stop(mut self) {
-        self.shutdown.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
+    pub fn stop(self) {}
 }
 
 impl Drop for SkinServer {
