@@ -3,6 +3,8 @@ export { default as ServerStatus } from './dashboard/ServerStatus.vue'
 export { default as ServerUnavailableBanner } from './dashboard/ServerUnavailableBanner.vue'
 export { default as StartupError } from './dashboard/StartupError.vue'
 
+export { default as LoadErrorRow } from './common/LoadErrorRow.vue'
+
 export { default as LaunchScene } from './tabs/accounts/LaunchScene.vue'
 export { default as AuthTabsWidget } from './tabs/accounts/AuthTabsWidget.vue'
 export { default as NoProjectsState } from './tabs/accounts/NoProjectsState.vue'

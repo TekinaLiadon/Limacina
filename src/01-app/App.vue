@@ -36,9 +36,7 @@ interface Tab {
 
 const isDebugTabVisible = computed((): boolean => coreStore.launcherConfig?.debugMode ?? false)
 
-const isOfflineProject = computed((): boolean => coreStore.projectConfig?.online === false)
-
-watch(isOfflineProject, (offline) => {
+watch((): boolean => coreStore.isOfflineProject, (offline) => {
   if (!offline && route.name === 'Mods') {
     router.push({ name: 'Accounts' })
   }
@@ -181,7 +179,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
               :active-tab="currentTab"
               :settings-sub-tab="route.name as string"
               :show-debug="isDebugTabVisible"
-              :show-mods="isOfflineProject"
+              :show-mods="coreStore.isOfflineProject"
               @navigate="navigateTo"
               @navigate-settings="(routeName: string) => router.push({ name: routeName })"
             />

@@ -156,6 +156,7 @@ export function useModrinth() {
   }
 
   const install = async (projectId: string): Promise<boolean> => {
+    if (installingId.value !== null) return false
     installingId.value = projectId
     actionError.value = ''
     try {
@@ -166,11 +167,12 @@ export function useModrinth() {
       actionError.value = getErrorMessage(e)
       return false
     } finally {
-      installingId.value = null
+      if (installingId.value === projectId) installingId.value = null
     }
   }
 
   const uninstall = async (projectId: string): Promise<boolean> => {
+    if (installingId.value !== null) return false
     installingId.value = projectId
     actionError.value = ''
     try {
@@ -183,7 +185,7 @@ export function useModrinth() {
       actionError.value = getErrorMessage(e)
       return false
     } finally {
-      installingId.value = null
+      if (installingId.value === projectId) installingId.value = null
     }
   }
 

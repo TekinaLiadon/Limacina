@@ -1,8 +1,7 @@
-import { inject, provide, ref, type InjectionKey, type Ref } from 'vue'
+import { inject, provide, ref, type InjectionKey } from 'vue'
 import type { ViewerControls } from '@/06-shared'
 
 const VIEWER_CONTROLS_KEY: InjectionKey<ViewerControls> = Symbol('viewer-controls')
-const STAGE_PAUSED_KEY: InjectionKey<Ref<boolean>> = Symbol('viewer-stage-paused')
 
 const ROTATE_STEP = 45
 const ELEVATION_STEP = 15
@@ -12,7 +11,7 @@ const DEFAULT_ELEVATION = 13
 const ZOOM_STEP_FACTOR = 1.25
 export const MIN_ZOOM_PERCENT = 10
 
-function createViewerControls(minZoom: number): ViewerControls {
+function createViewerControls(getMinZoom: () => number): ViewerControls {
   const zoomLevel = ref<number>(22)
   const rotationY = ref<number>(0)
   const rotationX = ref<number>(DEFAULT_ELEVATION)
@@ -20,14 +19,16 @@ function createViewerControls(minZoom: number): ViewerControls {
   const fitDistance = ref<number>(22)
 
   return {
-    minZoom,
+    get minZoom(): number {
+      return getMinZoom()
+    },
     zoomLevel,
     rotationY,
     rotationX,
     autoRotate,
     fitDistance,
     zoomIn: (): void => {
-      zoomLevel.value = Math.max(minZoom, zoomLevel.value / ZOOM_STEP_FACTOR)
+      zoomLevel.value = Math.max(getMinZoom(), zoomLevel.value / ZOOM_STEP_FACTOR)
     },
     zoomOut: (): void => {
       const maxDistance = fitDistance.value * (100 / MIN_ZOOM_PERCENT)
@@ -56,20 +57,12 @@ function createViewerControls(minZoom: number): ViewerControls {
   }
 }
 
-export function provideViewerControls(minZoom: number): ViewerControls {
-  const controls = createViewerControls(minZoom)
+export function provideViewerControls(getMinZoom: () => number): ViewerControls {
+  const controls = createViewerControls(getMinZoom)
   provide(VIEWER_CONTROLS_KEY, controls)
   return controls
 }
 
 export function useViewerControls(): ViewerControls {
-  return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(5), true)
-}
-
-export function provideStagePaused(paused: Ref<boolean>): void {
-  provide(STAGE_PAUSED_KEY, paused)
-}
-
-export function useStagePaused(): Ref<boolean> {
-  return inject(STAGE_PAUSED_KEY, ref(false))
+  return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(() => 5), true)
 }

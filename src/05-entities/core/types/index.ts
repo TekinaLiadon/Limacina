@@ -22,6 +22,7 @@ export interface LauncherConfig {
   projectNames: string[]
   currentProject: string | null
   projects: Record<string, AuthProjectConfig>
+  installId: string | null
 }
 
 export interface AppInitData {
@@ -94,7 +95,6 @@ export interface StepProgressItem {
 
 export interface CoreState {
   isLoading: boolean
-  hasLauncherConfig: boolean | null
   launcherName: string
   defaultParentPath: string
   launcherConfig: LauncherConfig | null
@@ -106,7 +106,6 @@ export interface CoreState {
   totalMemoryMb: number
   isLoggedIn: boolean
   session: SessionInfo | null
-  loginError: string
   projectConfig: ProjectConfig | null
   serverStatus: ServerStatus | null
   gameUsername: string | null

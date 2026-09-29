@@ -51,6 +51,15 @@ describe('useNotificationStore', () => {
     expect(store.visible).toBe(false)
   })
 
+  it('clears the timer id after the notification expires', () => {
+    const store = useNotificationStore()
+    store.show('Готово')
+    expect(store.timer).not.toBeNull()
+    vi.advanceTimersByTime(3000)
+    expect(store.visible).toBe(false)
+    expect(store.timer).toBeNull()
+  })
+
   it('confirm shows the popup and resolves with the answer', async () => {
     const store = useNotificationStore()
     const promise = store.confirm('Удалить?')

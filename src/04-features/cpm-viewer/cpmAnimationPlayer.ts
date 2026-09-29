@@ -229,6 +229,7 @@ function isLoopInterpolator(interpolator: string, animLoop: boolean): boolean {
 
 export interface CpmPlayerHost {
   activeLayerIds: Ref<number[]>
+  isPlaying: Ref<boolean>
   onFinished: () => void
 }
 
@@ -282,7 +283,7 @@ export class CpmAnimationPlayer {
             startedAt: performance.now(),
             pausedAt: 0,
             speed: this.defaultSpeed,
-            playing: true,
+            playing: this.host.isPlaying.value,
             forceLoop: this.defaultForceLoop,
           }
           this.clocks.set(animation.id, clock)
@@ -295,10 +296,7 @@ export class CpmAnimationPlayer {
 
   setSpeed(speed: number): void {
     const clamped = Math.max(0.25, Math.min(3, speed))
-    if (this.clocks.size === 0) {
-      this.defaultSpeed = clamped
-      return
-    }
+    this.defaultSpeed = clamped
     this.clocks.forEach((clock) => {
       if (clock.speed === clamped) return
       if (clock.playing) {

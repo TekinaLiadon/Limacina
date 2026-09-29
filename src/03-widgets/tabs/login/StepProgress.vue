@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import anime from 'animejs'
 import { isAnimationsEnabled } from '@/06-shared'
 import type { StepProgressItem } from '@/05-entities'
@@ -18,6 +18,7 @@ watch(() => props.steps.map(s => s.status).join(','), () => {
   if (root === null || !isAnimationsEnabled()) return
   const indicator = root.querySelector('.step-progress__item--active .step-progress__indicator')
   if (indicator === null) return
+  anime.remove(indicator)
   anime({
     targets: indicator,
     scale: [1, 1.3, 1],
@@ -52,6 +53,16 @@ const onBeforeLeave = (el: Element): void => {
 }
 
 let heightRun = 0
+let heightEndElement: HTMLElement | null = null
+let heightEndListener: ((event: TransitionEvent) => void) | null = null
+
+const detachHeightEnd = (): void => {
+  if (heightEndElement !== null && heightEndListener !== null) {
+    heightEndElement.removeEventListener('transitionend', heightEndListener)
+  }
+  heightEndElement = null
+  heightEndListener = null
+}
 
 const animateHeight = async (): Promise<void> => {
   const el = rootRef.value
@@ -61,6 +72,7 @@ const animateHeight = async (): Promise<void> => {
   await nextTick()
   const current = rootRef.value
   if (run !== heightRun || current === null) return
+  detachHeightEnd()
   current.style.transition = 'none'
   current.style.height = ''
   current.getBoundingClientRect()
@@ -75,13 +87,21 @@ const animateHeight = async (): Promise<void> => {
   current.style.transition = 'height var(--duration-slow) var(--ease-in-out)'
   current.style.height = `${target}px`
   const onEnd = (event: TransitionEvent): void => {
-    if (run !== heightRun || event.propertyName !== 'height') return
+    if (run !== heightRun) {
+      detachHeightEnd()
+      return
+    }
+    if (event.propertyName !== 'height') return
     current.style.height = ''
     current.style.transition = ''
-    current.removeEventListener('transitionend', onEnd)
+    detachHeightEnd()
   }
+  heightEndElement = current
+  heightEndListener = onEnd
   current.addEventListener('transitionend', onEnd)
 }
+
+onBeforeUnmount(detachHeightEnd)
 
 watch(
   () => props.steps.map(s => `${s.status}|${s.detail}|${s.error}`).join(';'),

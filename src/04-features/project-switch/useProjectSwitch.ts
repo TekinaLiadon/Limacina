@@ -1,8 +1,8 @@
 import { computed } from 'vue'
 import { useAccountsStore, useCoreStore, useNotificationStore } from '@/05-entities'
 import { authLogins, clearSession, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
+import { reportError, type DropdownOption } from '@/06-shared'
 import { useLaunchStepsStream } from '@/04-features'
-import type { DropdownOption } from '@/06-shared/types'
 
 export function useProjectSwitch() {
   const coreStore = useCoreStore()
@@ -17,9 +17,8 @@ export function useProjectSwitch() {
   const canSwitch = computed((): boolean => coreStore.projects.length > 1)
 
   const resetAccountsState = (): void => {
-    coreStore.isLoggedIn = false
-    coreStore.session = null
-    coreStore.loginError = ''
+    coreStore.clearSessionState()
+    accountsStore.loginError = ''
     accountsStore.logins = []
     accountsStore.selectedUsername = ''
     accountsStore.errorMessage = ''
@@ -28,7 +27,7 @@ export function useProjectSwitch() {
     accountsStore.isLoginsLoading = false
     accountsStore.loginFormData = { username: '', password: '', rememberMe: false }
     accountsStore.registerFormData = { login: '', password: '', confirmPassword: '' }
-    accountsStore.showAuthForm = false
+    accountsStore.closeAuthForm()
     accountsStore.activeSubTab = 'login'
     accountsStore.isLaunching = false
     resetLaunchSteps()
@@ -47,6 +46,15 @@ export function useProjectSwitch() {
     accountsStore.logins = logins
   }
 
+  const restoreSavedProject = async (projectName: string): Promise<void> => {
+    if (!projectName) return
+    try {
+      await saveCurrentProject(projectName)
+    } catch (e: unknown) {
+      reportError('Не удалось восстановить текущий проект', e)
+    }
+  }
+
   const selectProject = async (projectName: string): Promise<void> => {
     if (!projectName || projectName === coreStore.currentProject) return
     if (accountsStore.isSwitching) return
@@ -59,12 +67,16 @@ export function useProjectSwitch() {
       return
     }
 
+    const previousProject = coreStore.currentProject
     accountsStore.isSwitching = true
 
     try {
       await saveCurrentProject(projectName)
       await applyProjectSwitch(projectName)
     } catch (e: unknown) {
+      if (coreStore.currentProject === previousProject) {
+        await restoreSavedProject(previousProject)
+      }
       notification.show(getErrorMessage(e))
     } finally {
       accountsStore.isSwitching = false

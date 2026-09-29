@@ -73,24 +73,31 @@ export function useLauncherSettings(): {
 
   const settings = computed<LauncherSettingsPayload>(formSettings)
 
-  const syncStartWithSystemState = async (): Promise<void> => {
+  const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
     try {
-      startWithSystem.value = await isAutostartEnabled()
+      const enabled = await isAutostartEnabled()
+      if (startWithSystem.value !== initial) return false
+      if (startWithSystem.value === enabled) return false
+      startWithSystem.value = enabled
+      return true
     } catch (e: unknown) {
       reportError('Не удалось получить состояние автозапуска', e)
+      return false
     }
   }
 
-  const applyStartWithSystem = async (enabled: boolean): Promise<void> => {
+  const applyStartWithSystem = async (enabled: boolean): Promise<boolean> => {
     try {
-      if ((await isAutostartEnabled()) === enabled) return
+      if ((await isAutostartEnabled()) === enabled) return true
       if (enabled) {
         await enableAutostart()
       } else {
         await disableAutostart()
       }
+      return true
     } catch (e: unknown) {
       notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
+      return false
     }
   }
 
@@ -109,8 +116,9 @@ export function useLauncherSettings(): {
       downloadSpeedLimitInput.value =
         config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
     }
-    void syncStartWithSystemState().then((): void => {
-      dirtyState.captureBaseline()
+    dirtyState.captureBaseline()
+    void syncStartWithSystemState(startWithSystem.value).then((changed: boolean): void => {
+      if (changed) dirtyState.captureBaseline()
     })
   })
 
@@ -125,7 +133,6 @@ export function useLauncherSettings(): {
     try {
       const data = await getAppInitData()
       coreStore.launcherConfig = data.launcherConfig
-      coreStore.hasLauncherConfig = data.launcherConfig !== null
     } catch (e: unknown) {
       reportError('Не удалось восстановить состояние настроек', e)
     }
@@ -144,7 +151,7 @@ export function useLauncherSettings(): {
         coreStore.launcherConfig = await saveLauncherConfig(parentPath)
       }
 
-      await applyStartWithSystem(startWithSystem.value)
+      if (!(await applyStartWithSystem(startWithSystem.value))) return
       dirtyState.captureBaseline()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {

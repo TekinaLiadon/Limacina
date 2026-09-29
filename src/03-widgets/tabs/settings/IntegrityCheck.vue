@@ -124,7 +124,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
 
 .integrity-popup {
   @include mixins.popup-card;
-  max-height: 80vh;
+  max-height: var(--integrity-popup-max-height);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -141,7 +141,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
   }
 
   &__steps {
-    max-height: 40vh;
+    max-height: var(--integrity-steps-max-height);
     overflow-y: auto;
   }
 

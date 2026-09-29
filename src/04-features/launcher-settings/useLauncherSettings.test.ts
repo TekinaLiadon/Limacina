@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveLauncherSettings } from '@/06-shared/api'
 import { isAutostartEnabled } from '@/06-shared'
-import { useCoreStore, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type LauncherConfig } from '@/05-entities'
 import { useLauncherSettings } from './useLauncherSettings'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -21,6 +21,7 @@ vi.mock('@/06-shared', async (importOriginal) => ({
 
 const makeLauncherConfig = (debugMode: boolean): LauncherConfig => ({
   launcherPath: '/launcher',
+  installId: null,
   discordActivity: false,
   keepOldConfigs: false,
   downloadSpeedLimit: null,
@@ -80,6 +81,53 @@ describe('useLauncherSettings', () => {
 
     expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
     expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('applies the OS autostart state on mount when the toggle is untouched', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(true)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    expect(settings.startWithSystem.value).toBe(true)
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('keeps the user choice when the toggle happens before the autostart sync', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+
+    settings.startWithSystem.value = true
+    await flushPromises()
+
+    expect(settings.startWithSystem.value).toBe(true)
+    expect(settings.isDirty.value).toBe(true)
+
+    unmount()
+  })
+
+  it('keeps the dirty state and skips the success toast when the autostart apply fails', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.startWithSystem.value = true
+    vi.mocked(isAutostartEnabled).mockRejectedValueOnce(new Error('autostart locked'))
+    await settings.handleSave()
+
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
+    expect(useNotificationStore().message).toBe('Не удалось включить автозапуск: autostart locked')
+    expect(settings.isDirty.value).toBe(true)
 
     unmount()
   })

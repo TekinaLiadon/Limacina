@@ -25,6 +25,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 
 const makeLauncherConfig = (): LauncherConfig => ({
   launcherPath: '',
+  installId: null,
   discordActivity: false,
   keepOldConfigs: true,
   downloadSpeedLimit: null,

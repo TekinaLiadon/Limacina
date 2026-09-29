@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Icon from '@/06-shared/components/Icon.vue'
 import type { IconType } from '@/06-shared/types'
 
@@ -8,10 +9,14 @@ const props = withDefaults(defineProps<{
 }>(), {
   tag: 'button',
 })
+
+const tagAttrs = computed<Record<string, string>>(() =>
+  props.tag === 'button' ? { type: 'button' } : {},
+)
 </script>
 
 <template>
-  <component :is="props.tag" class="icon-btn">
+  <component :is="props.tag" class="icon-btn" v-bind="tagAttrs">
     <Icon :type="icon" class="icon-btn__icon" />
   </component>
 </template>

@@ -63,12 +63,7 @@ const onInput = (e: Event): void => {
   gap: var(--space-12);
   min-width: 0;
 
-  &__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-12);
-  }
+  @include mixins.slider-header;
 
   &__label {
     font-size: var(--text-body-sm);
@@ -79,11 +74,6 @@ const onInput = (e: Event): void => {
   }
 
   &__value {
-    font-family: var(--font-mono);
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    color: var(--login-text-primary);
-    font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
 

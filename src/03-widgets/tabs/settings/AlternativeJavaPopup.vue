@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Button, Checkbox, Dropdown, Input, Skeleton, useFocusTrap } from '@/06-shared'
+import { Button, Checkbox, Dropdown, Input, Preloader, Skeleton, useFocusTrap } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
 
 const props = defineProps<{
@@ -110,8 +110,7 @@ onBeforeUnmount((): void => {
           </template>
           <template v-else>
             <div class="alt-java-popup__loading">
-              <img src="@/06-shared/components/preloader.svg" alt="" class="alt-java-popup__spinner" />
-              <div class="alt-java-popup__loading-text">Загрузка</div>
+              <Preloader local text="Загрузка" />
             </div>
           </template>
         </div>
@@ -191,21 +190,8 @@ onBeforeUnmount((): void => {
   }
 
   &__loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: var(--space-20) 0;
-  }
-
-  &__spinner {
-    max-width: 80px;
-    width: 100%;
-  }
-
-  &__loading-text {
-    margin-top: var(--element-gap);
-    font-size: var(--text-body-sm);
-    color: var(--login-text-secondary);
+    position: relative;
+    min-height: var(--skeleton-card-height);
   }
 }
 </style>

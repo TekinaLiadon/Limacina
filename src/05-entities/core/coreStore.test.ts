@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useCoreStore } from './coreStore'
-import type { LauncherConfig } from './types'
+import type { LauncherConfig, ProjectConfig } from './types'
 
 const makeConfig = (projectNames: string[], currentProject: string | null): LauncherConfig => ({
   launcherPath: '/launcher',
+  installId: null,
   discordActivity: false,
   keepOldConfigs: false,
   downloadSpeedLimit: null,
@@ -21,6 +22,23 @@ const makeConfig = (projectNames: string[], currentProject: string | null): Laun
   projects: {},
 })
 
+const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
+  projectName: 'Alpha',
+  mcVersion: '1.21.1',
+  modLoader: 'vanilla',
+  loaderVersion: null,
+  javaPath: null,
+  javaVersion: null,
+  jvmArgs: [],
+  minMemory: '512M',
+  maxMemory: '2048M',
+  online: true,
+  initialized: true,
+  serverUrl: null,
+  autoJoinServer: false,
+  ...overrides,
+})
+
 describe('useCoreStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -29,7 +47,7 @@ describe('useCoreStore', () => {
   it('starts with the loading state and no session', () => {
     const store = useCoreStore()
     expect(store.isLoading).toBe(true)
-    expect(store.hasLauncherConfig).toBeNull()
+    expect(store.hasLauncherConfig).toBe(false)
     expect(store.launcherConfig).toBeNull()
     expect(store.isLoggedIn).toBe(false)
     expect(store.session).toBeNull()
@@ -44,6 +62,49 @@ describe('useCoreStore', () => {
     store.applyLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
     expect(store.hasLauncherConfig).toBe(true)
     expect(store.launcherConfig?.theme).toBe('default-dark')
+  })
+
+  it('hasLauncherConfig derives from the launcher config presence', () => {
+    const store = useCoreStore()
+    expect(store.hasLauncherConfig).toBe(false)
+    store.launcherConfig = makeConfig(['Alpha'], 'Alpha')
+    expect(store.hasLauncherConfig).toBe(true)
+    store.launcherConfig = null
+    expect(store.hasLauncherConfig).toBe(false)
+  })
+
+  it('applySession stores the session and marks the user logged in', () => {
+    const store = useCoreStore()
+    store.applySession({ uuid: 'u1', username: 'Steve' })
+    expect(store.session).toEqual({ uuid: 'u1', username: 'Steve' })
+    expect(store.isLoggedIn).toBe(true)
+  })
+
+  it('clearSessionState resets the session fields together', () => {
+    const store = useCoreStore()
+    store.applySession({ uuid: 'u1', username: 'Steve' })
+    store.clearSessionState()
+    expect(store.isLoggedIn).toBe(false)
+    expect(store.session).toBeNull()
+  })
+
+  it('isOfflineProject and isOnlineProject reflect the project config', () => {
+    const store = useCoreStore()
+    expect(store.isOfflineProject).toBe(false)
+    expect(store.isOnlineProject).toBe(false)
+
+    store.offlineBuild = true
+    store.projectConfig = makeProjectConfig({ online: true })
+    expect(store.isOfflineProject).toBe(false)
+    expect(store.isOnlineProject).toBe(false)
+
+    store.offlineBuild = false
+    expect(store.isOnlineProject).toBe(true)
+    expect(store.isOfflineProject).toBe(false)
+
+    store.projectConfig = makeProjectConfig({ online: false })
+    expect(store.isOnlineProject).toBe(false)
+    expect(store.isOfflineProject).toBe(true)
   })
 
   it('applyLauncherProjects copies the project list and prefers the saved project', () => {
@@ -78,6 +139,14 @@ describe('useCoreStore', () => {
 
   it('applyLauncherProjects keeps the current project empty without projects', () => {
     const store = useCoreStore()
+    store.applyLauncherProjects(makeConfig([], null))
+    expect(store.projects).toEqual([])
+    expect(store.currentProject).toBe('')
+  })
+
+  it('applyLauncherProjects clears the stale current project when the list becomes empty', () => {
+    const store = useCoreStore()
+    store.applyLauncherProjects(makeConfig(['Alpha'], 'Alpha'))
     store.applyLauncherProjects(makeConfig([], null))
     expect(store.projects).toEqual([])
     expect(store.currentProject).toBe('')

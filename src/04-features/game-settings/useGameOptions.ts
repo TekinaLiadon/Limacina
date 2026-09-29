@@ -136,6 +136,7 @@ export function useGameOptions(): {
     isSaving.value = true
     try {
       await saveGameOptions(project, options.value)
+      if (coreStore.currentProject !== project) return
       fileExists.value = true
       dirtyState.captureBaseline()
       notification.show('Настройки игры сохранены')

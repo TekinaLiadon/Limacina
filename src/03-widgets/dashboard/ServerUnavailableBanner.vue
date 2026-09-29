@@ -5,7 +5,7 @@ import { useCoreStore } from '@/05-entities'
 const coreStore = useCoreStore()
 
 const isVisible = computed((): boolean =>
-  !coreStore.offlineBuild && coreStore.projectConfig?.online === true && coreStore.isServerReachable === false
+  coreStore.isOnlineProject && coreStore.isServerReachable === false
 )
 </script>
 

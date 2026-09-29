@@ -88,6 +88,27 @@ describe('useFileDrop', () => {
     expect(drop.onDrop).toHaveBeenCalledTimes(1)
   })
 
+  it('drops the first accepted file of a multi-file drop', async () => {
+    const drop = setupDrop(['png'])
+    await waitHandler()
+
+    handler?.({ payload: { type: 'drop', paths: ['/tmp/archive.zip', '/tmp/hero.png'] } })
+
+    expect(drop.onDrop).toHaveBeenCalledWith('/tmp/hero.png')
+    expect(drop.onError).not.toHaveBeenCalled()
+    expect(drop.isDragOver.value).toBe(false)
+  })
+
+  it('reports an error only when no file in the drop is accepted', async () => {
+    const drop = setupDrop(['png'])
+    await waitHandler()
+
+    handler?.({ payload: { type: 'drop', paths: ['/tmp/archive.zip', '/tmp/notes.txt'] } })
+
+    expect(drop.onDrop).not.toHaveBeenCalled()
+    expect(drop.onError).toHaveBeenCalledWith('Допустимый формат — .png')
+  })
+
   it('ignores an empty drop payload', async () => {
     const drop = setupDrop(['png'])
     await waitHandler()

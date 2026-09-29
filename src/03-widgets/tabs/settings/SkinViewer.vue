@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, toRef, watch } from 'vue'
 import { useSkinViewer } from '@/04-features'
-import { useStagePaused, useViewerControls } from './viewerControls'
+import { useViewerControls } from './viewerControls'
 
 const props = withDefaults(defineProps<{
   skinUrl: string
@@ -15,7 +15,7 @@ const container = ref<HTMLDivElement | null>(null)
 const skinUrl = shallowRef(props.skinUrl)
 watch(() => props.skinUrl, (url: string) => { skinUrl.value = url })
 
-useSkinViewer(container, skinUrl, useViewerControls(), toRef(props, 'slim'), useStagePaused())
+useSkinViewer(container, skinUrl, useViewerControls(), toRef(props, 'slim'))
 </script>
 
 <template>

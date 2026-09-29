@@ -182,6 +182,7 @@ describe('useAddProfile', () => {
     const core = useCoreStore()
     core.launcherConfig = {
       launcherPath: '',
+      installId: null,
       discordActivity: false,
       keepOldConfigs: true,
       downloadSpeedLimit: null,

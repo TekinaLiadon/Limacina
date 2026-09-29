@@ -407,16 +407,14 @@ export function useCpmViewer(
     isAnimationPlaying: Ref<boolean>,
     animationSpeed: Ref<number>,
     isAnimationLooped: Ref<boolean>,
-    paused?: Ref<boolean>,
     options: CpmViewerOptions = {},
 ) {
-  const { scene, camera, getOrbitControls, setPaused: setScenePaused } = useThreeScene(container, { enableZoom: false, autoRotate: false })
+  const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
   const modelGroup = shallowRef<THREE.Group | null>(null)
   const textureLoader = createManagedTextureLoader(scene)
   const animationClocks = new Map<string, SharedClock>()
   let player: CpmAnimationPlayer | null = null
   let tickId = 0
-  let renderPaused = false
 
   const { setFitDistance, modelBoundingSphereRadius } = useViewerCamera(
       { camera, getOrbitControls },
@@ -434,6 +432,7 @@ export function useCpmViewer(
 
       player = new CpmAnimationPlayer(indexModelNodes(model), {
         activeLayerIds,
+        isPlaying: isAnimationPlaying,
         onFinished: () => {
           options.onAnimationFinished?.()
         },
@@ -479,15 +478,6 @@ export function useCpmViewer(
     tickId = requestAnimationFrame(tickAnimation)
   }
 
-  function setPaused(value: boolean): void {
-    if (value === renderPaused) return
-    renderPaused = value
-    setScenePaused(value)
-    cancelAnimationFrame(tickId)
-    tickId = 0
-    if (!value) tickId = requestAnimationFrame(tickAnimation)
-  }
-
   watch(cpmData, (data) => {
     if (data) loadModel(data)
   }, { immediate: true })
@@ -518,11 +508,7 @@ export function useCpmViewer(
     updateVisibility()
   })
 
-  if (!renderPaused) tickId = requestAnimationFrame(tickAnimation)
-
-  if (paused) {
-    watch(paused, (value: boolean) => setPaused(value), { immediate: true })
-  }
+  tickId = requestAnimationFrame(tickAnimation)
 
   onBeforeUnmount(() => {
     cancelAnimationFrame(tickId)

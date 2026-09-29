@@ -132,15 +132,7 @@ onBeforeUnmount((): void => {
   }
 
   &__body {
-    display: grid;
-    grid-template-rows: 1fr;
-    transition: grid-template-rows var(--duration-base) var(--ease-in-out), opacity var(--duration-base) var(--ease-out), visibility var(--duration-base);
-
-    &--closed {
-      grid-template-rows: 0fr;
-      opacity: 0;
-      visibility: hidden;
-    }
+    @include mixins.collapsible;
   }
 
   &__inner {

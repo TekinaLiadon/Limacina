@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button, Dropdown } from '@/06-shared'
-import type { DropdownOption } from '@/06-shared/types'
+import { Button, Dropdown, type DropdownOption } from '@/06-shared'
 import { useLauncherUpdate } from '@/04-features'
+import LoadErrorRow from '../../common/LoadErrorRow.vue'
 
 const {
   versions,
@@ -29,17 +29,7 @@ const versionOptions = computed((): DropdownOption[] =>
   <div class="launcher-update">
     <span class="launcher-update__label eyebrow">Версия лаунчера</span>
 
-    <div v-if="loadError" class="launcher-update__load-error" role="alert">
-      <p class="launcher-update__load-error-text">{{ loadError }}</p>
-      <Button
-        class="btn-secondary launcher-update__load-error-btn"
-        :is-loading="isLoading"
-        :is-disabled="isLoading"
-        @click="retryLoad"
-      >
-        Повторить
-      </Button>
-    </div>
+    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
 
     <div class="launcher-update__row">
       <Dropdown
@@ -62,8 +52,6 @@ const versionOptions = computed((): DropdownOption[] =>
 </template>
 
 <style lang="scss">
-@use '@/01-app/assets/mixins';
-
 .launcher-update {
   display: flex;
   flex-direction: column;
@@ -72,18 +60,6 @@ const versionOptions = computed((): DropdownOption[] =>
   &__label {
     display: block;
     text-align: left;
-  }
-
-  &__load-error {
-    @include mixins.load-error-row;
-  }
-
-  &__load-error-text {
-    margin: 0;
-  }
-
-  &__load-error-btn {
-    flex-shrink: 0;
   }
 
   &__row {

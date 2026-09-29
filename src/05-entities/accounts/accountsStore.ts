@@ -11,6 +11,7 @@ export interface AccountsState {
 
   authLoading: boolean
   authError: string
+  loginError: string
   loginFormData: LoginForm
   registerFormData: RegisterForm
 
@@ -37,6 +38,7 @@ export const useAccountsStore = defineStore('accounts', {
 
     authLoading: false,
     authError: '',
+    loginError: '',
     loginFormData: {
       username: '',
       password: '',
@@ -59,4 +61,10 @@ export const useAccountsStore = defineStore('accounts', {
     launchSteps: [],
     activeProgress: 0,
   }),
+  actions: {
+    closeAuthForm(): void {
+      this.showAuthForm = false
+      this.loginFormData.password = ''
+    },
+  },
 })

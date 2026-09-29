@@ -1,5 +1,5 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
-import type { DropdownOption } from '@/06-shared/types'
+import type { DropdownOption } from '@/06-shared'
 
 export interface JvmPreset {
   id: string

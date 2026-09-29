@@ -128,6 +128,23 @@ describe('useGameOptions', () => {
     expect(options.isSaving.value).toBe(false)
   })
 
+  it('skips the post-save state when the project has switched mid-save', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData())
+    const core = useCoreStore()
+    vi.mocked(saveGameOptions).mockImplementation(async () => {
+      core.currentProject = 'beta'
+    })
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+
+    options.options.value.fov = 110
+    await options.handleSave()
+
+    expect(saveGameOptions).toHaveBeenCalledWith('proj', expect.objectContaining({ fov: 110 }))
+    expect(useNotificationStore().message).toBe('')
+    expect(options.isSaving.value).toBe(false)
+  })
+
   it('blocks the save while the load failed', async () => {
     vi.mocked(getGameOptions).mockRejectedValue(new Error('options unreadable'))
     const options = setupOptions()

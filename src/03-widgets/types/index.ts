@@ -1,5 +1,5 @@
 import type { TabKey } from '@/05-entities'
-import type { IconType } from '@/06-shared/types'
+import type { IconType } from '@/06-shared'
 
 export type { TabKey }
 

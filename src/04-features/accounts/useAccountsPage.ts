@@ -28,9 +28,7 @@ export function useAccountsPage() {
   const { resetLaunchSteps } = useLaunchStepsStream()
 
   const isServerOffline = computed((): boolean =>
-    !coreStore.offlineBuild &&
-    coreStore.projectConfig?.online === true &&
-    coreStore.isServerReachable === false
+    coreStore.isOnlineProject && coreStore.isServerReachable === false
   )
 
   const handleLaunch = async (): Promise<void> => {
@@ -47,7 +45,7 @@ export function useAccountsPage() {
       await executeSteps(() => launchGeneration !== store.launchGeneration)
     } catch (e: unknown) {
       if (launchGeneration === store.launchGeneration) {
-        coreStore.loginError = getErrorMessage(e)
+        store.loginError = getErrorMessage(e)
       }
     } finally {
       if (launchGeneration === store.launchGeneration) {
@@ -80,15 +78,14 @@ export function useAccountsPage() {
     resetLaunchSteps()
     store.isCancelPending = false
     store.isLaunching = false
-    store.showAuthForm = false
-    coreStore.loginError = ''
+    store.closeAuthForm()
+    store.loginError = ''
     try {
       await clearSession()
     } catch (e: unknown) {
       reportError('Не удалось завершить сессию на стороне лаунчера', e)
     }
-    coreStore.isLoggedIn = false
-    coreStore.session = null
+    coreStore.clearSessionState()
   }
 
   const goToAccounts = async (): Promise<void> => {
@@ -101,14 +98,14 @@ export function useAccountsPage() {
       await finalizeCancel()
       return
     }
-    store.showAuthForm = false
+    store.closeAuthForm()
   }
 
   const activeSubTab = computed({
     get: () => store.activeSubTab,
     set: (v) => { store.activeSubTab = v },
   })
-  const loginError = computed((): string => coreStore.loginError)
+  const loginError = computed((): string => store.loginError)
   const sceneUsername = computed((): string => {
     if (coreStore.session?.username) return coreStore.session.username
     if (store.selectedUsername) return store.selectedUsername
@@ -127,8 +124,7 @@ export function useAccountsPage() {
         } catch (e: unknown) {
           reportError('Не удалось завершить сессию на стороне лаунчера', e)
         }
-        coreStore.session = null
-        coreStore.isLoggedIn = false
+        coreStore.clearSessionState()
         store.selectedUsername = ''
       }
       await loadAccounts()

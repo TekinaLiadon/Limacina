@@ -52,7 +52,7 @@ defineEmits<{
   }
 
   &__btn {
-    min-width: 220px;
+    min-width: var(--settings-save-btn-min-width);
     background: var(--surface-light);
     color: var(--login-text-muted);
     box-shadow: var(--elevation-inset);

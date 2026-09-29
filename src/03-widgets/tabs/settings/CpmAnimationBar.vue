@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { MultiSelect } from '@/06-shared'
-import type { DropdownOption } from '@/06-shared/types'
+import { MultiSelect, type DropdownOption } from '@/06-shared'
 
 defineProps<{
   options: DropdownOption[]
@@ -124,14 +123,11 @@ const emit = defineEmits<{
     flex-shrink: 0;
   }
 
+  @include mixins.slider-header('speed-value', $header: false);
+
   &__speed-value {
-    min-width: 44px;
+    min-width: var(--cpm-speed-value-min-width);
     text-align: center;
-    font-family: var(--font-mono);
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    color: var(--login-text-primary);
-    font-variant-numeric: tabular-nums;
   }
 }
 </style>

@@ -47,10 +47,20 @@ function parseHexColor(color: string | undefined): number {
   return value
 }
 
+const TEX_SIZE_EPSILON = 1e-6
+
 function texSizeOf(child: CPMChild): number {
   if (child.texture === false) return 0
-  const ts = child.textureSize ?? 1
-  return child.mirror ? -Math.abs(ts) : ts
+  const raw = child.textureSize ?? 1
+  const value = child.mirror ? -Math.abs(raw) : raw
+  const rounded = Math.round(value)
+  if (Math.abs(value - rounded) > TEX_SIZE_EPSILON) {
+    throw new Error(`texSize куба «${child.name}» должен быть целым числом, получено ${value}`)
+  }
+  if (rounded < -128 || rounded > 127) {
+    throw new Error(`texSize куба «${child.name}» = ${rounded} не помещается в байт`)
+  }
+  return rounded
 }
 
 function writeVec3ub(w: CpmBinaryWriter, v: { x: number; y: number; z: number }): void {

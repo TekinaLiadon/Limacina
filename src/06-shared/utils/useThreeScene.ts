@@ -30,8 +30,6 @@ export function useThreeScene(
   const animationId = ref<number>(0)
   let orbitControls: OrbitControls | null = null
   let resizeObserver: ResizeObserver | null = null
-  let paused = false
-  let startLoop: (() => void) | null = null
 
   function initScene(): void {
     if (!container.value) return
@@ -78,19 +76,7 @@ export function useThreeScene(
       ctrl.update()
       r.render(s, cam)
     }
-    startLoop = animate
-    if (!paused) animate()
-  }
-
-  function setPaused(value: boolean): void {
-    if (value === paused) return
-    paused = value
-    if (value) {
-      cancelAnimationFrame(animationId.value)
-      animationId.value = 0
-      return
-    }
-    if (startLoop && animationId.value === 0) startLoop()
+    animate()
   }
 
   function onResize(): void {
@@ -109,7 +95,16 @@ export function useThreeScene(
     resizeObserver?.disconnect()
     resizeObserver = null
     orbitControls?.dispose()
-    renderer.value?.dispose()
+    orbitControls = null
+    const r = renderer.value
+    if (r) {
+      r.dispose()
+      r.forceContextLoss()
+      r.domElement.remove()
+    }
+    renderer.value = null
+    scene.value = null
+    camera.value = null
   }
 
   onMounted(() => {
@@ -130,6 +125,5 @@ export function useThreeScene(
     camera,
     renderer,
     getOrbitControls: () => orbitControls,
-    setPaused,
   }
 }

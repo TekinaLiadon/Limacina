@@ -27,7 +27,7 @@ export function useSetup(): {
 
   const needsProfile = computed((): boolean => coreStore.needsOfflineSetup)
 
-  watch((): boolean => coreStore.hasLauncherConfig === true, (hasConfig) => {
+  watch((): boolean => coreStore.hasLauncherConfig, (hasConfig) => {
     if (!hasConfig) {
       step.value = 1
       return

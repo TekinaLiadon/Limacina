@@ -26,8 +26,7 @@ export function useAccounts() {
     try {
       const session = await getSessionInfo()
       if (session) {
-        coreStore.session = session
-        coreStore.isLoggedIn = true
+        coreStore.applySession(session)
         store.selectedUsername = session.username
       }
     } catch (e: unknown) {
@@ -44,15 +43,11 @@ export function useAccounts() {
     try {
       await authRefresh(coreStore.currentProject, username)
       const session = await getSessionInfo()
-      if (session) {
-        coreStore.session = session
-        coreStore.isLoggedIn = true
-      }
+      if (session) coreStore.applySession(session)
     } catch (e: unknown) {
       selectedUsername.value = previousUsername
       errorMessage.value = getErrorMessage(e)
-      coreStore.isLoggedIn = false
-      coreStore.session = null
+      coreStore.clearSessionState()
     } finally {
       isLoading.value = false
     }

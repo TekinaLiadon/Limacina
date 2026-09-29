@@ -8,6 +8,7 @@ import {
   modrinthUninstall,
 } from '@/06-shared/api'
 import type {
+  ModrinthInstallResult,
   ModrinthInstalledMod,
   ModrinthSearchHit,
   ModrinthSearchResult,
@@ -231,6 +232,74 @@ describe('useModrinth', () => {
     expect(uninstalled).toBe(false)
     expect(mods.actionError.value).toBe('locked')
     expect(mods.updates.value).toEqual({ a: '2.0' })
+  })
+
+  it('rejects a parallel install while another install is running', async () => {
+    let releaseInstall: (result: ModrinthInstallResult) => void = () => {}
+    vi.mocked(modrinthInstall).mockImplementation(
+      () =>
+        new Promise<ModrinthInstallResult>((resolve) => {
+          releaseInstall = resolve
+        }),
+    )
+    vi.mocked(modrinthInstalled).mockResolvedValue([makeInstalled('a')])
+    const mods = useModrinth()
+
+    const first = mods.install('a')
+    const second = await mods.install('b')
+
+    expect(second).toBe(false)
+    expect(modrinthInstall).toHaveBeenCalledTimes(1)
+    expect(mods.installingId.value).toBe('a')
+
+    releaseInstall({ installed: ['a'], skipped: [] })
+    await first
+    expect(mods.installingId.value).toBeNull()
+  })
+
+  it('rejects an uninstall while an install is running and keeps the flag', async () => {
+    let releaseInstall: (result: ModrinthInstallResult) => void = () => {}
+    vi.mocked(modrinthInstall).mockImplementation(
+      () =>
+        new Promise<ModrinthInstallResult>((resolve) => {
+          releaseInstall = resolve
+        }),
+    )
+    const mods = useModrinth()
+
+    const first = mods.install('a')
+    const uninstalled = await mods.uninstall('b')
+
+    expect(uninstalled).toBe(false)
+    expect(modrinthUninstall).not.toHaveBeenCalled()
+    expect(mods.installingId.value).toBe('a')
+
+    releaseInstall({ installed: ['a'], skipped: [] })
+    await first
+    expect(mods.installingId.value).toBeNull()
+  })
+
+  it('rejects further actions while an uninstall is running', async () => {
+    let releaseUninstall: () => void = () => {}
+    vi.mocked(modrinthUninstall).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseUninstall = resolve
+        }),
+    )
+    const mods = useModrinth()
+    mods.updates.value = { a: '2.0' }
+
+    const first = mods.uninstall('a')
+    expect(await mods.install('b')).toBe(false)
+    expect(await mods.uninstall('c')).toBe(false)
+    expect(modrinthInstall).not.toHaveBeenCalled()
+    expect(modrinthUninstall).toHaveBeenCalledTimes(1)
+    expect(mods.installingId.value).toBe('a')
+
+    releaseUninstall()
+    await first
+    expect(mods.installingId.value).toBeNull()
   })
 
   it('fetches the project details for the popup', async () => {

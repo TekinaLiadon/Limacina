@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { useCoreStore, type ProjectConfig } from '@/05-entities'
+import { FAILURE_THRESHOLD } from '../server-status/useServerStatus'
 
 const api = vi.hoisted(() => ({
   pingLauncherServer: vi.fn(),
@@ -29,6 +30,10 @@ const makeConfig = (online: boolean): ProjectConfig => ({
 })
 
 const OK_INTERVAL_MS = 30_000
+
+const advanceAfterFailures = async (count: number): Promise<void> => {
+  await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2 ** count)
+}
 
 describe('useServerAvailability', () => {
   beforeEach(() => {
@@ -64,20 +69,82 @@ describe('useServerAvailability', () => {
     expect(useCoreStore().isServerReachable).toBe(true)
   })
 
-  it('reports an unreachable server when the ping returns false', async () => {
+  it('keeps the flag unknown after a single failed ping', async () => {
     api.pingLauncherServer.mockResolvedValue(false)
     await startSync()
     await watchProject(true)
 
-    expect(useCoreStore().isServerReachable).toBe(false)
+    expect(useCoreStore().isServerReachable).toBeNull()
   })
 
-  it('reports an unreachable server when the ping rejects', async () => {
+  it('keeps the flag unknown when the ping rejects', async () => {
     api.pingLauncherServer.mockRejectedValue(new Error('probe failed'))
     await startSync()
     await watchProject(true)
 
+    expect(useCoreStore().isServerReachable).toBeNull()
+  })
+
+  it('keeps the reachable flag on an isolated failure', async () => {
+    api.pingLauncherServer.mockResolvedValueOnce(true)
+    api.pingLauncherServer.mockResolvedValue(false)
+    await startSync()
+    await watchProject(true)
+    expect(useCoreStore().isServerReachable).toBe(true)
+
+    await advanceAfterFailures(1)
+    expect(api.pingLauncherServer).toHaveBeenCalledTimes(2)
+    expect(useCoreStore().isServerReachable).toBe(true)
+  })
+
+  it('marks the server unreachable after a failure streak of the threshold length', async () => {
+    api.pingLauncherServer.mockResolvedValue(false)
+    await startSync()
+    await watchProject(true)
+
+    for (let failures = 1; failures < FAILURE_THRESHOLD - 1; failures++) {
+      await advanceAfterFailures(failures)
+      expect(api.pingLauncherServer).toHaveBeenCalledTimes(failures + 1)
+      expect(useCoreStore().isServerReachable).toBeNull()
+    }
+
+    await advanceAfterFailures(FAILURE_THRESHOLD - 1)
+    expect(api.pingLauncherServer).toHaveBeenCalledTimes(FAILURE_THRESHOLD)
     expect(useCoreStore().isServerReachable).toBe(false)
+  })
+
+  it('recovers instantly after a failure streak', async () => {
+    api.pingLauncherServer.mockResolvedValue(false)
+    await startSync()
+    await watchProject(true)
+
+    for (let failures = 1; failures < FAILURE_THRESHOLD; failures++) {
+      await advanceAfterFailures(failures)
+    }
+    expect(useCoreStore().isServerReachable).toBe(false)
+
+    api.pingLauncherServer.mockResolvedValue(true)
+    await advanceAfterFailures(FAILURE_THRESHOLD)
+    expect(api.pingLauncherServer).toHaveBeenCalledTimes(FAILURE_THRESHOLD + 1)
+    expect(useCoreStore().isServerReachable).toBe(true)
+  })
+
+  it('resets the failure streak after an intermittent success', async () => {
+    api.pingLauncherServer.mockResolvedValueOnce(false)
+    api.pingLauncherServer.mockResolvedValueOnce(false)
+    api.pingLauncherServer.mockResolvedValueOnce(true)
+    api.pingLauncherServer.mockResolvedValue(false)
+    await startSync()
+    await watchProject(true)
+
+    await advanceAfterFailures(1)
+    await advanceAfterFailures(2)
+    expect(api.pingLauncherServer).toHaveBeenCalledTimes(3)
+    expect(useCoreStore().isServerReachable).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
+    expect(api.pingLauncherServer).toHaveBeenCalledTimes(4)
+    expect(useCoreStore().isServerReachable).toBe(true)
   })
 
   it('doubles the polling interval after consecutive failures', async () => {

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Button, Input, Checkbox } from '@/06-shared'
 import { useAuth } from '@/04-features'
-import { AuthForm } from '@/03-widgets'
+import AuthForm from '../login/AuthForm.vue'
 import type { AuthSubTab } from '@/05-entities'
 
 const props = defineProps<{

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   deleteOfflineSkin,
@@ -160,6 +161,21 @@ describe('useSkinSettings', () => {
 
     expect(skins.hasSkin.value).toBe(false)
     expect(getOfflineSkinModel).not.toHaveBeenCalled()
+  })
+
+  it('does not re-persist the offline skin while restoring the stored model', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    vi.mocked(getOfflineSkinModel).mockResolvedValue('slim')
+    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
+
+    expect(skins.modelMode.value).toBe('slim')
+    await nextTick()
+    expect(saveOfflineSkin).not.toHaveBeenCalled()
+    expect(skins.errorMessage.value).toBe('')
   })
 
   it('saves the offline skin when the model changes', async () => {

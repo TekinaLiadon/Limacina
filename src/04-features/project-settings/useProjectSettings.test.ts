@@ -72,6 +72,7 @@ const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfi
 
 const makeLauncherConfig = (projectNames: string[]): LauncherConfig => ({
   launcherPath: '/games/limacina',
+  installId: null,
   discordActivity: false,
   keepOldConfigs: true,
   downloadSpeedLimit: null,
@@ -227,6 +228,58 @@ describe('useProjectSettings', () => {
     await settings.handleSave()
 
     expect(saveSettingsProject).not.toHaveBeenCalled()
+  })
+
+  it('ignores a repeated save while one is in flight', async () => {
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(saveSettingsProject).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+    useProjectSettingsStore().config.javaPath = '/local/java'
+
+    const first = settings.handleSave()
+    await settings.handleSave()
+    release()
+    await first
+
+    expect(saveSettingsProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts the save when the project switches during the fresh load', async () => {
+    const core = useCoreStore()
+    const settings = await loadReady()
+    vi.mocked(loadSettingsProject).mockImplementation(async () => {
+      core.currentProject = 'beta'
+      return makeProjectConfig({ projectName: 'beta' })
+    })
+    useProjectSettingsStore().config.javaPath = '/local/java'
+
+    await settings.handleSave()
+
+    expect(saveSettingsProject).not.toHaveBeenCalled()
+    expect(core.projectConfig).toBeNull()
+    expect(useNotificationStore().message).toBe('')
+    expect(settings.isSaving.value).toBe(false)
+  })
+
+  it('does not overwrite the project config when the project switches during the save', async () => {
+    const core = useCoreStore()
+    const settings = await loadReady()
+    vi.mocked(saveSettingsProject).mockImplementation(async () => {
+      core.currentProject = 'beta'
+    })
+    useProjectSettingsStore().config.javaPath = '/local/java'
+
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledTimes(1)
+    expect(core.projectConfig).toBeNull()
+    expect(useNotificationStore().message).toBe('')
+    expect(settings.isSaving.value).toBe(false)
   })
 
   it('shows the save error', async () => {

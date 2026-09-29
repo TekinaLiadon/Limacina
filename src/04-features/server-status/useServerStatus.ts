@@ -4,7 +4,7 @@ import { createBackoffPoller, type BackoffPoller } from '@/06-shared'
 
 const OK_INTERVAL_MS = 60_000
 const MAX_INTERVAL_MS = 300_000
-const FAILURE_THRESHOLD = 3
+export const FAILURE_THRESHOLD = 3
 
 let poller: BackoffPoller | null = null
 
@@ -19,7 +19,7 @@ export function useServerStatus(): {
       maxIntervalMs: MAX_INTERVAL_MS,
       failureThreshold: FAILURE_THRESHOLD,
       watchSource: () => coreStore.projectConfig,
-      isWatched: (): boolean => coreStore.projectConfig?.online === true,
+      isWatched: (): boolean => coreStore.isOnlineProject,
       fetch: getServerStatus,
       applySuccess: (status: ServerStatus): void => {
         coreStore.serverStatus = status

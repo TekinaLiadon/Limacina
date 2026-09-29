@@ -33,7 +33,7 @@ export function useAuth() {
     return store.registerFormData.password === store.registerFormData.confirmPassword
   })
 
-  const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
+  const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
   const isLoginValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
@@ -88,13 +88,10 @@ export function useAuth() {
       await authLogin(authData)
 
       const session = await getSessionInfo()
-      if (session) {
-        coreStore.session = session
-        coreStore.isLoggedIn = true
-      }
+      if (session) coreStore.applySession(session)
 
       await loadAccounts()
-      store.showAuthForm = false
+      store.closeAuthForm()
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
       reportError('Ошибка авторизации', e)
@@ -124,7 +121,7 @@ export function useAuth() {
       await loadAccounts()
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
-      store.showAuthForm = false
+      store.closeAuthForm()
       store.activeSubTab = 'login'
     } catch (e: unknown) {
       errorMessage.value = getErrorMessage(e)

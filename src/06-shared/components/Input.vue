@@ -58,6 +58,10 @@ watch(showDropdown, (shown: boolean): void => {
   if (shown) activeSuggest.value = 0
 })
 
+watch(filteredList, (): void => {
+  activeSuggest.value = 0
+})
+
 const handleInputKeydown = (event: KeyboardEvent): void => {
   if (!showDropdown.value || filteredList.value.length === 0) return
   if (event.key === 'Escape') {

@@ -199,6 +199,33 @@ describe('useAuth', () => {
     unmount()
   })
 
+  it('does not keep the password in the store after a successful login', async () => {
+    fillLoginForm()
+    vi.mocked(getSessionInfo).mockResolvedValue({ uuid: 'u-1', username: 'user' })
+    vi.mocked(authLogins).mockResolvedValue(['user'])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    const store = useAccountsStore()
+    expect(store.showAuthForm).toBe(false)
+    expect(store.loginFormData.password).toBe('')
+    expect(store.loginFormData.username).toBe('user')
+    unmount()
+  })
+
+  it('keeps the password for a retry when the login fails', async () => {
+    fillLoginForm()
+    useAccountsStore().showAuthForm = true
+    vi.mocked(authLogin).mockRejectedValue({ code: 'bad_credentials', message: 'Неверный пароль' })
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(useAccountsStore().loginFormData.password).toBe('password')
+    unmount()
+  })
+
   it('surfaces the command error and keeps the form open on login failure', async () => {
     fillLoginForm()
     useAccountsStore().showAuthForm = true

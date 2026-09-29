@@ -1,6 +1,7 @@
 import { useCoreStore } from '@/05-entities'
 import { pingLauncherServer } from '@/06-shared/api'
 import { createBackoffPoller, type BackoffPoller } from '@/06-shared'
+import { FAILURE_THRESHOLD } from '../server-status/useServerStatus'
 
 const OK_INTERVAL_MS = 30_000
 const MAX_INTERVAL_MS = 300_000
@@ -13,12 +14,12 @@ export function useServerAvailability(): {
   const coreStore = useCoreStore()
 
   if (poller === null) {
-    const isWatched = (): boolean =>
-      !coreStore.offlineBuild && coreStore.projectConfig?.online === true
+    const isWatched = (): boolean => coreStore.isOnlineProject
 
     poller = createBackoffPoller<boolean>({
       okIntervalMs: OK_INTERVAL_MS,
       maxIntervalMs: MAX_INTERVAL_MS,
+      failureThreshold: FAILURE_THRESHOLD,
       watchSource: () => coreStore.projectConfig,
       isWatched,
       shouldPoll: isWatched,
@@ -30,7 +31,7 @@ export function useServerAvailability(): {
       applySuccess: (reachable: boolean): void => {
         coreStore.isServerReachable = reachable
       },
-      applyError: (): void => {
+      onFailureStreak: (): void => {
         coreStore.isServerReachable = false
       },
       applyIdle: (): void => {

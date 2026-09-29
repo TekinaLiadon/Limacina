@@ -69,21 +69,5 @@ const handleSubmit = (): void => {
   gap: var(--element-gap);
 
   @include mixins.form-head;
-
-  &__subtitle {
-    @include mixins.form-subtitle;
-  }
-
-  &__error {
-    @include mixins.error-box;
-
-    margin: 0;
-  }
-
-  &__actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-  }
 }
 </style>

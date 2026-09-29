@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 import { useGameOptions } from '@/04-features'
+import LoadErrorRow from '../../common/LoadErrorRow.vue'
 import SettingsSection from './SettingsSection.vue'
 import SettingsSaveBar from './SettingsSaveBar.vue'
 import GraphicsOptions from './game/GraphicsOptions.vue'
@@ -27,17 +28,7 @@ const {
 
 <template>
   <div class="game-settings">
-    <div v-if="loadError" class="game-settings__load-error" role="alert">
-      <p class="game-settings__load-error-text">{{ loadError }}</p>
-      <Button
-        class="btn-secondary game-settings__load-error-btn"
-        :is-loading="isLoading"
-        :is-disabled="isLoading"
-        @click="retryLoad"
-      >
-        Повторить
-      </Button>
-    </div>
+    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
 
     <div class="game-settings__head">
       <p class="game-settings__hint">
@@ -106,18 +97,6 @@ const {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-
-  &__load-error {
-    @include mixins.load-error-row;
-  }
-
-  &__load-error-text {
-    margin: 0;
-  }
-
-  &__load-error-btn {
-    flex-shrink: 0;
-  }
 
   &__head {
     display: flex;

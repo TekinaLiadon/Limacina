@@ -153,6 +153,28 @@ describe('useGameSession', () => {
     expect(api.listenGameStarted).toHaveBeenCalledTimes(1)
   })
 
+  it('shares one in-flight sync across callers', async () => {
+    let resolveState: (username: string | null) => void = () => {}
+    api.getGameState.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveState = resolve
+        }),
+    )
+    const session = await loadSession()
+
+    const first = session.startGameSessionSync()
+    const second = session.startGameSessionSync()
+    expect(first).toBe(second)
+
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(1))
+    resolveState('alice')
+    await Promise.all([first, second])
+
+    expect(useCoreStore().gameUsername).toBe('alice')
+    expect(api.getGameState).toHaveBeenCalledTimes(1)
+  })
+
   it('minimizes the window to tray', async () => {
     const session = await loadSession()
 

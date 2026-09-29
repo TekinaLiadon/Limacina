@@ -125,10 +125,13 @@ export function useProjectSettings(): {
 
   const handleSave = async (): Promise<void> => {
     if (!store.isLoaded) return
+    if (store.isSaving) return
+    const { projectName } = config.value
     store.startSaving()
 
     try {
-      const fresh = await loadSettingsProject(config.value.projectName)
+      const fresh = await loadSettingsProject(projectName)
+      if (coreStore.currentProject !== projectName) return
       const projectConfig: ProjectConfig = {
         ...fresh,
         loaderVersion: isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
@@ -139,6 +142,7 @@ export function useProjectSettings(): {
         autoJoinServer: isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
       await saveSettingsProject(projectConfig)
+      if (coreStore.currentProject !== projectName) return
       coreStore.projectConfig = projectConfig
       dirtyState.captureBaseline()
       notification.show('Настройки сохранены')

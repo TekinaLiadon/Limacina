@@ -15,7 +15,7 @@ import {
 } from '@/06-shared/api'
 import { useGameLaunch } from './useGameLaunch'
 import { useAccountsStore, useCoreStore, type ProjectConfig } from '@/05-entities'
-import { STEP_IDS } from '@/06-shared'
+import { createStepItem, STEP_IDS, type StepPlanItem } from '@/06-shared'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -72,6 +72,12 @@ describe('useGameLaunch', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     streamMocks.flushLaunchSteps.mockResolvedValue(undefined)
+    streamMocks.prefillLaunchSteps.mockImplementation((plan: StepPlanItem[]) => {
+      useAccountsStore().launchSteps = plan.map((item) => ({
+        ...createStepItem(item.key, item.label, 0),
+        status: 'pending' as const,
+      }))
+    })
     vi.spyOn(console, 'error').mockImplementation(() => {})
     useAccountsStore().isLaunching = true
   })
@@ -103,7 +109,7 @@ describe('useGameLaunch', () => {
     expect(clearInstallJournal).toHaveBeenCalledWith('proj')
     expect(setInitialized).toHaveBeenCalledTimes(1)
     expect(coreStore.projectConfig?.initialized).toBe(true)
-    expect(coreStore.loginError).toBe('')
+    expect(useAccountsStore().loginError).toBe('')
     expect(useAccountsStore().isLaunching).toBe(false)
     expect(streamMocks.resetLaunchSteps).toHaveBeenCalledTimes(1)
     expect(streamMocks.flushLaunchSteps).toHaveBeenCalledTimes(1)
@@ -197,6 +203,36 @@ describe('useGameLaunch', () => {
     expect(recordedKeys).toEqual(['install.minecraft'])
   })
 
+  it('recomputes activeProgress for journal-skipped steps', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
+    vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
+    vi.mocked(loadInstallJournal).mockResolvedValue(['install.java'])
+
+    await useGameLaunch().executeSteps()
+
+    const store = useAccountsStore()
+    expect(store.launchSteps.filter((step) => step.skipped)).toHaveLength(3)
+    expect(store.activeProgress).toBeCloseTo(20, 5)
+  })
+
+  it('shows full journal progress when the whole install is skipped', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
+    vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
+    vi.mocked(loadInstallJournal).mockResolvedValue([
+      'install.java',
+      'install.files',
+      'install.minecraft',
+    ])
+
+    await useGameLaunch().executeSteps()
+
+    const store = useAccountsStore()
+    expect(store.launchSteps.filter((step) => step.skipped)).toHaveLength(12)
+    expect(store.activeProgress).toBeCloseTo(80, 5)
+  })
+
   it('continues the flow when the journal cannot be read', async () => {
     useCoreStore().currentProject = 'proj'
     vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
@@ -208,7 +244,7 @@ describe('useGameLaunch', () => {
     expect(downloadJava).toHaveBeenCalledTimes(1)
     expect(downloadMinecraft).toHaveBeenCalledTimes(1)
     expect(useAccountsStore().isLaunching).toBe(false)
-    expect(useCoreStore().loginError).toBe('')
+    expect(useAccountsStore().loginError).toBe('')
   })
 
   it('continues the flow when recording a journal step fails', async () => {
@@ -236,7 +272,7 @@ describe('useGameLaunch', () => {
 
     await useGameLaunch().executeSteps()
 
-    expect(coreStore.loginError).toBe('download failed')
+    expect(useAccountsStore().loginError).toBe('download failed')
     expect(useAccountsStore().isLaunching).toBe(false)
     expect(downloadMinecraft).not.toHaveBeenCalled()
     expect(startMinecraft).not.toHaveBeenCalled()
@@ -252,7 +288,7 @@ describe('useGameLaunch', () => {
 
     await useGameLaunch().executeSteps()
 
-    expect(coreStore.loginError).toBe('server offline')
+    expect(useAccountsStore().loginError).toBe('server offline')
     expect(useAccountsStore().isLaunching).toBe(false)
     expect(streamMocks.prefillLaunchSteps).not.toHaveBeenCalled()
     expect(downloadJava).not.toHaveBeenCalled()
@@ -285,18 +321,37 @@ describe('useGameLaunch', () => {
 
     await useGameLaunch().executeSteps()
 
-    expect(coreStore.loginError).toBe('exit failed')
+    expect(useAccountsStore().loginError).toBe('exit failed')
     expect(useAccountsStore().isLaunching).toBe(false)
   })
 
-  it('stops before each step when cancelled', async () => {
+  it('does not apply config or prefill the plan when cancelled during initializeProject', async () => {
+    const coreStore = useCoreStore()
+    coreStore.currentProject = 'proj'
+    let cancelled = false
+    vi.mocked(initializeProject).mockImplementation(async () => {
+      cancelled = true
+      return makeConfig({ initialized: false })
+    })
+
+    await useGameLaunch().executeSteps(() => cancelled)
+
+    expect(coreStore.projectConfig).toBeNull()
+    expect(streamMocks.prefillLaunchSteps).not.toHaveBeenCalled()
+    expect(loadInstallJournal).not.toHaveBeenCalled()
+    expect(downloadJava).not.toHaveBeenCalled()
+    expect(startMinecraft).not.toHaveBeenCalled()
+  })
+
+  it('stops before the flow when cancelled from the start', async () => {
     const coreStore = useCoreStore()
     coreStore.currentProject = 'proj'
     vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
 
     await useGameLaunch().executeSteps(() => true)
 
-    expect(coreStore.projectConfig?.projectName).toBe('proj')
+    expect(coreStore.projectConfig).toBeNull()
+    expect(streamMocks.prefillLaunchSteps).not.toHaveBeenCalled()
     expect(downloadJava).not.toHaveBeenCalled()
     expect(startMinecraft).not.toHaveBeenCalled()
   })
@@ -311,7 +366,7 @@ describe('useGameLaunch', () => {
     await useGameLaunch().executeSteps()
 
     expect(startMinecraft).toHaveBeenCalledTimes(1)
-    expect(coreStore.loginError).toBe('init failed')
+    expect(useAccountsStore().loginError).toBe('init failed')
     expect(useAccountsStore().isLaunching).toBe(false)
   })
 })

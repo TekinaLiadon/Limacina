@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { Button, Checkbox, Dropdown, Input } from '@/06-shared'
-import type { DropdownOption } from '@/06-shared/types'
+import { Button, Checkbox, Dropdown, Input, type DropdownOption } from '@/06-shared'
 import type { OfflineProfileForm as OfflineForm } from '@/05-entities'
 
 const props = defineProps<{
@@ -110,10 +109,6 @@ const handleSubmit = (): void => {
 
   @include mixins.form-head;
 
-  &__subtitle {
-    @include mixins.form-subtitle;
-  }
-
   &__field {
     display: flex;
     flex-direction: column;
@@ -124,18 +119,6 @@ const handleSubmit = (): void => {
     @include mixins.eyebrow;
 
     text-align: left;
-  }
-
-  &__error {
-    @include mixins.error-box;
-
-    margin: 0;
-  }
-
-  &__actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
   }
 }
 </style>

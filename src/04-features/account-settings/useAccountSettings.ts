@@ -14,7 +14,7 @@ export function useAccountSettings() {
   const errorMessage = ref<string>('')
 
   const username = computed((): string => coreStore.session?.username ?? '')
-  const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
+  const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
   const passwordsMatch = computed((): boolean => {
     if (!confirmPassword.value) return true

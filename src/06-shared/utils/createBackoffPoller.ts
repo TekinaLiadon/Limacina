@@ -102,6 +102,7 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
     if (syncStarted) return
     syncStarted = true
     watch(watchSource, syncWithProject)
+    syncWithProject()
   }
 
   return { startSync }

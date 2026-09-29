@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onUnmounted, ref, watch } from 'vue'
-import { Button, useFocusTrap } from '@/06-shared'
+import Button from './Button.vue'
+import { useFocusTrap } from '../utils/useFocusTrap'
 
 const props = defineProps<{
   message: string

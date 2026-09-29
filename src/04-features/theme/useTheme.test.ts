@@ -86,6 +86,45 @@ describe('useTheme', () => {
     expect(theme.isSwitching.value).toBe(false)
   })
 
+  it('keeps the applied theme when a stale switch timer fires', async () => {
+    prepareStore('default-dark', true)
+    const theme = await loadTheme()
+
+    useSettingsStore().setTheme('lime-light')
+    await nextTick()
+    expect(theme.isSwitching.value).toBe(true)
+
+    useSettingsStore().setTheme('default-light')
+    await nextTick()
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('default-light')
+    expect(theme.isSwitching.value).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('default-light')
+  })
+
+  it('cancels the pending switch timer when the next change skips animation', async () => {
+    prepareStore('default-dark', true)
+    const theme = await loadTheme()
+
+    useSettingsStore().setTheme('lime-light')
+    await nextTick()
+    expect(theme.isSwitching.value).toBe(true)
+
+    useSettingsStore().setAnimationsEnabled(false)
+    useSettingsStore().setTheme('default-light')
+    await nextTick()
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('default-light')
+    expect(theme.isSwitching.value).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('default-light')
+  })
+
   it('reports the direction for a light to dark switch', async () => {
     prepareStore('lime-light', true)
     const theme = await loadTheme()

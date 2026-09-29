@@ -11,13 +11,20 @@ function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
   return texture
 }
 
+function disposeMaterial(material: THREE.Material): void {
+  for (const value of Object.values(material)) {
+    if (value instanceof THREE.Texture) value.dispose()
+  }
+  material.dispose()
+}
+
 function disposeObjectTree(root: THREE.Object3D): void {
   root.traverse((object) => {
     if (object instanceof THREE.Mesh) {
       object.geometry.dispose()
       const {material} = object
-      if (Array.isArray(material)) material.forEach((m) => m.dispose())
-      else material.dispose()
+      if (Array.isArray(material)) material.forEach(disposeMaterial)
+      else disposeMaterial(material)
     }
   })
 }

@@ -73,6 +73,54 @@ describe('createBackoffPoller', () => {
     expect(harness.applyError).not.toHaveBeenCalled()
   })
 
+  it('polls immediately when the watched value is already set at startSync', async () => {
+    const project = ref<string | null>('proj')
+    const fetch = vi.fn<(name: string) => Promise<string>>()
+    const applySuccess = vi.fn<(result: string) => void>()
+    const applyIdle = vi.fn<() => void>()
+    fetch.mockResolvedValue('ok')
+
+    createBackoffPoller<string>({
+      okIntervalMs: OK_INTERVAL_MS,
+      maxIntervalMs: MAX_INTERVAL_MS,
+      watchSource: () => project.value,
+      isWatched: () => project.value !== null,
+      fetch: () => fetch(project.value ?? ''),
+      applySuccess,
+      applyIdle,
+    }).startSync()
+    await flushJobs()
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(applySuccess).toHaveBeenCalledWith('ok')
+    expect(applyIdle).not.toHaveBeenCalled()
+
+    project.value = 'proj-2'
+    await nextTick()
+    await flushJobs()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('applies idle once when the watched value is unset at startSync', async () => {
+    const project = ref<string | null>(null)
+    const fetch = vi.fn<(name: string) => Promise<string>>()
+    const applyIdle = vi.fn<() => void>()
+
+    createBackoffPoller<string>({
+      okIntervalMs: OK_INTERVAL_MS,
+      maxIntervalMs: MAX_INTERVAL_MS,
+      watchSource: () => project.value,
+      isWatched: () => project.value !== null,
+      fetch: () => fetch(project.value ?? ''),
+      applySuccess: vi.fn<() => void>(),
+      applyIdle,
+    }).startSync()
+    await flushJobs()
+
+    expect(applyIdle).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('stops the pending chain and applies idle when the value stops being watched', async () => {
     const harness = setupHarness()
     harness.fetch.mockResolvedValue('ok')

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Button, Checkbox, Input } from '@/06-shared'
-import type { InputOptions } from '@/06-shared/types'
+import { Button, Checkbox, Input, type InputOptions } from '@/06-shared'
 import { useCpmSettings, useCpmAnimations } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
@@ -241,6 +240,8 @@ const applyLimitInput = async (): Promise<void> => {
   }
 
   &__layer-list {
+    @include mixins.subtle-card;
+
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -248,25 +249,10 @@ const applyLimitInput = async (): Promise<void> => {
     max-height: var(--options-max-height);
     overflow-y: auto;
     width: 100%;
-    padding: var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
   }
 
   &__actions {
-    display: flex;
-    gap: var(--space-8);
-
-    .cpm-settings__btn {
-      flex: 1;
-      min-height: var(--control-height);
-
-      &--reset,
-      &--upload {
-        flex: 0 0 auto;
-      }
-    }
+    @include mixins.viewer-actions-row('.cpm-settings__btn');
   }
 
   &__hint {

@@ -158,9 +158,8 @@ export function useSkinViewer(
     skinUrl: Ref<string>,
     controls: ViewerControls,
     slim: Ref<boolean>,
-    paused?: Ref<boolean>,
 ) {
-  const { scene, camera, getOrbitControls, setPaused } = useThreeScene(container, { autoRotate: false })
+  const { scene, camera, getOrbitControls } = useThreeScene(container, { autoRotate: false })
   const playerGroup = shallowRef<THREE.Group | null>(null)
   const textureLoader = createManagedTextureLoader(scene)
   let currentTexture: THREE.Texture | null = null
@@ -216,10 +215,6 @@ export function useSkinViewer(
   watch(slim, () => {
     rebuildModel()
   })
-
-  if (paused) {
-    watch(paused, (value: boolean) => setPaused(value), { immediate: true })
-  }
 
   onBeforeUnmount(() => {
     removeGroupFromScene(scene, playerGroup)

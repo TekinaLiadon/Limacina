@@ -165,4 +165,35 @@ describe('useProjectSwitch', () => {
     expect(core.projectConfig).toBeNull()
     expect(useAccountsStore().isSwitching).toBe(false)
   })
+
+  it('restores the saved project when the switch fails during the load', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    vi.mocked(loadSettingsProject).mockRejectedValue(new Error('config locked'))
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(1, 'beta')
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(2, 'alpha')
+    expect(core.currentProject).toBe('alpha')
+    expect(core.projectConfig).toBeNull()
+    expect(useNotificationStore().message).toBe('config locked')
+  })
+
+  it('restores the saved project when the switch fails after the loads', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(authLogins).mockResolvedValue(['carol'])
+    vi.mocked(clearSession).mockRejectedValue(new Error('session stuck'))
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(1, 'beta')
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(2, 'alpha')
+    expect(core.currentProject).toBe('alpha')
+    expect(useAccountsStore().logins).toEqual([])
+  })
 })

@@ -34,13 +34,14 @@ export function useFileDrop(options: FileDropOptions): { isDragOver: Ref<boolean
         }
         if (payload.type === 'drop') {
           isDragOver.value = false
-          const [path] = payload.paths
-          if (path === undefined) return
-          if (!hasAcceptedExtension(path, options.accept)) {
-            options.onError(`Допустимый формат — .${options.accept.join(', .')}`)
+          const acceptedPath = payload.paths.find((path) => hasAcceptedExtension(path, options.accept))
+          if (acceptedPath !== undefined) {
+            options.onDrop(acceptedPath)
             return
           }
-          options.onDrop(path)
+          if (payload.paths.length > 0) {
+            options.onError(`Допустимый формат — .${options.accept.join(', .')}`)
+          }
         }
       })
       if (disposed) {

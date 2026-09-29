@@ -200,10 +200,11 @@ const openLoginForm = (): void => {
                   <Skeleton
                     v-for="index in 3"
                     :key="`skeleton-${index}`"
-                    class="launch-scene__menu-skeleton"
                     variant="list-item"
                     icon-shape="circle"
                     :lines="1"
+                    flat
+                    size="sm"
                   />
                 </template>
                 <template v-else>
@@ -367,27 +368,6 @@ const openLoginForm = (): void => {
     top: auto;
     bottom: calc(100% + var(--space-4));
     transform-origin: bottom center;
-  }
-
-  &__menu-skeleton {
-    gap: var(--space-8);
-    padding: var(--space-8) var(--space-12);
-    border-radius: var(--radius-button);
-    background: transparent;
-    box-shadow: none;
-
-    &.skeleton .skeleton__icon {
-      width: 28px;
-      height: 28px;
-    }
-
-    &.skeleton .skeleton__body {
-      gap: 0;
-    }
-
-    &.skeleton .skeleton__line {
-      height: calc(var(--text-body-sm) * var(--leading-body-sm));
-    }
   }
 
   &__menu-error {

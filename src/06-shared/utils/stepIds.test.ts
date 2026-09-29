@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS } from './stepIds'
+import { DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_CATALOG, STEP_IDS, stepPlanItems } from './stepIds'
 
 const allStepIds = new Set<string>(Object.values(STEP_IDS))
 
@@ -35,6 +35,23 @@ describe('DOWNLOAD_STEP_IDS', () => {
         STEP_IDS.modsDownload,
       ].sort(),
     )
+  })
+})
+
+describe('STEP_CATALOG', () => {
+  it('has a non-empty label for every registered step id', () => {
+    expect(Object.keys(STEP_CATALOG).sort()).toEqual([...allStepIds].sort())
+    for (const label of Object.values(STEP_CATALOG)) {
+      expect(label.trim().length).toBeGreaterThan(0)
+    }
+  })
+
+  it('builds plan items from the catalog', () => {
+    const plan = stepPlanItems([STEP_IDS.mcJar, STEP_IDS.filesCheck])
+    expect(plan).toEqual([
+      { key: STEP_IDS.mcJar, label: 'Клиент игры' },
+      { key: STEP_IDS.filesCheck, label: 'Файлы сервера' },
+    ])
   })
 })
 

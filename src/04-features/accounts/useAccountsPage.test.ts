@@ -123,7 +123,7 @@ describe('useAccountsPage', () => {
     expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
     expect(useAccountsStore().isLaunching).toBe(false)
     expect(useAccountsStore().isCancelPending).toBe(false)
-    expect(useCoreStore().loginError).toBe('')
+    expect(useAccountsStore().loginError).toBe('')
   })
 
   it('surfaces the pipeline failure through the login error', async () => {
@@ -132,7 +132,7 @@ describe('useAccountsPage', () => {
 
     await page.handleLaunch()
 
-    expect(useCoreStore().loginError).toBe('java missing')
+    expect(useAccountsStore().loginError).toBe('java missing')
     expect(useAccountsStore().isLaunching).toBe(false)
   })
 
@@ -183,11 +183,13 @@ describe('useAccountsPage', () => {
   it('shows the auth form instead of cancelling an idle page', async () => {
     const accounts = useAccountsStore()
     accounts.showAuthForm = true
+    accounts.loginFormData.password = 'secret'
     const page = setupPage()
 
     await page.goToAccounts()
 
     expect(accounts.showAuthForm).toBe(false)
+    expect(accounts.loginFormData.password).toBe('')
     expect(clearSession).not.toHaveBeenCalled()
   })
 

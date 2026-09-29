@@ -7,17 +7,28 @@ const props = withDefaults(defineProps<{
   iconShape?: 'circle' | 'square'
   width?: string
   height?: string
+  flat?: boolean
+  size?: 'sm' | 'md' | 'lg'
 }>(), {
   variant: 'line',
   lines: 2,
   iconShape: 'circle',
   width: '',
   height: '',
+  flat: false,
+  size: 'md',
 })
 
 const lineIndexes = computed((): number[] =>
   Array.from({ length: Math.max(1, props.lines) }, (_, index) => index + 1),
 )
+
+const rootClass = computed((): string[] => {
+  const classes = [`skeleton--${props.variant}`]
+  if (props.flat) classes.push('skeleton--flat')
+  if (props.size !== 'md') classes.push(`skeleton--${props.size}`)
+  return classes
+})
 
 const rootStyle = computed((): Record<string, string> => {
   const style: Record<string, string> = {}
@@ -30,7 +41,7 @@ const rootStyle = computed((): Record<string, string> => {
 <template>
   <span
     class="skeleton"
-    :class="`skeleton--${props.variant}`"
+    :class="rootClass"
     :style="rootStyle"
     aria-hidden="true"
   >
@@ -114,12 +125,52 @@ const rootStyle = computed((): Record<string, string> => {
     height: var(--skeleton-card-height);
   }
 
+  &--flat {
+    background: transparent;
+    box-shadow: none;
+  }
+
   &--list-item {
     display: flex;
     align-items: center;
     gap: var(--space-12);
     padding: var(--space-8) var(--space-12);
     border-radius: var(--radius-card);
+
+    &.skeleton--sm {
+      border-radius: var(--radius-button);
+
+      .skeleton__icon {
+        width: var(--skeleton-icon-size-sm);
+        height: var(--skeleton-icon-size-sm);
+      }
+
+      .skeleton__body {
+        gap: 0;
+      }
+    }
+
+    &.skeleton--lg {
+      padding: 0;
+      border-radius: 0;
+
+      .skeleton__icon {
+        width: var(--skeleton-icon-size-lg);
+        height: var(--skeleton-icon-size-lg);
+      }
+
+      .skeleton__body {
+        gap: var(--space-4);
+      }
+
+      .skeleton__line {
+        height: calc(var(--text-body-sm) * var(--leading-body-sm));
+      }
+
+      .skeleton__line--short {
+        height: calc(var(--text-caption) * var(--leading-caption));
+      }
+    }
   }
 }
 

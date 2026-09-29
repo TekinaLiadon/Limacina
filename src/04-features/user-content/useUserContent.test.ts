@@ -130,6 +130,29 @@ describe('useUserContent', () => {
     expect(useNotificationStore().visible).toBe(false)
   })
 
+  it('ignores an upload while another upload is running', async () => {
+    loginSession()
+    const { content, api } = setupContent()
+    let releaseUpload: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseUpload = resolve
+        }),
+    )
+
+    const first = content.handleUpload({ data: 'first' })
+    const second = await content.handleUpload({ data: 'second' })
+
+    expect(api.upload).toHaveBeenCalledTimes(1)
+    expect(second).toBeNull()
+    expect(content.isUploading.value).toBe(true)
+
+    releaseUpload(makeItem(1))
+    await first
+    expect(content.isUploading.value).toBe(false)
+  })
+
   it('deletes an item and reloads the list', async () => {
     loginSession()
     const { content, api } = setupContent()

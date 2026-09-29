@@ -22,6 +22,7 @@ const makeDistribution = (name: string): JavaDistribution => ({
 
 const makeLauncherConfig = (overrides: Partial<LauncherConfig> = {}): LauncherConfig => ({
   launcherPath: '/games/limacina',
+  installId: null,
   discordActivity: false,
   keepOldConfigs: true,
   downloadSpeedLimit: null,

@@ -120,13 +120,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
 @use '@/01-app/assets/mixins';
 
 .add-profile-tab {
-  width: 100%;
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-  padding: var(--page-padding-y) var(--page-padding-x);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  @include mixins.page-scaffold;
 
   &__title {
     margin-bottom: var(--title-gap);

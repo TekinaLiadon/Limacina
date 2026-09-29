@@ -36,7 +36,7 @@ const { presetOptions, activePresetId, applyPreset } = useJvmPresets(
     flex-shrink: 0;
 
     .select-base__value {
-      min-width: 200px;
+      min-width: var(--settings-control-min-width);
     }
   }
 }

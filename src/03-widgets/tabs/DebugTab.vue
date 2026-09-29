@@ -152,6 +152,25 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
 </template>
 
 <style lang="scss">
+%debug-band {
+  display: flex;
+  align-items: center;
+  padding: var(--space-8) var(--space-12);
+  background: var(--debug-actions-bg);
+}
+
+%debug-btn {
+  background: var(--debug-btn-bg);
+  border: 1px solid var(--debug-btn-border);
+  border-radius: var(--debug-radius);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+
+  &:hover {
+    background: var(--debug-btn-hover-bg);
+  }
+}
+
 .debug-tab {
   display: flex;
   flex-direction: column;
@@ -163,12 +182,10 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   overflow: hidden;
 
   &__filters {
-    display: flex;
-    align-items: center;
+    @extend %debug-band;
+
     gap: var(--space-8);
-    padding: var(--space-8) var(--space-12);
     border-bottom: 1px solid var(--debug-border);
-    background: var(--debug-actions-bg);
   }
 
   &__search {
@@ -194,19 +211,15 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   }
 
   &__errors-toggle {
+    @extend %debug-btn;
+
     padding: var(--space-4) var(--space-12);
-    background: var(--debug-btn-bg);
     color: var(--debug-text);
-    border: 1px solid var(--debug-btn-border);
-    border-radius: var(--debug-radius);
-    cursor: pointer;
     font-size: var(--text-caption);
     font-family: inherit;
     white-space: nowrap;
-    transition: all var(--duration-fast) var(--ease-out);
 
     &:hover {
-      background: var(--debug-btn-hover-bg);
       border-color: var(--debug-btn-hover-border);
     }
 
@@ -218,13 +231,11 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   }
 
   &__stream-error {
-    display: flex;
-    align-items: center;
+    @extend %debug-band;
+
     justify-content: space-between;
     gap: var(--space-8);
-    padding: var(--space-8) var(--space-12);
     border-bottom: 1px solid var(--debug-border);
-    background: var(--debug-actions-bg);
   }
 
   &__stream-error-text {
@@ -234,21 +245,16 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   }
 
   &__retry-btn {
+    @extend %debug-btn;
+
     flex-shrink: 0;
     padding: var(--space-4) var(--space-12);
-    background: var(--debug-btn-bg);
     color: var(--debug-error);
-    border: 1px solid var(--debug-error);
-    border-radius: var(--debug-radius);
-    cursor: pointer;
+    border-color: var(--debug-error);
     font-size: var(--text-caption);
     font-family: inherit;
     white-space: nowrap;
     transition: background-color var(--duration-fast) var(--ease-out);
-
-    &:hover {
-      background: var(--debug-btn-hover-bg);
-    }
 
     &:disabled {
       cursor: default;
@@ -321,12 +327,10 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   }
 
   &__actions {
-    padding: var(--space-8) var(--space-12);
-    border-top: 1px solid var(--debug-border);
-    display: flex;
-    align-items: center;
+    @extend %debug-band;
+
     justify-content: space-between;
-    background: var(--debug-actions-bg);
+    border-top: 1px solid var(--debug-border);
   }
 
   &__actions-left {
@@ -342,20 +346,16 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   }
 
   &__autoscroll {
+    @extend %debug-btn;
+
     display: flex;
     align-items: center;
     justify-content: center;
     width: var(--debug-control-height);
     height: var(--debug-control-height);
-    border: 1px solid var(--debug-btn-border);
-    border-radius: var(--debug-radius);
-    background: var(--debug-btn-bg);
     color: var(--debug-accent);
-    cursor: pointer;
-    transition: all var(--duration-fast) var(--ease-out);
 
     &:hover {
-      background: var(--debug-btn-hover-bg);
       border-color: var(--debug-btn-hover-border);
     }
 
@@ -365,18 +365,14 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   }
 
   &__copy-btn {
+    @extend %debug-btn;
+
     padding: var(--space-4) var(--space-16);
-    background: var(--debug-btn-bg);
     color: var(--debug-text);
-    border: 1px solid var(--debug-btn-border);
-    border-radius: var(--debug-radius);
-    cursor: pointer;
     font-size: var(--text-caption);
     font-family: inherit;
-    transition: all var(--duration-fast) var(--ease-out);
 
     &:hover {
-      background: var(--debug-btn-hover-bg);
       border-color: var(--debug-btn-hover-border);
     }
 

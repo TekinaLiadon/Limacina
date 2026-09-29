@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { STEP_IDS } from '@/06-shared'
+import { STEP_IDS, type StepPlanItem } from '@/06-shared'
 import { useAccountsStore, useCoreStore, type StepEvent } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   listenLaunchSteps: vi.fn(),
   getLaunchState: vi.fn(),
+  syncGameSession: vi.fn(),
 }))
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -14,9 +15,13 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   getLaunchState: api.getLaunchState,
 }))
 
+vi.mock('../game-session/useGameSession', () => ({
+  syncGameSession: api.syncGameSession,
+}))
+
 interface StreamApi {
   startLaunchStepsStream: () => Promise<void>
-  prefillLaunchSteps: (plan: { key: string; label: string }[]) => void
+  prefillLaunchSteps: (plan: StepPlanItem[]) => void
   resetLaunchSteps: () => void
   flushLaunchSteps: () => Promise<void>
 }
@@ -46,6 +51,8 @@ describe('useLaunchStepsStream', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     api.listenLaunchSteps.mockReset()
     api.getLaunchState.mockReset()
+    api.syncGameSession.mockReset()
+    api.syncGameSession.mockResolvedValue(undefined)
     api.listenLaunchSteps.mockImplementation(async (handler: (event: StepEvent) => void) => {
       emit = handler
       return () => {}
@@ -102,6 +109,40 @@ describe('useLaunchStepsStream', () => {
     await startStream()
 
     expect(useAccountsStore().launchInterrupted).toBe(false)
+  })
+
+  it('waits for the session hydration before marking an interrupted launch', async () => {
+    let resolveSync: (() => void) = () => {}
+    api.syncGameSession.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSync = resolve
+        }),
+    )
+    api.getLaunchState.mockResolvedValue(true)
+
+    const pending = startStream()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(api.syncGameSession).toHaveBeenCalledTimes(1)
+    expect(useAccountsStore().isLaunching).toBe(false)
+    expect(useAccountsStore().launchInterrupted).toBe(false)
+
+    useCoreStore().gameUsername = 'alice'
+    resolveSync()
+    await pending
+
+    expect(useAccountsStore().isLaunching).toBe(false)
+    expect(useAccountsStore().launchInterrupted).toBe(false)
+  })
+
+  it('still marks the interrupted launch when the session sync fails', async () => {
+    api.syncGameSession.mockRejectedValue(new Error('ipc down'))
+    api.getLaunchState.mockResolvedValue(true)
+    await startStream()
+
+    expect(useAccountsStore().isLaunching).toBe(true)
+    expect(useAccountsStore().launchInterrupted).toBe(true)
   })
 
   it('ignores hydrate failures and keeps the state clean', async () => {
@@ -185,7 +226,6 @@ describe('useLaunchStepsStream', () => {
   it('stops the queue on a failed event and surfaces the error', async () => {
     const stream = await startStream()
     const store = useAccountsStore()
-    const coreStore = useCoreStore()
     stream.prefillLaunchSteps(PLAN)
     store.isLaunching = true
     store.launchInterrupted = true
@@ -203,7 +243,7 @@ describe('useLaunchStepsStream', () => {
     })
     expect(store.isLaunching).toBe(false)
     expect(store.launchInterrupted).toBe(false)
-    expect(coreStore.loginError).toBe('Скачивание сорвалось')
+    expect(store.loginError).toBe('Скачивание сорвалось')
     expect(store.launchSteps[1]).toMatchObject({ status: 'pending' })
   })
 

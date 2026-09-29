@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import anime from 'animejs'
 import { cssDurationMs, isAnimationsEnabled } from '@/06-shared/utils/animations'
 
@@ -25,9 +25,11 @@ const applyScale = (): void => {
 watch(() => props.progress, (): void => {
   if (fillRef.value === null) return
   if (!props.animated || !isAnimationsEnabled()) {
+    anime.remove(fillRef.value)
     applyScale()
     return
   }
+  anime.remove(fillRef.value)
   anime({
     targets: fillRef.value,
     scaleX: clampedScale(),
@@ -37,6 +39,10 @@ watch(() => props.progress, (): void => {
 })
 
 onMounted(applyScale)
+
+onBeforeUnmount(() => {
+  if (fillRef.value !== null) anime.remove(fillRef.value)
+})
 </script>
 
 <template>

@@ -96,13 +96,11 @@ const emit = defineEmits<{
   }
 
   &__item {
+    @include mixins.subtle-card;
+
     display: flex;
     align-items: center;
     gap: var(--space-12);
-    padding: var(--space-12);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
-    border-radius: var(--radius-card);
   }
 
   &__url {

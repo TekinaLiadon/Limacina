@@ -72,18 +72,7 @@ const {
 @use '@/01-app/assets/mixins';
 
 .setup-screen {
-  min-height: 100vh;
-  width: 100%;
-  background: var(--app-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--layout-padding);
-  position: relative;
-
-  &::before {
-    @include mixins.grid-backdrop;
-  }
+  @include mixins.fullscreen-page;
 }
 
 .setup-container {
@@ -97,12 +86,9 @@ const {
 }
 
 .setup-card {
-  width: 100%;
-  background: var(--login-bg-form);
+  @include mixins.fullscreen-card;
+
   backdrop-filter: blur(12px);
-  border-radius: var(--radius-modal);
-  padding: var(--page-padding-y) var(--page-padding-x);
-  box-shadow: var(--elevation-modal);
   text-align: left;
 
   &__eyebrow {
@@ -156,11 +142,9 @@ const {
 }
 
 .setup-preview {
+  @include mixins.subtle-card;
+
   margin-bottom: var(--space-24);
-  padding: var(--space-12);
-  background: var(--surface-subtle);
-  box-shadow: var(--elevation-inset);
-  border-radius: var(--radius-card);
 
   &__label {
     display: block;

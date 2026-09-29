@@ -32,7 +32,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   const isListLoading = ref<boolean>(false)
   const listError = ref<string>('')
 
-  const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
+  const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
   const loadItems = async (): Promise<void> => {
     if (isOffline.value) return
@@ -52,6 +52,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   }
 
   const handleUpload = async (payload: T): Promise<UserContentItem | null> => {
+    if (isUploading.value) return null
     isUploading.value = true
     errorMessage.value = ''
 

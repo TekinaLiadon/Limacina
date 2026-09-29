@@ -101,9 +101,6 @@ Var DesktopShortcutCheckbox
 Var NavOverlay1
 Var NavOverlay2
 Var NavOverlay3
-Var NavPill1
-Var NavPill2
-Var NavPill3
 Var NavX1
 Var NavY1
 Var NavH1
@@ -151,7 +148,6 @@ Var ConfirmDataPath
 
 !macro MakeNavOverlay _var _id _text _fg _bg _tab
   StrCpy `${_var}` 0
-  StrCpy $NavPill${_id} 0
   !if `${_id}` == "1"
     ${If} $NavCacheY = 0
       GetDlgItem $0 $HWNDPARENT 1
@@ -240,18 +236,6 @@ Var ConfirmDataPath
   ${If} $NavOverlay3 <> 0
     System::Call 'user32::DestroyWindow(p $NavOverlay3)'
     StrCpy $NavOverlay3 0
-  ${EndIf}
-  ${If} $NavPill1 <> 0
-    System::Call 'user32::DestroyWindow(p $NavPill1)'
-    StrCpy $NavPill1 0
-  ${EndIf}
-  ${If} $NavPill2 <> 0
-    System::Call 'user32::DestroyWindow(p $NavPill2)'
-    StrCpy $NavPill2 0
-  ${EndIf}
-  ${If} $NavPill3 <> 0
-    System::Call 'user32::DestroyWindow(p $NavPill3)'
-    StrCpy $NavPill3 0
   ${EndIf}
   ${If} $FocusPill <> 0
     System::Call 'user32::DestroyWindow(p $FocusPill)'
@@ -376,6 +360,124 @@ FunctionEnd
       !endif
     ${EndIf}
   !endif
+!macroend
+
+!macro CreateWizardFontsCore
+  IntOp $DPI $DPI + 0
+  ${If} $DPI <= 0
+    StrCpy $0 0
+    System::Call 'user32::GetDpiForWindow(p $HWNDPARENT) i.r0'
+    ${If} $0 > 0
+      StrCpy $DPI $0
+    ${EndIf}
+  ${EndIf}
+  ${If} $DPI <= 0
+    StrCpy $DPI 96
+  ${EndIf}
+  ${If} $FontsReady != 1
+    IntOp $0 22 * $DPI
+    IntOp $0 $0 / 96
+    IntOp $0 0 - $0
+    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
+    Pop $FontHeading
+    IntOp $0 15 * $DPI
+    IntOp $0 $0 / 96
+    IntOp $0 0 - $0
+    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
+    Pop $FontBody
+    IntOp $0 12 * $DPI
+    IntOp $0 $0 / 96
+    IntOp $0 0 - $0
+    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
+    Pop $FontCaption
+    IntOp $0 15 * $DPI
+    IntOp $0 $0 / 96
+    IntOp $0 0 - $0
+    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
+    Pop $FontButton
+    IntOp $0 16 * $DPI
+    IntOp $0 $0 / 96
+    IntOp $0 0 - $0
+    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
+    Pop $FontHeader
+    StrCpy $FontsReady 1
+  ${EndIf}
+!macroend
+
+!macro StyleWizardCore _with_back
+  !insertmacro CreateWizardFontsCore
+  SetCtlColors $HWNDPARENT "" ${COLOR_BG}
+  ${If} $BrandingFixed = 0
+    StrCpy $BrandingFixed 1
+    GetDlgItem $0 $HWNDPARENT 1039
+    ${If} $0 <> 0
+      System::Call 'user32::DestroyWindow(p $0)'
+    ${EndIf}
+    GetDlgItem $0 $HWNDPARENT 1256
+    ${If} $0 <> 0
+      System::Call 'user32::DestroyWindow(p $0)'
+    ${EndIf}
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1034
+  SetCtlColors $0 "" ${COLOR_BG}
+  GetDlgItem $0 $HWNDPARENT 1035
+  SetCtlColors $0 "" ${COLOR_BG}
+  GetDlgItem $0 $HWNDPARENT 1036
+  SetCtlColors $0 "" ${COLOR_BG}
+  GetDlgItem $0 $HWNDPARENT 1037
+  SetCtlColors $0 ${COLOR_ACCENT} ${COLOR_BG}
+  SendMessage $0 ${WM_SETFONT} $FontHeader 1
+  ${If} $HeaderFixed = 0
+    StrCpy $HeaderFixed 1
+    !insertmacro NavReadRect $0
+    IntOp $9 $7 / 4
+    IntOp $3 $3 - $9
+    IntOp $7 $7 * 3
+    IntOp $7 $7 / 2
+    System::Call 'user32::SetWindowPos(p $0, p 0, i $2, i $3, i $6, i $7, i 0x14)'
+    System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
+    IntOp $1 $1 | 0x200
+    System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
+  ${EndIf}
+  GetDlgItem $0 $HWNDPARENT 1038
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  GetDlgItem $0 $HWNDPARENT 1028
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+  GetDlgItem $0 $HWNDPARENT 1
+  SetCtlColors $0 0xFFFFFF ${COLOR_ACCENT}
+  SendMessage $0 ${WM_SETFONT} $FontButton 1
+  GetDlgItem $0 $HWNDPARENT 2
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_SURFACE}
+  SendMessage $0 ${WM_SETFONT} $FontButton 1
+  !if "${_with_back}" == "1"
+    GetDlgItem $0 $HWNDPARENT 3
+    SetCtlColors $0 ${COLOR_TEXT} ${COLOR_SURFACE}
+    SendMessage $0 ${WM_SETFONT} $FontButton 1
+  !endif
+!macroend
+
+!macro StyleInstFilesCore
+  FindWindow $1 "#32770" "" $HWNDPARENT
+  SetCtlColors $1 "" ${COLOR_BG}
+  GetDlgItem $0 $1 1006
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  GetDlgItem $0 $1 1016
+  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
+  SendMessage $0 ${WM_SETFONT} $FontBody 1
+  System::Call 'user32::SendMessageW(p $0, i 0x1001, i 0, i ${COLOR_BG})'
+  System::Call 'user32::SendMessageW(p $0, i 0x1002, i 0, i ${COLOR_BG})'
+  System::Call 'user32::SendMessageW(p $0, i 0x1024, i 0, i ${COLOR_MUTED})'
+  GetDlgItem $0 $1 1027
+  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_SURFACE}
+  SendMessage $0 ${WM_SETFONT} $FontButton 1
+  GetDlgItem $0 $1 1029
+  System::Call 'uxtheme::SetWindowTheme(p $0, w "", w "")'
+  SendMessage $0 ${PBM_SETBARCOLOR} 0 ${COLOR_ACCENT}
+  SendMessage $0 ${PBM_SETBKCOLOR} 0 ${COLOR_BG_INPUT}
+  !insertmacro NavButtons "Далее" "Отмена" "Назад" 0
+  !insertmacro DisableNavOverlaysExceptCancel
 !macroend
 
 Name "${PRODUCTNAME}"
@@ -510,187 +612,12 @@ Function .onInit
   !endif
 FunctionEnd
 
-Function CreateWizardFonts
-  IntOp $DPI $DPI + 0
-  ${If} $DPI <= 0
-    StrCpy $0 0
-    System::Call 'user32::GetDpiForWindow(p $HWNDPARENT) i.r0'
-    ${If} $0 > 0
-      StrCpy $DPI $0
-    ${EndIf}
-  ${EndIf}
-  ${If} $DPI <= 0
-    StrCpy $DPI 96
-  ${EndIf}
-  ${If} $FontsReady != 1
-    IntOp $0 22 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontHeading
-    IntOp $0 15 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontBody
-    IntOp $0 12 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontCaption
-    IntOp $0 15 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontButton
-    IntOp $0 16 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontHeader
-    StrCpy $FontsReady 1
-  ${EndIf}
-FunctionEnd
-
 Function StyleWizard
-  Call CreateWizardFonts
-  SetCtlColors $HWNDPARENT "" ${COLOR_BG}
-  ${If} $BrandingFixed = 0
-    StrCpy $BrandingFixed 1
-    GetDlgItem $0 $HWNDPARENT 1039
-    ${If} $0 <> 0
-      System::Call 'user32::DestroyWindow(p $0)'
-    ${EndIf}
-    GetDlgItem $0 $HWNDPARENT 1256
-    ${If} $0 <> 0
-      System::Call 'user32::DestroyWindow(p $0)'
-    ${EndIf}
-  ${EndIf}
-  GetDlgItem $0 $HWNDPARENT 1034
-  SetCtlColors $0 "" ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1035
-  SetCtlColors $0 "" ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1036
-  SetCtlColors $0 "" ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1037
-  SetCtlColors $0 ${COLOR_ACCENT} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontHeader 1
-  ${If} $HeaderFixed = 0
-    StrCpy $HeaderFixed 1
-    !insertmacro NavReadRect $0
-    IntOp $9 $7 / 4
-    IntOp $3 $3 - $9
-    IntOp $7 $7 * 3
-    IntOp $7 $7 / 2
-    System::Call 'user32::SetWindowPos(p $0, p 0, i $2, i $3, i $6, i $7, i 0x14)'
-    System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
-    IntOp $1 $1 | 0x200
-    System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
-  ${EndIf}
-  GetDlgItem $0 $HWNDPARENT 1038
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  GetDlgItem $0 $HWNDPARENT 1028
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1
-  SetCtlColors $0 0xFFFFFF ${COLOR_ACCENT}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
-  GetDlgItem $0 $HWNDPARENT 2
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_SURFACE}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
-  GetDlgItem $0 $HWNDPARENT 3
-  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_SURFACE}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
-FunctionEnd
-
-Function un.CreateWizardFonts
-  IntOp $DPI $DPI + 0
-  ${If} $DPI <= 0
-    StrCpy $0 0
-    System::Call 'user32::GetDpiForWindow(p $HWNDPARENT) i.r0'
-    ${If} $0 > 0
-      StrCpy $DPI $0
-    ${EndIf}
-  ${EndIf}
-  ${If} $DPI <= 0
-    StrCpy $DPI 96
-  ${EndIf}
-  ${If} $FontsReady != 1
-    IntOp $0 22 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontHeading
-    IntOp $0 15 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontBody
-    IntOp $0 12 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 400, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontCaption
-    IntOp $0 15 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontButton
-    IntOp $0 16 * $DPI
-    IntOp $0 $0 / 96
-    IntOp $0 0 - $0
-    System::Call 'gdi32::CreateFontW(i r0, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 0, i 0, i 0, i 5, i 0, w "${FONTFACE}") i.s'
-    Pop $FontHeader
-    StrCpy $FontsReady 1
-  ${EndIf}
+  !insertmacro StyleWizardCore 1
 FunctionEnd
 
 Function un.StyleWizard
-  Call un.CreateWizardFonts
-  SetCtlColors $HWNDPARENT "" ${COLOR_BG}
-  ${If} $BrandingFixed = 0
-    StrCpy $BrandingFixed 1
-    GetDlgItem $0 $HWNDPARENT 1039
-    ${If} $0 <> 0
-      System::Call 'user32::DestroyWindow(p $0)'
-    ${EndIf}
-    GetDlgItem $0 $HWNDPARENT 1256
-    ${If} $0 <> 0
-      System::Call 'user32::DestroyWindow(p $0)'
-    ${EndIf}
-  ${EndIf}
-  GetDlgItem $0 $HWNDPARENT 1034
-  SetCtlColors $0 "" ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1035
-  SetCtlColors $0 "" ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1036
-  SetCtlColors $0 "" ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1037
-  SetCtlColors $0 ${COLOR_ACCENT} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontHeader 1
-  ${If} $HeaderFixed = 0
-    StrCpy $HeaderFixed 1
-    !insertmacro NavReadRect $0
-    IntOp $9 $7 / 4
-    IntOp $3 $3 - $9
-    IntOp $7 $7 * 3
-    IntOp $7 $7 / 2
-    System::Call 'user32::SetWindowPos(p $0, p 0, i $2, i $3, i $6, i $7, i 0x14)'
-    System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
-    IntOp $1 $1 | 0x200
-    System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
-  ${EndIf}
-  GetDlgItem $0 $HWNDPARENT 1038
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  GetDlgItem $0 $HWNDPARENT 1028
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  GetDlgItem $0 $HWNDPARENT 1
-  SetCtlColors $0 0xFFFFFF ${COLOR_ACCENT}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
-  GetDlgItem $0 $HWNDPARENT 2
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_SURFACE}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
+  !insertmacro StyleWizardCore 0
 FunctionEnd
 
 Function PageWelcome
@@ -1029,26 +956,7 @@ FunctionEnd
 Function StyleInstFiles
   Call StyleWizard
   !insertmacro MUI_HEADER_TEXT "Установка" "Шаг 2 из 3"
-  FindWindow $1 "#32770" "" $HWNDPARENT
-  SetCtlColors $1 "" ${COLOR_BG}
-  GetDlgItem $0 $1 1006
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  GetDlgItem $0 $1 1016
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  System::Call 'user32::SendMessageW(p $0, i 0x1001, i 0, i ${COLOR_BG})'
-  System::Call 'user32::SendMessageW(p $0, i 0x1002, i 0, i ${COLOR_BG})'
-  System::Call 'user32::SendMessageW(p $0, i 0x1024, i 0, i ${COLOR_MUTED})'
-  GetDlgItem $0 $1 1027
-  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_SURFACE}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
-  GetDlgItem $0 $1 1029
-  System::Call 'uxtheme::SetWindowTheme(p $0, w "", w "")'
-  SendMessage $0 ${PBM_SETBARCOLOR} 0 ${COLOR_ACCENT}
-  SendMessage $0 ${PBM_SETBKCOLOR} 0 ${COLOR_BG_INPUT}
-  !insertmacro NavButtons "Далее" "Отмена" "Назад" 0
-  !insertmacro DisableNavOverlaysExceptCancel
+  !insertmacro StyleInstFilesCore
   !insertmacro ShowStepDots 2
   SetAutoClose false
 FunctionEnd
@@ -1131,26 +1039,7 @@ FunctionEnd
 
 Function un.StyleInstFiles
   Call un.StyleWizard
-  FindWindow $1 "#32770" "" $HWNDPARENT
-  SetCtlColors $1 "" ${COLOR_BG}
-  GetDlgItem $0 $1 1006
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  GetDlgItem $0 $1 1016
-  SetCtlColors $0 ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $0 ${WM_SETFONT} $FontBody 1
-  System::Call 'user32::SendMessageW(p $0, i 0x1001, i 0, i ${COLOR_BG})'
-  System::Call 'user32::SendMessageW(p $0, i 0x1002, i 0, i ${COLOR_BG})'
-  System::Call 'user32::SendMessageW(p $0, i 0x1024, i 0, i ${COLOR_MUTED})'
-  GetDlgItem $0 $1 1027
-  SetCtlColors $0 ${COLOR_TEXT} ${COLOR_SURFACE}
-  SendMessage $0 ${WM_SETFONT} $FontButton 1
-  GetDlgItem $0 $1 1029
-  System::Call 'uxtheme::SetWindowTheme(p $0, w "", w "")'
-  SendMessage $0 ${PBM_SETBARCOLOR} 0 ${COLOR_ACCENT}
-  SendMessage $0 ${PBM_SETBKCOLOR} 0 ${COLOR_BG_INPUT}
-  !insertmacro NavButtons "Далее" "Отмена" "Назад" 0
-  !insertmacro DisableNavOverlaysExceptCancel
+  !insertmacro StyleInstFilesCore
 FunctionEnd
 
 Function un.onInit

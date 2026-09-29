@@ -34,6 +34,20 @@ describe('useAccountsStore', () => {
     expect(store.selectedUsername).toBe('')
   })
 
+  it('closes the auth form and wipes the login password', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.showAuthForm = true
+    store.loginFormData = { username: 'user', password: 'secret', rememberMe: true }
+
+    store.closeAuthForm()
+
+    expect(store.showAuthForm).toBe(false)
+    expect(store.loginFormData.password).toBe('')
+    expect(store.loginFormData.username).toBe('user')
+    expect(store.loginFormData.rememberMe).toBe(true)
+  })
+
   it('keeps state across accesses within the same pinia', () => {
     setActivePinia(createPinia())
     useAccountsStore().logins = ['alice']
