@@ -80,7 +80,12 @@ defineExpose({ close })
 </script>
 
 <template>
-  <div ref="rootRef" class="select-base" :class="{ shown, disabled, 'select-base--up': openUp }">
+  <div
+    ref="rootRef"
+    class="select-base"
+    :class="{ shown, disabled, 'select-base--up': openUp }"
+    :style="width !== undefined ? `width: ${width}` : undefined"
+  >
     <div
       class="select-base__value"
       role="button"
@@ -90,7 +95,6 @@ defineExpose({ close })
       :aria-controls="listboxId"
       :aria-activedescendant="shown ? `${listboxId}-opt-${activeIndex}` : undefined"
       :aria-disabled="disabled"
-      :style="width !== undefined ? `width: ${width}` : undefined"
       @click="toggle"
       @keydown="handleTriggerKeydown"
     >

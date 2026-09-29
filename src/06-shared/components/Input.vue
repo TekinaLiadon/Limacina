@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useAttrs, watch } from 'vue'
 import { randomId } from '@/06-shared/utils/utils'
 import type { InputOptions } from '@/06-shared/types'
 import OpenEye from "@/06-shared/components/svg/OpenEye.vue";
@@ -15,6 +15,18 @@ const emit = defineEmits<{
 }>()
 
 defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+const rootClass = computed((): string | string[] | undefined => {
+  const value = attrs.class
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value as string[]
+  return undefined
+})
+const inputAttrs = computed((): Record<string, unknown> => {
+  const { class: _rootClass, ...rest } = attrs
+  return rest
+})
 
 const id = ref('')
 const showPassword = ref(false)
@@ -99,7 +111,7 @@ onUnmounted((): void => {
 </script>
 
 <template>
-  <div class="input__core">
+  <div class="input__core" :class="rootClass">
     <div class="input__field">
       <label v-if="options?.label" class="label" :for="id">
         {{options?.label}}
@@ -110,7 +122,7 @@ onUnmounted((): void => {
                  'input__text--password': options?.type === 'password',
                  'input__text--disabled': options?.disabled,
                }"
-               v-bind="$attrs"
+               v-bind="inputAttrs"
                :placeholder="options?.placeholder"
                :type="inputType"
                v-model="data"

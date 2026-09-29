@@ -228,23 +228,25 @@ onMounted(() => {
           :options="{ placeholder: 'Поиск модов Modrinth' }"
           @keydown.enter="loadPage(1)"
         />
-        <Dropdown
-          v-model="sort"
-          class="modrinth-tab__search-sort"
-          :options="sortOptions"
-          width="var(--filter-control-width)"
-        />
-        <MultiSelect
-          v-model="categories"
-          class="modrinth-tab__search-categories"
-          :options="categoryOptions"
-          placeholder="Категории"
-          width="var(--filter-control-width)"
-          clearable
-        />
-        <Button class="btn-primary" :is-loading="isSearching" @click="loadPage(1)">
-          Найти
-        </Button>
+        <div class="modrinth-tab__search-controls">
+          <Dropdown
+            v-model="sort"
+            class="modrinth-tab__search-sort"
+            :options="sortOptions"
+            width="var(--filter-control-width)"
+          />
+          <MultiSelect
+            v-model="categories"
+            class="modrinth-tab__search-categories"
+            :options="categoryOptions"
+            placeholder="Категории"
+            width="var(--filter-control-width)"
+            clearable
+          />
+          <Button class="btn-primary" :is-loading="isSearching" @click="loadPage(1)">
+            Найти
+          </Button>
+        </div>
       </div>
 
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
@@ -454,6 +456,15 @@ onMounted(() => {
 
     &-input {
       flex: 1 1 var(--filter-control-width);
+      min-width: var(--filter-control-width);
+    }
+
+    &-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      min-width: 0;
     }
   }
 
