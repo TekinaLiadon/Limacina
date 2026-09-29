@@ -70,6 +70,7 @@
       "windows": {
         "installMode": "quiet"
       },
+      "dangerousInsecureTransportProtocol": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzREREQjUxRUUwNDc0ODEKUldTQmRBVHVVZHZkNHdMcFRUZlpWKzh2VzU5WS9LSFh4YTlERUU3WVRJanQvWHBkRmpGOGwvSFgK"
     }
   }
