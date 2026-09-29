@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::log_err;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::errors::LauncherError;
@@ -29,7 +30,14 @@ async fn read_journal(project: &str) -> Result<Option<InstallJournal>> {
     match tokio::fs::read_to_string(&path).await {
         Ok(content) => match serde_json::from_str(&content) {
             Ok(journal) => Ok(Some(journal)),
-            Err(_) => Ok(None),
+            Err(e) => {
+                log_err!(
+                    "Журнал установки {:?} повреждён, установка начнётся заново: {}",
+                    path,
+                    e
+                );
+                Ok(None)
+            }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => {
@@ -41,10 +49,15 @@ async fn read_journal(project: &str) -> Result<Option<InstallJournal>> {
 async fn write_journal(project: &str, journal: &InstallJournal) -> Result<()> {
     let path = journal_path(project)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
     }
-    let content = serde_json::to_string(journal)?;
-    write_atomic(&path, content.as_bytes()).await?;
+    let content =
+        serde_json::to_string(journal).context("Не удалось сериализовать журнал установки")?;
+    write_atomic(&path, content.as_bytes())
+        .await
+        .with_context(|| format!("Не удалось записать журнал установки {:?}", path))?;
     Ok(())
 }
 
@@ -106,7 +119,13 @@ pub async fn load_install_journal(
     if project.trim().is_empty() {
         return Err(LauncherError::ProjectNotSelected.into());
     }
-    let journal = read_journal(&project).await.unwrap_or_default();
+    let journal = match read_journal(&project).await {
+        Ok(journal) => journal,
+        Err(e) => {
+            log_err!("Не удалось прочитать журнал установки: {}", e);
+            None
+        }
+    };
     Ok(completed_from_journal(
         journal,
         &project,

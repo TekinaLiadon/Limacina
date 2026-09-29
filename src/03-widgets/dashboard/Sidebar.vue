@@ -52,11 +52,8 @@ const items = computed<TabItem[]>((): TabItem[] => {
         v-for="item in items"
         :key="item.key"
         class="sidebar__item"
-        :class="{
-          'sidebar__item--active': activeTab === item.key,
-          'sidebar__item--disabled': item.disabled,
-        }"
-        @click="!item.disabled && emit('navigate', item.key)"
+        :class="{ 'sidebar__item--active': activeTab === item.key }"
+        @click="emit('navigate', item.key)"
       >
         <IconButton tag="span" :icon="item.icon" />
         <span class="sidebar__label">{{ item.label }}</span>
@@ -125,6 +122,26 @@ const items = computed<TabItem[]>((): TabItem[] => {
 
 <style lang="scss">
 @use '@/01-app/assets/breakpoints';
+@use '@/01-app/assets/mixins';
+
+%sidebar-link {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--login-text-secondary);
+  font-family: inherit;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-body-sm);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+%sidebar-link-state {
+  color: var(--login-text-primary);
+  background: var(--surface-light);
+}
 
 .sidebar {
   display: flex;
@@ -150,38 +167,22 @@ const items = computed<TabItem[]>((): TabItem[] => {
   }
 
   &__item {
+    @extend %sidebar-link;
+
     display: flex;
     align-items: center;
     gap: var(--space-8);
     padding: var(--space-4) var(--space-12) var(--space-4) var(--space-4);
-    border-radius: var(--radius-button);
-    background: transparent;
-    border: none;
-    cursor: pointer;
     transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
-    color: var(--login-text-secondary);
-    font-family: inherit;
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    font-weight: var(--weight-medium);
-    text-align: left;
-    width: 100%;
 
-    &:hover:not(&--disabled) {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
+    &:hover {
+      @extend %sidebar-link-state;
     }
 
     &--active {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
-      box-shadow: var(--elevation-inset);
-    }
+      @extend %sidebar-link-state;
 
-    &--disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      pointer-events: none;
+      box-shadow: var(--elevation-inset);
     }
 
     .icon-btn {
@@ -193,16 +194,16 @@ const items = computed<TabItem[]>((): TabItem[] => {
       transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
 
       &__icon {
-        font-size: 18px;
-        width: 18px;
-        height: 18px;
+        font-size: var(--icon-size);
+        width: var(--icon-size);
+        height: var(--icon-size);
       }
     }
 
-    &:hover:not(&--disabled) .icon-btn {
+    &:hover .icon-btn {
       background-color: var(--surface-hover);
       box-shadow: var(--elevation-inset);
-      transform: translateX(2px);
+      transform: translateX(var(--space-2));
 
       .icon-btn__icon {
         color: var(--login-text-primary);
@@ -230,15 +231,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
   }
 
   &__subitems {
-    display: grid;
-    grid-template-rows: 1fr;
-    transition: grid-template-rows var(--duration-base) var(--ease-in-out), opacity var(--duration-base) var(--ease-out), visibility var(--duration-base);
-
-    &--closed {
-      grid-template-rows: 0fr;
-      opacity: 0;
-      visibility: hidden;
-    }
+    @include mixins.collapsible;
   }
 
   &__subitems-inner {
@@ -260,29 +253,19 @@ const items = computed<TabItem[]>((): TabItem[] => {
   }
 
   &__subitem {
+    @extend %sidebar-link;
+
     display: block;
-    width: 100%;
     padding: var(--space-4) var(--space-12);
-    border: none;
-    border-radius: var(--radius-button);
-    background: transparent;
-    font-family: inherit;
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    font-weight: var(--weight-medium);
-    text-align: left;
-    color: var(--login-text-secondary);
-    cursor: pointer;
     transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
     &:hover:not(&--locked) {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
+      @extend %sidebar-link-state;
     }
 
     &--active {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
+      @extend %sidebar-link-state;
+
       box-shadow: var(--elevation-inset);
     }
 

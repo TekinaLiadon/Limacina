@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Button, Checkbox, Input } from '@/06-shared'
-import type { InputOptions } from '@/06-shared/types'
+import { Button, Checkbox, Input, type InputOptions } from '@/06-shared'
 import { useCpmSettings, useCpmAnimations } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
@@ -24,6 +23,8 @@ const {
   modelsLimit,
   isLimitLoading,
   limitLoadError,
+  isSavingLimit,
+  limitSaveError,
   isDragOver,
   selectCpmFile,
   resetCpm,
@@ -60,7 +61,7 @@ const limitOptions = computed<InputOptions>((): InputOptions => ({
   label: 'Лимит хранимых моделей',
   placeholder: limitLoadError.value
     ? 'Недоступно'
-    : isLimitLoading.value
+    : isLimitLoading.value || isSavingLimit.value
       ? 'Загрузка…'
       : 'Не ограничен',
   disabled: isLimitLoading.value,
@@ -181,7 +182,10 @@ const applyLimitInput = async (): Promise<void> => {
         @keydown.enter="applyLimitInput"
         @blur="applyLimitInput"
       />
-      <div v-if="limitLoadError" class="cpm-settings__limit-error">
+      <div v-if="limitSaveError" class="cpm-settings__limit-error" role="alert">
+        {{ limitSaveError }}
+      </div>
+      <div v-if="limitLoadError" class="cpm-settings__limit-error" role="alert">
         Не удалось загрузить лимит моделей: {{ limitLoadError }}
       </div>
       <p class="cpm-settings__hint cpm-settings__limit-hint">
@@ -236,32 +240,19 @@ const applyLimitInput = async (): Promise<void> => {
   }
 
   &__layer-list {
+    @include mixins.subtle-card;
+
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-8);
-    max-height: 200px;
+    max-height: var(--options-max-height);
     overflow-y: auto;
     width: 100%;
-    padding: var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
   }
 
   &__actions {
-    display: flex;
-    gap: var(--space-8);
-
-    .cpm-settings__btn {
-      flex: 1;
-      min-height: var(--control-height);
-
-      &--reset,
-      &--upload {
-        flex: 0 0 auto;
-      }
-    }
+    @include mixins.viewer-actions-row('.cpm-settings__btn');
   }
 
   &__hint {

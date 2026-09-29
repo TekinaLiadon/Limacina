@@ -16,8 +16,6 @@ const emit = defineEmits<{
   <label
     class="checkbox"
     :class="{ 'checkbox--disabled': disabled }"
-    role="checkbox"
-    :aria-checked="modelValue"
   >
     <input
       type="checkbox"
@@ -37,7 +35,7 @@ const emit = defineEmits<{
 .checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-8);
   cursor: pointer;
   user-select: none;
   position: relative;
@@ -59,8 +57,8 @@ const emit = defineEmits<{
   }
 
   &__box {
-    width: 18px;
-    height: 18px;
+    width: var(--checkbox-size);
+    height: var(--checkbox-size);
     border: none;
     box-shadow: var(--elevation-inset);
     background: var(--surface-input);

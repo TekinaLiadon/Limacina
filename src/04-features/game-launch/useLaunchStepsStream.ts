@@ -1,6 +1,7 @@
 import { useAccountsStore, useCoreStore, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
-import { applyStepEvent, computeStepProgress, createStepItem, reportError } from '@/06-shared'
+import { applyStepEvent, computeStepProgress, createStepItem, reportError, type StepPlanItem } from '@/06-shared'
+import { syncGameSession } from '../game-session/useGameSession'
 
 const MIN_DISPLAY_MS = 500
 const FLUSH_TIMEOUT_MS = 5000
@@ -11,13 +12,14 @@ let eventQueue: StepEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let lastFinishedAt = 0
 let failedSeen = false
+let activeGeneration: number | null = null
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => { setTimeout(resolve, ms) })
 
 export function useLaunchStepsStream(): {
   startLaunchStepsStream: () => Promise<void>
-  prefillLaunchSteps: (plan: { key: string; label: string }[]) => void
+  prefillLaunchSteps: (plan: StepPlanItem[]) => void
   resetLaunchSteps: () => void
   flushLaunchSteps: () => Promise<void>
 } {
@@ -32,11 +34,12 @@ export function useLaunchStepsStream(): {
   }
 
   const apply = (event: StepEvent): void => {
+    if (activeGeneration === null || store.launchGeneration !== activeGeneration) return
     applyStepEvent(store.launchSteps, event)
     if (event.type === 'failed') {
       store.isLaunching = false
       store.launchInterrupted = false
-      coreStore.loginError = event.message
+      store.loginError = event.message
     }
   }
 
@@ -53,6 +56,20 @@ export function useLaunchStepsStream(): {
       return elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
     }
     return 0
+  }
+
+  const drainNextEvent = (): boolean => {
+    const [event] = eventQueue
+    if (event === undefined) return false
+    if (event.type === 'finished') lastFinishedAt = Date.now()
+    eventQueue.shift()
+    apply(event)
+    if (event.type === 'failed') {
+      failedSeen = true
+      eventQueue = []
+      return false
+    }
+    return true
   }
 
   const processQueue = (): void => {
@@ -75,14 +92,7 @@ export function useLaunchStepsStream(): {
         return
       }
 
-      if (event.type === 'finished') lastFinishedAt = Date.now()
-      eventQueue.shift()
-      apply(event)
-      if (event.type === 'failed') {
-        failedSeen = true
-        eventQueue = []
-        break
-      }
+      if (!drainNextEvent()) break
     }
 
     recomputeProgress()
@@ -96,10 +106,12 @@ export function useLaunchStepsStream(): {
     }
     lastFinishedAt = 0
     failedSeen = false
+    activeGeneration = null
   }
 
-  const prefillLaunchSteps = (plan: { key: string; label: string }[]): void => {
+  const prefillLaunchSteps = (plan: StepPlanItem[]): void => {
     clearQueueState()
+    activeGeneration = store.launchGeneration
     store.launchSteps = plan.map((item) => ({
       ...createStepItem(item.key, item.label, 0),
       status: 'pending',
@@ -116,6 +128,11 @@ export function useLaunchStepsStream(): {
   }
 
   const hydrateLaunchState = async (): Promise<void> => {
+    try {
+      await syncGameSession()
+    } catch (e: unknown) {
+      reportError('Не удалось дождаться синхронизации игровой сессии', e)
+    }
     let inProgress = false
     try {
       inProgress = await getLaunchState()
@@ -143,16 +160,7 @@ export function useLaunchStepsStream(): {
       flushTimer = null
     }
     while (eventQueue.length > 0) {
-      const [event] = eventQueue
-      if (event === undefined) break
-      if (event.type === 'finished') lastFinishedAt = Date.now()
-      eventQueue.shift()
-      apply(event)
-      if (event.type === 'failed') {
-        failedSeen = true
-        eventQueue = []
-        break
-      }
+      if (!drainNextEvent()) break
     }
     recomputeProgress()
   }

@@ -1,23 +1,26 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type UpdateVersionInfo } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, getErrorMessage, getLauncherVersions } from '@/06-shared/api'
 
 export function useLauncherUpdate(): {
-  versions: Ref<UpdateVersionInfo[]>
+  versions: Ref<UpdateInfo[]>
   selectedVersion: Ref<string>
   currentVersion: ComputedRef<string>
   isLoading: Ref<boolean>
+  loadError: Ref<string>
   isApplying: Ref<boolean>
   isApplyDisabled: ComputedRef<boolean>
   selectVersion: (version: string) => void
   handleApplyVersion: () => Promise<void>
+  retryLoad: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
 
-  const versions = ref<UpdateVersionInfo[]>([])
+  const versions = ref<UpdateInfo[]>([])
   const selectedVersion = ref<string>('')
   const isLoading = ref<boolean>(false)
+  const loadError = ref<string>('')
   const isApplying = ref<boolean>(false)
 
   const currentVersion = computed((): string => coreStore.version)
@@ -33,11 +36,12 @@ export function useLauncherUpdate(): {
 
   const loadVersions = async (): Promise<void> => {
     isLoading.value = true
+    loadError.value = ''
     try {
       versions.value = await getLauncherVersions()
       selectedVersion.value = currentVersion.value
     } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
+      loadError.value = getErrorMessage(e)
     } finally {
       isLoading.value = false
     }
@@ -76,9 +80,11 @@ export function useLauncherUpdate(): {
     selectedVersion,
     currentVersion,
     isLoading,
+    loadError,
     isApplying,
     isApplyDisabled,
     selectVersion,
     handleApplyVersion,
+    retryLoad: loadVersions,
   }
 }

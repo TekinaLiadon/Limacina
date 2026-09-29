@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button, Dropdown } from '@/06-shared'
-import type { DropdownOption } from '@/06-shared/types'
+import { Button, Dropdown, type DropdownOption } from '@/06-shared'
 import { useLauncherUpdate } from '@/04-features'
+import LoadErrorRow from '../../common/LoadErrorRow.vue'
 
 const {
   versions,
   selectedVersion,
   currentVersion,
   isLoading,
+  loadError,
   isApplying,
   isApplyDisabled,
   selectVersion,
   handleApplyVersion,
+  retryLoad,
 } = useLauncherUpdate()
 
 const versionOptions = computed((): DropdownOption[] =>
@@ -26,6 +28,8 @@ const versionOptions = computed((): DropdownOption[] =>
 <template>
   <div class="launcher-update">
     <span class="launcher-update__label eyebrow">Версия лаунчера</span>
+
+    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
 
     <div class="launcher-update__row">
       <Dropdown

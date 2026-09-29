@@ -1,7 +1,7 @@
 import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
 import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
-import { useViewerCamera } from '@/04-features/viewer/useViewerCamera'
+import { useViewerCamera, fitFovRadians } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type SharedClock } from './cpmAnimationPlayer'
 
@@ -407,16 +407,14 @@ export function useCpmViewer(
     isAnimationPlaying: Ref<boolean>,
     animationSpeed: Ref<number>,
     isAnimationLooped: Ref<boolean>,
-    paused?: Ref<boolean>,
     options: CpmViewerOptions = {},
 ) {
-  const { scene, camera, getOrbitControls, setPaused: setScenePaused } = useThreeScene(container, { enableZoom: false, autoRotate: false })
+  const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
   const modelGroup = shallowRef<THREE.Group | null>(null)
   const textureLoader = createManagedTextureLoader(scene)
   const animationClocks = new Map<string, SharedClock>()
   let player: CpmAnimationPlayer | null = null
   let tickId = 0
-  let renderPaused = false
 
   const { setFitDistance, modelBoundingSphereRadius } = useViewerCamera(
       { camera, getOrbitControls },
@@ -434,6 +432,7 @@ export function useCpmViewer(
 
       player = new CpmAnimationPlayer(indexModelNodes(model), {
         activeLayerIds,
+        isPlaying: isAnimationPlaying,
         onFinished: () => {
           options.onAnimationFinished?.()
         },
@@ -449,9 +448,7 @@ export function useCpmViewer(
       const radius = modelBoundingSphereRadius()
       const perspectiveCamera = camera.value
       if (radius !== null && perspectiveCamera) {
-        const fovV = perspectiveCamera.fov * (Math.PI / 180)
-        const fovH = 2 * Math.atan(Math.tan(fovV / 2) * perspectiveCamera.aspect)
-        setFitDistance((radius / Math.sin(Math.min(fovV, fovH) / 2)) * 1.08)
+        setFitDistance((radius / Math.sin(fitFovRadians(perspectiveCamera) / 2)) * 1.08)
       }
     })
   }
@@ -479,15 +476,6 @@ export function useCpmViewer(
   function tickAnimation(): void {
     if (player && isAnimationPlaying.value) player.update()
     tickId = requestAnimationFrame(tickAnimation)
-  }
-
-  function setPaused(value: boolean): void {
-    if (value === renderPaused) return
-    renderPaused = value
-    setScenePaused(value)
-    cancelAnimationFrame(tickId)
-    tickId = 0
-    if (!value) tickId = requestAnimationFrame(tickAnimation)
   }
 
   watch(cpmData, (data) => {
@@ -520,11 +508,7 @@ export function useCpmViewer(
     updateVisibility()
   })
 
-  if (!renderPaused) tickId = requestAnimationFrame(tickAnimation)
-
-  if (paused) {
-    watch(paused, (value: boolean) => setPaused(value), { immediate: true })
-  }
+  tickId = requestAnimationFrame(tickAnimation)
 
   onBeforeUnmount(() => {
     cancelAnimationFrame(tickId)

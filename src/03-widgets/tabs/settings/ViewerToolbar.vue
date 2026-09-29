@@ -197,7 +197,7 @@ const toggleAutoRotate = (): void => {
 
     &--percent {
       width: auto;
-      min-width: 56px;
+      min-width: var(--viewer-percent-min-width);
       padding: 0 var(--space-8);
       font-family: var(--font-mono);
       font-weight: var(--weight-medium);

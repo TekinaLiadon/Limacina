@@ -3,8 +3,8 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use crate::{
@@ -17,8 +17,8 @@ use crate::{
     state::dto::ProjectConfig,
     utils::{
         compare_versions,
-        download_file::{download_json, download_xml},
-        env_info::launcher_path,
+        download_file::{download_json, download_xml, write_atomic},
+        env_info::{ensure_safe_relative_path, launcher_path},
     },
 };
 
@@ -37,6 +37,8 @@ pub struct Manifest {
     pub logging: Logging,
     #[serde(default)]
     pub arguments: Arguments,
+    #[serde(rename = "minecraftArguments", default)]
+    pub minecraft_arguments: Option<String>,
     pub libraries: Vec<Library>,
 }
 
@@ -123,6 +125,7 @@ impl LoaderLibrary for Library {
 
     fn into_artifact(self) -> LoaderArtifact {
         LoaderArtifact {
+            path: self.downloads.artifact.path,
             url: self.downloads.artifact.url,
             sha1: self.downloads.artifact.sha1,
             size: self.downloads.artifact.size,
@@ -165,15 +168,20 @@ pub async fn get_loader_index(
     .await
 }
 
+pub fn loader_manifest_path(prefix: &str, version: &str) -> Result<PathBuf> {
+    ensure_safe_relative_path(version, "версии лоадера")?;
+    Ok(launcher_path(None)?
+        .join("manifest")
+        .join(format!("{prefix}_{version}.json")))
+}
+
 pub async fn modify_loader_manifest(
     prefix: &str,
     version: &str,
     maven_base: &str,
     manifest: &mut [VersionMod],
 ) -> Result<()> {
-    let manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("{}_{}.json", prefix, version));
+    let manifest_path = loader_manifest_path(prefix, version)?;
     let version_manifest = download_json::<Manifest>(None, &manifest_path).await?;
     let main_class = version_manifest.main_class.clone();
     let target_id = format!("{}-{}", version_manifest.inherits_from.clone(), version);
@@ -193,9 +201,7 @@ pub async fn apply_installed_manifest(
     manifest: &mut [VersionMod],
 ) -> Result<()> {
     if let Some(version) = state.loader_version.as_deref() {
-        let manifest_path = launcher_path(None)?
-            .join("manifest")
-            .join(format!("{}_{}.json", prefix, version));
+        let manifest_path = loader_manifest_path(prefix, version)?;
         if manifest_path.exists() {
             modify_loader_manifest(prefix, version, maven_base, manifest).await?;
         }
@@ -287,7 +293,8 @@ pub async fn read_or_fetch_index<T: DeserializeOwned>(
             LauncherError::DiskIo(format!("Не удалось создать директорию {parent:?}: {e:#}"))
         })?;
     }
-    fs::write(json_path, serialize(&index)?)
+    let serialized = serialize(&index)?;
+    write_atomic(json_path, serialized.as_bytes())
         .await
         .map_err(|e| {
             LauncherError::DiskIo(format!("Не удалось записать кэш {json_path:?}: {e:#}"))
@@ -311,6 +318,7 @@ pub fn loader_libraries<L: LoaderLibrary>(
         };
         result.push(LibraryMod {
             name,
+            path: artifact.path,
             url,
             hash: artifact.sha1,
             size: artifact.size,
@@ -325,12 +333,141 @@ pub trait LoaderLibrary {
 }
 
 pub struct LoaderArtifact {
+    pub path: String,
     pub url: String,
     pub sha1: String,
     pub size: i64,
 }
 
-pub type LoaderIndex = HashMap<String, Vec<String>>;
+pub type LoaderIndex = BTreeMap<String, Vec<String>>;
+
+pub(crate) struct LoaderDef {
+    pub name: &'static str,
+    pub metadata_url: &'static str,
+    pub cache_file: &'static str,
+    pub maven_base: &'static str,
+    pub manifest_prefix: &'static str,
+    pub group_versions: fn(Metadata) -> LoaderIndex,
+    pub installer_url: fn(&str, &str) -> String,
+}
+
+async fn loader_index(def: &LoaderDef) -> Result<LoaderIndex> {
+    get_loader_index(def.cache_file, def.metadata_url, def.group_versions)
+        .await
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось получить индекс {}: {e:#}", def.name))
+                .into()
+        })
+}
+
+pub(crate) async fn versions_with_installed(
+    def: &LoaderDef,
+    state: &ProjectConfig,
+) -> Result<Vec<VersionMod>> {
+    let mut manifest = transform_loader_manifest(loader_index(def).await?, def.installer_url);
+    apply_installed_manifest(state, def.manifest_prefix, def.maven_base, &mut manifest)
+        .await
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!(
+                "Не удалось применить установленный манифест {}: {e:#}",
+                def.name
+            ))
+        })?;
+    Ok(manifest)
+}
+
+pub(crate) async fn forge_manifest_index() -> Result<LoaderIndex> {
+    loader_index(&FORGE).await
+}
+
+pub(crate) async fn neoforge_manifest_index() -> Result<LoaderIndex> {
+    loader_index(&NEOFORGE).await
+}
+
+const FORGE_METADATA_URL: &str =
+    "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+const FORGE_CACHE_FILE: &str = "forge.json";
+
+fn group_forge_versions(metadata: Metadata) -> LoaderIndex {
+    let mut grouped_versions: LoaderIndex = BTreeMap::new();
+
+    for v in metadata.versioning.versions.version_list {
+        if let Some((mc_ver, forge_ver)) = v.split_once('-') {
+            grouped_versions
+                .entry(mc_ver.to_string())
+                .or_default()
+                .push(forge_ver.to_string());
+        }
+    }
+
+    grouped_versions
+}
+
+fn forge_installer_url(v: &str, _loader_version: &str) -> String {
+    format!("{FORGE_MAVEN_BASE}/net/minecraftforge/forge/{v}/forge-{v}-installer.jar")
+}
+
+pub(crate) const FORGE_MAVEN_BASE: &str = "https://maven.minecraftforge.net";
+pub(crate) const FORGE_MANIFEST_PREFIX: &str = "forge";
+
+pub(crate) static FORGE: LoaderDef = LoaderDef {
+    name: "Forge",
+    metadata_url: FORGE_METADATA_URL,
+    cache_file: FORGE_CACHE_FILE,
+    maven_base: FORGE_MAVEN_BASE,
+    manifest_prefix: FORGE_MANIFEST_PREFIX,
+    group_versions: group_forge_versions,
+    installer_url: forge_installer_url,
+};
+
+const NEOFORGE_METADATA_URL: &str =
+    "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+const NEOFORGE_CACHE_FILE: &str = "neoforge_index.json";
+pub(crate) const NEOFORGE_MAVEN_BASE: &str = "https://maven.neoforged.net";
+pub(crate) const NEOFORGE_MANIFEST_PREFIX: &str = "neoforge";
+
+fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
+    let mut grouped_versions: LoaderIndex = BTreeMap::new();
+
+    for v in metadata.versioning.versions.version_list {
+        let parts: Vec<&str> = v.split('.').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+        let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) else {
+            continue;
+        };
+        let mc_version = neoforge_mc_version(major, minor);
+        grouped_versions
+            .entry(mc_version)
+            .or_default()
+            .push(v.to_string());
+    }
+
+    grouped_versions
+}
+
+fn neoforge_mc_version(major: u32, minor: u32) -> String {
+    if minor == 0 {
+        format!("1.{major}")
+    } else {
+        format!("1.{major}.{minor}")
+    }
+}
+
+fn neoforge_installer_url(_mc_version: &str, v: &str) -> String {
+    format!("{NEOFORGE_MAVEN_BASE}/releases/net/neoforged/neoforge/{v}/neoforge-{v}-installer.jar")
+}
+
+pub(crate) static NEOFORGE: LoaderDef = LoaderDef {
+    name: "NeoForge",
+    metadata_url: NEOFORGE_METADATA_URL,
+    cache_file: NEOFORGE_CACHE_FILE,
+    maven_base: NEOFORGE_MAVEN_BASE,
+    manifest_prefix: NEOFORGE_MANIFEST_PREFIX,
+    group_versions: group_neoforge_versions,
+    installer_url: neoforge_installer_url,
+};
 
 #[cfg(test)]
 mod latest_version_tests {
@@ -365,5 +502,203 @@ mod latest_version_tests {
         let result = latest_list_version(&versions, "1.19.4", "Forge");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn transform_loader_manifest_orders_versions_deterministically() {
+        let mut index = LoaderIndex::new();
+        index.insert("1.20.1".to_string(), vec!["47.1.0".to_string()]);
+        index.insert("1.7.10".to_string(), vec!["10.13.4".to_string()]);
+        index.insert("1.21".to_string(), vec!["21.0.143".to_string()]);
+
+        let first: Vec<String> = transform_loader_manifest(index.clone(), |id, _| id.to_string())
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+        let second: Vec<String> = transform_loader_manifest(index, |id, _| id.to_string())
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            vec![
+                "1.20.1-47.1.0".to_string(),
+                "1.21-21.0.143".to_string(),
+                "1.7.10-10.13.4".to_string()
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod loader_libraries_tests {
+    use super::{loader_libraries, Artifact, Downloads, Library};
+
+    fn library(name: &str, path: &str, url: &str) -> Library {
+        Library {
+            name: name.to_string(),
+            downloads: Downloads {
+                artifact: Artifact {
+                    path: path.to_string(),
+                    url: url.to_string(),
+                    sha1: "hash-1".to_string(),
+                    size: 1,
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn libraries_keep_manifest_path_and_hash() {
+        let mods = loader_libraries(
+            vec![library(
+                "org.ow2.asm:asm-util:9.7@jar",
+                "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar",
+                "",
+            )],
+            "https://maven.neoforged.net/release",
+        )
+        .expect("библиотеки лоадера");
+
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].path, "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar");
+        assert_eq!(mods[0].hash, "hash-1");
+    }
+
+    #[test]
+    fn libraries_build_classifier_aware_fallback_url() {
+        let mods = loader_libraries(
+            vec![library("net.neoforged:mergetool:2.0.3:api@jar", "", "")],
+            "https://maven.neoforged.net/release",
+        )
+        .expect("библиотеки лоадера");
+
+        assert_eq!(
+            mods[0].url,
+            "https://maven.neoforged.net/release/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"
+        );
+    }
+}
+
+#[cfg(test)]
+mod neoforge_index_tests {
+    use super::*;
+    use crate::state::dto::ProjectConfig as ConfigProject;
+    use crate::test_support::LauncherDirGuard;
+    use mockito::Server;
+
+    fn metadata(versions: &[&str]) -> Metadata {
+        let latest = versions
+            .last()
+            .map(|v| (*v).to_string())
+            .unwrap_or_default();
+        Metadata {
+            versioning: Versioning {
+                latest: latest.clone(),
+                release: latest,
+                versions: VersionList {
+                    version_list: versions.iter().map(|v| (*v).to_string()).collect(),
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn groups_patch_zero_under_short_mc_version_key() {
+        let index =
+            group_neoforge_versions(metadata(&["21.0.0-beta", "21.0.143", "21.1.1", "20.6.121"]));
+
+        assert_eq!(
+            index.get("1.21").map(Vec::as_slice),
+            Some(&["21.0.0-beta".to_string(), "21.0.143".to_string()][..])
+        );
+        assert_eq!(
+            index.get("1.21.1").map(Vec::as_slice),
+            Some(&["21.1.1".to_string()][..])
+        );
+        assert_eq!(
+            index.get("1.20.6").map(Vec::as_slice),
+            Some(&["20.6.121".to_string()][..])
+        );
+        assert!(!index.contains_key("1.21.0"));
+    }
+
+    #[test]
+    fn skips_non_numeric_loader_versions() {
+        let index = group_neoforge_versions(metadata(&["0.25w14craftmine.3-beta", "21.0.1-beta"]));
+
+        assert_eq!(index.len(), 1);
+        assert!(index.contains_key("1.21"));
+    }
+
+    #[tokio::test]
+    async fn real_metadata_fixture_groups_1_21_under_short_key() {
+        let dir = LauncherDirGuard::acquire("neoforge_index").await;
+        let mut server = Server::new_async().await;
+        let body = concat!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+            "<metadata><groupId>net.neoforged</groupId><artifactId>neoforge</artifactId>",
+            "<versioning><latest>21.1.1</latest><release>21.1.1</release><versions>",
+            "<version>20.6.121</version><version>21.0.0-beta</version><version>21.0.143</version>",
+            "<version>21.1.1</version>",
+            "</versions></versioning></metadata>"
+        );
+        server
+            .mock("GET", "/maven-metadata.xml")
+            .with_status(200)
+            .with_header("content-type", "application/xml")
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let index = get_loader_index(
+            NEOFORGE_CACHE_FILE,
+            &format!("{}/maven-metadata.xml", server.url()),
+            group_neoforge_versions,
+        )
+        .await
+        .expect("индекс NeoForge");
+
+        let cached = std::fs::read_to_string(dir.root().join("manifest").join(NEOFORGE_CACHE_FILE))
+            .expect("кэш индекса");
+        assert!(cached.contains("\"1.21\""));
+        assert!(!cached.contains("\"1.21.0\""));
+
+        assert!(index
+            .get("1.21")
+            .map(Vec::as_slice)
+            .is_some_and(|v| v.contains(&"21.0.143".to_string())));
+
+        let manifest = transform_loader_manifest(index, neoforge_installer_url);
+        let state = ConfigProject {
+            mc_version: "1.21".to_string(),
+            loader_version: Some("21.0.143".to_string()),
+            ..ConfigProject::default()
+        };
+        let resolved = current_loader_version(&state, &manifest).expect("версия найдена");
+        assert_eq!(resolved.id, "1.21-21.0.143");
+    }
+
+    #[test]
+    fn loader_manifest_path_rejects_traversal_version() {
+        let error = loader_manifest_path("forge", "../../evil")
+            .expect_err("версия лоадера с обходом пути должна быть отклонена");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии лоадера"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+        assert!(loader_manifest_path("forge", "..\\evil").is_err());
+    }
+
+    #[test]
+    fn loader_manifest_path_accepts_normal_version() {
+        let path = loader_manifest_path("forge", "47.2.0").expect("валидная версия лоадера");
+        assert!(path
+            .to_string_lossy()
+            .ends_with("manifest/forge_47.2.0.json"));
     }
 }

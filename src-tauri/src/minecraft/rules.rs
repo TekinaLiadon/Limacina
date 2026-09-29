@@ -1,5 +1,5 @@
 use crate::minecraft::vanilla::structs::Rule;
-use crate::utils::env_info::get_current_os;
+use crate::utils::env_info::{get_arch, get_current_os};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -13,14 +13,18 @@ pub enum RuleAction {
 pub struct RuleCore {
     pub action: RuleAction,
     pub os: Option<String>,
+    pub arch: Option<String>,
     pub features: Option<HashMap<String, bool>>,
 }
 
 impl RuleCore {
     fn matches_os(&self) -> bool {
-        self.os
+        let name_ok = self
+            .os
             .as_deref()
-            .is_none_or(|name| name == get_current_os())
+            .is_none_or(|name| name == get_current_os());
+        let arch_ok = self.arch.as_deref().is_none_or(|arch| arch == get_arch());
+        name_ok && arch_ok
     }
 
     fn has_features(&self) -> bool {
@@ -54,6 +58,7 @@ fn rule_to_core(rule: &Rule) -> RuleCore {
             _ => RuleAction::Disallow,
         },
         os: rule.os.as_ref().and_then(|os| os.name.clone()),
+        arch: rule.os.as_ref().and_then(|os| os.arch.clone()),
         features: rule.features.clone(),
     }
 }
@@ -74,6 +79,11 @@ fn json_rule_to_core(rule: &Value) -> RuleCore {
             .and_then(|os| os.get("name"))
             .and_then(|n| n.as_str())
             .map(String::from),
+        arch: rule
+            .get("os")
+            .and_then(|os| os.get("arch"))
+            .and_then(|a| a.as_str())
+            .map(String::from),
         features: rule.get("features").and_then(|f| {
             f.as_object().map(|obj| {
                 obj.iter()
@@ -81,5 +91,39 @@ fn json_rule_to_core(rule: &Value) -> RuleCore {
                     .collect()
             })
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_json_rules_allowed;
+    use crate::utils::env_info::get_arch;
+    use serde_json::json;
+
+    fn allow_with_os(os: serde_json::Value) -> bool {
+        is_json_rules_allowed(&[json!({ "action": "allow", "os": os })])
+    }
+
+    #[test]
+    fn matching_arch_is_allowed() {
+        assert!(allow_with_os(json!({ "arch": get_arch() })));
+    }
+
+    #[test]
+    fn mismatched_arch_is_ignored() {
+        let other = if get_arch() == "x86" { "x86_64" } else { "x86" };
+        assert!(
+            !allow_with_os(json!({ "arch": other })),
+            "правило с чужой архитектурой не должно пропускаться"
+        );
+    }
+
+    #[test]
+    fn rules_without_arch_are_unaffected() {
+        assert!(allow_with_os(json!({})));
+        assert_eq!(
+            allow_with_os(json!({ "name": "osx" })),
+            cfg!(target_os = "macos")
+        );
     }
 }

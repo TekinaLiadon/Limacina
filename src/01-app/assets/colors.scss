@@ -2,6 +2,7 @@
   --radius-pill: 999px;
   --radius-circle: 9999px;
 
+  --space-2: 2px;
   --space-4: 4px;
   --space-8: 8px;
   --space-12: 12px;
@@ -34,7 +35,9 @@
   --panel-padding-x: var(--space-12);
 
   --viewer-height: 360px;
+  --viewer-fullscreen-max-width: 1100px;
   --settings-control-min-width: 180px;
+  --settings-save-btn-min-width: 220px;
   --theme-switch-size: 200px;
   --filter-control-width: 220px;
 
@@ -45,6 +48,32 @@
   --control-height: 40px;
   --control-height-lg: 48px;
   --control-padding-x: var(--space-12);
+  --control-icon-area: 44px;
+
+  --icon-size-sm: 12px;
+  --icon-size: 18px;
+  --icon-size-lg: 20px;
+  --spinner-size: 14px;
+  --checkbox-size: 18px;
+  --badge-size: 20px;
+  --theme-swatch-size: 14px;
+  --viewer-percent-min-width: 56px;
+  --cpm-speed-value-min-width: 44px;
+  --skin-mode-btn-min-width: 96px;
+  --progress-height: 6px;
+  --options-max-height: 200px;
+  --integrity-popup-max-height: 80vh;
+  --integrity-steps-max-height: 40vh;
+  --skeleton-icon-size-sm: 28px;
+  --skeleton-icon-size-lg: 48px;
+  --modrinth-summary-skeleton-width: 128px;
+  --skeleton-card-height: 96px;
+  --tooltip-max-width: 280px;
+  --notification-max-width: 360px;
+  --preloader-max-width: 150px;
+
+  --switch-glow: rgba(108, 127, 216, 0.5);
+  --switch-glow-invert: rgba(255, 255, 255, 0.4);
 
   --duration-fast: 150ms;
   --duration-base: 250ms;
@@ -110,8 +139,8 @@
   --z-dropdown: 100;
   --z-version: 1000;
   --z-preloader: 1111;
-  --z-notification: 2000;
   --z-popup: 3000;
+  --z-notification: 3200;
   --z-tooltip: 3500;
   --z-overlay: 9999;
 }

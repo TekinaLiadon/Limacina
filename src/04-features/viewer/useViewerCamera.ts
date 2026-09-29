@@ -11,6 +11,14 @@ interface ViewerCameraScene {
   getOrbitControls: () => AutoRotatableControls | null
 }
 
+export function fitFovRadians(camera: THREE.PerspectiveCamera): number {
+  const fovV = camera.fov * (Math.PI / 180)
+  const { aspect } = camera
+  if (!Number.isFinite(aspect) || aspect <= 0) return fovV
+  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect)
+  return Number.isFinite(fovH) && fovH > 0 ? Math.min(fovV, fovH) : fovV
+}
+
 export function useViewerCamera(
     scene: ViewerCameraScene,
     model: Ref<THREE.Group | null>,

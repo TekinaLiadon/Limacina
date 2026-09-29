@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::utils::errors::LauncherError;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::client;
 use super::structs::{ManifestEntry, ModrinthFile, ModrinthManifest, ModrinthVersion};
 use crate::log_err;
 use crate::log_info;
-use crate::utils::download_file::{download_file, file_sha1, write_atomic};
+use crate::utils::download_file::{download_file, write_atomic};
 use crate::utils::env_info::is_safe_relative_path;
 
 pub struct InstallContext {
@@ -23,13 +23,22 @@ pub struct InstallReport {
     pub skipped: Vec<String>,
 }
 
-pub async fn load_manifest(path: &Path) -> ModrinthManifest {
-    match tokio::fs::read_to_string(path).await {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+pub async fn load_manifest(path: &Path) -> Result<ModrinthManifest> {
+    let content = match tokio::fs::read_to_string(path).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ModrinthManifest::default())
+        }
+        Err(e) => {
+            return Err(e).with_context(|| format!("Не удалось прочитать манифест модов {path:?}"))
+        }
+    };
+    match serde_json::from_str(&content) {
+        Ok(manifest) => Ok(manifest),
+        Err(e) => {
             log_err!("[modrinth] Некорректный манифест модов {:?}: {}", path, e);
-            ModrinthManifest::default()
-        }),
-        Err(_) => ModrinthManifest::default(),
+            Ok(ModrinthManifest::default())
+        }
     }
 }
 
@@ -66,7 +75,7 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
             ))
         })?;
 
-    let mut manifest = load_manifest(&ctx.manifest_path).await;
+    let mut manifest = load_manifest(&ctx.manifest_path).await?;
     let mut report = InstallReport {
         installed: Vec::new(),
         skipped: Vec::new(),
@@ -113,6 +122,12 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
                 entry.version_number
             );
             report.skipped.push(entry.filename.clone());
+        }
+
+        if let Some(previous) = manifest.mods.get(&version.project_id) {
+            if previous.filename != entry.filename {
+                remove_replaced_mod_file(&ctx.mods_dir, &previous.filename).await?;
+            }
         }
 
         manifest.mods.insert(entry.project_id.clone(), entry);
@@ -209,36 +224,40 @@ fn primary_file(version: &ModrinthVersion) -> Result<&ModrinthFile> {
 }
 
 async fn install_file(dest: &Path, expected_sha1: &str, url: &str) -> Result<bool> {
-    if dest.exists() {
-        let hash = file_sha1(dest).await.unwrap_or_default();
-        if hash == expected_sha1 {
-            return Ok(false);
-        }
-        log_info!(
-            "[modrinth] Файл {:?} отличается от ожидаемого — перекачивается",
-            dest
+    let url = url.to_string();
+    crate::utils::download_file::download_and_verify_with(
+        dest,
+        Some(expected_sha1),
+        true,
+        move |path| async move { download_file(&url, &path).await },
+    )
+    .await
+}
+
+async fn remove_replaced_mod_file(mods_dir: &Path, filename: &str) -> Result<()> {
+    if !is_safe_relative_path(filename) {
+        log_err!(
+            "[modrinth] Заменённый файл мода имеет небезопасное имя, удаление пропущено: {}",
+            filename
         );
-        let _ = tokio::fs::remove_file(dest).await;
+        return Ok(());
     }
 
-    download_file(url, dest)
-        .await
-        .map_err(|e| LauncherError::Modrinth(format!("Не удалось скачать {url}: {e:#}")))?;
-
-    let hash = file_sha1(dest).await?;
-    if hash != expected_sha1 {
-        let _ = tokio::fs::remove_file(dest).await;
-        return Err(LauncherError::HashMismatch(format!(
-            "{:?} ({} != {})",
-            dest, hash, expected_sha1
+    let old_dest = mods_dir.join(filename);
+    if !old_dest.exists() {
+        return Ok(());
+    }
+    tokio::fs::remove_file(&old_dest).await.map_err(|e| {
+        LauncherError::Modrinth(format!(
+            "Не удалось удалить заменённый файл мода {old_dest:?}: {e:#}"
         ))
-        .into());
-    }
-    Ok(true)
+    })?;
+    log_info!("[modrinth] Удалён заменённый файл мода: {}", filename);
+    Ok(())
 }
 
 pub async fn uninstall_project(ctx: &InstallContext, project_id: &str) -> Result<()> {
-    let mut manifest = load_manifest(&ctx.manifest_path).await;
+    let mut manifest = load_manifest(&ctx.manifest_path).await?;
     let entry = manifest.mods.remove(project_id).ok_or_else(|| {
         LauncherError::Modrinth(format!("Мод {} не установлен через Modrinth", project_id))
     })?;
@@ -270,7 +289,7 @@ pub struct UpdateCheck {
 }
 
 pub async fn check_updates(ctx: &InstallContext) -> Result<Vec<UpdateCheck>> {
-    let manifest = load_manifest(&ctx.manifest_path).await;
+    let manifest = load_manifest(&ctx.manifest_path).await?;
     let mut result = Vec::new();
 
     for entry in manifest.mods.values() {
@@ -294,7 +313,7 @@ pub async fn sync_installed_from_hashes(
     ctx: &InstallContext,
     local_hashes: HashMap<String, String>,
 ) -> Result<ModrinthManifest> {
-    let mut manifest = load_manifest(&ctx.manifest_path).await;
+    let mut manifest = load_manifest(&ctx.manifest_path).await?;
     let mut changed = false;
 
     manifest.mods.retain(|_, entry| {
@@ -462,6 +481,34 @@ mod tests {
         json!({"id": id, "project_type": "mod", "title": title})
     }
 
+    async fn mock_install_env(
+        env: &mut ModrinthEnv,
+        version: serde_json::Value,
+        jar_body: &[u8],
+        cdn_expect: usize,
+    ) {
+        env.server
+            .mock("GET", "/v2/project/A/version")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(json!([version]).to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/project/A")
+            .with_status(200)
+            .with_body(project_json("A", "Mod A").to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/a.jar")
+            .with_status(200)
+            .with_body(jar_body)
+            .expect(cdn_expect)
+            .create_async()
+            .await;
+    }
+
     fn parsed_version(value: serde_json::Value) -> ModrinthVersion {
         serde_json::from_value(value).unwrap()
     }
@@ -554,7 +601,9 @@ mod tests {
         assert_eq!(std::fs::read(ctx.mods_dir.join("A.jar")).unwrap(), jar_a);
         assert_eq!(std::fs::read(ctx.mods_dir.join("B.jar")).unwrap(), jar_b);
 
-        let manifest = load_manifest(&ctx.manifest_path).await;
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
         assert_eq!(manifest.mods.len(), 2);
         assert_eq!(manifest.mods.get("A").unwrap().title, "Mod A");
         assert_eq!(manifest.mods.get("B").unwrap().version_number, "0.2.0");
@@ -579,32 +628,18 @@ mod tests {
             sha1_hex(b"expected content"),
             json!([]),
         );
-        env.server
-            .mock("GET", "/v2/project/A/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version_a]).to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/v2/project/A")
-            .with_status(200)
-            .with_body(project_json("A", "Mod A").to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/cdn/a.jar")
-            .with_status(200)
-            .with_body(b"corrupted content")
-            .create_async()
-            .await;
+        mock_install_env(&mut env, version_a, b"corrupted content", 1).await;
 
         let ctx = env.install_ctx();
 
         let result = install_project(&ctx, "A").await;
         assert!(result.is_err());
         assert!(!ctx.mods_dir.join("A.jar").exists());
-        assert!(load_manifest(&ctx.manifest_path).await.mods.is_empty());
+        assert!(load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .is_empty());
     }
 
     #[tokio::test]
@@ -636,7 +671,11 @@ mod tests {
 
         assert!(!ctx.mods_dir.join("evil.jar").exists());
         assert!(!env.project_dir().join("evil.jar").exists());
-        assert!(load_manifest(&ctx.manifest_path).await.mods.is_empty());
+        assert!(load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .is_empty());
     }
 
     #[tokio::test]
@@ -652,26 +691,7 @@ mod tests {
             sha1_hex(&jar_a),
             json!([]),
         );
-        env.server
-            .mock("GET", "/v2/project/A/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version_a]).to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/v2/project/A")
-            .with_status(200)
-            .with_body(project_json("A", "Mod A").to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/cdn/a.jar")
-            .with_status(200)
-            .with_body(jar_a.clone())
-            .expect(0)
-            .create_async()
-            .await;
+        mock_install_env(&mut env, version_a, &jar_a, 0).await;
 
         let ctx = env.install_ctx();
         tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
@@ -685,7 +705,208 @@ mod tests {
         assert_eq!(report.skipped, vec!["A.jar".to_string()]);
         assert!(load_manifest(&ctx.manifest_path)
             .await
+            .expect("чтение манифеста")
             .mods
             .contains_key("A"));
+    }
+
+    #[tokio::test]
+    async fn load_manifest_defaults_on_missing_file() {
+        let dir = LauncherDirGuard::acquire("modrinth_manifest_missing").await;
+        let path = dir.project_dir("Test").join("modrinth.json");
+
+        let manifest = load_manifest(&path)
+            .await
+            .expect("отсутствующий манифест — это пустой манифест");
+        assert!(manifest.mods.is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_manifest_propagates_io_errors() {
+        let dir = LauncherDirGuard::acquire("modrinth_manifest_io").await;
+        let project_dir = dir.project_dir("Test");
+        tokio::fs::create_dir_all(&project_dir).await.unwrap();
+        let manifest_path = project_dir.join("modrinth.json");
+        tokio::fs::create_dir(&manifest_path).await.unwrap();
+
+        assert!(
+            load_manifest(&manifest_path).await.is_err(),
+            "ошибка чтения (не NotFound) должна прокидываться"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_manifest_defaults_on_corrupt_json() {
+        let dir = LauncherDirGuard::acquire("modrinth_manifest_corrupt").await;
+        let path = dir.project_dir("Test").join("modrinth.json");
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, "{ not json").await.unwrap();
+
+        let manifest = load_manifest(&path)
+            .await
+            .expect("битый json — пустой манифест с записью в лог");
+        assert!(manifest.mods.is_empty());
+    }
+
+    async fn mock_version_env(env: &mut ModrinthEnv, version: serde_json::Value, jar: &[u8]) {
+        env.server
+            .mock("GET", "/v2/project/A/version")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(json!([version]).to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/project/A")
+            .with_status(200)
+            .with_body(project_json("A", "Mod A").to_string())
+            .create_async()
+            .await;
+        let url = version["files"][0]["url"].as_str().unwrap().to_string();
+        let path = url
+            .strip_prefix(env.server.url().as_str())
+            .unwrap()
+            .to_string();
+        env.server
+            .mock("GET", path.as_str())
+            .with_status(200)
+            .with_body(jar)
+            .create_async()
+            .await;
+    }
+
+    fn mods_dir_file_names(ctx: &InstallContext) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(&ctx.mods_dir)
+            .expect("чтение каталога mods")
+            .map(|entry| {
+                entry
+                    .expect("запись каталога mods")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn install_update_replaces_previous_jar_file() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_update_replace").await;
+
+        let jar_v1 = b"mod a v1".to_vec();
+        let jar_v2 = b"mod a v2".to_vec();
+        let version_v1 = version_json(
+            "ver1",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a-1.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v1),
+            json!([]),
+        );
+        let mut version_v2 = version_json(
+            "ver2",
+            "A",
+            "2.0.0",
+            format!("{}/cdn/a-2.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v2),
+            json!([]),
+        );
+        version_v2["files"][0]["filename"] = json!("A-2.0.0.jar");
+
+        mock_version_env(&mut env, version_v1, &jar_v1).await;
+        let ctx = env.install_ctx();
+
+        install_project(&ctx, "A")
+            .await
+            .expect("первая установка мода");
+        assert_eq!(mods_dir_file_names(&ctx), vec!["A.jar".to_string()]);
+
+        clear_response_cache_for_tests();
+        mock_version_env(&mut env, version_v2, &jar_v2).await;
+
+        install_project(&ctx, "A")
+            .await
+            .expect("обновление мода до v2");
+
+        assert_eq!(
+            mods_dir_file_names(&ctx),
+            vec!["A-2.0.0.jar".to_string()],
+            "в mods/ должен остаться только jar новой версии"
+        );
+        assert_eq!(
+            std::fs::read(ctx.mods_dir.join("A-2.0.0.jar")).expect("jar v2"),
+            jar_v2
+        );
+
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        let entry = manifest.mods.get("A").expect("запись проекта A");
+        assert_eq!(entry.filename, "A-2.0.0.jar");
+        assert_eq!(entry.version_number, "2.0.0");
+        assert_eq!(manifest.mods.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn install_update_same_filename_overwrites_content() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_update_same_name").await;
+
+        let jar_v1 = b"mod a v1".to_vec();
+        let jar_v2 = b"mod a v2".to_vec();
+        let version_v1 = version_json(
+            "ver1",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a-1.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v1),
+            json!([]),
+        );
+        let version_v2 = version_json(
+            "ver2",
+            "A",
+            "2.0.0",
+            format!("{}/cdn/a-2.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v2),
+            json!([]),
+        );
+
+        mock_version_env(&mut env, version_v1, &jar_v1).await;
+        let ctx = env.install_ctx();
+
+        install_project(&ctx, "A")
+            .await
+            .expect("первая установка мода");
+        assert_eq!(
+            std::fs::read(ctx.mods_dir.join("A.jar")).expect("jar v1"),
+            jar_v1
+        );
+
+        clear_response_cache_for_tests();
+        mock_version_env(&mut env, version_v2, &jar_v2).await;
+
+        install_project(&ctx, "A")
+            .await
+            .expect("обновление мода до v2");
+
+        assert_eq!(
+            mods_dir_file_names(&ctx),
+            vec!["A.jar".to_string()],
+            "обновление с тем же именем файла не должно дублировать jar"
+        );
+        assert_eq!(
+            std::fs::read(ctx.mods_dir.join("A.jar")).expect("jar v2"),
+            jar_v2
+        );
+
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert_eq!(
+            manifest.mods.get("A").expect("запись A").version_number,
+            "2.0.0"
+        );
     }
 }

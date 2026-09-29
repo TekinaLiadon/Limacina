@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { Button, Checkbox, Dropdown, Input } from '@/06-shared'
-import type { DropdownOption } from '@/06-shared/types'
+import { Button, Checkbox, Dropdown, Input, type DropdownOption } from '@/06-shared'
 import type { OfflineProfileForm as OfflineForm } from '@/05-entities'
 
 const props = defineProps<{
@@ -18,6 +17,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'update:form': [value: OfflineForm]
   submit: []
   back: []
 }>()
@@ -39,7 +39,7 @@ const handleSubmit = (): void => {
 
     <Input
       :model-value="form.name"
-      @update:model-value="form.name = $event"
+      @update:model-value="emit('update:form', { ...form, name: $event })"
       :options="{ label: 'Название профиля', placeholder: 'Например, Sandbox' }"
     />
 
@@ -48,13 +48,13 @@ const handleSubmit = (): void => {
       <Dropdown
         :options="mcVersionOptions"
         :model-value="form.mcVersion"
-        @update:model-value="form.mcVersion = $event"
+        @update:model-value="emit('update:form', { ...form, mcVersion: $event })"
         :max-visible="6"
         :disabled="isLoadingMcVersions || mcVersionOptions.length === 0"
       />
       <Checkbox
         :model-value="form.includeSnapshots"
-        @update:model-value="form.includeSnapshots = $event"
+        @update:model-value="emit('update:form', { ...form, includeSnapshots: $event })"
         label="Показывать снапшоты"
       />
     </div>
@@ -64,7 +64,7 @@ const handleSubmit = (): void => {
       <Dropdown
         :options="loaderOptions"
         :model-value="form.modLoader"
-        @update:model-value="form.modLoader = $event as OfflineForm['modLoader']"
+        @update:model-value="emit('update:form', { ...form, modLoader: $event as OfflineForm['modLoader'] })"
         :max-visible="4"
       />
     </div>
@@ -74,7 +74,7 @@ const handleSubmit = (): void => {
       <Dropdown
         :options="loaderVersionOptions"
         :model-value="form.loaderVersion"
-        @update:model-value="form.loaderVersion = $event"
+        @update:model-value="emit('update:form', { ...form, loaderVersion: $event })"
         :max-visible="6"
         :disabled="isLoadingLoaderVersions || loaderVersionOptions.length === 0"
       />
@@ -109,10 +109,6 @@ const handleSubmit = (): void => {
 
   @include mixins.form-head;
 
-  &__subtitle {
-    @include mixins.form-subtitle;
-  }
-
   &__field {
     display: flex;
     flex-direction: column;
@@ -123,18 +119,6 @@ const handleSubmit = (): void => {
     @include mixins.eyebrow;
 
     text-align: left;
-  }
-
-  &__error {
-    @include mixins.error-box;
-
-    margin: 0;
-  }
-
-  &__actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
   }
 }
 </style>

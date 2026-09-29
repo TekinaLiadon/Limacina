@@ -15,10 +15,12 @@ export function useAnimationSettings(): {
   const animationsEnabled = computed((): boolean => settingsStore.animationsEnabled)
 
   const setAnimationsEnabled = async (value: boolean): Promise<void> => {
+    const previous = settingsStore.animationsEnabled
     settingsStore.setAnimationsEnabled(value)
     try {
       await saveAnimationsEnabled(value)
     } catch (e: unknown) {
+      settingsStore.setAnimationsEnabled(previous)
       reportError('Не удалось сохранить настройку анимаций', e)
       notification.show(getErrorMessage(e))
     }

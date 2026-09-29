@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, UpdateVersionInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
+import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
 
 export interface CommandErrorPayload {
   code: string
@@ -32,22 +33,14 @@ export async function getAppInitData(): Promise<AppInitData> {
   return invoke<AppInitData>('get_app_init_data')
 }
 
-interface UpdateInfoRaw {
-  version: string
-}
-
-const toUpdateInfo = (raw: UpdateInfoRaw): UpdateInfo => ({
-  version: raw.version,
-})
+export type { UnlistenFn } from '@tauri-apps/api/event'
 
 export async function checkUpdate(): Promise<UpdateInfo | null> {
-  const raw = await invoke<UpdateInfoRaw | null>('check_update')
-  return raw ? toUpdateInfo(raw) : null
+  return invoke<UpdateInfo | null>('check_update')
 }
 
-export async function getLauncherVersions(): Promise<UpdateVersionInfo[]> {
-  const raw = await invoke<UpdateInfoRaw[]>('get_launcher_versions')
-  return raw.map(toUpdateInfo)
+export async function getLauncherVersions(): Promise<UpdateInfo[]> {
+  return invoke<UpdateInfo[]>('get_launcher_versions')
 }
 
 export async function applyUpdateCmd(version: string | null = null): Promise<void> {
@@ -327,6 +320,10 @@ export async function listenGameStarted(
 
 export async function hideMainWindow(): Promise<void> {
   await getCurrentWebviewWindow().hide()
+}
+
+export async function isWindowMinimized(): Promise<boolean> {
+  return getCurrentWindow().isMinimized()
 }
 
 export async function pingLauncherServer(): Promise<boolean> {

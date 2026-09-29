@@ -34,11 +34,11 @@ defineProps<{
 }
 
 .girl--to-dark .girl-gif {
-  filter: drop-shadow(0 4px 16px rgba(108, 127, 216, 0.5));
+  filter: drop-shadow(0 4px 16px var(--switch-glow));
 }
 
 .girl--to-light .girl-gif {
-  filter: invert(1) drop-shadow(0 4px 16px rgba(255, 255, 255, 0.4));
+  filter: invert(1) drop-shadow(0 4px 16px var(--switch-glow-invert));
 }
 
 .girl-gif {
@@ -81,7 +81,7 @@ defineProps<{
 
 .theme-switch-enter-active,
 .theme-switch-leave-active {
-  transition: opacity 0.15s ease;
+  transition: opacity var(--duration-fast) var(--ease-out);
 }
 
 .theme-switch-enter-from,

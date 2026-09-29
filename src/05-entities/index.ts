@@ -1,12 +1,12 @@
 export { useCoreStore } from './core/coreStore'
-export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH } from './core/authPolicy'
+export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage } from './core/authPolicy'
+export { LOADER_LABELS } from './core/loaders'
 export type {
   CoreState,
   LauncherConfig,
   AppInitData,
   AuthUserData,
   UpdateInfo,
-  UpdateVersionInfo,
   ServerStatus,
   TabKey,
   AuthSubTab,

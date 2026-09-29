@@ -1,7 +1,8 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use tokio::{fs, process::Command};
+use std::time::Duration;
+use tokio::{fs, process::Command, time::timeout};
 
 use crate::utils::errors::LauncherError;
 use crate::{
@@ -10,15 +11,15 @@ use crate::{
         mod_loader::{
             config::loader_version_jar_name,
             download::library_targets,
-            manifest::{loader_libraries, loader_version_or_err, Manifest},
+            manifest::{loader_libraries, loader_manifest_path, loader_version_or_err, Manifest},
         },
         structs::{LibraryMod, VersionMod},
     },
     state::dto::ProjectConfig,
     step_try,
     utils::{
-        download_file::{download_file, download_json},
-        env_info::launcher_path,
+        download_file::{download_file, download_json, write_atomic},
+        env_info::{ensure_safe_relative_path, launcher_path},
         integrity::{
             ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload,
         },
@@ -26,9 +27,17 @@ use crate::{
     },
 };
 
+#[cfg(target_os = "windows")]
+use crate::minecraft::process::CREATE_NO_WINDOW;
+
+const INSTALLER_TIMEOUT: Duration = Duration::from_secs(600);
+
 pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
     let launcher_profiles_path = base_url.join("launcher_profiles.json");
-    if !launcher_profiles_path.exists() {
+    if !tokio::fs::try_exists(&launcher_profiles_path)
+        .await
+        .unwrap_or(false)
+    {
         let profiles = json!({
             "profiles": {},
             "selectedProfile": "",
@@ -44,7 +53,7 @@ pub async fn create_installer_manifest(base_url: &Path) -> Result<()> {
         let profiles_str = serde_json::to_string_pretty(&profiles).map_err(|e| {
             LauncherError::ManifestParse(format!("Не удалось сериализовать profiles: {e:#}"))
         })?;
-        fs::write(&launcher_profiles_path, profiles_str)
+        write_atomic(&launcher_profiles_path, profiles_str.as_bytes())
             .await
             .map_err(|e| {
                 LauncherError::DiskIo(format!(
@@ -67,18 +76,27 @@ pub async fn run_loader_installer(
         .arg("-jar")
         .arg(installer_path)
         .arg("--installClient")
-        .arg(vanilla_dir);
+        .arg(vanilla_dir)
+        .kill_on_drop(true);
 
     #[cfg(target_os = "windows")]
     {
-        command.creation_flags(0x08000000);
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = command.output().await.map_err(|e| {
-        LauncherError::LoaderSetup(format!(
-            "Не удалось запустить {loader_name} installer: {e:#}"
-        ))
-    })?;
+    let output = timeout(INSTALLER_TIMEOUT, command.output())
+        .await
+        .map_err(|_| {
+            LauncherError::LoaderSetup(format!(
+                "{loader_name} installer не завершился за {} сек и был прерван",
+                INSTALLER_TIMEOUT.as_secs()
+            ))
+        })?
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!(
+                "Не удалось запустить {loader_name} installer: {e:#}"
+            ))
+        })?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !stderr.is_empty() {
@@ -119,12 +137,12 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     let jar_name = format!("{}.jar", mc_version);
     let target_jar = base_url.join(&jar_name);
 
-    if target_jar.exists() {
+    if tokio::fs::try_exists(&target_jar).await.unwrap_or(false) {
         return Ok(());
     }
 
     let direct = versions_dir.join(mc_version).join(&jar_name);
-    if direct.exists() {
+    if tokio::fs::try_exists(&direct).await.unwrap_or(false) {
         fs::rename(&direct, &target_jar).await.map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось переместить {direct:?} в {target_jar:?}: {e:#}"
@@ -136,7 +154,7 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     let mut inner_candidates: Vec<PathBuf> = Vec::new();
     for path in version_subdirs(&versions_dir).await? {
         let candidate = path.join(&jar_name);
-        if candidate.exists() {
+        if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
             inner_candidates.push(candidate);
         }
     }
@@ -203,9 +221,7 @@ pub async fn locate_installed_manifest(
 
 pub fn manifest_paths(state_project: &ProjectConfig, prefix: &str) -> Result<(PathBuf, PathBuf)> {
     let version = loader_version_or_err(state_project)?;
-    let manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("{}_{}.json", prefix, version));
+    let manifest_path = loader_manifest_path(prefix, version)?;
     let project_dir = launcher_path(Some(&state_project.project_name))?;
     Ok((manifest_path, project_dir))
 }
@@ -217,6 +233,7 @@ pub async fn start_installer(
     vanilla_dir: &Path,
     state_project: &ProjectConfig,
 ) -> Result<Manifest> {
+    ensure_safe_relative_path(&state_project.mc_version, "версии игры")?;
     run_loader_installer(loader_name, installer_path, vanilla_dir, state_project).await?;
 
     let (loader_manifest, base_url) = manifest_paths(state_project, manifest_prefix)?;
@@ -232,7 +249,7 @@ pub async fn start_installer(
         .join(&fast_name)
         .join(format!("{}.json", fast_name));
 
-    let source = if fast_manifest.exists() {
+    let source = if tokio::fs::try_exists(&fast_manifest).await.unwrap_or(false) {
         fast_manifest
     } else {
         locate_installed_manifest(&versions_dir, &state_project.mc_version, &loader_manifest)
@@ -304,12 +321,13 @@ pub async fn setup_loader(
 
     let step = StepHandle::start("loader", format!("Установка {}", loader_name));
 
-    let loader_manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("{}_{}.json", manifest_prefix, loader_version));
+    let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
 
-    if loader_manifest_path.exists() {
-        let version_manifest = download_json::<Manifest>(None, &loader_manifest_path).await?;
+    if tokio::fs::try_exists(&loader_manifest_file)
+        .await
+        .unwrap_or(false)
+    {
+        let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         let library = loader_libraries(version_manifest.libraries, maven_base)?;
         install_loader_files(
             step.clone(),
@@ -378,6 +396,29 @@ mod loader_install_tests {
     use mockito::Server;
     use serde_json::json;
     use std::fs;
+
+    #[tokio::test]
+    async fn start_installer_rejects_traversal_mc_version_before_installer() {
+        let state_project = ProjectConfig {
+            mc_version: "../evil".to_string(),
+            ..ProjectConfig::default()
+        };
+        let error = start_installer(
+            "forge",
+            "forge",
+            Path::new("unused-installer.jar"),
+            Path::new("unused-vanilla"),
+            &state_project,
+        )
+        .await
+        .expect_err("версия с обходом пути должна быть отклонена до инсталлятора");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии игры"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
 
     fn project_config(project: &str) -> ProjectConfig {
         ProjectConfig {
@@ -500,6 +541,100 @@ mod loader_install_tests {
         assert!(installed
             .files
             .contains_key("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar"));
+    }
+
+    fn neoforge_manifest_json() -> serde_json::Value {
+        let mergetool_sha1 = sha1_hex(b"mergetool bytes");
+        json!({
+            "id": "1.20.1-neoforge-21.1.80",
+            "time": "2024-01-01T00:00:00+00:00",
+            "releaseTime": "2024-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "net.neoforged.bootstrap.Bootstrap",
+            "inheritsFrom": "1.20.1",
+            "libraries": [
+                {
+                    "name": "net.neoforged:mergetool:2.0.3:api@jar",
+                    "downloads": {
+                        "artifact": {
+                            "path": "net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
+                            "url": "",
+                            "sha1": mergetool_sha1,
+                            "size": b"mergetool bytes".len() as i64
+                        }
+                    }
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn setup_loader_fast_path_uses_manifest_paths_for_classified_libraries() {
+        let dir = LauncherDirGuard::acquire("loader_setup_neoforge").await;
+        let mut server = Server::new_async().await;
+
+        let mergetool_jar = b"mergetool bytes".to_vec();
+        let installer_jar = b"installer bytes".to_vec();
+
+        server
+            .mock(
+                "GET",
+                "/maven/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
+            )
+            .with_status(200)
+            .with_body(mergetool_jar.clone())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/installer/1.20.1-21.1.80.jar")
+            .with_status(200)
+            .with_body(installer_jar.clone())
+            .create_async()
+            .await;
+
+        let manifest_path = dir.root().join("manifest").join("neoforge_21.1.80.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, neoforge_manifest_json().to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "NeoProj".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("21.1.80".to_string()),
+            ..ProjectConfig::default()
+        };
+        let manifest = vec![VersionMod {
+            url: format!("{}/installer/1.20.1-21.1.80.jar", server.url()),
+            id: "1.20.1-21.1.80".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+        let maven_base = format!("{}/maven", server.url());
+
+        setup_loader("NeoForge", "neoforge", &state, &manifest, &maven_base)
+            .await
+            .expect("установка NeoForge");
+
+        let project = dir.project_dir("NeoProj");
+        assert_eq!(
+            fs::read(
+                project.join("libraries/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar")
+            )
+            .unwrap(),
+            b"mergetool bytes"
+        );
+        assert!(
+            !project
+                .join("libraries/net/neoforged/mergetool/2.0.3@jar")
+                .exists(),
+            "файл не должен попадать в каталог версии с суффиксом @jar"
+        );
+
+        let installed = crate::utils::install_manifest::load_install_manifest("NeoProj")
+            .await
+            .expect("install-манифест");
+        assert!(installed
+            .files
+            .contains_key("libraries/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"));
     }
 
     #[tokio::test]

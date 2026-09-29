@@ -43,6 +43,10 @@ export function useTheme(): {
   let switchTimerId: ReturnType<typeof setTimeout> | null = null
 
   watch(() => settingsStore.theme, (newTheme: string, oldTheme: string | undefined): void => {
+    if (switchTimerId !== null) {
+      clearTimeout(switchTimerId)
+      switchTimerId = null
+    }
     if (!oldTheme || newTheme === oldTheme) return
 
     saveTheme(newTheme).catch((e: unknown) => {
@@ -55,6 +59,7 @@ export function useTheme(): {
     const modeChanged: boolean = newMode !== oldMode
 
     if (!modeChanged || !settingsStore.animationsEnabled) {
+      isSwitching.value = false
       applyTheme(newTheme)
       applyWindowBackground(newTheme)
       return
@@ -64,7 +69,6 @@ export function useTheme(): {
     isSwitching.value = true
     applyWindowBackground(newTheme)
 
-    if (switchTimerId !== null) clearTimeout(switchTimerId)
     switchTimerId = setTimeout(() => {
       applyTheme(newTheme)
       isSwitching.value = false

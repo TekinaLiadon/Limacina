@@ -1,27 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Icon from '@/06-shared/components/Icon.vue'
 import type { IconType } from '@/06-shared/types'
 
 const props = withDefaults(defineProps<{
   icon: IconType
   tag?: string
-  up?: boolean
-  down?: boolean
 }>(), {
   tag: 'button',
-  up: false,
-  down: false,
 })
+
+const tagAttrs = computed<Record<string, string>>(() =>
+  props.tag === 'button' ? { type: 'button' } : {},
+)
 </script>
 
 <template>
-  <component :is="props.tag" class="icon-btn">
-    <Icon
-      :type="icon"
-      class="icon-btn__icon"
-      :up="props.up"
-      :down="props.down"
-    />
+  <component :is="props.tag" class="icon-btn" v-bind="tagAttrs">
+    <Icon :type="icon" class="icon-btn__icon" />
   </component>
 </template>
 
@@ -30,8 +26,8 @@ const props = withDefaults(defineProps<{
 
 .icon-btn {
   cursor: pointer;
-  width: 40px;
-  height: 40px;
+  width: var(--control-height);
+  height: var(--control-height);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -46,20 +42,19 @@ const props = withDefaults(defineProps<{
   }
 
   &__icon {
-    font-size: 18px;
-    width: 18px;
-    height: 18px;
+    font-size: var(--icon-size);
+    width: var(--icon-size);
+    height: var(--icon-size);
     color: var(--login-text-secondary);
     transition: color var(--duration-base) var(--ease-out);
   }
 
   @include breakpoints.media-under-sm {
-    width: 36px;
-    height: 36px;
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
   }
 }
 
-.active .icon-btn,
 .icon-btn:hover {
   background-color: var(--surface-hover);
   box-shadow: var(--elevation-inset-strong);

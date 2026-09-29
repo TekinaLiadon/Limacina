@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button } from '@/06-shared'
+import { Button, Preloader } from '@/06-shared'
 import { useSkinSettings } from '@/04-features'
 import SkinViewer from './SkinViewer.vue'
 import UserContentList from './UserContentList.vue'
@@ -10,6 +10,7 @@ const {
   skinUrl,
   errorMessage,
   isUploading,
+  isMutating,
   isSkinLoading,
   isOffline,
   uploadedSkins,
@@ -43,8 +44,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     </p>
 
     <div v-if="isSkinLoading" class="skin-settings__loading">
-      <span class="skin-settings__loading-spinner" aria-hidden="true" />
-      <span class="skin-settings__loading-text">Загрузка скина...</span>
+      <Preloader local text="Загрузка скина..." />
     </div>
 
     <template v-else-if="hasSkin">
@@ -109,6 +109,8 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
         <Button
           v-if="item.id != null && item.active !== true"
           class="btn-primary"
+          :is-loading="isMutating"
+          :is-disabled="isMutating"
           @click="handleActivate(item.id!)"
         >
           Активировать
@@ -133,29 +135,12 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__loading {
-    height: 360px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-12);
+    position: relative;
+    height: var(--viewer-height);
+    overflow: hidden;
     border-radius: var(--radius-card);
     background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
-  }
-
-  &__loading-spinner {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-circle);
-    border: 2px solid var(--surface-active);
-    border-top-color: var(--login-accent);
-    animation: skin-settings-spin var(--duration-spin) linear infinite;
-  }
-
-  &__loading-text {
-    font-size: var(--text-caption);
-    color: var(--login-text-muted);
   }
 
   &__error {
@@ -169,19 +154,15 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__mode-btn {
-    min-width: 96px;
+    @include mixins.mode-toggle;
+
+    min-width: var(--skin-mode-btn-min-width);
     min-height: var(--control-height-sm);
     padding: 0 var(--control-padding-x);
-    border: none;
     border-radius: var(--radius-button);
     background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
     color: var(--login-text-secondary);
-    font-family: inherit;
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 
     &:hover {
       background: var(--surface-hover);
@@ -195,18 +176,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__actions {
-    display: flex;
-    gap: var(--space-8);
-
-    .skin-settings__btn {
-      flex: 1;
-      min-height: var(--control-height);
-
-      &--upload,
-      &--reset {
-        flex: 0 0 auto;
-      }
-    }
+    @include mixins.viewer-actions-row('.skin-settings__btn');
   }
 
   &__hint {
@@ -219,12 +189,6 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     color: var(--accent-text);
     font-weight: var(--weight-medium);
     white-space: nowrap;
-  }
-}
-
-@keyframes skin-settings-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 </style>

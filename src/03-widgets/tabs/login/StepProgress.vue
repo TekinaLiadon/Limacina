@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import anime from 'animejs'
 import { isAnimationsEnabled } from '@/06-shared'
 import type { StepProgressItem } from '@/05-entities'
@@ -12,17 +12,20 @@ const props = withDefaults(defineProps<{
 })
 
 const rootRef = ref<HTMLDivElement | null>(null)
-const activeRef = ref<HTMLDivElement | null>(null)
 
 watch(() => props.steps.map(s => s.status).join(','), () => {
-  if (!isAnimationsEnabled() || !activeRef.value) return
+  const root = rootRef.value
+  if (root === null || !isAnimationsEnabled()) return
+  const indicator = root.querySelector('.step-progress__item--active .step-progress__indicator')
+  if (indicator === null) return
+  anime.remove(indicator)
   anime({
-    targets: activeRef.value.querySelector('.step-progress__indicator'),
+    targets: indicator,
     scale: [1, 1.3, 1],
     duration: 600,
     easing: 'easeInOutQuad',
   })
-})
+}, { flush: 'post' })
 
 const visibleSteps = computed((): StepProgressItem[] => {
   if (!props.hideCompleted) return props.steps
@@ -50,6 +53,16 @@ const onBeforeLeave = (el: Element): void => {
 }
 
 let heightRun = 0
+let heightEndElement: HTMLElement | null = null
+let heightEndListener: ((event: TransitionEvent) => void) | null = null
+
+const detachHeightEnd = (): void => {
+  if (heightEndElement !== null && heightEndListener !== null) {
+    heightEndElement.removeEventListener('transitionend', heightEndListener)
+  }
+  heightEndElement = null
+  heightEndListener = null
+}
 
 const animateHeight = async (): Promise<void> => {
   const el = rootRef.value
@@ -59,6 +72,7 @@ const animateHeight = async (): Promise<void> => {
   await nextTick()
   const current = rootRef.value
   if (run !== heightRun || current === null) return
+  detachHeightEnd()
   current.style.transition = 'none'
   current.style.height = ''
   current.getBoundingClientRect()
@@ -73,13 +87,21 @@ const animateHeight = async (): Promise<void> => {
   current.style.transition = 'height var(--duration-slow) var(--ease-in-out)'
   current.style.height = `${target}px`
   const onEnd = (event: TransitionEvent): void => {
-    if (run !== heightRun || event.propertyName !== 'height') return
+    if (run !== heightRun) {
+      detachHeightEnd()
+      return
+    }
+    if (event.propertyName !== 'height') return
     current.style.height = ''
     current.style.transition = ''
-    current.removeEventListener('transitionend', onEnd)
+    detachHeightEnd()
   }
+  heightEndElement = current
+  heightEndListener = onEnd
   current.addEventListener('transitionend', onEnd)
 }
+
+onBeforeUnmount(detachHeightEnd)
 
 watch(
   () => props.steps.map(s => `${s.status}|${s.detail}|${s.error}`).join(';'),
@@ -112,7 +134,6 @@ const subLabel = (step: StepProgressItem): string => {
       <div
         v-for="step in visibleSteps"
         :key="step.key"
-        :ref="(el) => { activeRef = step.status === 'active' ? (el as HTMLDivElement | null) : null }"
         class="step-progress__item"
         :class="`step-progress__item--${step.status}`"
       >

@@ -188,6 +188,22 @@
   &__title {
     font-size: var(--text-heading);
   }
+
+  &__subtitle {
+    @include form-subtitle;
+  }
+
+  &__error {
+    @include error-box;
+
+    margin: 0;
+  }
+
+  &__actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+  }
 }
 
 @mixin settings-row-body {
@@ -340,4 +356,99 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-12);
+}
+
+@mixin viewer-actions-row($btn-class) {
+  display: flex;
+  gap: var(--space-8);
+
+  #{$btn-class} {
+    flex: 1;
+    min-height: var(--control-height);
+
+    &--upload,
+    &--reset {
+      flex: 0 0 auto;
+    }
+  }
+}
+
+@mixin subtle-card($padding: var(--space-12)) {
+  padding: $padding;
+  border-radius: var(--radius-card);
+  background: var(--surface-subtle);
+  box-shadow: var(--elevation-inset);
+}
+
+@mixin fullscreen-page {
+  min-height: 100vh;
+  width: 100%;
+  background: var(--app-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--layout-padding);
+  position: relative;
+
+  &::before {
+    @include grid-backdrop;
+  }
+}
+
+@mixin fullscreen-card {
+  width: 100%;
+  background: var(--login-bg-form);
+  border-radius: var(--radius-modal);
+  padding: var(--page-padding-y) var(--page-padding-x);
+  box-shadow: var(--elevation-modal);
+}
+
+@mixin collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--duration-base) var(--ease-in-out), opacity var(--duration-base) var(--ease-out), visibility var(--duration-base);
+
+  &--closed {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@mixin slider-header($value-suffix: 'value', $header: true) {
+  @if $header {
+    &__header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-12);
+    }
+  }
+
+  &__#{$value-suffix} {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-medium);
+    color: var(--login-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@mixin mode-toggle {
+  border: none;
+  font-family: inherit;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
+}
+
+@mixin page-scaffold {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: var(--page-padding-y) var(--page-padding-x);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }

@@ -17,10 +17,6 @@ pub struct UserContentItem {
     pub active: bool,
 }
 
-async fn require_api_context(state: &Mutex<GlobalState>) -> Result<(String, String)> {
-    crate::launcher_server::api_context(state, "Нет активной сессии. Войдите в аккаунт.").await
-}
-
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
     LauncherError::classify(
         request_json(
@@ -41,7 +37,7 @@ async fn api_delete(url: &str, token: &str) -> Result<()> {
     let result = async {
         let client = crate::utils::http::http_client();
         let response = require_success(
-            with_launcher_id(client.get(url).bearer_auth(token))
+            with_launcher_id(client.delete(url).bearer_auth(token))
                 .send()
                 .await
                 .map_err(|e| {
@@ -104,7 +100,7 @@ pub async fn upload_skin(
     file_data: Vec<u8>,
     model: Option<&str>,
 ) -> Result<UserContentItem> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let mut url = format!("{}/v1/common/content/skins", server_url);
     if let Some(model) = model {
         url.push_str("?model=");
@@ -128,7 +124,7 @@ pub async fn upload_skin(
 }
 
 pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{}/v1/common/content/skins/{}", server_url, uuid);
 
     let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
@@ -136,7 +132,7 @@ pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<
 }
 
 pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{}/v1/common/content/skins/{}", server_url, id);
 
     api_delete(&url, &token).await?;
@@ -146,7 +142,7 @@ pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
 }
 
 pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{}/v1/common/content/skins/active", server_url);
 
     let result = async {
@@ -180,7 +176,7 @@ pub async fn upload_model(
     state: &Mutex<GlobalState>,
     file_content: String,
 ) -> Result<UserContentItem> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{}/v1/common/content/models", server_url);
 
     let item = upload_multipart(
@@ -200,7 +196,7 @@ pub async fn upload_model(
 }
 
 pub async fn list_models(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{}/v1/common/content/models/{}", server_url, uuid);
 
     let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
@@ -208,11 +204,85 @@ pub async fn list_models(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec
 }
 
 pub async fn delete_model(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let (token, server_url) = require_api_context(state).await?;
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{}/v1/common/content/models/{}", server_url, id);
 
     api_delete(&url, &token).await?;
     log_info!("Модель удалёна: id={}", id);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::dto::{ProjectConfig, SessionTokens};
+    use mockito::Server;
+
+    fn state_with(server_url: &str) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                server_url: Some(server_url.to_string()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "token-1".to_string(),
+                uuid: "uuid-1".to_string(),
+                username: "Cordelia".to_string(),
+                project_name: "Proj".to_string(),
+            }),
+            ..GlobalState::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn delete_skin_sends_delete_request() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("DELETE", "/v1/common/content/skins/42")
+            .match_header("authorization", "Bearer token-1")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        delete_skin(&state, 42)
+            .await
+            .expect("удаление скина должно пройти");
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn delete_model_sends_delete_request() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("DELETE", "/v1/common/content/models/7")
+            .match_header("authorization", "Bearer token-1")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        delete_model(&state, 7)
+            .await
+            .expect("удаление модели должно пройти");
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn delete_skin_errors_on_non_success_status() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("DELETE", "/v1/common/content/skins/42")
+            .with_status(500)
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        let result = delete_skin(&state, 42).await;
+
+        assert!(result.is_err(), "не-2xx ответ должен вернуть ошибку");
+    }
 }

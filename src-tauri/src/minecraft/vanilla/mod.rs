@@ -1,52 +1,112 @@
 pub mod config;
 pub mod download;
 pub mod manifest;
+pub mod pipeline;
 pub mod rules;
 pub mod structs;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use std::path::PathBuf;
 
-use crate::minecraft::manifest::{get_manifest_index, get_manifest_version, VERSION_MANIFEST_URL};
+use crate::minecraft::manifest::get_manifest_version;
 use crate::minecraft::vanilla::config::get_classpath;
 use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
 use crate::minecraft::vanilla::download::{
-    collect_asset_targets, collect_install_targets, collect_natives_to_extract, extract_natives,
-    read_asset_index, PHASE_ASSETS, PHASE_ASSET_INDEX, PHASE_CLIENT, PHASE_LIBRARIES,
+    extract_natives, natives_match_version, read_asset_index, VanillaPhaseInfo, PHASE_ASSET_INDEX,
+    PHASE_NATIVES,
 };
-use crate::minecraft::vanilla::manifest::create_manifest_versions;
-use crate::minecraft::vanilla::structs::{VanillaVersionsManifest, VersionDetailsManifest};
+use crate::minecraft::vanilla::manifest::load_vanilla_index;
+use crate::minecraft::vanilla::pipeline::{run_vanilla_phases, VanillaPhaseExecutor};
+use crate::minecraft::vanilla::structs::{AssetIndexContent, VersionDetailsManifest};
 use crate::state::dto::ProjectConfig;
 use crate::{
     log_info,
     minecraft::structs::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     step_try,
     utils::{
-        env_info::launcher_path, errors::LauncherError, integrity::ensure_files, java::find_java,
+        env_info::launcher_path,
+        errors::LauncherError,
+        integrity::{ensure_files, IntegrityTarget},
+        java::find_java,
         step_events::StepHandle,
     },
 };
 
-const LOADER_NAME: &str = "vanilla";
-
 pub struct Vanilla;
+
+struct InstallPhases {
+    base_path: PathBuf,
+    project_name: String,
+}
+
+#[async_trait]
+impl VanillaPhaseExecutor for InstallPhases {
+    async fn fetch(
+        &mut self,
+        phase: &'static VanillaPhaseInfo,
+        targets: Vec<IntegrityTarget>,
+    ) -> Result<()> {
+        let step = StepHandle::start(phase.id, phase.label);
+        step_try!(
+            step,
+            ensure_files(&step, &self.base_path, &self.project_name, targets).await
+        );
+        step.finish(false);
+        Ok(())
+    }
+
+    async fn natives(
+        &mut self,
+        mc_version: &str,
+        natives_rel: Vec<(PathBuf, Option<Vec<String>>)>,
+    ) -> Result<()> {
+        let step = StepHandle::start(PHASE_NATIVES.id, PHASE_NATIVES.label);
+        let natives_dir = self.base_path.join("natives");
+        if natives_match_version(&natives_dir, mc_version).await {
+            step.finish(true);
+            return Ok(());
+        }
+        step.detail("Распаковка");
+        step_try!(
+            step,
+            extract_natives(&self.base_path, natives_rel, mc_version).await
+        );
+        step.finish(false);
+        Ok(())
+    }
+
+    async fn asset_index(&mut self, target: IntegrityTarget) -> Result<AssetIndexContent> {
+        let step = StepHandle::start(PHASE_ASSET_INDEX.id, PHASE_ASSET_INDEX.label);
+        let index_rel = target.rel_path.clone();
+        step_try!(
+            step,
+            ensure_files(&step, &self.base_path, &self.project_name, vec![target]).await
+        );
+
+        let index_path = self.base_path.join(&index_rel);
+        let asset_index = match read_asset_index(&index_path).await {
+            Ok(index) => index,
+            Err(e) => {
+                step.fail(e.to_string());
+                return Err(e);
+            }
+        };
+        step.finish(false);
+        Ok(asset_index)
+    }
+}
+
 #[async_trait]
 impl MinecraftLoader for Vanilla {
     async fn versions(&self) -> Result<Vec<Versions>> {
         log_info!("Загрузка индекс манифеста");
-        let manifest_index = get_manifest_index::<VanillaVersionsManifest>(
-            LOADER_NAME,
-            VERSION_MANIFEST_URL,
-            "index",
-        )
-        .await
-        .map_err(|e| {
+        let versions = load_vanilla_index().await.map_err(|e| {
             LauncherError::ManifestParse(format!(
                 "Не удалось загрузить индекс манифеста версий: {e:#}"
             ))
         })?;
-        let manifest = create_manifest_versions(manifest_index.versions);
-        Ok(manifest)
+        Ok(versions)
     }
     async fn setup(&self, state: &ProjectConfig) -> Result<()> {
         let version = &state.mc_version;
@@ -66,77 +126,11 @@ impl MinecraftLoader for Vanilla {
                 "Не удалось определить путь к файлам проекта: {e:#}"
             ))
         })?;
-        let project_name = &state.project_name;
-        let targets = collect_install_targets(&manifest);
-
-        let jar_step = StepHandle::start(PHASE_CLIENT.id, PHASE_CLIENT.label);
-        step_try!(
-            jar_step,
-            ensure_files(&jar_step, &base_path, project_name, vec![targets.client],).await
-        );
-        jar_step.finish(false);
-
-        let libs_step = StepHandle::start(PHASE_LIBRARIES.id, PHASE_LIBRARIES.label);
-        step_try!(
-            libs_step,
-            ensure_files(&libs_step, &base_path, project_name, targets.libraries,).await
-        );
-        libs_step.finish(false);
-
-        let natives_rel = collect_natives_to_extract(&manifest);
-        let natives_step = StepHandle::start("mc.natives", "Нативные библиотеки");
-        let natives_dir = base_path.join("natives");
-        let natives_empty = match tokio::fs::read_dir(&natives_dir).await {
-            Ok(mut entries) => entries
-                .next_entry()
-                .await
-                .map(|e| e.is_none())
-                .unwrap_or(true),
-            Err(_) => true,
+        let mut phases = InstallPhases {
+            base_path,
+            project_name: state.project_name.clone(),
         };
-        if natives_empty {
-            natives_step.detail("Распаковка");
-            step_try!(natives_step, extract_natives(&base_path, natives_rel).await);
-            natives_step.finish(false);
-        } else {
-            natives_step.finish(true);
-        }
-
-        let index_step = StepHandle::start(PHASE_ASSET_INDEX.id, PHASE_ASSET_INDEX.label);
-        step_try!(
-            index_step,
-            ensure_files(
-                &index_step,
-                &base_path,
-                project_name,
-                vec![targets.asset_index.clone()],
-            )
-            .await
-        );
-
-        let index_path = base_path.join(&targets.asset_index.rel_path);
-        let asset_index = match read_asset_index(&index_path).await {
-            Ok(index) => index,
-            Err(e) => {
-                index_step.fail(e.to_string());
-                return Err(e);
-            }
-        };
-        index_step.finish(false);
-
-        let assets_step = StepHandle::start(PHASE_ASSETS.id, PHASE_ASSETS.label);
-        step_try!(
-            assets_step,
-            ensure_files(
-                &assets_step,
-                &base_path,
-                project_name,
-                collect_asset_targets(&asset_index),
-            )
-            .await
-        );
-        assets_step.finish(false);
-
+        run_vanilla_phases(&mut phases, &manifest).await?;
         Ok(())
     }
     async fn config(&self, state: &ProjectConfig, config: &LaunchConfig) -> Result<GameConfig> {
@@ -161,7 +155,7 @@ impl MinecraftLoader for Vanilla {
                 "Не удалось определить путь к файлам проекта: {e:#}"
             ))
         })?;
-        let mut classpath = get_classpath(&manifest_version.libraries, config)?;
+        let mut classpath = get_classpath(&manifest_version.libraries, config).await?;
         let client_jar = game_dir.join(format!("{}.jar", config.mc_version));
         classpath.push(client_jar.to_string_lossy().to_string());
 

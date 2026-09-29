@@ -22,7 +22,7 @@ const clampToRange = (v: number, minVal: number, maxVal: number, fallback: numbe
 const minVal = computed({
   get: () => props.modelValue[0],
   set: (v: number) => {
-    const clamped = clampToRange(v, min, maxLimit.value, fallbackMin)
+    const clamped = clampToRange(v, min, maxLimit.value, min)
     if (clamped > props.modelValue[1]) {
       emit('update:modelValue', [clamped, clamped])
       return
@@ -50,19 +50,19 @@ const formatValue = (val: number): string => {
   return `${val}M`
 }
 
+const clampPercent = (value: number): number => Math.min(100, Math.max(0, value))
+
 const minPercent = computed((): number => {
-  return ((minVal.value - min) / (maxLimit.value - min)) * 100
+  return clampPercent(((minVal.value - min) / (maxLimit.value - min)) * 100)
 })
 
 const maxPercent = computed((): number => {
-  return ((maxVal.value - min) / (maxLimit.value - min)) * 100
+  return clampPercent(((maxVal.value - min) / (maxLimit.value - min)) * 100)
 })
 
 const maxLimit = computed((): number => {
   return Math.max(props.max, min + step * 2)
 })
-
-const fallbackMin = 512
 
 const onMinInput = (e: Event): void => {
   const target = e.target as HTMLInputElement
@@ -121,20 +121,7 @@ const onMaxInput = (e: Event): void => {
   flex-direction: column;
   gap: var(--space-12);
 
-  &__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-12);
-  }
-
-  &__values {
-    font-family: var(--font-mono);
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    color: var(--login-text-primary);
-    font-variant-numeric: tabular-nums;
-  }
+  @include mixins.slider-header('values');
 
   &__track {
     @include mixins.slider-track;

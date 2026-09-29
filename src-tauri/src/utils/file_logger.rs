@@ -12,6 +12,7 @@ const RETENTION_DAYS: i64 = 30;
 
 static FILE_LOG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static SESSION_HEADER_WRITTEN: AtomicBool = AtomicBool::new(false);
+static LOG_CLEANUP_DONE: AtomicBool = AtomicBool::new(false);
 
 struct CivilDate {
     year: i64,
@@ -131,7 +132,9 @@ fn append_line(line: &str) {
     let Some(dir) = logs_dir() else {
         return;
     };
-    cleanup_old_logs(&dir);
+    if !LOG_CLEANUP_DONE.swap(true, Ordering::Relaxed) {
+        cleanup_old_logs(&dir);
+    }
     let path = dir.join(format!("{}.log", date_string(&today_date())));
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = file.write_all(line.as_bytes());

@@ -36,27 +36,13 @@ const emit = defineEmits<{
 @use '@/01-app/assets/mixins';
 
 .startup-error {
-  min-height: 100vh;
-  width: 100%;
-  background: var(--app-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--layout-padding);
-  position: relative;
-
-  &::before {
-    @include mixins.grid-backdrop;
-  }
+  @include mixins.fullscreen-page;
 }
 
 .startup-error__card {
-  width: 100%;
+  @include mixins.fullscreen-card;
+
   max-width: var(--page-max-width);
-  background: var(--login-bg-form);
-  border-radius: var(--radius-modal);
-  padding: var(--page-padding-y) var(--page-padding-x);
-  box-shadow: var(--elevation-modal);
   position: relative;
   z-index: var(--z-content);
 

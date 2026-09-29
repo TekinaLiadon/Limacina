@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useAttrs, watch } from 'vue'
 import { randomId } from '@/06-shared/utils/utils'
 import type { InputOptions } from '@/06-shared/types'
 import OpenEye from "@/06-shared/components/svg/OpenEye.vue";
@@ -14,10 +14,27 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+const rootClass = computed((): string | string[] | undefined => {
+  const value = attrs.class
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value as string[]
+  return undefined
+})
+const inputAttrs = computed((): Record<string, unknown> => {
+  const { class: _rootClass, ...rest } = attrs
+  return rest
+})
+
 const id = ref('')
 const showPassword = ref(false)
 const showDropdown = ref(false)
+const activeSuggest = ref(0)
 const inputRef = ref<HTMLDivElement | null>(null)
+
+const listboxId = randomId()
 
 const inputType = computed(() => {
   if (props.options?.type === 'password') return showPassword.value ? 'text' : 'password'
@@ -49,6 +66,34 @@ const selectItem = (item: string): void => {
   showDropdown.value = false
 }
 
+watch(showDropdown, (shown: boolean): void => {
+  if (shown) activeSuggest.value = 0
+})
+
+watch(filteredList, (): void => {
+  activeSuggest.value = 0
+})
+
+const handleInputKeydown = (event: KeyboardEvent): void => {
+  if (!showDropdown.value || filteredList.value.length === 0) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    showDropdown.value = false
+    return
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    activeSuggest.value = (activeSuggest.value + 1) % filteredList.value.length
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    activeSuggest.value = (activeSuggest.value - 1 + filteredList.value.length) % filteredList.value.length
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    const item = filteredList.value[activeSuggest.value]
+    if (item !== undefined) selectItem(item)
+  }
+}
+
 const handleClickOutside = (e: MouseEvent): void => {
   if (inputRef.value && !inputRef.value.contains(e.target as Node)) {
     showDropdown.value = false
@@ -66,7 +111,7 @@ onUnmounted((): void => {
 </script>
 
 <template>
-  <div class="input__core">
+  <div class="input__core" :class="rootClass">
     <div class="input__field">
       <label v-if="options?.label" class="label" :for="id">
         {{options?.label}}
@@ -77,22 +122,34 @@ onUnmounted((): void => {
                  'input__text--password': options?.type === 'password',
                  'input__text--disabled': options?.disabled,
                }"
-               v-bind="$attrs"
+               v-bind="inputAttrs"
                :placeholder="options?.placeholder"
                :type="inputType"
                v-model="data"
                :id="id"
                :readonly="options?.readonly"
                :disabled="options?.disabled"
+               role="combobox"
+               :aria-expanded="showDropdown && filteredList.length > 0"
+               aria-haspopup="listbox"
+               :aria-controls="listboxId"
+               :aria-activedescendant="showDropdown && filteredList.length > 0 ? `${listboxId}-opt-${activeSuggest}` : undefined"
                @focus="options?.list?.length && (showDropdown = true)"
                @input="options?.list?.length && (showDropdown = true)"
+               @keydown="handleInputKeydown"
+               @focusout="showDropdown = false"
         />
-        <div v-if="showDropdown && filteredList.length" class="input__dropdown">
+        <div v-if="showDropdown && filteredList.length" :id="listboxId" class="input__dropdown" role="listbox">
           <div
-            v-for="item in filteredList"
+            v-for="(item, index) in filteredList"
             :key="item"
+            :id="`${listboxId}-opt-${index}`"
             class="input__dropdown-item"
+            :class="{ 'input__dropdown-item--active': index === activeSuggest }"
+            role="option"
+            :aria-selected="item === data"
             @mousedown.prevent="selectItem(item)"
+            @mousemove="activeSuggest = index"
           >
             {{ item }}
           </div>
@@ -101,8 +158,9 @@ onUnmounted((): void => {
           v-if="options?.type === 'password'"
           type="button"
           class="input__eye"
+          :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+          :aria-pressed="showPassword"
           @click="showPassword = !showPassword"
-          tabindex="-1"
         >
           <OpenEye v-if="!showPassword" />
           <ClosedEye v-else />
@@ -114,6 +172,8 @@ onUnmounted((): void => {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
+$input-row-container: 420px;
 
 .input {
   &__core {
@@ -134,7 +194,7 @@ onUnmounted((): void => {
     }
   }
 
-  @container (min-width: 420px) {
+  @container (min-width: $input-row-container) {
     .input__field {
       flex-direction: row;
       align-items: center;
@@ -164,7 +224,7 @@ onUnmounted((): void => {
     box-sizing: border-box;
 
     &--password {
-      padding-right: 44px;
+      padding-right: var(--control-icon-area);
     }
 
     &--disabled {
@@ -219,7 +279,7 @@ onUnmounted((): void => {
     background: var(--login-bg-form);
     border-radius: var(--radius-input);
     padding: var(--space-4) 0;
-    max-height: 200px;
+    max-height: var(--options-max-height);
     overflow-y: auto;
     z-index: var(--z-dropdown);
     box-shadow: var(--elevation-modal);
@@ -233,7 +293,8 @@ onUnmounted((): void => {
     cursor: pointer;
     transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 
-    &:hover {
+    &:hover,
+    &--active {
       background: var(--surface-hover);
       color: var(--login-text-primary);
     }
@@ -241,7 +302,7 @@ onUnmounted((): void => {
 
   &__eye {
     position: absolute;
-    right: 12px;
+    right: var(--control-padding-x);
     background: none;
     border: none;
     cursor: pointer;

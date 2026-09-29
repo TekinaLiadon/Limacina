@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { openUrl } from '@tauri-apps/plugin-opener'
-import { Button, MarkdownText, useFocusTrap, getErrorMessage } from '@/06-shared'
+import { Button, MarkdownText, Preloader, useFocusTrap, getErrorMessage, openExternalUrl } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
@@ -152,7 +151,7 @@ onBeforeUnmount((): void => {
 
 async function handleLink(url: string): Promise<void> {
   try {
-    await openUrl(url)
+    await openExternalUrl(url)
   } catch (e: unknown) {
     notification.show(getErrorMessage(e))
   }
@@ -162,7 +161,7 @@ async function handleLink(url: string): Promise<void> {
 <template>
   <Teleport to="body">
     <Transition name="popup">
-      <div v-if="visible" class="modrinth-popup-overlay" @click.self="emit('close')" @keydown.esc="emit('close')">
+      <div v-if="visible" class="modrinth-popup-overlay" @click.self="emit('close')">
         <div ref="popupRef" class="modrinth-popup popup-panel" role="dialog" aria-modal="true">
           <div class="modrinth-popup__head">
             <ModrinthIcon :src="hit?.icon_url ?? null" :title="hit?.title ?? '?'" size="lg" />
@@ -196,8 +195,7 @@ async function handleLink(url: string): Promise<void> {
           </div>
 
           <div v-if="isLoading" class="modrinth-popup__loading">
-            <span class="modrinth-popup__spinner" aria-hidden="true" />
-            <span>Загрузка информации...</span>
+            <Preloader local text="Загрузка информации..." />
           </div>
 
           <div v-else-if="details" class="modrinth-popup__content">
@@ -343,30 +341,16 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-8);
-    padding: var(--space-24) 0;
-  }
-
-  &__spinner {
-    width: 24px;
-    height: 24px;
-    border-radius: var(--radius-circle);
-    border: 2px solid var(--surface-light);
-    border-top-color: var(--accent-text);
-    animation: modrinth-popup-spin var(--duration-spin) linear infinite;
+    position: relative;
+    min-height: var(--skeleton-card-height);
   }
 
   &__info {
+    @include mixins.subtle-card(var(--space-8) var(--space-12));
+
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    padding: var(--space-8) var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
   }
 
   &__info-row {
@@ -403,13 +387,11 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__body {
+    @include mixins.subtle-card;
+
     font-size: var(--text-caption);
     line-height: var(--leading-body);
     color: var(--login-text-secondary);
-    padding: var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
   }
 
   &__versions-title {
@@ -425,14 +407,12 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__version {
+    @include mixins.subtle-card(var(--space-8) var(--space-12));
+
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-4);
-    padding: var(--space-8) var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
     text-align: left;
   }
 
@@ -452,6 +432,8 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__changelog {
+    @include mixins.subtle-card(var(--space-8) var(--space-12));
+
     width: 100%;
     max-height: calc(var(--space-48) * 5);
     overflow-y: auto;
@@ -459,10 +441,6 @@ async function handleLink(url: string): Promise<void> {
     font-size: var(--text-caption);
     line-height: var(--leading-body);
     color: var(--login-text-secondary);
-    padding: var(--space-8) var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
   }
 
 
@@ -483,12 +461,6 @@ async function handleLink(url: string): Promise<void> {
   &__error {
     margin: 0;
     color: var(--error);
-  }
-}
-
-@keyframes modrinth-popup-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 </style>

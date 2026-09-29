@@ -153,7 +153,8 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
                         v
                     )));
                 }
-                let releases = fetch_launcher_versions().await?;
+                let mut releases = fetch_launcher_versions().await?;
+                retain_current_platform(&mut releases);
                 if !releases.iter().any(|release| release.version == v) {
                     log_err!("Версия v{} отсутствует на сервере", v);
                     return Err(anyhow::Error::new(LauncherError::UpdateVersionMissing(

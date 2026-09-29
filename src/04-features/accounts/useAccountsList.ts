@@ -22,12 +22,17 @@ export function useAccountsList(): {
     store.isLoginsLoading = true
     store.loginsError = ''
     try {
-      store.logins = await authLogins(projectName)
+      const loadedLogins = await authLogins(projectName)
+      if (coreStore.currentProject !== projectName) return
+      store.logins = loadedLogins
     } catch (e: unknown) {
+      if (coreStore.currentProject !== projectName) return
       store.loginsError = getErrorMessage(e)
       reportError('Не удалось загрузить аккаунты', e)
     } finally {
-      store.isLoginsLoading = false
+      if (coreStore.currentProject === projectName) {
+        store.isLoginsLoading = false
+      }
     }
   }
 

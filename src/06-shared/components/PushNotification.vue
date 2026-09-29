@@ -8,7 +8,7 @@ defineProps<{
 <template>
   <Teleport to="body">
     <Transition name="push-notification">
-      <div v-if="visible" class="push-notification">
+      <div v-if="visible" class="push-notification" role="status" aria-live="polite">
         <span class="push-notification__text">{{ message }}</span>
       </div>
     </Transition>
@@ -25,7 +25,7 @@ defineProps<{
   border-radius: var(--radius-card);
   padding: var(--space-16) var(--space-20);
   box-shadow: var(--elevation-modal);
-  max-width: 360px;
+  max-width: var(--notification-max-width);
 
   &__text {
     font-size: var(--text-body-sm);

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Button, Input, Checkbox } from '@/06-shared'
 import { useAuth } from '@/04-features'
-import { AuthForm } from '@/03-widgets'
+import AuthForm from '../login/AuthForm.vue'
 import type { AuthSubTab } from '@/05-entities'
 
 const props = defineProps<{
@@ -25,6 +25,8 @@ const {
   isOffline,
   isLoginValid,
   isRegisterValid,
+  registerLoginHint,
+  registerPasswordHint,
   handleLogin,
   handleRegister,
 } = useAuth()
@@ -41,6 +43,12 @@ const tabs: AuthButtonTab[] = [
 
 const showTabs = computed((): boolean => !isOffline.value)
 const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props.activeTab))
+
+const switchTab = (tab: AuthSubTab): void => {
+  if (tab === props.activeTab) return
+  errorMessage.value = ''
+  emit('update:activeTab', tab)
+}
 </script>
 
 <template>
@@ -51,7 +59,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
           :key="el.key"
           class="auth-tabs__tab"
           :class="{ 'auth-tabs__tab--active': activeTab === el.key }"
-          @click="emit('update:activeTab', el.key)"
+          @click="switchTab(el.key)"
         >
         {{el.text}}
       </Button>
@@ -87,6 +95,8 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
         :is-loading="isLoading"
         :is-disabled="!isRegisterValid"
         :error-message="errorMessage"
+        :username-hint="registerLoginHint ?? ''"
+        :password-hint="registerPasswordHint ?? ''"
         username-placeholder="Логин"
         @submit="handleRegister"
         @back="emit('back')"

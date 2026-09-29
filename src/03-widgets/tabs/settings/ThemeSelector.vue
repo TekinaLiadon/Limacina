@@ -112,12 +112,9 @@ const modes: ModeOption[] = [
 
   &__mode {
     @include mixins.segmented-item($hover-bg: false);
+    @include mixins.mode-toggle;
 
     padding: var(--space-4) var(--space-16);
-    font-family: inherit;
-    font-size: var(--text-caption);
-    font-weight: var(--weight-medium);
-    cursor: pointer;
     transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
   }
 
@@ -174,8 +171,8 @@ const modes: ModeOption[] = [
 
   &__swatch {
     display: block;
-    width: 14px;
-    height: 14px;
+    width: var(--theme-swatch-size);
+    height: var(--theme-swatch-size);
     border-radius: var(--radius-circle);
     box-shadow: var(--elevation-inset);
 
@@ -187,7 +184,7 @@ const modes: ModeOption[] = [
   &__info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-2);
     flex: 1;
     min-width: 0;
   }
@@ -209,8 +206,8 @@ const modes: ModeOption[] = [
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 20px;
-    height: 20px;
+    width: var(--badge-size);
+    height: var(--badge-size);
     border-radius: var(--radius-circle);
     background: var(--login-accent);
     color: var(--text-on-accent);

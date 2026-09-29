@@ -1,4 +1,4 @@
-import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
+import { ref, computed, watch, onMounted, onScopeDispose, nextTick } from 'vue'
 import { reportError } from '@/06-shared'
 import {
   getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
@@ -89,6 +89,7 @@ export function useSkinSettings() {
       restoringOfflineModel = true
       const model = await getOfflineSkinModel()
       if (model === 'slim' || model === 'classic') modelMode.value = model
+      await nextTick()
       restoringOfflineModel = false
       setSkinUrl(dataUrl)
       dataUrl = null
@@ -180,6 +181,7 @@ export function useSkinSettings() {
     skinUrl,
     errorMessage: content.errorMessage,
     isUploading: content.isUploading,
+    isMutating: content.isMutating,
     isOffline: content.isOffline,
     uploadedSkins: content.items,
     isListLoading: content.isListLoading,

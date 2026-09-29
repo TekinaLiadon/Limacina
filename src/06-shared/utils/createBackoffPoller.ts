@@ -15,8 +15,6 @@ export interface BackoffPollerConfig<T> {
 }
 
 export interface BackoffPoller {
-  poll: () => Promise<void>
-  fetchOnce: () => Promise<void>
   startSync: () => void
 }
 
@@ -90,10 +88,6 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
     schedule(currentDelayMs)
   }
 
-  const fetchOnce = async (): Promise<void> => {
-    await runCycle(pollGeneration)
-  }
-
   const syncWithProject = (): void => {
     stopPolling()
     if (!isWatched()) {
@@ -108,7 +102,8 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
     if (syncStarted) return
     syncStarted = true
     watch(watchSource, syncWithProject)
+    syncWithProject()
   }
 
-  return { poll, fetchOnce, startSync }
+  return { startSync }
 }

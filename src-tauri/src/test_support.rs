@@ -3,12 +3,22 @@ use std::path::{Path, PathBuf};
 
 use sha1::{Digest, Sha1};
 
-use crate::minecraft::structs::LaunchConfig;
+use crate::minecraft::structs::{LaunchConfig, LibraryMod};
 
 pub fn sha1_hex(data: &[u8]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(data);
     crate::utils::hex::digest_hex(hasher.finalize())
+}
+
+pub fn library_mod(name: &str, path: &str) -> LibraryMod {
+    LibraryMod {
+        name: name.to_string(),
+        path: path.to_string(),
+        url: String::new(),
+        hash: String::new(),
+        size: 1,
+    }
 }
 
 pub static LAUNCHER_DIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -92,8 +102,6 @@ pub fn test_launch_config(root: &Path) -> LaunchConfig {
         libraries_dir: root.join("libraries"),
         natives_dir: root.join("natives"),
         jvm_sub_arg: Vec::new(),
-        window_width: 1280,
-        window_height: 720,
     }
 }
 

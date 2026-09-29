@@ -26,6 +26,23 @@ fn default_theme() -> String {
 
 static RESOLVED_LAUNCHER_PATH: OnceLock<RwLock<PathBuf>> = OnceLock::new();
 
+#[cfg(test)]
+static TEST_CONFIG_FILE_PATH: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
+
+#[cfg(test)]
+fn test_config_file_path() -> Option<PathBuf> {
+    TEST_CONFIG_FILE_PATH
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .and_then(|guard| guard.clone())
+}
+
+#[cfg(test)]
+pub(crate) fn set_config_file_path_for_tests(path: Option<PathBuf>) {
+    let lock = TEST_CONFIG_FILE_PATH.get_or_init(|| RwLock::new(None));
+    *lock.write().unwrap_or_else(|e| e.into_inner()) = path;
+}
+
 fn normalize_path(raw: &str) -> PathBuf {
     PathBuf::from(raw.replace('/', std::path::MAIN_SEPARATOR_STR))
 }
@@ -98,6 +115,10 @@ impl Default for LauncherConfig {
 
 impl LauncherConfig {
     fn config_file_path() -> Result<std::path::PathBuf> {
+        #[cfg(test)]
+        if let Some(path) = test_config_file_path() {
+            return Ok(path);
+        }
         let config_dir = dirs::config_dir().ok_or_else(|| {
             anyhow::Error::new(LauncherError::DiskIo(
                 "Не удалось определить директорию конфигурации".to_string(),
@@ -263,8 +284,6 @@ impl LauncherConfig {
         self.current_project = self.project_names.first().cloned();
     }
 
-    /// Подставляет проект из LAUNCHER_PROJECT_NAME, если список проектов пуст.
-    /// Offline-сборки и сборки без переменной остаются без дефолтного проекта.
     pub fn apply_default_project(&mut self) -> bool {
         if !self.project_names.is_empty() || crate::utils::env_info::is_offline_build() {
             return false;
@@ -534,7 +553,10 @@ mod tests {
         assert_eq!(config.project_names, vec!["Avelmor"]);
         assert_eq!(config.current_project.as_deref(), Some("Avelmor"));
 
-        assert!(!config.apply_default_project(), "повторный вызов без эффекта");
+        assert!(
+            !config.apply_default_project(),
+            "повторный вызов без эффекта"
+        );
         assert_eq!(config.project_names.len(), 1);
 
         let mut kept = LauncherConfig::default();

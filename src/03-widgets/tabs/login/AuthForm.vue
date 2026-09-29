@@ -13,6 +13,8 @@ const props = withDefaults(defineProps<{
   usernamePlaceholder?: string
   passwordPlaceholder?: string
   usernameList?: string[]
+  usernameHint?: string
+  passwordHint?: string
 }>(), {
   isBack: false,
   hidePassword: false,
@@ -20,6 +22,8 @@ const props = withDefaults(defineProps<{
   usernamePlaceholder: '',
   passwordPlaceholder: '',
   usernameList: () => [],
+  usernameHint: '',
+  passwordHint: '',
 })
 
 const emit = defineEmits<{
@@ -43,6 +47,7 @@ const handleSubmit = (): void => {
           @update:model-value="emit('update:username', $event)"
           :options="{ placeholder: usernamePlaceholder || 'Никнейм', list: usernameList ?? [] }"
       />
+      <span v-if="usernameHint" class="auth-form__hint">{{ usernameHint }}</span>
     </div>
 
     <div v-if="!hidePassword" class="auth-form__field">
@@ -51,6 +56,7 @@ const handleSubmit = (): void => {
           @update:model-value="emit('update:password', $event)"
           :options="{ placeholder: passwordPlaceholder || 'Пароль', type: 'password' }"
       />
+      <span v-if="passwordHint" class="auth-form__hint">{{ passwordHint }}</span>
     </div>
 
     <slot/>
@@ -87,6 +93,12 @@ const handleSubmit = (): void => {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+  }
+
+  &__hint {
+    font-size: var(--text-caption);
+    text-align: left;
+    color: var(--error);
   }
 
   &__error {

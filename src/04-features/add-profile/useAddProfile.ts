@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue'
 import {
   useCoreStore,
   useNotificationStore,
+  LOADER_LABELS,
   type ModLoaderKind,
   type OfflineProfileForm,
   type ProfileKind,
@@ -17,15 +18,16 @@ import {
   getMinecraftVersions,
 } from '@/06-shared/api'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
-import { reportError, useAsyncRaceGuard } from '@/06-shared'
-import type { DropdownOption } from '@/06-shared/types'
+import { reportError, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 
-const LOADER_OPTIONS: DropdownOption[] = [
-  { title: 'Без загрузчика (Vanilla)', value: 'vanilla' },
-  { title: 'Fabric', value: 'fabric' },
-  { title: 'Forge', value: 'forge' },
-  { title: 'NeoForge', value: 'neoforge' },
-]
+const loaderOption = (value: ModLoaderKind): DropdownOption => ({
+  value,
+  title: value === 'vanilla' ? 'Без загрузчика (Vanilla)' : LOADER_LABELS[value],
+})
+
+const LOADER_OPTIONS: DropdownOption[] = (Object.keys(LOADER_LABELS) as ModLoaderKind[]).map(
+  loaderOption,
+)
 
 export function useAddProfile() {
   const coreStore = useCoreStore()

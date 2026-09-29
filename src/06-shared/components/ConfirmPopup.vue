@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { Button, useFocusTrap } from '@/06-shared'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
+import Button from './Button.vue'
+import { useFocusTrap } from '../utils/useFocusTrap'
 
 const props = defineProps<{
   message: string
@@ -21,8 +22,18 @@ function handleKeydown(e: KeyboardEvent): void {
 }
 
 watch((): boolean => props.visible, (visible) => {
-  if (visible) window.addEventListener('keydown', handleKeydown)
-  else window.removeEventListener('keydown', handleKeydown)
+  if (!visible) {
+    window.removeEventListener('keydown', handleKeydown)
+    return
+  }
+  window.addEventListener('keydown', handleKeydown)
+  void nextTick((): void => {
+    popupRef.value?.querySelector<HTMLButtonElement>('.confirm-popup__btn--cancel')?.focus()
+  })
+}, { immediate: true })
+
+onUnmounted((): void => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -37,7 +48,7 @@ watch((): boolean => props.visible, (visible) => {
               Да
             </Button>
             <Button
-              class="btn-quiet confirm-popup__btn"
+              class="btn-quiet confirm-popup__btn confirm-popup__btn--cancel"
               @click="emit('cancel')"
             >
               Нет

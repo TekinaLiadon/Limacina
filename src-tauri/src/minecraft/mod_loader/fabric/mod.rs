@@ -108,7 +108,8 @@ impl ModLoader for Fabric {
             &version.id,
             &version.library,
             &vanilla_config.classpath,
-        )?;
+        )
+        .await?;
 
         Ok(vanilla_config.with_loader(classpath, version.main_class.clone()))
     }

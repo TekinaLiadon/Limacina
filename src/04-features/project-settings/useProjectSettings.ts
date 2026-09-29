@@ -1,10 +1,9 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm, type ProjectConfig } from '@/05-entities'
-import { authLogins, clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { copyToClipboard, reportError } from '@/06-shared'
+import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
+import { copyToClipboard, reportError, selectDirectory, useDirtySnapshot } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features'
-import { open } from '@tauri-apps/plugin-dialog'
 import { splitJvmArgs } from './jvmPresets'
 
 export function useProjectSettings(): {
@@ -36,7 +35,7 @@ export function useProjectSettings(): {
   const notification = useNotificationStore()
   const store = useProjectSettingsStore()
   const router = useRouter()
-  const { resetAccountsState } = useProjectSwitch()
+  const { resetAccountsState, applyProjectSwitch } = useProjectSwitch()
 
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
@@ -44,21 +43,24 @@ export function useProjectSettings(): {
   const loadError = computed((): string => store.loadError)
   const isSaving = computed((): boolean => store.isSaving)
 
-  const DIRTY_FIELDS = ['loaderVersion', 'javaPath', 'jvmArgs', 'memoryRange', 'autoJoinServer'] as const
+  type DirtyFields = Pick<
+    ProjectSettingsForm,
+    'loaderVersion' | 'javaPath' | 'jvmArgs' | 'memoryRange' | 'autoJoinServer'
+  >
 
-  const dirtySnapshot = (): string => {
-    const form = store.config
-    return JSON.stringify(Object.fromEntries(DIRTY_FIELDS.map((field) => [field, form[field]])))
-  }
+  const dirtyState = useDirtySnapshot((): DirtyFields => ({
+    loaderVersion: store.config.loaderVersion,
+    javaPath: store.config.javaPath,
+    jvmArgs: store.config.jvmArgs,
+    memoryRange: store.config.memoryRange,
+    autoJoinServer: store.config.autoJoinServer,
+  }))
+  const { isFieldDirty } = dirtyState
 
-  const initialDirtySnapshot = ref<string>('')
-
-  const isDirty = computed((): boolean =>
-    store.isLoaded && initialDirtySnapshot.value !== '' && initialDirtySnapshot.value !== dirtySnapshot(),
-  )
+  const isDirty = computed((): boolean => store.isLoaded && dirtyState.isDirty.value)
 
   watch((): string => store.loadedProject, (): void => {
-    initialDirtySnapshot.value = dirtySnapshot()
+    dirtyState.captureBaseline()
   }, { immediate: true })
 
   const maxMemoryLimit = computed((): number => {
@@ -77,7 +79,7 @@ export function useProjectSettings(): {
   }
 
   const selectJavaFolder = async (): Promise<void> => {
-    const selected = await open({ directory: true })
+    const selected = await selectDirectory()
     if (selected) config.value.javaPath = selected
   }
 
@@ -123,26 +125,26 @@ export function useProjectSettings(): {
 
   const handleSave = async (): Promise<void> => {
     if (!store.isLoaded) return
+    if (store.isSaving) return
+    const { projectName } = config.value
     store.startSaving()
 
     try {
+      const fresh = await loadSettingsProject(projectName)
+      if (coreStore.currentProject !== projectName) return
       const projectConfig: ProjectConfig = {
-        projectName: config.value.projectName,
-        mcVersion: config.value.mcVersion,
-        modLoader: config.value.modLoader,
-        loaderVersion: config.value.loaderVersion || null,
-        javaPath: config.value.javaPath || null,
-        javaVersion: config.value.javaVersion,
-        jvmArgs: config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : [],
-        minMemory: `-Xms${config.value.memoryRange[0]}M`,
-        maxMemory: `-Xmx${config.value.memoryRange[1]}M`,
-        online: config.value.online,
-        initialized: coreStore.projectConfig?.initialized ?? config.value.initialized,
-        serverUrl: config.value.serverUrl,
-        autoJoinServer: config.value.autoJoinServer,
+        ...fresh,
+        loaderVersion: isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
+        javaPath: isFieldDirty('javaPath') ? config.value.javaPath || null : fresh.javaPath,
+        jvmArgs: isFieldDirty('jvmArgs') ? (config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : []) : fresh.jvmArgs,
+        minMemory: isFieldDirty('memoryRange') ? `-Xms${config.value.memoryRange[0]}M` : fresh.minMemory,
+        maxMemory: isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
+        autoJoinServer: isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
       await saveSettingsProject(projectConfig)
-      initialDirtySnapshot.value = dirtySnapshot()
+      if (coreStore.currentProject !== projectName) return
+      coreStore.projectConfig = projectConfig
+      dirtyState.captureBaseline()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))
@@ -248,11 +250,7 @@ export function useProjectSettings(): {
       }
 
       try {
-        const nextConfig = await loadSettingsProject(next)
-        const logins = await authLogins(next)
-        coreStore.currentProject = next
-        coreStore.projectConfig = nextConfig
-        accountsStore.logins = logins
+        await applyProjectSwitch(next)
       } catch (e: unknown) {
         coreStore.currentProject = next
         coreStore.projectConfig = null

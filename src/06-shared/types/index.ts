@@ -17,21 +17,6 @@ export interface DropdownOption {
 
 export type IconType = 'home' | 'referals' | 'settings' | 'puzzle' | 'chevron-down' | 'arrow-right'
 
-export interface IconProps {
-  type?: IconType
-  up?: boolean
-  down?: boolean
-  left?: boolean
-  right?: boolean
-}
-
-export interface IconButtonProps {
-  icon: IconType
-  tag?: string
-  up?: boolean
-  down?: boolean
-}
-
 export interface ViewerControls {
   minZoom: number
   zoomLevel: Ref<number>

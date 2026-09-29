@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  'update:form': [value: ServerForm]
   submit: []
   back: []
 }>()
@@ -34,7 +35,7 @@ const handleSubmit = (): void => {
 
     <Input
       :model-value="form.serverUrl"
-      @update:model-value="form.serverUrl = $event"
+      @update:model-value="emit('update:form', { ...form, serverUrl: $event })"
       :options="{ label: 'Адрес сервера', placeholder: 'mc.example.com:3000' }"
     />
 
@@ -68,21 +69,5 @@ const handleSubmit = (): void => {
   gap: var(--element-gap);
 
   @include mixins.form-head;
-
-  &__subtitle {
-    @include mixins.form-subtitle;
-  }
-
-  &__error {
-    @include mixins.error-box;
-
-    margin: 0;
-  }
-
-  &__actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-  }
 }
 </style>

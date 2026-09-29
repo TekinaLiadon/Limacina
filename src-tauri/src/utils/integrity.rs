@@ -8,7 +8,7 @@ use crate::log_info;
 use crate::utils::download_file::{download_file, file_sha1};
 use crate::utils::errors::LauncherError;
 use crate::utils::install_manifest::{
-    load_install_manifest, merge_installed, save_install_manifest,
+    load_install_manifest, merge_installed, save_install_manifest, InstallManifest,
 };
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::{StepChannel, StepHandle};
@@ -146,6 +146,95 @@ where
     targets.into_iter().zip(results).collect()
 }
 
+enum DownloadCheck<'a> {
+    Reverify,
+    RecordHash { installed: &'a mut InstallManifest },
+}
+
+async fn settle_results(
+    base_path: &Path,
+    results: Vec<(IntegrityTarget, Result<(), anyhow::Error>)>,
+    mut failed: Vec<String>,
+    mut check: DownloadCheck<'_>,
+) -> (u64, Vec<String>) {
+    let mut repaired: u64 = 0;
+
+    for (target, result) in results {
+        let file_path = base_path.join(&target.rel_path);
+        let ok = match &mut check {
+            DownloadCheck::Reverify => match result {
+                Err(e) => {
+                    log_err!(
+                        "[integrity] Не удалось восстановить {:?}: {:?}",
+                        file_path,
+                        e
+                    );
+                    false
+                }
+                Ok(()) if target.hash.is_empty() => true,
+                Ok(()) => match target.hash_kind.matches(&file_path, &target.hash).await {
+                    Ok(true) => true,
+                    Ok(false) => {
+                        log_err!(
+                            "[integrity] Восстановленный файл не прошёл проверку хеша: {:?}",
+                            file_path
+                        );
+                        false
+                    }
+                    Err(e) => {
+                        log_err!(
+                            "[integrity] Не удалось проверить восстановленный файл {:?}: {}",
+                            file_path,
+                            e
+                        );
+                        false
+                    }
+                },
+            },
+            DownloadCheck::RecordHash { installed } => {
+                if let Err(e) = result {
+                    log_err!("Не удалось скачать {:?}: {:?}", file_path, e);
+                    false
+                } else {
+                    match file_sha1(&file_path).await {
+                        Ok(hash) => {
+                            if !target.hash.is_empty() && hash != target.hash {
+                                let _ = tokio::fs::remove_file(&file_path).await;
+                                log_err!(
+                                    "Скачанный файл не соответствует хешу {:?}: ожидается {}, получен {}",
+                                    file_path,
+                                    target.hash,
+                                    hash
+                                );
+                                false
+                            } else {
+                                merge_installed(
+                                    installed,
+                                    &target.rel_path.to_string_lossy(),
+                                    &hash,
+                                );
+                                true
+                            }
+                        }
+                        Err(e) => {
+                            log_err!("Не удалось вычислить хеш {:?}: {}", file_path, e);
+                            false
+                        }
+                    }
+                }
+            }
+        };
+
+        if ok {
+            repaired += 1;
+        } else {
+            failed.push(target.rel_path.to_string_lossy().into_owned());
+        }
+    }
+
+    (repaired, failed)
+}
+
 pub async fn check_integrity<F, Fut>(
     base_path: &Path,
     targets: Vec<IntegrityTarget>,
@@ -190,47 +279,8 @@ where
 
     let results = download_targets(base_path, &step, broken, download_fn).await;
 
-    let mut repaired: u64 = 0;
-    let mut failed_files: Vec<String> = failed;
-    for (target, result) in results {
-        let file_path = base_path.join(&target.rel_path);
-        let ok = match result {
-            Err(e) => {
-                log_err!(
-                    "[integrity] Не удалось восстановить {:?}: {:?}",
-                    file_path,
-                    e
-                );
-                false
-            }
-            Ok(()) if target.hash.is_empty() => true,
-            Ok(()) => match target.hash_kind.matches(&file_path, &target.hash).await {
-                Ok(true) => true,
-                Ok(false) => {
-                    log_err!(
-                        "[integrity] Восстановленный файл не прошёл проверку хеша: {:?}",
-                        file_path
-                    );
-                    false
-                }
-                Err(e) => {
-                    log_err!(
-                        "[integrity] Не удалось проверить восстановленный файл {:?}: {}",
-                        file_path,
-                        e
-                    );
-                    false
-                }
-            },
-        };
-        if ok {
-            repaired += 1;
-        } else {
-            failed_files.push(target.rel_path.to_string_lossy().into_owned());
-        }
-    }
-
-    let failed = failed_files;
+    let (repaired, failed) =
+        settle_results(base_path, results, failed, DownloadCheck::Reverify).await;
 
     if failed.is_empty() {
         step.finish(false);
@@ -307,48 +357,15 @@ pub async fn ensure_files(
     })
     .await;
 
-    let mut repaired: u64 = 0;
-    let mut failed_files: Vec<String> = failed;
-
-    for (target, result) in results {
-        let file_path = base_path.join(&target.rel_path);
-        let ok = match result {
-            Err(e) => {
-                log_err!("Не удалось скачать {:?}: {:?}", file_path, e);
-                false
-            }
-            Ok(()) => true,
-        };
-
-        if ok {
-            let actual = file_sha1(&file_path).await;
-            match actual {
-                Ok(hash) => {
-                    if !target.hash.is_empty() && hash != target.hash {
-                        let _ = tokio::fs::remove_file(&file_path).await;
-                        log_err!(
-                            "Скачанный файл не соответствует хешу {:?}: ожидается {}, получен {}",
-                            file_path,
-                            target.hash,
-                            hash
-                        );
-                        failed_files.push(target.rel_path.to_string_lossy().into_owned());
-                    } else {
-                        merge_installed(&mut installed, &target.rel_path.to_string_lossy(), &hash);
-                        repaired += 1;
-                    }
-                }
-                Err(e) => {
-                    log_err!("Не удалось вычислить хеш {:?}: {}", file_path, e);
-                    failed_files.push(target.rel_path.to_string_lossy().into_owned());
-                }
-            }
-        } else {
-            failed_files.push(target.rel_path.to_string_lossy().into_owned());
-        }
-    }
-
-    let failed = failed_files;
+    let (repaired, failed) = settle_results(
+        base_path,
+        results,
+        failed,
+        DownloadCheck::RecordHash {
+            installed: &mut installed,
+        },
+    )
+    .await;
 
     if failed.is_empty() {
         save_install_manifest(project_name, &installed)
@@ -423,37 +440,62 @@ mod ensure_files_tests {
         }
     }
 
+    const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
+
+    async fn mock_and_ensure(
+        server: &mut Server,
+        mock_path: &str,
+        body: &[u8],
+        dir: &LauncherDirGuard,
+        rel: &str,
+    ) -> Result<IntegrityReport> {
+        server
+            .mock("GET", mock_path)
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+        let target = url_target(rel, &sha1_hex(body), format!("{}{mock_path}", server.url()));
+        ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &dir.project_dir("Cordelia"),
+            "Cordelia",
+            vec![target],
+        )
+        .await
+    }
+
+    async fn ensure_broken_target(
+        dir: &LauncherDirGuard,
+        rel: &str,
+        url: String,
+    ) -> Result<IntegrityReport> {
+        let target = url_target(rel, ZERO_SHA1, url);
+        ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &dir.project_dir("Cordelia"),
+            "Cordelia",
+            vec![target],
+        )
+        .await
+    }
+
     #[tokio::test]
     async fn downloads_missing_file_and_records_hash() {
         let dir = LauncherDirGuard::acquire("ensure_ok").await;
         let mut server = Server::new_async().await;
         let body = b"library bytes".to_vec();
-        server
-            .mock("GET", "/libs/a.jar")
-            .with_status(200)
-            .with_body(body.clone())
-            .create_async()
-            .await;
 
-        let base = dir.project_dir("Cordelia");
-        let target = url_target(
-            "libraries/a.jar",
-            &sha1_hex(&body),
-            format!("{}/libs/a.jar", server.url()),
-        );
-
-        let report = ensure_files(
-            &StepHandle::start("install", "Тест"),
-            &base,
-            "Cordelia",
-            vec![target],
-        )
-        .await
-        .expect("установка файлов");
+        let report = mock_and_ensure(&mut server, "/libs/a.jar", &body, &dir, "libraries/a.jar")
+            .await
+            .expect("установка файлов");
 
         assert_eq!(report.repaired, 1);
         assert!(report.failed.is_empty());
-        assert_eq!(std::fs::read(base.join("libraries/a.jar")).unwrap(), body);
+        assert_eq!(
+            std::fs::read(dir.project_dir("Cordelia").join("libraries/a.jar")).unwrap(),
+            body
+        );
 
         let installed = load_install_manifest("Cordelia").await.expect("манифест");
         assert_eq!(
@@ -473,18 +515,10 @@ mod ensure_files_tests {
             .create_async()
             .await;
 
-        let base = dir.project_dir("Cordelia");
-        let target = url_target(
+        let report = ensure_broken_target(
+            &dir,
             "libraries/a.jar",
-            "0000000000000000000000000000000000000000",
             format!("{}/libs/a.jar", server.url()),
-        );
-
-        let report = ensure_files(
-            &StepHandle::start("install", "Тест"),
-            &base,
-            "Cordelia",
-            vec![target],
         )
         .await
         .expect("отчёт установки");
@@ -492,7 +526,7 @@ mod ensure_files_tests {
         assert_eq!(report.repaired, 0);
         assert_eq!(report.failed, vec!["libraries/a.jar"]);
         assert!(
-            !base.join("libraries/a.jar").exists(),
+            !dir.project_dir("Cordelia").join("libraries/a.jar").exists(),
             "битый файл должен быть удалён"
         );
     }
@@ -504,17 +538,10 @@ mod ensure_files_tests {
         let target_path = base.join("libraries/a.jar");
         std::fs::create_dir_all(&target_path).expect("создание непрочитываемого «файла»");
 
-        let target = url_target(
+        let report = ensure_broken_target(
+            &dir,
             "libraries/a.jar",
-            "0000000000000000000000000000000000000000",
             "https://invalid.example.test/libs/a.jar".to_string(),
-        );
-
-        let report = ensure_files(
-            &StepHandle::start("install", "Тест"),
-            &base,
-            "Cordelia",
-            vec![target],
         )
         .await
         .expect("отчёт установки");
@@ -568,28 +595,10 @@ mod ensure_files_tests {
         dir.write_broken_install_manifest("Cordelia");
         let mut server = Server::new_async().await;
         let body = b"library bytes".to_vec();
-        server
-            .mock("GET", "/libs/a.jar")
-            .with_status(200)
-            .with_body(body.clone())
-            .create_async()
-            .await;
 
-        let base = dir.project_dir("Cordelia");
-        let target = url_target(
-            "libraries/a.jar",
-            &sha1_hex(&body),
-            format!("{}/libs/a.jar", server.url()),
-        );
-
-        let report = ensure_files(
-            &StepHandle::start("install", "Тест"),
-            &base,
-            "Cordelia",
-            vec![target],
-        )
-        .await
-        .expect("установка при битом манифесте");
+        let report = mock_and_ensure(&mut server, "/libs/a.jar", &body, &dir, "libraries/a.jar")
+            .await
+            .expect("установка при битом манифесте");
 
         assert_eq!(report.repaired, 1);
         assert!(report.failed.is_empty());

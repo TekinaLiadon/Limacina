@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { reportError } from '@/06-shared'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -76,3 +77,7 @@ const router = createRouter({
 })
 
 export default router
+
+router.onError((error: unknown): void => {
+  reportError('Не удалось открыть страницу', error)
+})

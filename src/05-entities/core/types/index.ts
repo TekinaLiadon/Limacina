@@ -22,6 +22,7 @@ export interface LauncherConfig {
   projectNames: string[]
   currentProject: string | null
   projects: Record<string, AuthProjectConfig>
+  installId: string | null
 }
 
 export interface AppInitData {
@@ -41,8 +42,6 @@ export interface AuthUserData extends LoginForm {
 export interface UpdateInfo {
   version: string
 }
-
-export type UpdateVersionInfo = UpdateInfo
 
 export interface ServerStatus {
   online: number
@@ -92,28 +91,26 @@ export interface StepProgressItem {
   detail: string
   error: string
   shownAt: number
-}export interface CoreState {
+}
+
+export interface CoreState {
   isLoading: boolean
-  hasLauncherConfig: boolean | null
   launcherName: string
   defaultParentPath: string
   launcherConfig: LauncherConfig | null
   version: string
   offlineBuild: boolean
   envProjectName: string
-  activeTab: TabKey
   currentProject: string
   projects: string[]
   totalMemoryMb: number
   isLoggedIn: boolean
   session: SessionInfo | null
-  loginSteps: StepProgressItem[]
-  loginProgress: number
-  loginError: string
   projectConfig: ProjectConfig | null
   serverStatus: ServerStatus | null
   gameUsername: string | null
   isServerReachable: boolean | null
+  pendingCpmProjectPath: string | null
 }
 
 export interface ProjectConfig {
@@ -270,6 +267,7 @@ export interface JavaDistribution {
 export interface GameExitInfo {
   success: boolean
   code: number | null
+  reason: string | null
 }
 
 export interface IntegrityReport {

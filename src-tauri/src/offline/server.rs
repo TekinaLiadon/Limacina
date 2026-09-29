@@ -58,12 +58,7 @@ impl SkinServer {
         &self.url
     }
 
-    pub fn stop(mut self) {
-        self.shutdown.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
+    pub fn stop(self) {}
 }
 
 impl Drop for SkinServer {
@@ -86,8 +81,16 @@ fn run_server(listener: TcpListener, state: Arc<SkinState>, shutdown: Arc<Atomic
         }
         match listener.accept() {
             Ok((stream, _)) => {
-                if let Err(e) = handle_connection(stream, &state) {
-                    log_err!("Офлайн-шим: ошибка обработки запроса: {}", e);
+                let state = Arc::clone(&state);
+                let spawn_result = thread::Builder::new()
+                    .name("limacina-skin-shim-conn".to_string())
+                    .spawn(move || {
+                        if let Err(e) = handle_connection(stream, &state) {
+                            log_err!("Офлайн-шим: ошибка обработки запроса: {}", e);
+                        }
+                    });
+                if let Err(e) = spawn_result {
+                    log_err!("Офлайн-шим: не удалось запустить поток соединения: {}", e);
                 }
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {

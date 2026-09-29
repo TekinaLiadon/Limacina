@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
-import { useCoreStore } from '@/05-entities'
-import { PathPicker, AlternativeJavaButton, MemorySlider, ConfigCleanup, IntegrityCheck, JvmPreset, ServerConnect, ProjectDelete, SettingsSection, SettingsSaveBar, SettingsInfoRow } from '@/03-widgets'
+import { useCoreStore, LOADER_LABELS } from '@/05-entities'
+import { PathPicker, AlternativeJavaButton, MemorySlider, DangerActionButton, IntegrityCheck, JvmPreset, ServerConnect, SettingsSection, SettingsSaveBar, SettingsInfoRow, LoadErrorRow } from '@/03-widgets'
 import { Button, Checkbox, Input } from '@/06-shared'
 
 const coreStore = useCoreStore()
@@ -62,13 +62,6 @@ const memoryRange = computed({
   set: (val: [number, number]) => { config.value.memoryRange = val },
 })
 
-const modLoaderLabels: Record<string, string> = {
-  vanilla: 'Vanilla',
-  fabric: 'Fabric',
-  forge: 'Forge',
-  neoforge: 'NeoForge',
-}
-
 const handleOpenPopup = async (): Promise<void> => {
   await openPopup(config.value.mcVersion)
 }
@@ -83,23 +76,13 @@ const handleDownload = async (): Promise<void> => {
 
 <template>
   <div class="project-settings">
-    <div v-if="loadError" class="project-settings__load-error" role="alert">
-      <p class="project-settings__load-error-text">{{ loadError }}</p>
-      <Button
-        class="btn-secondary project-settings__load-error-btn"
-        :is-loading="isLoading"
-        :is-disabled="isLoading"
-        @click="retryLoad"
-      >
-        Повторить
-      </Button>
-    </div>
+    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
 
     <SettingsSection title="Сборка" storage-key="project-build">
       <div class="settings-grid">
         <div class="project-settings__info">
           <SettingsInfoRow label="Версия Minecraft" :value="config.mcVersion" />
-          <SettingsInfoRow label="Загрузчик модов" :value="modLoaderLabels[config.modLoader] ?? config.modLoader" />
+          <SettingsInfoRow label="Загрузчик модов" :value="LOADER_LABELS[config.modLoader]" />
         </div>
 
         <Input
@@ -157,7 +140,6 @@ const handleDownload = async (): Promise<void> => {
           :popup-visible="isPopupOpen"
           :is-distributions-loading="isDistributionsLoading"
           :distributions-error="distributionsError"
-          :java-version="javaVersion"
           :version-error="versionError"
           v-model:selected-distribution="selectedDistribution"
           v-model:replace-default="replaceDefault"
@@ -194,8 +176,18 @@ const handleDownload = async (): Promise<void> => {
 
     <SettingsSection title="Опасная зона" storage-key="project-danger">
       <div class="project-settings__danger">
-        <ConfigCleanup :is-clearing="isClearingConfig" @clear="handleClearMinecraftConfig" />
-        <ProjectDelete v-if="canDeleteProject" :is-deleting="isDeleting" @delete="handleDeleteProject" />
+        <DangerActionButton
+          label="Очистить конфиги игры"
+          :is-loading="isClearingConfig"
+          @action="handleClearMinecraftConfig"
+        />
+        <DangerActionButton
+          v-if="canDeleteProject"
+          class="project-settings__danger-button"
+          label="Удалить проект"
+          :is-loading="isDeleting"
+          @action="handleDeleteProject"
+        />
       </div>
     </SettingsSection>
 
@@ -206,22 +198,14 @@ const handleDownload = async (): Promise<void> => {
 <style lang="scss">
 @use '@/01-app/assets/mixins';
 
+.project-settings__danger-button {
+  width: 100%;
+}
+
 .project-settings {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-
-  &__load-error {
-    @include mixins.load-error-row;
-  }
-
-  &__load-error-text {
-    margin: 0;
-  }
-
-  &__load-error-btn {
-    flex-shrink: 0;
-  }
 
   &__info {
     display: flex;

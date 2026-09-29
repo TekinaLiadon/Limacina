@@ -6,13 +6,14 @@ use anyhow::Result;
 use std::fs as std_fs;
 use std::io as std_io;
 
+use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::{
     log_err, log_info,
     minecraft::vanilla::rules::is_rule_allowed,
     minecraft::vanilla::structs::{Artifact, AssetIndexContent, Library, VersionDetailsManifest},
     utils::{
-        env_info::get_current_os,
+        env_info::{get_arch, get_current_os},
         integrity::{HashKind, IntegrityTarget, TargetDownload},
     },
 };
@@ -20,23 +21,33 @@ use crate::{
 pub struct VanillaPhaseInfo {
     pub id: &'static str,
     pub label: &'static str,
+    pub integrity_noun: &'static str,
 }
 
 pub const PHASE_CLIENT: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.jar",
     label: "Клиент игры",
+    integrity_noun: "клиентский jar",
 };
 pub const PHASE_LIBRARIES: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.libs",
     label: "Библиотеки игры",
+    integrity_noun: "библиотеки",
+};
+pub const PHASE_NATIVES: VanillaPhaseInfo = VanillaPhaseInfo {
+    id: "mc.natives",
+    label: "Нативные библиотеки",
+    integrity_noun: "нативные библиотеки",
 };
 pub const PHASE_ASSET_INDEX: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.assets.index",
     label: "Загрузка индекса ресурсов",
+    integrity_noun: "индекс ассетов",
 };
 pub const PHASE_ASSETS: VanillaPhaseInfo = VanillaPhaseInfo {
     id: "mc.assets",
     label: "Загрузка ресурсов",
+    integrity_noun: "ассеты",
 };
 
 pub struct VanillaTargetSet {
@@ -56,11 +67,7 @@ pub fn collect_install_targets(manifest: &VersionDetailsManifest) -> VanillaTarg
 fn native_artifact_for_os<'a>(lib: &'a Library, current_os: &str) -> Option<&'a Artifact> {
     let natives_map = lib.natives.as_ref()?;
     let classifier_template = natives_map.get(current_os)?;
-    let arch = if cfg!(target_arch = "x86_64") {
-        "64"
-    } else {
-        "32"
-    };
+    let arch = if get_arch() == "x86" { "32" } else { "64" };
     let classifier = classifier_template.replace("${arch}", arch);
     let classifiers = &lib.downloads.as_ref()?.classifiers.as_ref()?;
     classifiers.get(&classifier)
@@ -117,9 +124,27 @@ pub fn collect_natives_to_extract(
     natives_to_extract
 }
 
+pub const NATIVES_VERSION_MARKER: &str = ".mc-version";
+
+pub async fn natives_match_version(natives_dir: &Path, mc_version: &str) -> bool {
+    match tokio::fs::read_to_string(natives_dir.join(NATIVES_VERSION_MARKER)).await {
+        Ok(stored) => stored.trim() == mc_version,
+        Err(_) => false,
+    }
+}
+
+async fn write_natives_version_marker(natives_dir: &Path, mc_version: &str) -> Result<()> {
+    write_atomic(
+        &natives_dir.join(NATIVES_VERSION_MARKER),
+        mc_version.as_bytes(),
+    )
+    .await
+}
+
 pub async fn extract_natives(
     base_path: &Path,
     natives_rel_paths: Vec<(PathBuf, Option<Vec<String>>)>,
+    mc_version: &str,
 ) -> Result<()> {
     let natives_dir = base_path.join("natives");
     let natives_to_extract = natives_rel_paths
@@ -128,7 +153,12 @@ pub async fn extract_natives(
         .collect();
 
     clear_natives_dir(&natives_dir).await?;
-    match extract_native(natives_to_extract, natives_dir.clone()).await {
+    let outcome = async {
+        extract_native(natives_to_extract, natives_dir.clone()).await?;
+        write_natives_version_marker(&natives_dir, mc_version).await
+    }
+    .await;
+    match outcome {
         Ok(()) => Ok(()),
         Err(e) => {
             if let Err(wipe_error) = clear_natives_dir(&natives_dir).await {
@@ -389,26 +419,65 @@ pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> Integrit
     }
 }
 
-pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Vec<IntegrityTarget> {
+pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<IntegrityTarget>> {
     let mut targets = Vec::new();
     for asset in asset_index.objects.values() {
-        let hash_prefix = asset.hash[..2].to_string();
+        let hash_prefix = asset.hash.get(..2).ok_or_else(|| {
+            LauncherError::ManifestParse(format!(
+                "Некорректный хеш ассета в индексе: {}",
+                asset.hash
+            ))
+        })?;
         targets.push(IntegrityTarget {
-            rel_path: PathBuf::from(format!("assets/objects/{}/{}", hash_prefix, asset.hash)),
+            rel_path: PathBuf::from(format!("assets/objects/{hash_prefix}/{}", asset.hash)),
             hash: asset.hash.clone(),
             hash_kind: HashKind::Sha1,
             download: TargetDownload::Url(format!(
-                "https://resources.download.minecraft.net/{}/{}",
-                hash_prefix, asset.hash
+                "https://resources.download.minecraft.net/{hash_prefix}/{}",
+                asset.hash
             )),
         });
     }
-    targets
+    Ok(targets)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_library_targets, extract_natives, get_current_os};
+    use super::{
+        collect_asset_targets, collect_library_targets, extract_natives, get_current_os,
+        natives_match_version, AssetIndexContent,
+    };
+    #[test]
+    fn asset_targets_reject_short_hashes() {
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "x", "size": 1 } }
+        }))
+        .unwrap();
+
+        let result = collect_asset_targets(&index);
+
+        assert!(
+            result.is_err(),
+            "хеш короче двух символов не должен паниковать, а давать ошибку"
+        );
+    }
+
+    #[test]
+    fn asset_targets_map_hash_prefixes() {
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "abcdef1234567890abcdef1234567890abcdef12", "size": 1 } }
+        }))
+        .unwrap();
+
+        let targets = collect_asset_targets(&index).expect("валидные ассеты");
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(
+            targets[0].rel_path,
+            PathBuf::from("assets/objects/ab/abcdef1234567890abcdef1234567890abcdef12")
+        );
+    }
+
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
     use crate::test_support::{
         gson_library, jopt_simple_library, logging_library, write_test_zip, LauncherDirGuard,
@@ -620,6 +689,7 @@ mod tests {
                     Some(vec!["META-INF/".to_string()]),
                 ),
             ],
+            "1.18.2",
         )
         .await
         .expect("распаковка natives");
@@ -642,6 +712,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn natives_reextracted_when_project_version_changes() {
+        let dir = LauncherDirGuard::acquire("natives_version_change").await;
+        let base = dir.project_dir("Cordelia");
+
+        write_test_zip(
+            &base.join("libraries/lwjgl-3.2.2-natives.jar"),
+            &[("liblwjgl.so", b"lwjgl 3.2.2".as_slice())],
+        );
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/lwjgl-3.2.2-natives.jar"), None)],
+            "1.18.2",
+        )
+        .await
+        .expect("распаковка natives 1.18.2");
+
+        assert_eq!(
+            std_fs::read(base.join("natives/liblwjgl.so")).unwrap(),
+            b"lwjgl 3.2.2"
+        );
+        assert!(natives_match_version(&base.join("natives"), "1.18.2").await);
+        assert!(!natives_match_version(&base.join("natives"), "1.20.1").await);
+
+        write_test_zip(
+            &base.join("libraries/lwjgl-3.3.3-natives.jar"),
+            &[("liblwjgl.so", b"lwjgl 3.3.3".as_slice())],
+        );
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/lwjgl-3.3.3-natives.jar"), None)],
+            "1.20.1",
+        )
+        .await
+        .expect("пере-распаковка natives 1.20.1");
+
+        assert_eq!(
+            std_fs::read(base.join("natives/liblwjgl.so")).unwrap(),
+            b"lwjgl 3.3.3"
+        );
+        assert!(!base.join("natives/README.txt").exists());
+        assert!(natives_match_version(&base.join("natives"), "1.20.1").await);
+        assert!(!natives_match_version(&base.join("natives"), "1.18.2").await);
+    }
+
+    #[tokio::test]
+    async fn natives_match_version_false_for_legacy_install_without_marker() {
+        let dir = LauncherDirGuard::acquire("natives_legacy_marker").await;
+        let base = dir.project_dir("Cordelia");
+
+        std_fs::create_dir_all(base.join("natives")).unwrap();
+        std_fs::write(base.join("natives/liblwjgl.so"), b"old").unwrap();
+
+        assert!(!natives_match_version(&base.join("natives"), "1.18.2").await);
+    }
+
+    #[tokio::test]
     async fn extract_natives_failure_wipes_dir_and_retry_recovers() {
         let dir = LauncherDirGuard::acquire("natives_fail_retry").await;
         let base = dir.project_dir("Cordelia");
@@ -659,6 +785,7 @@ mod tests {
                 (PathBuf::from("libraries/good.jar"), None),
                 (PathBuf::from("libraries/missing.jar"), None),
             ],
+            "1.18.2",
         )
         .await;
 
@@ -671,9 +798,13 @@ mod tests {
             "после сбоя папка natives должна быть пуста для чистой повторной попытки"
         );
 
-        extract_natives(&base, vec![(PathBuf::from("libraries/good.jar"), None)])
-            .await
-            .expect("повторная распаковка после сбоя");
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/good.jar"), None)],
+            "1.18.2",
+        )
+        .await
+        .expect("повторная распаковка после сбоя");
 
         assert_eq!(
             std_fs::read(base.join("natives/libgood.so")).unwrap(),

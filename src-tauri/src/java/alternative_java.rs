@@ -5,8 +5,9 @@ use tokio::fs::{create_dir_all, read_dir, remove_file, rename};
 use tokio::task::spawn_blocking;
 
 use crate::java::{extract_archive, find_java_executable, resolve_java_version};
+use crate::utils::blocking;
 use crate::utils::download_file::download_file;
-use crate::utils::env_info::{get_arch, get_current_os, launcher_path};
+use crate::utils::env_info::{ensure_safe_relative_path, get_arch, get_current_os, launcher_path};
 use crate::utils::errors::LauncherError;
 
 #[derive(Serialize, Clone)]
@@ -143,15 +144,28 @@ async fn collect_dirs(path: &PathBuf) -> Result<Vec<String>> {
     Ok(dirs)
 }
 
+fn ensure_distribution_supported(distribution: &str) -> Result<()> {
+    if get_java_distributions_list()
+        .iter()
+        .any(|d| d.api_parameter == distribution)
+    {
+        return Ok(());
+    }
+    Err(LauncherError::InvalidInput(format!("Неизвестный дистрибутив Java: {distribution}")).into())
+}
+
 pub async fn download_alt_java(
     distribution: &str,
     java_version: Option<&str>,
     mc_version: &str,
 ) -> Result<(PathBuf, String)> {
+    ensure_distribution_supported(distribution)?;
+
     let version = match java_version {
         Some(v) => v.to_string(),
         None => resolve_java_version(mc_version).await,
     };
+    ensure_safe_relative_path(&version, "версии Java")?;
 
     let os = get_current_os();
     let arch = match get_arch() {
@@ -211,6 +225,52 @@ pub async fn download_alt_java(
         }
     }
 
-    let exe = find_java_executable(&java_path)?;
+    let exe = blocking(
+        "Не удалось найти исполняемый файл Java",
+        move || find_java_executable(&java_path),
+    )
+    .await??;
     Ok((exe, version))
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::ensure_distribution_supported;
+    use crate::utils::env_info::ensure_safe_relative_path;
+
+    #[test]
+    fn traversal_distribution_is_rejected() {
+        let error = ensure_distribution_supported("../evil")
+            .expect_err("дистрибутив с обходом пути должен быть отклонён");
+        assert!(
+            error.to_string().contains("Неизвестный дистрибутив"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
+
+    #[test]
+    fn whitelisted_distribution_is_accepted() {
+        assert!(ensure_distribution_supported("zulu").is_ok());
+        assert!(ensure_distribution_supported("temurin").is_ok());
+        assert!(ensure_distribution_supported("graalvm_community").is_ok());
+    }
+
+    #[test]
+    fn traversal_java_version_is_rejected() {
+        let error = ensure_safe_relative_path("../../evil", "версии Java")
+            .expect_err("версия с обходом пути должна быть отклонена");
+        assert!(
+            error
+                .to_string()
+                .contains("Некорректное значение версии Java"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+        assert!(ensure_safe_relative_path("..\\evil", "версии Java").is_err());
+    }
+
+    #[test]
+    fn normal_java_version_is_accepted() {
+        assert!(ensure_safe_relative_path("21", "версии Java").is_ok());
+        assert!(ensure_safe_relative_path("17.0.9+9", "версии Java").is_ok());
+    }
 }

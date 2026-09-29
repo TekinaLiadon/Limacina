@@ -24,10 +24,12 @@ export function useAppInit() {
   const loadProject = (name: string): Promise<void> =>
     loadSettingsProject(name)
       .then((config: ProjectConfig): void => {
+        if (coreStore.currentProject !== name) return
         coreStore.projectConfig = config
         startupError.value = ''
       })
       .catch((e: unknown): void => {
+        if (coreStore.currentProject !== name) return
         reportError('Не удалось загрузить конфиг проекта', e)
         startupError.value = getErrorMessage(e) || 'Не удалось загрузить конфиг проекта'
       })
@@ -42,7 +44,6 @@ export function useAppInit() {
       coreStore.launcherName = initData.launcherName
       coreStore.defaultParentPath = initData.defaultParentPath
       coreStore.launcherConfig = initData.launcherConfig
-      coreStore.hasLauncherConfig = !!initData.launcherConfig
       coreStore.version = initData.version
       coreStore.totalMemoryMb = initData.totalMemoryMb
       coreStore.offlineBuild = initData.offlineBuild
@@ -83,7 +84,6 @@ export function useAppInit() {
           const freshData = await getAppInitData()
           coreStore.version = freshData.version
           coreStore.launcherConfig = freshData.launcherConfig
-          coreStore.hasLauncherConfig = !!freshData.launcherConfig
           if (freshData.launcherConfig) {
             coreStore.applyLauncherProjects(freshData.launcherConfig)
 
@@ -102,7 +102,7 @@ export function useAppInit() {
         return
       }
 
-      if (coreStore.offlineBuild && coreStore.projects.length === 0) {
+      if (coreStore.needsOfflineSetup) {
         router.replace({ name: 'Setup' })
         return
       }

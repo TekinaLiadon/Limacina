@@ -36,13 +36,11 @@ interface Tab {
 
 const isDebugTabVisible = computed((): boolean => coreStore.launcherConfig?.debugMode ?? false)
 
-const isOfflineProject = computed((): boolean => coreStore.projectConfig?.online === false)
-
-watch(isOfflineProject, (offline) => {
+watch((): boolean => coreStore.isOfflineProject, (offline) => {
   if (!offline && route.name === 'Mods') {
     router.push({ name: 'Accounts' })
   }
-})
+}, { immediate: true })
 
 const tabs = computed((): Tab[] => {
   const items: Tab[] = [
@@ -65,11 +63,7 @@ const fullscreenRouteNames: string[] = ['Setup']
 
 const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
 
-const needsOfflineSetup = computed((): boolean =>
-  coreStore.offlineBuild && coreStore.projects.length === 0
-)
-
-watch(needsOfflineSetup, (needed: boolean): void => {
+watch((): boolean => coreStore.needsOfflineSetup, (needed: boolean): void => {
   const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
   if (needed && !isFullscreenRoute) {
     router.replace({ name: 'Setup' })
@@ -98,7 +92,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
   if (!visible && route.name === 'Debug') {
     router.push({ name: 'Accounts' })
   }
-})
+}, { immediate: true })
 </script>
 
 <template>
@@ -185,7 +179,7 @@ watch(isDebugTabVisible, (visible: boolean): void => {
               :active-tab="currentTab"
               :settings-sub-tab="route.name as string"
               :show-debug="isDebugTabVisible"
-              :show-mods="isOfflineProject"
+              :show-mods="coreStore.isOfflineProject"
               @navigate="navigateTo"
               @navigate-settings="(routeName: string) => router.push({ name: routeName })"
             />
@@ -221,8 +215,8 @@ watch(isDebugTabVisible, (visible: boolean): void => {
     @include mixins.eyebrow($line-height: null, $transform: none, $weight: null);
 
     position: fixed;
-    top: 4px;
-    right: 8px;
+    top: var(--space-4);
+    right: var(--space-8);
     font-family: var(--font-eyebrow);
     font-variant-numeric: tabular-nums;
     z-index: var(--z-version);

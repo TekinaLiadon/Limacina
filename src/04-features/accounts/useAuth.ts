@@ -1,5 +1,5 @@
 import { computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, type AuthUserData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, type AuthUserData } from '@/05-entities'
 import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
@@ -27,22 +27,18 @@ export function useAuth() {
     get: () => store.registerFormData,
     set: (v) => { store.registerFormData = v },
   })
-  const showRegisterForm = computed({
-    get: (): boolean => store.registerShowForm,
-    set: (v: boolean): void => { store.registerShowForm = v },
-  })
 
   const passwordsMatch = computed((): boolean => {
     if (!store.registerFormData.confirmPassword) return true
     return store.registerFormData.password === store.registerFormData.confirmPassword
   })
 
-  const isOffline = computed((): boolean => coreStore.projectConfig?.online === false)
+  const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
   const isLoginValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
-    if (store.loginFormData.username.length < 3) return false
-    return isOffline.value || store.loginFormData.password.length >= 4
+    if (store.loginFormData.username.length < MIN_LOGIN_LENGTH) return false
+    return isOffline.value || store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
   })
 
   const isRegisterValid = computed((): boolean => {
@@ -55,10 +51,21 @@ export function useAuth() {
     )
   })
 
-  const loadSavedCredentials = async (): Promise<void> => {
+  const registerLoginHint = computed((): string | null => {
+    const { login } = store.registerFormData
+    if (!login || login.length >= MIN_LOGIN_LENGTH) return null
+    return `Логин — ${minLengthMessage(MIN_LOGIN_LENGTH)}`
+  })
+
+  const registerPasswordHint = computed((): string | null => {
+    const { password } = store.registerFormData
+    if (!password || password.length >= MIN_PASSWORD_LENGTH) return null
+    return `Пароль — ${minLengthMessage(MIN_PASSWORD_LENGTH)}`
+  })
+
+  const loadSavedCredentials = (): void => {
     if (coreStore.isLoggedIn) return
 
-    await loadAccounts()
     const [firstLogin] = store.logins
     if (firstLogin !== undefined && !store.loginFormData.username) {
       store.loginFormData.username = firstLogin
@@ -79,15 +86,12 @@ export function useAuth() {
         rememberMe: store.loginFormData.rememberMe,
       }
       await authLogin(authData)
-      coreStore.isLoggedIn = true
 
       const session = await getSessionInfo()
-      if (session) {
-        coreStore.session = session
-      }
+      if (session) coreStore.applySession(session)
 
       await loadAccounts()
-      store.showAuthForm = false
+      store.closeAuthForm()
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
       reportError('Ошибка авторизации', e)
@@ -117,25 +121,13 @@ export function useAuth() {
       await loadAccounts()
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
-      store.showAuthForm = false
-      store.registerShowForm = false
+      store.closeAuthForm()
       store.activeSubTab = 'login'
     } catch (e: unknown) {
       errorMessage.value = getErrorMessage(e)
     } finally {
       isLoading.value = false
     }
-  }
-
-  const openRegisterForm = (): void => {
-    showRegisterForm.value = true
-    errorMessage.value = ''
-    store.registerFormData = { login: '', password: '', confirmPassword: '' }
-  }
-
-  const closeRegisterForm = (): void => {
-    showRegisterForm.value = false
-    errorMessage.value = ''
   }
 
   onMounted(loadSavedCredentials)
@@ -146,14 +138,13 @@ export function useAuth() {
     logins,
     loginFormData,
     registerFormData,
-    showRegisterForm,
     passwordsMatch,
     isOffline,
     isLoginValid,
     isRegisterValid,
+    registerLoginHint,
+    registerPasswordHint,
     handleLogin,
     handleRegister,
-    openRegisterForm,
-    closeRegisterForm,
   }
 }

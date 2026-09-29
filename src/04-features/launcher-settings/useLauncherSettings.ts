@@ -1,9 +1,16 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
-import { joinPath, stripPathSuffix, reportError } from '@/06-shared'
-import { open } from '@tauri-apps/plugin-dialog'
-import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
+import {
+  joinPath,
+  stripPathSuffix,
+  reportError,
+  selectDirectory,
+  isAutostartEnabled,
+  enableAutostart,
+  disableAutostart,
+  useDirtySnapshot,
+} from '@/06-shared'
 
 export function useLauncherSettings(): {
   launcherPath: Ref<string>
@@ -18,14 +25,22 @@ export function useLauncherSettings(): {
   downloadSpeedLimitInput: Ref<string>
   settings: ComputedRef<LauncherSettingsPayload>
   isSaving: Ref<boolean>
-  isDirty: Ref<boolean>
+  isDirty: ComputedRef<boolean>
   selectLauncherFolder: () => Promise<void>
   handleSave: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
   const isSaving = ref<boolean>(false)
-  const isDirty = ref<boolean>(false)
+  interface DirtySnapshot extends LauncherSettingsPayload {
+    launcherPath: string
+  }
+
+  const dirtyState = useDirtySnapshot((): DirtySnapshot => ({
+    launcherPath: launcherPath.value,
+    ...formSettings(),
+  }))
+  const { isDirty } = dirtyState
   const launcherPath = ref<string>('')
   const discordActivity = ref<boolean>(true)
   const autoUpdate = ref<boolean>(false)
@@ -58,41 +73,32 @@ export function useLauncherSettings(): {
 
   const settings = computed<LauncherSettingsPayload>(formSettings)
 
-  const syncStartWithSystemState = async (): Promise<void> => {
+  const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
     try {
-      startWithSystem.value = await isAutostartEnabled()
+      const enabled = await isAutostartEnabled()
+      if (startWithSystem.value !== initial) return false
+      if (startWithSystem.value === enabled) return false
+      startWithSystem.value = enabled
+      return true
     } catch (e: unknown) {
       reportError('Не удалось получить состояние автозапуска', e)
+      return false
     }
   }
 
-  const applyStartWithSystem = async (enabled: boolean): Promise<void> => {
+  const applyStartWithSystem = async (enabled: boolean): Promise<boolean> => {
     try {
-      if ((await isAutostartEnabled()) === enabled) return
+      if ((await isAutostartEnabled()) === enabled) return true
       if (enabled) {
         await enableAutostart()
       } else {
         await disableAutostart()
       }
+      return true
     } catch (e: unknown) {
       notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
+      return false
     }
-  }
-
-  interface DirtySnapshot extends LauncherSettingsPayload {
-    launcherPath: string
-  }
-
-  const snapshot = (): DirtySnapshot => ({
-    launcherPath: launcherPath.value,
-    ...formSettings(),
-  })
-
-  const initialSnapshot = ref<DirtySnapshot | null>(null)
-
-  const refreshDirty = (): void => {
-    const initial = initialSnapshot.value
-    isDirty.value = initial !== null && JSON.stringify(initial) !== JSON.stringify(snapshot())
   }
 
   onMounted((): void => {
@@ -110,14 +116,14 @@ export function useLauncherSettings(): {
       downloadSpeedLimitInput.value =
         config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
     }
-    void syncStartWithSystemState().then((): void => {
-      initialSnapshot.value = snapshot()
-      refreshDirty()
+    dirtyState.captureBaseline()
+    void syncStartWithSystemState(startWithSystem.value).then((changed: boolean): void => {
+      if (changed) dirtyState.captureBaseline()
     })
   })
 
   const selectLauncherFolder = async (): Promise<void> => {
-    const selected = await open({ directory: true })
+    const selected = await selectDirectory()
     if (selected) {
       launcherPath.value = joinPath(selected, coreStore.launcherName)
     }
@@ -127,7 +133,6 @@ export function useLauncherSettings(): {
     try {
       const data = await getAppInitData()
       coreStore.launcherConfig = data.launcherConfig
-      coreStore.hasLauncherConfig = data.launcherConfig !== null
     } catch (e: unknown) {
       reportError('Не удалось восстановить состояние настроек', e)
     }
@@ -146,9 +151,8 @@ export function useLauncherSettings(): {
         coreStore.launcherConfig = await saveLauncherConfig(parentPath)
       }
 
-      await applyStartWithSystem(startWithSystem.value)
-      initialSnapshot.value = snapshot()
-      refreshDirty()
+      if (!(await applyStartWithSystem(startWithSystem.value))) return
+      dirtyState.captureBaseline()
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       await resyncLauncherConfig()

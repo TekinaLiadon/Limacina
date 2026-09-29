@@ -173,8 +173,8 @@ onMounted(() => {
       <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
 
       <div v-if="isTabLoading" class="modrinth-tab__list" aria-hidden="true">
-        <div v-for="index in 5" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
-          <Skeleton variant="list-item" icon-shape="square" :lines="4" />
+        <div v-for="index in 5" :key="index" class="modrinth-tab__row">
+          <Skeleton variant="list-item" icon-shape="square" :lines="4" flat size="lg" />
         </div>
       </div>
       <p v-else-if="installed.length === 0 && !installedError" class="modrinth-tab__empty">
@@ -228,23 +228,25 @@ onMounted(() => {
           :options="{ placeholder: 'Поиск модов Modrinth' }"
           @keydown.enter="loadPage(1)"
         />
-        <Dropdown
-          v-model="sort"
-          class="modrinth-tab__search-sort"
-          :options="sortOptions"
-          width="var(--filter-control-width)"
-        />
-        <MultiSelect
-          v-model="categories"
-          class="modrinth-tab__search-categories"
-          :options="categoryOptions"
-          placeholder="Категории"
-          width="var(--filter-control-width)"
-          clearable
-        />
-        <Button class="btn-primary" :is-loading="isSearching" @click="loadPage(1)">
-          Найти
-        </Button>
+        <div class="modrinth-tab__search-controls">
+          <Dropdown
+            v-model="sort"
+            class="modrinth-tab__search-sort"
+            :options="sortOptions"
+            width="var(--filter-control-width)"
+          />
+          <MultiSelect
+            v-model="categories"
+            class="modrinth-tab__search-categories"
+            :options="categoryOptions"
+            placeholder="Категории"
+            width="var(--filter-control-width)"
+            clearable
+          />
+          <Button class="btn-primary" :is-loading="isSearching" @click="loadPage(1)">
+            Найти
+          </Button>
+        </div>
       </div>
 
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
@@ -254,7 +256,7 @@ onMounted(() => {
       <div v-if="isCatalogSearching" class="modrinth-tab__summary" aria-hidden="true">
         <Skeleton
           class="modrinth-tab__summary-skeleton"
-          width="128px"
+          width="var(--modrinth-summary-skeleton-width)"
           height="calc(var(--text-caption) * var(--leading-caption))"
         />
       </div>
@@ -262,10 +264,10 @@ onMounted(() => {
         <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
       </div>
 
-      <p v-if="!isCatalogSearching && hits.length === 0" class="modrinth-tab__empty">Ничего не найдено</p>
+      <p v-if="!isCatalogSearching && hits.length === 0 && !searchError" class="modrinth-tab__empty">Ничего не найдено</p>
       <div v-else-if="isCatalogSearching" class="modrinth-tab__list" aria-hidden="true">
-        <div v-for="index in 6" :key="index" class="modrinth-tab__row modrinth-tab__row--skeleton">
-          <Skeleton variant="list-item" icon-shape="square" :lines="4" />
+        <div v-for="index in 6" :key="index" class="modrinth-tab__row">
+          <Skeleton variant="list-item" icon-shape="square" :lines="4" flat size="lg" />
         </div>
       </div>
       <TransitionGroup v-else name="modrinth-rows" tag="div" class="modrinth-tab__list">
@@ -407,8 +409,8 @@ onMounted(() => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 20px;
-    height: 20px;
+    min-width: var(--badge-size);
+    height: var(--badge-size);
     padding: 0 var(--space-4);
     border-radius: var(--radius-pill);
     background: var(--surface-active);
@@ -421,8 +423,8 @@ onMounted(() => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 20px;
-    height: 20px;
+    min-width: var(--badge-size);
+    height: var(--badge-size);
     padding: 0 var(--space-4);
     border-radius: var(--radius-pill);
     background: var(--accent-active-bg);
@@ -453,7 +455,16 @@ onMounted(() => {
     flex-wrap: wrap;
 
     &-input {
-      flex: 1 1 240px;
+      flex: 1 1 var(--filter-control-width);
+      min-width: var(--filter-control-width);
+    }
+
+    &-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      min-width: 0;
     }
   }
 
@@ -469,39 +480,11 @@ onMounted(() => {
   }
 
   &__row {
+    @include mixins.subtle-card(var(--space-8) var(--space-12));
+
     display: flex;
     align-items: center;
     gap: var(--space-12);
-    padding: var(--space-8) var(--space-12);
-    border-radius: var(--radius-card);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
-
-    &--skeleton {
-      .skeleton--list-item {
-        padding: 0;
-        border-radius: 0;
-        background: transparent;
-        box-shadow: none;
-      }
-
-      .skeleton__icon {
-        width: 48px;
-        height: 48px;
-      }
-
-      .skeleton__body {
-        gap: var(--space-4);
-      }
-
-      .skeleton__line {
-        height: calc(var(--text-body-sm) * var(--leading-body-sm));
-      }
-
-      .skeleton__line--short {
-        height: calc(var(--text-caption) * var(--leading-caption));
-      }
-    }
   }
 
   &__row-info {

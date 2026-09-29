@@ -6,13 +6,13 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::auth;
-use crate::commands::auth::{persist_session_credentials, restore_session};
+use crate::commands::auth::restore_and_persist_session;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::download_file::{download_file, write_atomic};
-use crate::utils::env_info::launcher_path;
+use crate::utils::env_info::{ensure_safe_relative_path, launcher_path};
 use crate::utils::hex::digest_hex;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
@@ -32,7 +32,7 @@ pub async fn select_account(
     let project = load_config_or_default(&project_name).await?;
 
     let auth_data = if project.online {
-        restore_session(&project_name, &username, None).await?
+        restore_and_persist_session(&project_name, &username, None).await?
     } else {
         auth::offline(&username)
     };
@@ -48,10 +48,6 @@ pub async fn select_account(
             username: username_str.clone(),
             project_name: project_name.clone(),
         });
-    }
-
-    if project.online {
-        persist_session_credentials(&project_name, &username, &auth_data).await?;
     }
 
     log_info!("Аккаунт выбран: {}", username_str);
@@ -75,7 +71,7 @@ pub async fn get_session_info(
 
 #[tauri::command]
 pub async fn clear_session(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    crate::state::launch_state::set_launch_in_progress(false);
+    crate::state::launch_state::force_release();
     let mut state = state.lock().await;
     state.session = None;
     Ok(())
@@ -86,28 +82,37 @@ pub async fn upload_skin(
     state: State<'_, Mutex<GlobalState>>,
     request: tauri::ipc::Request<'_>,
 ) -> CommandResult<UserContentItem> {
+    let (model, file_data) = parse_skin_request(&request, "загрузки скина")?;
+    ensure_skin_size(file_data.len() as u64)?;
+
+    let item = user_content::upload_skin(&state, file_data, model.as_deref()).await?;
+    Ok(item)
+}
+
+fn parse_skin_request(
+    request: &tauri::ipc::Request<'_>,
+    body_context: &str,
+) -> Result<(Option<String>, Vec<u8>)> {
     let model = request
         .headers()
         .get("Skin-Model")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| match value {
-            "slim" => Some("slim"),
-            "classic" => Some("classic"),
+            "slim" => Some("slim".to_string()),
+            "classic" => Some("classic".to_string()),
             _ => None,
         });
 
     let file_data = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
-
         tauri::ipc::InvokeBody::Json(value) => LauncherError::classify(
             serde_json::from_value(value.clone())
-                .context("Некорректное тело запроса загрузки скина"),
+                .with_context(|| format!("Некорректное тело запроса {body_context}")),
             LauncherError::InvalidInput,
         )?,
     };
 
-    let item = user_content::upload_skin(&state, file_data, model).await?;
-    Ok(item)
+    Ok((model, file_data))
 }
 
 #[tauri::command]
@@ -131,9 +136,11 @@ pub async fn set_active_skin(state: State<'_, Mutex<GlobalState>>, id: i64) -> C
     Ok(())
 }
 
-fn skin_cache_name(uuid: &str, url: &str) -> String {
+fn skin_cache_name(uuid: &str, url: &str) -> Result<String> {
     let hash = Md5::digest(url.as_bytes());
-    format!("{}_{}.png", uuid, digest_hex(hash))
+    let name = format!("{}_{}.png", uuid, digest_hex(hash));
+    ensure_safe_relative_path(&name, "uuid профиля")?;
+    Ok(name)
 }
 
 async fn get_profile_skin_inner(
@@ -155,7 +162,7 @@ async fn get_profile_skin_inner(
     }
 
     let cache_dir = launcher_path(Some(&project_name))?.join("profile_skins");
-    let file_name = skin_cache_name(&uuid, url);
+    let file_name = skin_cache_name(&uuid, url)?;
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
@@ -207,6 +214,18 @@ pub async fn get_profile_skin(
 const SKIN_EXT: &str = "png";
 const SKIN_MAX_BYTES: u64 = 256 * 1024;
 
+fn ensure_skin_size(len: u64) -> Result<()> {
+    if len > SKIN_MAX_BYTES {
+        return Err(LauncherError::InvalidInput(format!(
+            "Файл скина слишком большой: {} КБ, максимум {} КБ",
+            len / 1024,
+            SKIN_MAX_BYTES / 1024
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 fn is_skin_path(path: &str) -> bool {
     std::path::Path::new(path)
         .extension()
@@ -227,14 +246,7 @@ pub async fn read_skin_file(path: String) -> CommandResult<tauri::ipc::Response>
             .with_context(|| format!("Не удалось прочитать файл скина {:?}", path)),
         LauncherError::DiskIo,
     )?;
-    if metadata.len() > SKIN_MAX_BYTES {
-        return Err(LauncherError::InvalidInput(format!(
-            "Файл скина слишком большой: {} КБ, максимум {} КБ",
-            metadata.len() / 1024,
-            SKIN_MAX_BYTES / 1024
-        ))
-        .into());
-    }
+    ensure_skin_size(metadata.len())?;
     let bytes = tokio::fs::read(&path)
         .await
         .with_context(|| format!("Не удалось прочитать файл скина {:?}", path))?;
@@ -265,7 +277,7 @@ pub async fn delete_model(state: State<'_, Mutex<GlobalState>>, id: i64) -> Comm
     Ok(())
 }
 
-async fn current_project_name(state: &State<'_, Mutex<GlobalState>>) -> Result<String> {
+pub(crate) async fn current_project_name(state: &State<'_, Mutex<GlobalState>>) -> Result<String> {
     let project_name = {
         let guard = state.lock().await;
         guard.project_config.project_name.clone()
@@ -281,29 +293,12 @@ pub async fn save_offline_skin(
     state: State<'_, Mutex<GlobalState>>,
     request: tauri::ipc::Request<'_>,
 ) -> CommandResult<()> {
-    let model = request
-        .headers()
-        .get("Skin-Model")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| match value {
-            "slim" => Some("slim".to_string()),
-            "classic" => Some("classic".to_string()),
-            _ => None,
-        })
-        .ok_or_else(|| {
-            anyhow!(LauncherError::InvalidInput(
-                "Некорректная модель скина".to_string()
-            ))
-        })?;
-
-    let file_data = match request.body() {
-        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
-        tauri::ipc::InvokeBody::Json(value) => LauncherError::classify(
-            serde_json::from_value(value.clone())
-                .context("Некорректное тело запроса сохранения скина"),
-            LauncherError::InvalidInput,
-        )?,
-    };
+    let (model, file_data) = parse_skin_request(&request, "сохранения скина")?;
+    let model = model.ok_or_else(|| {
+        anyhow!(LauncherError::InvalidInput(
+            "Некорректная модель скина".to_string()
+        ))
+    })?;
 
     let project_name = current_project_name(&state).await?;
     let (png_path, meta_path) = offline_skin_paths(&project_name)?;
@@ -329,12 +324,13 @@ pub async fn save_offline_skin(
     )?;
 
     let meta = serde_json::json!({ "model": model });
-    LauncherError::classify(
-        write_atomic(&meta_path, meta.to_string().as_bytes())
-            .await
-            .context("Не удалось записать метаданные локального скина"),
-        LauncherError::DiskIo,
-    )?;
+    if let Err(e) = write_atomic(&meta_path, meta.to_string().as_bytes()).await {
+        let _ = tokio::fs::remove_file(&png_path).await;
+        LauncherError::classify(
+            Err(e).context("Не удалось записать метаданные локального скина"),
+            LauncherError::DiskIo,
+        )?;
+    }
 
     log_info!("Локальный скин сохранён: {}", png_path.display());
     Ok(())
@@ -384,4 +380,60 @@ pub async fn delete_offline_skin(state: State<'_, Mutex<GlobalState>>) -> Comman
     let project_name = current_project_name(&state).await?;
     delete_offline_skin_files(&project_name).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod skin_size_tests {
+    use super::{ensure_skin_size, SKIN_MAX_BYTES};
+
+    #[test]
+    fn size_at_limit_is_accepted() {
+        assert!(ensure_skin_size(SKIN_MAX_BYTES).is_ok());
+        assert!(ensure_skin_size(0).is_ok());
+    }
+
+    #[test]
+    fn size_above_limit_is_rejected() {
+        let error = ensure_skin_size(SKIN_MAX_BYTES + 1).expect_err("превышение лимита");
+        assert!(
+            error.to_string().contains("слишком большой"),
+            "ошибка должна объяснять превышение лимита: {error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod skin_cache_name_tests {
+    use super::{digest_hex, skin_cache_name};
+    use md5::{Digest, Md5};
+
+    #[test]
+    fn traversal_uuid_is_rejected() {
+        let error = skin_cache_name("../../evil", "https://example.invalid/skin.png")
+            .expect_err("uuid с обходом пути должен быть отклонён");
+        assert!(
+            error.to_string().contains("Некорректное значение uuid"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
+
+    #[test]
+    fn windows_style_traversal_uuid_is_rejected() {
+        assert!(skin_cache_name("..\\evil", "https://example.invalid/skin.png").is_err());
+    }
+
+    #[test]
+    fn normal_uuid_builds_cache_name() {
+        let url = "https://example.invalid/skin.png";
+        let name =
+            skin_cache_name("069a79f4-44e9-4726-a5be-fca90e38aaf5", url).expect("валидный uuid");
+        let hash = Md5::digest(url.as_bytes());
+        assert_eq!(
+            name,
+            format!(
+                "069a79f4-44e9-4726-a5be-fca90e38aaf5_{}.png",
+                digest_hex(hash)
+            )
+        );
+    }
 }

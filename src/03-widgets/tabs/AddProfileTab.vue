@@ -90,6 +90,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
         :is-valid="isServerValid"
         :error-message="errorMessage"
         :can-go-back="canGoBack"
+        @update:form="serverForm = $event"
         @submit="handleServerSubmit"
         @back="handleBack"
       />
@@ -107,6 +108,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
         :is-valid="isOfflineValid"
         :error-message="errorMessage"
         :can-go-back="canGoBack"
+        @update:form="offlineForm = $event"
         @submit="handleOfflineSubmit"
         @back="handleBack"
       />
@@ -118,13 +120,7 @@ const handleOfflineSubmit = async (): Promise<void> => {
 @use '@/01-app/assets/mixins';
 
 .add-profile-tab {
-  width: 100%;
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-  padding: var(--page-padding-y) var(--page-padding-x);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  @include mixins.page-scaffold;
 
   &__title {
     margin-bottom: var(--title-gap);

@@ -1,10 +1,3 @@
-<template>
-  <div class="preloader" :class="{ 'preloader--local': props.local }">
-    <img src="./preloader.svg" alt="" />
-    <div class="preloader__text">{{ props.text }}</div>
-  </div>
-</template>
-
 <script setup lang="ts">
 const props = withDefaults(defineProps<{
   text?: string
@@ -14,6 +7,13 @@ const props = withDefaults(defineProps<{
   local: false,
 })
 </script>
+
+<template>
+  <div class="preloader" :class="{ 'preloader--local': props.local }">
+    <img src="./preloader.svg" alt="" />
+    <div class="preloader__text">{{ props.text }}</div>
+  </div>
+</template>
 
 <style lang="scss" scoped>
 @use '@/01-app/assets/mixins';
@@ -34,7 +34,7 @@ const props = withDefaults(defineProps<{
   align-items: center;
 
   img {
-    max-width: 150px;
+    max-width: var(--preloader-max-width);
     width: 100%;
     height: auto;
   }

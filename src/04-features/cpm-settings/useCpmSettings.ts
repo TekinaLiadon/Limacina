@@ -1,6 +1,6 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
 import { reportError } from '@/06-shared'
-import { useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
 import {
   getErrorMessage,
   getPlayerModelsLimit,
@@ -22,12 +22,6 @@ export interface CpmLayer {
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
-const pendingOpenPath = ref<string | null>(null)
-
-export function setPendingCpmProjectPath(path: string): void {
-  pendingOpenPath.value = path
-}
-
 function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolean, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
@@ -44,6 +38,7 @@ function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolea
 }
 
 export function useCpmSettings() {
+  const coreStore = useCoreStore()
   const content = useModelUserContent()
   const notification = useNotificationStore()
 
@@ -56,6 +51,8 @@ export function useCpmSettings() {
   const modelsLimit = ref<number | null>(null)
   const isLimitLoading = ref<boolean>(false)
   const limitLoadError = ref<string>('')
+  const isSavingLimit = ref<boolean>(false)
+  const limitSaveError = ref<string>('')
 
   const modelName = computed((): string => cpmFileName.value.trim() || 'Модель')
 
@@ -104,9 +101,9 @@ export function useCpmSettings() {
     errorMessage: content.errorMessage,
   })
 
-  watch(pendingOpenPath, (path: string | null): void => {
+  watch((): string | null => coreStore.pendingCpmProjectPath, (path: string | null): void => {
     if (!path) return
-    pendingOpenPath.value = null
+    coreStore.pendingCpmProjectPath = null
     void loadFromPath(path)
   }, { immediate: true })
 
@@ -193,19 +190,25 @@ export function useCpmSettings() {
   }
 
   const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
+    if (isSavingLimit.value) return
     if (limit !== null && (!Number.isFinite(limit) || limit < 1)) {
-      content.errorMessage.value = 'Лимит моделей — положительное число или пустое значение'
+      limitSaveError.value = 'Лимит моделей — положительное число или пустое значение'
       return
     }
+    isSavingLimit.value = true
+    limitSaveError.value = ''
     try {
       await setPlayerModelsLimit(limit)
       modelsLimit.value = limit
       limitLoadError.value = ''
     } catch (e: unknown) {
-      content.errorMessage.value = getErrorMessage(e)
+      limitSaveError.value = getErrorMessage(e)
+    } finally {
+      isSavingLimit.value = false
     }
   }
 
+  void content.loadItems()
   void loadModelsLimit()
 
   onScopeDispose((): void => {
@@ -228,6 +231,8 @@ export function useCpmSettings() {
     modelsLimit,
     isLimitLoading,
     limitLoadError,
+    isSavingLimit,
+    limitSaveError,
     isDragOver,
     selectCpmFile,
     resetCpm,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import anime from 'animejs'
 import { cssDurationMs, isAnimationsEnabled } from '@/06-shared/utils/animations'
 
@@ -14,6 +14,8 @@ const fillRef = ref<HTMLDivElement | null>(null)
 
 const clampedScale = (): number => Math.min(100, Math.max(0, props.progress)) / 100
 
+const clampedProgress = computed((): number => Math.min(100, Math.max(0, Math.round(props.progress))))
+
 const isIdle = computed((): boolean => props.progress <= 0 || props.progress >= 100)
 
 const applyScale = (): void => {
@@ -23,9 +25,11 @@ const applyScale = (): void => {
 watch(() => props.progress, (): void => {
   if (fillRef.value === null) return
   if (!props.animated || !isAnimationsEnabled()) {
+    anime.remove(fillRef.value)
     applyScale()
     return
   }
+  anime.remove(fillRef.value)
   anime({
     targets: fillRef.value,
     scaleX: clampedScale(),
@@ -35,10 +39,14 @@ watch(() => props.progress, (): void => {
 })
 
 onMounted(applyScale)
+
+onBeforeUnmount(() => {
+  if (fillRef.value !== null) anime.remove(fillRef.value)
+})
 </script>
 
 <template>
-  <div class="progress-bar">
+  <div class="progress-bar" role="progressbar" :aria-valuenow="clampedProgress" aria-valuemin="0" aria-valuemax="100">
     <div class="progress-bar__track">
       <div
         ref="fillRef"
@@ -46,7 +54,7 @@ onMounted(applyScale)
         :class="{ 'progress-bar__fill--idle': isIdle }"
       />
     </div>
-    <span class="progress-bar__label">{{ Math.round(progress) }}%</span>
+    <span class="progress-bar__label">{{ clampedProgress }}%</span>
   </div>
 </template>
 
@@ -59,7 +67,7 @@ onMounted(applyScale)
 
   &__track {
     flex: 1;
-    height: 6px;
+    height: var(--progress-height);
     background: var(--surface-active);
     box-shadow: var(--elevation-inset);
     border-radius: var(--radius-pill);
@@ -92,7 +100,7 @@ onMounted(applyScale)
   }
 
   &__label {
-    min-width: 40px;
+    min-width: var(--space-40);
     text-align: right;
     font-family: var(--font-mono);
     font-size: var(--text-caption);

@@ -1,12 +1,16 @@
 import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
-import { listenLaunchSteps, listenGameExit, getNotificationIcon } from '@/06-shared/api'
-import { reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS } from '@/06-shared'
-import { getCurrentWindow } from '@tauri-apps/api/window'
-import { isPermissionGranted, requestPermission, sendNotification, type Options } from '@tauri-apps/plugin-notification'
+import { isWindowMinimized, listenLaunchSteps, listenGameExit, listenGameStarted, getNotificationIcon } from '@/06-shared/api'
+import { reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
+
+const GAME_START_TITLE = 'Игра запущена'
+const gameStartBody = (username: string): string => `Сессия ${username} запущена — лаунчер ждёт в трее`
+const GAME_EXIT_OK_TITLE = 'Игра завершена'
+const GAME_EXIT_OK_BODY = 'Игра закрыта — лаунчер ждёт в трее'
 
 let notificationsStarted = false
 let downloadRan = false
 let notificationIcon: string | null | undefined
+let pendingStartUsername: string | null = null
 
 const resolveNotificationIcon = async (): Promise<string | null> => {
   if (notificationIcon === undefined) {
@@ -29,22 +33,22 @@ export function useSystemNotifications(): {
 
   const isWindowHidden = async (): Promise<boolean> => {
     if (document.visibilityState === 'hidden') return true
-    return await getCurrentWindow().isMinimized()
+    return isWindowMinimized()
   }
 
   const sendSystemNotification = async (title: string, body: string): Promise<void> => {
     if (!(coreStore.launcherConfig?.systemNotifications ?? true)) return
     try {
       if (!(await isWindowHidden())) return
-      let granted = await isPermissionGranted()
+      let granted = await isNotificationPermissionGranted()
       if (!granted) {
-        granted = (await requestPermission()) === 'granted'
+        granted = (await requestNotificationPermission()) === 'granted'
       }
       if (granted) {
-        const payload: Options = { title, body }
+        const payload: NotificationOptions = { title, body }
         const icon = await resolveNotificationIcon()
         if (icon) payload.icon = icon
-        sendNotification(payload)
+        await sendOsNotification(payload)
       }
     } catch (e: unknown) {
       reportError('Не удалось отправить системное уведомление', e)
@@ -74,30 +78,68 @@ export function useSystemNotifications(): {
     }
   }
 
+  const exitBody = (info: GameExitInfo): string =>
+    info.reason ??
+    (info.code != null
+      ? `Процесс игры завершился с кодом ${info.code}`
+      : 'Процесс игры был аварийно завершён')
+
+  const sendStartNotification = async (): Promise<void> => {
+    const username = pendingStartUsername
+    if (username === null) return
+    pendingStartUsername = null
+    await sendSystemNotification(GAME_START_TITLE, gameStartBody(username))
+  }
+
+  const handleGameStarted = async (username: string): Promise<void> => {
+    pendingStartUsername = username
+    if (!(await isWindowHidden())) return
+    await sendStartNotification()
+  }
+
+  const handleVisibilityChange = (): void => {
+    if (document.visibilityState !== 'hidden') return
+    void sendStartNotification()
+  }
+
   const handleGameExit = async (info: GameExitInfo): Promise<void> => {
-    if (info.success) return
-    if (await isWindowHidden()) {
-      const body =
-        info.code != null
-          ? `Процесс игры завершился с кодом ${info.code}`
-          : 'Процесс игры был аварийно завершён'
-      await sendSystemNotification('Игра завершилась с ошибкой', body)
+    pendingStartUsername = null
+    const windowHidden = await isWindowHidden()
+    if (info.success) {
+      if (windowHidden) {
+        await sendSystemNotification(GAME_EXIT_OK_TITLE, GAME_EXIT_OK_BODY)
+      }
+      return
+    }
+    if (windowHidden) {
+      await sendSystemNotification('Игра завершилась с ошибкой', exitBody(info))
       return
     }
     notification.show(
-      info.code != null
-        ? `Игра завершилась с ошибкой (код ${info.code})`
-        : 'Игра была аварийно завершена'
+      info.reason ??
+        (info.code != null
+          ? `Игра завершилась с ошибкой (код ${info.code})`
+          : 'Игра была аварийно завершена')
     )
   }
 
   const startSystemNotifications = async (): Promise<void> => {
     if (notificationsStarted) return
     notificationsStarted = true
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    let unlistenSteps: (() => void) | null = null
+    let unlistenStarted: (() => void) | null = null
+    let unlistenExit: (() => void) | null = null
     try {
-      await listenLaunchSteps(handleStepEvent)
-      await listenGameExit(handleGameExit)
+      unlistenSteps = await listenLaunchSteps(handleStepEvent)
+      unlistenStarted = await listenGameStarted(handleGameStarted)
+      unlistenExit = await listenGameExit(handleGameExit)
     } catch (e: unknown) {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      unlistenSteps?.()
+      unlistenStarted?.()
+      unlistenExit?.()
       notificationsStarted = false
       reportError('Не удалось запустить поток системных уведомлений', e)
     }

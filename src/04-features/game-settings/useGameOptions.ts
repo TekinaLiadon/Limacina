@@ -7,7 +7,7 @@ import {
   saveGlobalGameOptions,
   importGlobalGameOptions,
 } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, useDirtySnapshot } from '@/06-shared'
 
 export const DEFAULT_GAME_OPTIONS: GameOptions = {
   fov: 70,
@@ -76,15 +76,11 @@ export function useGameOptions(): {
   const hasGlobal = ref<boolean>(false)
   const fileExists = ref<boolean>(false)
   const availableResourcePacks = ref<string[]>([])
-  const savedSnapshot = ref<string>('')
+  const dirtyState = useDirtySnapshot((): GameOptions => options.value)
   let loadedProject = ''
   let loadGeneration = 0
 
-  const optionsSnapshot = (): string => JSON.stringify(options.value)
-
-  const isDirty = computed<boolean>((): boolean =>
-    savedSnapshot.value !== '' && savedSnapshot.value !== optionsSnapshot(),
-  )
+  const isDirty = computed<boolean>((): boolean => dirtyState.isDirty.value)
 
   const loadOptions = async (project: string, force: boolean = false): Promise<void> => {
     if (!project) return
@@ -101,7 +97,7 @@ export function useGameOptions(): {
       fileExists.value = data.fileExists
       availableResourcePacks.value = data.availableResourcePacks
       loadedProject = project
-      savedSnapshot.value = optionsSnapshot()
+      dirtyState.captureBaseline()
     } catch (e: unknown) {
       if (generation !== loadGeneration) return
       loadError.value = getErrorMessage(e)
@@ -119,6 +115,7 @@ export function useGameOptions(): {
   }, { immediate: true })
 
   const handleImportGlobal = async (): Promise<void> => {
+    if (isLoading.value) return
     try {
       const global = await importGlobalGameOptions()
       if (!global) {
@@ -134,13 +131,14 @@ export function useGameOptions(): {
 
   const handleSave = async (): Promise<void> => {
     const project = coreStore.currentProject
-    if (!project || isSaving.value || loadError.value) return
+    if (!project || isLoading.value || isSaving.value || loadError.value) return
 
     isSaving.value = true
     try {
       await saveGameOptions(project, options.value)
+      if (coreStore.currentProject !== project) return
       fileExists.value = true
-      savedSnapshot.value = optionsSnapshot()
+      dirtyState.captureBaseline()
       notification.show('Настройки игры сохранены')
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))
@@ -150,7 +148,7 @@ export function useGameOptions(): {
   }
 
   const handleSaveGlobal = async (): Promise<void> => {
-    if (isSavingGlobal.value || loadError.value) return
+    if (isLoading.value || isSavingGlobal.value || loadError.value) return
 
     isSavingGlobal.value = true
     try {

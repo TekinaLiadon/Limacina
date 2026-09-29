@@ -26,46 +26,63 @@ pub struct AppInitData {
     pub env_project_name: Option<String>,
 }
 
+static LAUNCHER_CONFIG_WRITE_LOCK: Mutex<()> = Mutex::const_new(());
+
 pub(crate) async fn update_launcher_config(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     mutate: impl FnOnce(&mut LauncherConfig),
 ) -> anyhow::Result<LauncherConfig> {
-    let (config, content, path) = {
-        let mut guard = state.lock().await;
-        let mut config = match guard.launcher_config.clone() {
-            Some(config) => config,
-            None => LauncherConfig::load().ok().flatten().unwrap_or_default(),
-        };
+    let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
 
-        mutate(&mut config);
-
-        let content = config.serialize_for_save().map_err(|e| {
-            anyhow::Error::new(LauncherError::DiskIo(format!(
-                "Не удалось сериализовать конфиг: {}",
-                e
-            )))
-        })?;
-        let path = LauncherConfig::config_file_path_public().map_err(|e| {
-            anyhow::Error::new(LauncherError::DiskIo(format!(
-                "Не удалось определить путь конфига: {}",
-                e
-            )))
-        })?;
-
-        guard.launcher_config = Some(config.clone());
-        (config, content, path)
+    let mut config = {
+        let guard = state.lock().await;
+        guard.launcher_config.clone()
     };
+    if config.is_none() {
+        config = Some(load_launcher_config().await?);
+    }
+    let mut config = config.unwrap_or_default();
 
-    let content_clone = content.clone();
-    let path_clone = path.clone();
+    mutate(&mut config);
+
+    let content = config.serialize_for_save().map_err(|e| {
+        anyhow::Error::new(LauncherError::DiskIo(format!(
+            "Не удалось сериализовать конфиг: {}",
+            e
+        )))
+    })?;
+    let path = LauncherConfig::config_file_path_public().map_err(|e| {
+        anyhow::Error::new(LauncherError::DiskIo(format!(
+            "Не удалось определить путь конфига: {}",
+            e
+        )))
+    })?;
+
     blocking(
         "Не удалось выполнить запись конфига",
-        move || LauncherConfig::write_serialized(&path_clone, &content_clone),
+        move || LauncherConfig::write_serialized(&path, &content),
     )
     .await??;
 
     config.on_saved_update_path();
+
+    {
+        let mut guard = state.lock().await;
+        guard.launcher_config = Some(config.clone());
+    }
+
     Ok(config)
+}
+
+async fn load_launcher_config() -> anyhow::Result<LauncherConfig> {
+    match LauncherConfig::load() {
+        Ok(Some(config)) => Ok(config),
+        Ok(None) => Ok(LauncherConfig::default()),
+        Err(e) => Err(anyhow::Error::new(LauncherError::DiskIo(format!(
+            "Не удалось прочитать конфиг лаунчера: {}",
+            e
+        )))),
+    }
 }
 
 #[tauri::command]
@@ -88,6 +105,7 @@ pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandR
         }
         if changed {
             let cfg_clone = cfg.clone();
+            let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
             let _ = blocking(
                 "Не удалось выполнить запись конфига",
                 move || cfg_clone.save(),
@@ -254,4 +272,124 @@ pub async fn save_animations_enabled(
     })
     .await
     .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod update_flow_tests {
+    use super::*;
+    use crate::state::dto::GlobalState;
+    use crate::state::launcher_config::set_config_file_path_for_tests;
+    use crate::test_support::LauncherDirGuard;
+    use std::path::Path;
+
+    struct ConfigFileGuard;
+
+    impl ConfigFileGuard {
+        fn acquire(root: &Path, name: &str) -> Self {
+            set_config_file_path_for_tests(Some(root.join(name)));
+            Self
+        }
+    }
+
+    impl Drop for ConfigFileGuard {
+        fn drop(&mut self) {
+            set_config_file_path_for_tests(None);
+        }
+    }
+
+    fn state_with(config: LauncherConfig) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            launcher_config: Some(config),
+            ..Default::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn concurrent_updates_persist_both_mutations() {
+        let dir_guard = LauncherDirGuard::acquire("launcher_config_concurrent").await;
+        let _path_guard = ConfigFileGuard::acquire(dir_guard.root(), "config.json");
+        let state = state_with(LauncherConfig {
+            launcher_path: dir_guard.root().to_string_lossy().to_string(),
+            ..Default::default()
+        });
+
+        let (first, second) = tokio::join!(
+            update_launcher_config(&state, |config| config.theme = "theme-a".to_string()),
+            update_launcher_config(&state, |config| config.debug_mode = true),
+        );
+
+        first.expect("первая мутация");
+        second.expect("вторая мутация");
+
+        let saved = LauncherConfig::load()
+            .expect("чтение сохранённого конфига")
+            .expect("конфиг должен быть записан");
+        assert_eq!(saved.theme, "theme-a");
+        assert!(saved.debug_mode, "параллельная мутация не должна теряться");
+
+        let in_memory = state
+            .lock()
+            .await
+            .launcher_config
+            .clone()
+            .expect("in-memory конфиг");
+        assert_eq!(in_memory.theme, "theme-a");
+        assert!(in_memory.debug_mode);
+    }
+
+    #[tokio::test]
+    async fn failed_write_keeps_in_memory_config_untouched() {
+        let dir_guard = LauncherDirGuard::acquire("launcher_config_write_fail").await;
+        let blocked = dir_guard.root().join("blocked");
+        std::fs::write(&blocked, b"not a directory").expect("файл-заглушка вместо папки");
+        let _path_guard = ConfigFileGuard::acquire(dir_guard.root(), "blocked/config.json");
+        let state = state_with(LauncherConfig {
+            launcher_path: dir_guard.root().to_string_lossy().to_string(),
+            theme: "keep".to_string(),
+            ..Default::default()
+        });
+
+        let error = update_launcher_config(&state, |config| config.theme = "changed".to_string())
+            .await
+            .expect_err("запись под файлом-заглушкой должна упасть");
+        assert!(
+            error.to_string().contains("os error"),
+            "ожидается ошибка записи, получено: {error}"
+        );
+
+        let in_memory = state
+            .lock()
+            .await
+            .launcher_config
+            .clone()
+            .expect("in-memory конфиг");
+        assert_eq!(
+            in_memory.theme, "keep",
+            "неудачная запись не должна менять in-memory конфиг"
+        );
+    }
+
+    #[tokio::test]
+    async fn unreadable_config_fails_update_instead_of_default_overwrite() {
+        let dir_guard = LauncherDirGuard::acquire("launcher_config_load_fail").await;
+        std::fs::create_dir_all(dir_guard.root().join("config.json"))
+            .expect("директория вместо конфига");
+        let _path_guard = ConfigFileGuard::acquire(dir_guard.root(), "config.json");
+        let state = Mutex::new(GlobalState::default());
+
+        let error = update_launcher_config(&state, |config| config.theme = "x".to_string())
+            .await
+            .expect_err("чтение директории должно вернуть ошибку");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Не удалось прочитать конфиг лаунчера"),
+            "ожидается ошибка чтения, получено: {error}"
+        );
+        assert!(
+            state.lock().await.launcher_config.is_none(),
+            "in-memory не должен заполняться дефолтом при ошибке чтения"
+        );
+    }
 }

@@ -1,61 +1,49 @@
 import { computed } from 'vue'
-import { useCoreStore, useAccountsStore, type ProjectConfig, type StepProgressItem } from '@/05-entities'
+import { useCoreStore, useAccountsStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
 import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
-import { reportError, STEP_IDS } from '@/06-shared'
+import { reportError, computeStepProgress, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
 type StepAction = () => Promise<void>
 
 const LAUNCH_ACTION: StepAction = startMinecraft
 
-interface StepPlanItem {
-  key: string
-  label: string
-}
+const JAVA_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.javaCheck,
+  STEP_IDS.javaDownload,
+  STEP_IDS.javaExtract,
+])
 
-const JAVA_STEPS: StepPlanItem[] = [
-  { key: STEP_IDS.javaCheck, label: 'Проверка Java' },
-  { key: STEP_IDS.javaDownload, label: 'Скачивание Java' },
-  { key: STEP_IDS.javaExtract, label: 'Распаковка Java' },
-]
+const SERVER_FILES_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.filesList,
+  STEP_IDS.filesDownload,
+])
 
-const SERVER_FILES_STEPS: StepPlanItem[] = [
-  { key: STEP_IDS.filesList, label: 'Получение списка файлов' },
-  { key: STEP_IDS.filesDownload, label: 'Скачивание файлов' },
-]
+const MODS_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.modsList,
+  STEP_IDS.modsDownload,
+  STEP_IDS.modsClean,
+])
 
-const MODS_STEPS: StepPlanItem[] = [
-  { key: STEP_IDS.modsList, label: 'Получение списка модов' },
-  { key: STEP_IDS.modsDownload, label: 'Проверка и скачивание модов' },
-  { key: STEP_IDS.modsClean, label: 'Очистка лишних модов' },
-]
+const MINECRAFT_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.mcManifest,
+  STEP_IDS.mcVersion,
+  STEP_IDS.mcJar,
+  STEP_IDS.mcLibs,
+  STEP_IDS.mcNatives,
+  STEP_IDS.mcAssetsIndex,
+  STEP_IDS.mcAssets,
+])
 
-const MINECRAFT_STEPS: StepPlanItem[] = [
-  { key: STEP_IDS.mcManifest, label: 'Загрузка манифеста версий' },
-  { key: STEP_IDS.mcVersion, label: 'Загрузка манифеста версии' },
-  { key: STEP_IDS.mcJar, label: 'Клиент игры' },
-  { key: STEP_IDS.mcLibs, label: 'Библиотеки игры' },
-  { key: STEP_IDS.mcNatives, label: 'Нативные библиотеки' },
-  { key: STEP_IDS.mcAssetsIndex, label: 'Загрузка индекса ресурсов' },
-  { key: STEP_IDS.mcAssets, label: 'Загрузка ресурсов' },
-]
-
-const LOADER_STEPS: Record<string, string> = {
-  fabric: 'Установка Fabric',
-  forge: 'Установка Forge',
-  neoforge: 'Установка NeoForge',
-}
-
-const LAUNCH_STEPS: StepPlanItem[] = [
-  { key: STEP_IDS.launchConfig, label: 'Подготовка конфигурации' },
-  { key: STEP_IDS.launchProcess, label: 'Запуск процесса игры' },
-  { key: STEP_IDS.launchWindow, label: 'Ожидание окна игры' },
-]
+const LAUNCH_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.launchConfig,
+  STEP_IDS.launchProcess,
+  STEP_IDS.launchWindow,
+])
 
 function loaderSteps(config: ProjectConfig): StepPlanItem[] {
-  const label = LOADER_STEPS[config.modLoader]
-  if (label === undefined) return []
-  return [{ key: STEP_IDS.loader, label }]
+  if (config.modLoader === 'vanilla') return []
+  return [{ key: STEP_IDS.loader, label: `Установка ${LOADER_LABELS[config.modLoader]}` }]
 }
 
 interface ActionStep {
@@ -135,7 +123,7 @@ export function useGameLaunch() {
     if (isCancelled?.()) return
     await flushLaunchSteps()
     markActiveStepError(getErrorMessage(error))
-    coreStore.loginError = getErrorMessage(error)
+    store.loginError = getErrorMessage(error)
     store.isLaunching = false
   }
 
@@ -145,10 +133,11 @@ export function useGameLaunch() {
       config = await initializeProject(coreStore.currentProject)
     } catch (e: unknown) {
       if (isCancelled?.()) return
-      coreStore.loginError = getErrorMessage(e)
+      store.loginError = getErrorMessage(e)
       store.isLaunching = false
       return
     }
+    if (isCancelled?.()) return
     coreStore.projectConfig = config
 
     const isInstall = !config.initialized
@@ -160,7 +149,7 @@ export function useGameLaunch() {
       : buildLaunchPlan(config)
 
     prefillLaunchSteps(plan)
-    coreStore.loginError = ''
+    store.loginError = ''
 
     const fingerprint = buildInstallFingerprint(config)
     const skipKeys = new Set<string>()
@@ -174,7 +163,7 @@ export function useGameLaunch() {
         reportError('Не удалось прочитать журнал установки', e)
       }
       if (skipKeys.size > 0) {
-        const skippedPlanKeys = new Set(
+        const skippedPlanKeys = new Set<string>(
           actionSteps
             .filter((step) => step.key !== null && skipKeys.has(step.key))
             .flatMap((step) => step.plan.map((item) => item.key)),
@@ -185,6 +174,7 @@ export function useGameLaunch() {
             item.skipped = true
           }
         }
+        store.activeProgress = computeStepProgress(store.launchSteps)
       }
     }
 

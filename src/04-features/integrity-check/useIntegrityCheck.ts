@@ -1,21 +1,20 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
-import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps } from '@/06-shared/api'
-import { applyStepEvent, computeStepProgress, createStepItem, reportError, STEP_IDS } from '@/06-shared'
-import type { UnlistenFn } from '@tauri-apps/api/event'
+import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps, type UnlistenFn } from '@/06-shared/api'
+import { applyStepEvent, computeStepProgress, createStepItem, reportError, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 
-const INTEGRITY_STEPS: { key: string; label: string }[] = [
-  { key: STEP_IDS.mcManifest, label: 'Загрузка манифеста версии' },
-  { key: STEP_IDS.mcJar, label: 'Клиент игры' },
-  { key: STEP_IDS.mcLibs, label: 'Библиотеки игры' },
-  { key: STEP_IDS.mcAssetsIndex, label: 'Загрузка индекса ресурсов' },
-  { key: STEP_IDS.mcAssets, label: 'Загрузка ресурсов' },
-]
+const INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.mcManifest,
+  STEP_IDS.mcJar,
+  STEP_IDS.mcLibs,
+  STEP_IDS.mcAssetsIndex,
+  STEP_IDS.mcAssets,
+])
 
-const SERVER_INTEGRITY_STEPS: { key: string; label: string }[] = [
-  { key: STEP_IDS.filesCheck, label: 'Файлы сервера' },
-  { key: STEP_IDS.modsCheck, label: 'Моды' },
-]
+const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.filesCheck,
+  STEP_IDS.modsCheck,
+])
 
 export function useIntegrityCheck(): {
   steps: Ref<StepProgressItem[]>
@@ -42,7 +41,6 @@ export function useIntegrityCheck(): {
   const hasResult = computed((): boolean => report.value !== null || errorMessage.value !== '')
 
   let unlisten: UnlistenFn | null = null
-  let currentId = 0
   let isUnmounted = false
 
   onBeforeUnmount(() => {
@@ -71,7 +69,6 @@ export function useIntegrityCheck(): {
     prefillSteps()
     report.value = null
     errorMessage.value = ''
-    const checkId = ++currentId
 
     try {
       if (unlisten === null) {
@@ -85,7 +82,7 @@ export function useIntegrityCheck(): {
         unlisten = fn
       }
       const result = await checkFilesIntegrity()
-      if (checkId !== currentId || isUnmounted) return
+      if (isUnmounted) return
       report.value = result
       if (isPopupHidden.value) {
         notification.show(
@@ -95,12 +92,12 @@ export function useIntegrityCheck(): {
         )
       }
     } catch (e: unknown) {
-      if (checkId !== currentId || isUnmounted) return
+      if (isUnmounted) return
       reportError('Проверка целостности файлов завершилась с ошибкой', e)
       errorMessage.value = getErrorMessage(e)
       if (isPopupHidden.value) notification.show(`Проверка целостности не удалась: ${errorMessage.value}`)
     } finally {
-      if (checkId === currentId) isChecking.value = false
+      isChecking.value = false
     }
   }
 

@@ -1,5 +1,5 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
-import JSZip from 'jszip'
+import { readCpmProjectZip } from '@/04-features/cpm-settings/cpmProjectParser'
 import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
@@ -47,10 +47,20 @@ function parseHexColor(color: string | undefined): number {
   return value
 }
 
+const TEX_SIZE_EPSILON = 1e-6
+
 function texSizeOf(child: CPMChild): number {
   if (child.texture === false) return 0
-  const ts = child.textureSize ?? 1
-  return child.mirror ? -Math.abs(ts) : ts
+  const raw = child.textureSize ?? 1
+  const value = child.mirror ? -Math.abs(raw) : raw
+  const rounded = Math.round(value)
+  if (Math.abs(value - rounded) > TEX_SIZE_EPSILON) {
+    throw new Error(`texSize куба «${child.name}» должен быть целым числом, получено ${value}`)
+  }
+  if (rounded < -128 || rounded > 127) {
+    throw new Error(`texSize куба «${child.name}» = ${rounded} не помещается в байт`)
+  }
+  return rounded
 }
 
 function writeVec3ub(w: CpmBinaryWriter, v: { x: number; y: number; z: number }): void {
@@ -121,29 +131,39 @@ function flatten(config: CPMConfig): FlatModel {
   const elementIds = new Map<CPMElement | CPMChild, number>()
   let nextId = 10
 
+  const pushPivotCube = (root: CPMElement, parentId: number): number => {
+    const fakeId = nextId++
+    elementIds.set(root, fakeId)
+    cubes.push({
+      size: { x: 0, y: 0, z: 0 },
+      pos: root.pos ?? { x: 0, y: 0, z: 0 },
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
+      parentId,
+      id: fakeId,
+      texSize: 0,
+      u: 0,
+      v: 0,
+      rgb: 0,
+    })
+    return fakeId
+  }
+
   const walk = (elements: (CPMElement | CPMChild)[], parentId: number): void => {
     for (const el of elements) {
       if ('id' in el) {
         const root = el as CPMElement
         if (root.customPart === true || root.dup === true) {
-          const fakeId = nextId++
-          elementIds.set(root, fakeId)
-          cubes.push({
-            size: { x: 0, y: 0, z: 0 },
-            pos: root.pos ?? { x: 0, y: 0, z: 0 },
-            offset: { x: 0, y: 0, z: 0 },
-            rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
-            parentId: PLAYER_PART_INDEX.custom_part ?? 0,
-            id: fakeId,
-            texSize: 0,
-            u: 0,
-            v: 0,
-            rgb: 0,
-          })
+          const fakeId = pushPivotCube(root, PLAYER_PART_INDEX.custom_part ?? 0)
           walk(root.children ?? [], fakeId)
           continue
         }
-        const ordinal = PLAYER_PART_INDEX[root.id] ?? 0
+        const ordinal = PLAYER_PART_INDEX[root.id]
+        if (ordinal === undefined) {
+          const fakeId = pushPivotCube(root, PLAYER_PART_INDEX.custom_part ?? 0)
+          walk(root.children ?? [], fakeId)
+          continue
+        }
         elementIds.set(root, ordinal)
         walk(root.children ?? [], ordinal)
         continue
@@ -171,23 +191,13 @@ function flatten(config: CPMConfig): FlatModel {
   return { cubes, elementIds }
 }
 
-async function parseCpmProject(data: ArrayBuffer): Promise<{ config: CPMConfig; skinPng: Uint8Array | null }> {
-  const zip = await JSZip.loadAsync(data)
-  const configFile = zip.file('config.json')
-  if (!configFile) throw new Error('ZIP не содержит config.json')
-  const config: CPMConfig = JSON.parse(await configFile.async('string'))
-  const skinFile = zip.file('skin.png')
-  const skinPng = skinFile ? new Uint8Array(await skinFile.async('arraybuffer')) : null
-  return { config, skinPng }
-}
-
 export async function cpmProjectToBytes(data: ArrayBuffer): Promise<Uint8Array> {
-  const { config, skinPng } = await parseCpmProject(data)
+  const { config, skinPng } = await readCpmProjectZip(data)
   return cpmConfigToBytes(config, skinPng)
 }
 
 export async function cpmProjectToLinkBase64(data: ArrayBuffer): Promise<string> {
-  const { config, skinPng } = await parseCpmProject(data)
+  const { config, skinPng } = await readCpmProjectZip(data)
   return bytesToBase64(cpmConfigToLinkBytes(config, skinPng))
 }
 
@@ -359,7 +369,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
         w.writeVarInt(id)
         w.writeEnum(PLAYER_PART_INDEX[el.id] ?? 0)
       })
-    } else if (el.customPart === true) {
+    } else if (el.customPart === true || ROOT_MODEL_TYPE[el.id] !== undefined) {
       if (el.show === false) {
         hideElement(id)
       }

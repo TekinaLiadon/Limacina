@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { provideViewerControls } from './viewerControls'
-import ViewerStage from './ViewerStage.vue'
 import ViewerToolbar from './ViewerToolbar.vue'
 
 const props = withDefaults(defineProps<{
@@ -10,7 +9,7 @@ const props = withDefaults(defineProps<{
   minZoom: 5,
 })
 
-provideViewerControls(props.minZoom)
+provideViewerControls((): number => props.minZoom)
 
 const isFullscreen = ref<boolean>(false)
 const stageTarget = ref<HTMLDivElement | null>(null)
@@ -54,9 +53,7 @@ onBeforeUnmount(() => {
   <div class="viewer-3d">
     <div class="viewer-3d__stage">
       <Teleport :to="stageTarget" :disabled="!isFullscreen">
-        <ViewerStage>
-          <slot />
-        </ViewerStage>
+        <slot />
       </Teleport>
     </div>
     <ViewerToolbar @toggle-fullscreen="openFullscreen" />
@@ -87,7 +84,7 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: var(--space-8);
     width: calc(100vw - var(--space-48));
-    max-width: 1100px;
+    max-width: var(--viewer-fullscreen-max-width);
     height: calc(100vh - var(--space-48));
   }
 

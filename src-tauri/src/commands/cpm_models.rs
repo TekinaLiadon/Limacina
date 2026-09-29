@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use tokio::sync::Mutex;
 
+use crate::commands::user_content::current_project_name;
 use crate::launcher_server::user_content;
 use crate::log_info;
 use crate::state::dto::GlobalState;
@@ -198,10 +199,15 @@ async fn read_manifest(project_name: &str) -> Result<CpmModelManifest> {
 async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {
     let path = manifest_path(project_name)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
     }
-    let content = serde_json::to_string_pretty(manifest)?;
-    write_atomic(&path, content.as_bytes()).await?;
+    let content = serde_json::to_string_pretty(manifest)
+        .context("Не удалось сериализовать манифест моделей")?;
+    write_atomic(&path, content.as_bytes())
+        .await
+        .with_context(|| format!("Не удалось записать манифест моделей {:?}", path))?;
     Ok(())
 }
 
@@ -357,13 +363,7 @@ async fn enforce_models_limit(project_name: &str, manifest: &mut CpmModelManifes
 pub async fn get_player_models_limit(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Option<u32>> {
-    let project_name = {
-        let guard = state.lock().await;
-        guard.project_config.project_name.clone()
-    };
-    if project_name.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
+    let project_name = current_project_name(&state).await?;
     let manifest = read_manifest(&project_name).await?;
     Ok(manifest.limit)
 }
@@ -373,13 +373,7 @@ pub async fn set_player_models_limit(
     state: State<'_, Mutex<GlobalState>>,
     limit: Option<u32>,
 ) -> CommandResult<()> {
-    let project_name = {
-        let guard = state.lock().await;
-        guard.project_config.project_name.clone()
-    };
-    if project_name.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
+    let project_name = current_project_name(&state).await?;
     if limit == Some(0) {
         return Err(LauncherError::InvalidInput(
             "Лимит моделей должен быть не меньше 1".to_string(),
@@ -410,13 +404,7 @@ pub async fn save_player_model(
     slim: Option<bool>,
     data: Option<Vec<u8>>,
 ) -> CommandResult<()> {
-    let project_name = {
-        let guard = state.lock().await;
-        guard.project_config.project_name.clone()
-    };
-    if project_name.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
+    let project_name = current_project_name(&state).await?;
 
     let (data_block, entry) = match url {
         Some(url) => {
@@ -542,7 +530,9 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
             let data_block =
                 build_link_definition(&url, entry.skin_type.unwrap_or(SKIN_TYPE_DEFAULT))?;
             let container = build_player_model_file(&entry.name, &data_block);
-            write_atomic(&path, &container).await?;
+            write_atomic(&path, &container)
+                .await
+                .with_context(|| format!("Не удалось записать модель {:?}", path))?;
             changed = true;
         }
     }
@@ -690,38 +680,37 @@ mod tests {
         }
     }
 
-    #[test]
-    fn eviction_prefers_oldest_online_entry() {
+    fn eviction_of(models: Vec<CpmModelEntry>, selected: Option<&str>) -> Option<usize> {
         let manifest = CpmModelManifest {
-            models: vec![
-                entry(Some(1), "a.cpmmodel", false),
-                entry(None, "local.cpmmodel", true),
-                entry(Some(2), "c.cpmmodel", false),
-            ],
+            models,
             limit: None,
         };
-        assert_eq!(pick_eviction_index(&manifest, Some("c.cpmmodel")), Some(0));
+        pick_eviction_index(&manifest, selected)
+    }
+
+    #[test]
+    fn eviction_prefers_oldest_online_entry() {
+        let models = vec![
+            entry(Some(1), "a.cpmmodel", false),
+            entry(None, "local.cpmmodel", true),
+            entry(Some(2), "c.cpmmodel", false),
+        ];
+        assert_eq!(eviction_of(models, Some("c.cpmmodel")), Some(0));
     }
 
     #[test]
     fn eviction_skips_selected_and_falls_back_to_offline() {
-        let manifest = CpmModelManifest {
-            models: vec![
-                entry(None, "local.cpmmodel", true),
-                entry(Some(2), "c.cpmmodel", false),
-            ],
-            limit: None,
-        };
-        assert_eq!(pick_eviction_index(&manifest, Some("c.cpmmodel")), Some(0));
+        let models = vec![
+            entry(None, "local.cpmmodel", true),
+            entry(Some(2), "c.cpmmodel", false),
+        ];
+        assert_eq!(eviction_of(models, Some("c.cpmmodel")), Some(0));
     }
 
     #[test]
     fn eviction_returns_none_when_only_selected_remains() {
-        let manifest = CpmModelManifest {
-            models: vec![entry(Some(1), "only.cpmmodel", false)],
-            limit: None,
-        };
-        assert_eq!(pick_eviction_index(&manifest, Some("only.cpmmodel")), None);
+        let models = vec![entry(Some(1), "only.cpmmodel", false)];
+        assert_eq!(eviction_of(models, Some("only.cpmmodel")), None);
     }
 
     #[tokio::test]

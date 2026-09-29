@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
@@ -11,6 +11,7 @@ use crate::minecraft::autojoin::{auto_join_args, first_server_address};
 use crate::minecraft::process::spawn_game_process;
 use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+use crate::utils::blocking;
 use crate::utils::download_file::write_atomic;
 use crate::utils::step_events::StepHandle;
 use crate::{
@@ -25,9 +26,8 @@ pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let result = start_minecraft_inner(app, state).await;
-    crate::state::launch_state::set_launch_in_progress(false);
-    result
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    start_minecraft_inner(app, state).await
 }
 
 async fn start_minecraft_inner(
@@ -189,13 +189,17 @@ async fn start_minecraft_inner(
     };
 
     if project_config.auto_join_server {
+        let game_dir = game_config.game_dir.clone();
         let address = step_try!(
             config_step,
             LauncherError::classify(
-                first_server_address(&game_config.game_dir).with_context(|| format!(
-                    "Не удалось прочитать servers.dat (проект: {})",
-                    project
-                )),
+                blocking(
+                    "Не удалось прочитать servers.dat",
+                    move || { first_server_address(&game_dir) }
+                )
+                .await
+                .and_then(|inner| inner)
+                .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project)),
                 LauncherError::DiskIo
             )
             .and_then(|address| {
@@ -221,6 +225,7 @@ async fn start_minecraft_inner(
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
+    crate::tray::set_game_state(&app, true, &username);
     let spawn_result = LauncherError::classify(
         spawn_game_process(app.clone(), game_config, authlib_server_url.as_deref())
             .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project)),
@@ -229,6 +234,7 @@ async fn start_minecraft_inner(
     let process = match spawn_result {
         Ok(process) => process,
         Err(e) => {
+            crate::tray::set_game_state(&app, false, "");
             if let Some(server) = offline_skin_server.take() {
                 server.stop();
             }
@@ -237,7 +243,6 @@ async fn start_minecraft_inner(
         }
     };
     process_step.finish(false);
-    crate::tray::set_game_state(&app, true, &username);
     let _ = app.emit("game-started", username.clone());
 
     if let Some(server) = offline_skin_server.take() {
@@ -279,10 +284,38 @@ async fn start_minecraft_inner(
     Ok(())
 }
 
+enum ExitBehavior {
+    MinimizeToTray,
+    Terminate,
+}
+
+fn exit_behavior(minimize_to_tray: bool) -> ExitBehavior {
+    if minimize_to_tray {
+        ExitBehavior::MinimizeToTray
+    } else {
+        ExitBehavior::Terminate
+    }
+}
+
 #[tauri::command]
 pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
-    log_info!("Закрытие лаунчера после запуска игры");
-    app.exit(0);
+    match exit_behavior(crate::tray::minimize_to_tray_enabled()) {
+        ExitBehavior::MinimizeToTray => {
+            log_info!("Закрытие лаунчера после запуска игры: сворачивание в трей");
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    if let Err(e) = window.close() {
+                        log_err!("Не удалось спрятать окно лаунчера в трей: {}", e);
+                    }
+                }
+                None => app.exit(0),
+            }
+        }
+        ExitBehavior::Terminate => {
+            log_info!("Закрытие лаунчера после запуска игры");
+            app.exit(0);
+        }
+    }
     Ok(())
 }
 
@@ -303,7 +336,7 @@ async fn repair_stale_java_path(
     let Some(stored) = config.java_path.clone() else {
         return config;
     };
-    let stored_path = PathBuf::from(stored);
+    let stored_path = PathBuf::from(&stored);
     if stored_path.exists() {
         return config;
     }
@@ -315,12 +348,20 @@ async fn repair_stale_java_path(
         stored_path,
         repaired
     );
-    config.java_path = Some(repaired.to_string_lossy().into_owned());
-    if let Err(e) = config.save_config().await {
+    let repaired_path = repaired.to_string_lossy().into_owned();
+    let broken_path = stored;
+    if let Err(e) =
+        crate::state::config::update_project_config(state, async |stored: &mut ProjectConfig| {
+            if stored.java_path.as_deref() == Some(broken_path.as_str()) {
+                stored.java_path = Some(repaired_path);
+            }
+            Ok(())
+        })
+        .await
+    {
         log_err!("[start] Не удалось сохранить исправленный путь Java: {}", e);
-        return config;
     }
-    state.lock().await.project_config = config.clone();
+    config.java_path = Some(repaired.to_string_lossy().into_owned());
     config
 }
 
@@ -354,6 +395,17 @@ async fn force_narrator_off(game_dir: &Path) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod exit_launcher_tests {
+    use super::{exit_behavior, ExitBehavior};
+
+    #[test]
+    fn exit_behavior_follows_minimize_to_tray_setting() {
+        assert!(matches!(exit_behavior(true), ExitBehavior::MinimizeToTray));
+        assert!(matches!(exit_behavior(false), ExitBehavior::Terminate));
+    }
 }
 
 #[cfg(test)]

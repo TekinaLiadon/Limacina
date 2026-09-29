@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::utils::errors::LauncherError;
 use crate::{
@@ -13,7 +13,12 @@ use crate::{
         vanilla::rules::is_rule_allowed,
         vanilla::structs::{ArgumentValue, Library, StringOrVec, VersionDetailsManifest},
     },
-    utils::{compare_versions, env_info::get_launcher_name, get_classpath_separator},
+    state::dto::ProjectConfig,
+    utils::{
+        compare_versions,
+        env_info::{get_launcher_name, launcher_path},
+        get_classpath_separator,
+    },
 };
 
 pub struct ArgumentsMap {
@@ -44,8 +49,6 @@ impl ArgumentsMap {
             ),
             ("${launcher_name}", get_launcher_name()),
             ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
-            ("${width}", config.window_width.to_string()),
-            ("${height}", config.window_height.to_string()),
             ("${clientid}", "1".to_string()),
             ("${auth_xuid}", "1".to_string()),
             (
@@ -61,6 +64,47 @@ impl ArgumentsMap {
         .collect();
         ArgumentsMap { map }
     }
+
+    pub fn for_loader(state: &ProjectConfig) -> Result<Self> {
+        let base_dir = launcher_path(Some(&state.project_name))
+            .context("Не удалось определить путь к файлам проекта")?;
+        let map = [
+            ("${version_name}", state.mc_version.clone()),
+            ("${game_directory}", base_dir.to_string_lossy().to_string()),
+            (
+                "${assets_root}",
+                base_dir.join("assets").to_string_lossy().to_string(),
+            ),
+            (
+                "${natives_directory}",
+                base_dir.join("natives").to_string_lossy().to_string(),
+            ),
+            (
+                "${library_directory}",
+                base_dir.join("libraries").to_string_lossy().to_string(),
+            ),
+            ("${launcher_name}", get_launcher_name()),
+            ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
+            (
+                "${classpath_separator}",
+                get_classpath_separator().to_string(),
+            ),
+            ("${user_type}", "mojang".to_string()),
+            ("${version_type}", "release".to_string()),
+            ("${clientid}", "1".to_string()),
+            ("${auth_xuid}", "1".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        Ok(ArgumentsMap { map })
+    }
+
+    pub fn substitute_all(&self, args: Vec<String>) -> Vec<String> {
+        args.into_iter()
+            .map(|arg| self.get_value_by_key(&arg))
+            .collect()
+    }
+
     fn get_value_by_key(&self, arg: &str) -> String {
         let mut result = String::with_capacity(arg.len());
         let mut remaining = arg;
@@ -104,7 +148,7 @@ impl ArgumentsMap {
     }
 }
 
-pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec<String>> {
+pub async fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
 
@@ -136,7 +180,7 @@ pub fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Result<Vec
             )
         };
 
-        if lib_path.exists() {
+        if tokio::fs::try_exists(&lib_path).await.unwrap_or(false) {
             paths.push(lib_path.to_string_lossy().to_string());
         } else if required {
             missing.push(rel_path);
@@ -301,8 +345,8 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
-    fn get_classpath_includes_existing_libraries() {
+    #[tokio::test]
+    async fn get_classpath_includes_existing_libraries() {
         let libs: Vec<Library> = serde_json::from_value(serde_json::json!([
             logging_library(),
             jopt_simple_library(),
@@ -326,7 +370,7 @@ mod tests {
 
         let config = test_launch_config(&root);
 
-        let paths = get_classpath(&libs, &config).unwrap();
+        let paths = get_classpath(&libs, &config).await.unwrap();
 
         assert_eq!(paths.len(), 3);
         for rel in created {
@@ -338,8 +382,8 @@ mod tests {
         assert!(!root.exists(), "временная директория не удалена");
     }
 
-    #[test]
-    fn get_classpath_errors_for_missing_library() {
+    #[tokio::test]
+    async fn get_classpath_errors_for_missing_library() {
         let libs: Vec<Library> =
             serde_json::from_value(serde_json::json!([logging_library(), gson_library()])).unwrap();
 
@@ -352,7 +396,9 @@ mod tests {
 
         let config = test_launch_config(&root);
 
-        let error = get_classpath(&libs, &config).expect_err("отсутствующая библиотека — ошибка");
+        let error = get_classpath(&libs, &config)
+            .await
+            .expect_err("отсутствующая библиотека — ошибка");
 
         let message = error.to_string();
         assert!(
@@ -368,8 +414,8 @@ mod tests {
         assert!(!root.exists(), "временная директория не удалена");
     }
 
-    #[test]
-    fn get_classpath_allows_missing_library_without_download_url() {
+    #[tokio::test]
+    async fn get_classpath_allows_missing_library_without_download_url() {
         let libs = libs_with_one_missing_url();
 
         let dir = TempDir::new("classpath_no_url");
@@ -381,7 +427,9 @@ mod tests {
 
         let config = test_launch_config(&root);
 
-        let paths = get_classpath(&libs, &config).expect("библиотека без url не требует файла");
+        let paths = get_classpath(&libs, &config)
+            .await
+            .expect("библиотека без url не требует файла");
 
         assert_eq!(paths.len(), 1);
         assert!(
@@ -533,6 +581,111 @@ mod filter_classpath_tests {
 }
 
 #[cfg(test)]
+mod for_loader_tests {
+    use super::ArgumentsMap;
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::get_classpath_separator;
+
+    fn project(name: &str, mc_version: &str) -> ProjectConfig {
+        ProjectConfig {
+            project_name: name.to_string(),
+            mc_version: mc_version.to_string(),
+            ..ProjectConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn loader_map_expands_project_paths() {
+        let dir = LauncherDirGuard::acquire("args_map_for_loader").await;
+        let base = dir.project_dir("MapProj");
+
+        let map = ArgumentsMap::for_loader(&project("MapProj", "1.20.1")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![
+                "-DlibraryDirectory=${library_directory}".to_string(),
+                "-Dnatives=${natives_directory}".to_string(),
+                "--gameDir".to_string(),
+                "${game_directory}".to_string(),
+                "${assets_root}".to_string(),
+            ]),
+            vec![
+                format!("-DlibraryDirectory={}", base.join("libraries").display()),
+                format!("-Dnatives={}", base.join("natives").display()),
+                "--gameDir".to_string(),
+                base.display().to_string(),
+                base.join("assets").display().to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_map_expands_version_and_launcher_values() {
+        let _dir = LauncherDirGuard::acquire("args_map_for_loader_version").await;
+
+        let map = ArgumentsMap::for_loader(&project("MapProj2", "1.12.2")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![
+                "-DignoreList=client-extra,${version_name}.jar".to_string(),
+                "${classpath_separator}".to_string(),
+                "${launcher_version}".to_string(),
+            ]),
+            vec![
+                "-DignoreList=client-extra,1.12.2.jar".to_string(),
+                get_classpath_separator().to_string(),
+                env!("CARGO_PKG_VERSION").to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_map_expands_several_placeholders_in_one_arg() {
+        let dir = LauncherDirGuard::acquire("args_map_for_loader_mixed").await;
+        let base = dir.project_dir("MapProj3");
+
+        let map = ArgumentsMap::for_loader(&project("MapProj3", "1.20.1")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![format!(
+                "${{library_directory}}/a.jar${{classpath_separator}}${{library_directory}}/b.jar"
+            )]),
+            vec![format!(
+                "{}/a.jar{sep}{}/b.jar",
+                base.join("libraries").display(),
+                base.join("libraries").display(),
+                sep = get_classpath_separator()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_map_leaves_session_placeholders_untouched() {
+        let _dir = LauncherDirGuard::acquire("args_map_for_loader_session").await;
+
+        let map = ArgumentsMap::for_loader(&project("MapProj4", "1.12.2")).expect("карта лоадера");
+
+        assert_eq!(
+            map.substitute_all(vec![
+                "${auth_player_name}".to_string(),
+                "${auth_uuid}".to_string(),
+                "${auth_access_token}".to_string(),
+                "${assets_index_name}".to_string(),
+                "${classpath}".to_string(),
+            ]),
+            vec![
+                "${auth_player_name}".to_string(),
+                "${auth_uuid}".to_string(),
+                "${auth_access_token}".to_string(),
+                "${assets_index_name}".to_string(),
+                "${classpath}".to_string(),
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
 mod args_pipeline_tests {
     use super::{get_game_args, get_jvm_args, strip_classpath_args, ArgumentsMap};
     use crate::minecraft::structs::LaunchConfig;
@@ -550,8 +703,6 @@ mod args_pipeline_tests {
             libraries_dir: PathBuf::from("/game/libraries"),
             natives_dir: PathBuf::from("/game/natives"),
             jvm_sub_arg: vec!["-Xms512M".to_string(), "-Xmx4G".to_string()],
-            window_width: 1280,
-            window_height: 720,
         }
     }
 

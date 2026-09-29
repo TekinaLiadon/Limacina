@@ -3,5 +3,5 @@
   "threshold": 2.5,
   "reporters": ["console"],
   "silent": true,
-  "ignore": ["**/assets/themes/**", "**/assets/fonts/**"]
+  "ignore": ["**/assets/themes/**", "**/assets/fonts/**", "**/*.test.ts", "src/test-support/**"]
 }

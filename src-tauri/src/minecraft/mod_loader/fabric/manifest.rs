@@ -22,6 +22,7 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result
             })?;
             let lib = LibraryMod {
                 name: common.name,
+                path: String::new(),
                 url: url_maven,
                 hash: common.sha1.unwrap_or("".to_string()),
                 size: common.size.unwrap_or(1),
@@ -33,6 +34,7 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result
         })?;
         let intermediary = LibraryMod {
             name: version.intermediary.maven,
+            path: String::new(),
             url: url_intermediary,
             hash: "".to_string(),
             size: 1,

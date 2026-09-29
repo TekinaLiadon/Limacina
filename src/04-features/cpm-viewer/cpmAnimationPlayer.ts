@@ -91,7 +91,7 @@ function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): 
   return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
 }
 
-function sampleChannel(values: number[], framePos: number, loop: boolean, poly: boolean): number {
+function sampleChannel(values: number[], framePos: number, loop: boolean, smooth: boolean): number {
   const count = values.length
   if (count === 0) return 0
   if (count === 1) return values[0] ?? 0
@@ -100,7 +100,7 @@ function sampleChannel(values: number[], framePos: number, loop: boolean, poly: 
   const idx = Math.floor(framePos)
   const t = framePos - idx
 
-  if (!poly) return lerp(at(Math.min(idx, count - 1)), at(Math.min(idx + 1, count - 1)), t)
+  if (!smooth) return lerp(at(Math.min(idx, count - 1)), at(Math.min(idx + 1, count - 1)), t)
 
   if (loop) {
     const i0 = ((idx - 1) % count + count) % count
@@ -217,8 +217,8 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
   }))
 }
 
-function isPolyInterpolator(interpolator: string): boolean {
-  return interpolator.startsWith('poly')
+function isSmoothInterpolator(interpolator: string): boolean {
+  return interpolator.startsWith('poly') || interpolator.startsWith('trig')
 }
 
 function isLoopInterpolator(interpolator: string, animLoop: boolean): boolean {
@@ -229,6 +229,7 @@ function isLoopInterpolator(interpolator: string, animLoop: boolean): boolean {
 
 export interface CpmPlayerHost {
   activeLayerIds: Ref<number[]>
+  isPlaying: Ref<boolean>
   onFinished: () => void
 }
 
@@ -282,7 +283,7 @@ export class CpmAnimationPlayer {
             startedAt: performance.now(),
             pausedAt: 0,
             speed: this.defaultSpeed,
-            playing: true,
+            playing: this.host.isPlaying.value,
             forceLoop: this.defaultForceLoop,
           }
           this.clocks.set(animation.id, clock)
@@ -295,10 +296,7 @@ export class CpmAnimationPlayer {
 
   setSpeed(speed: number): void {
     const clamped = Math.max(0.25, Math.min(3, speed))
-    if (this.clocks.size === 0) {
-      this.defaultSpeed = clamped
-      return
-    }
+    this.defaultSpeed = clamped
     this.clocks.forEach((clock) => {
       if (clock.speed === clamped) return
       if (clock.playing) {
@@ -397,7 +395,7 @@ export class CpmAnimationPlayer {
     if (frameCount === 0) return
 
     const loop = isLoopInterpolator(animation.interpolator, animation.loop)
-    const poly = isPolyInterpolator(animation.interpolator)
+    const smooth = isSmoothInterpolator(animation.interpolator)
     const stepped = animation.interpolator === 'no'
     const {additive} = animation
     const duration = Math.max(animation.duration, 1)
@@ -412,7 +410,7 @@ export class CpmAnimationPlayer {
 
       const sample = (values: number[]): number => {
         if (stepped) return sampleStep(values, framePos)
-        return sampleChannel(values, framePos, loop, poly)
+        return sampleChannel(values, framePos, loop, smooth)
       }
 
       const px = sample(track.pos[0])
@@ -431,7 +429,7 @@ export class CpmAnimationPlayer {
         node.group.rotation.set(
             node.group.rotation.x + THREE.MathUtils.degToRad(rx),
             node.group.rotation.y - THREE.MathUtils.degToRad(ry),
-            node.group.rotation.z + THREE.MathUtils.degToRad(rz),
+            node.group.rotation.z - THREE.MathUtils.degToRad(rz),
             'ZYX',
         )
         node.group.scale.set(
@@ -458,13 +456,11 @@ export class CpmAnimationPlayer {
         )
       }
 
-      if (!node.isRoot) {
-        node.group.visible = show
-        node.meshes.forEach((mesh) => {
-          mesh.userData.animVisible = show
-          mesh.visible = show
-        })
-      }
+      node.group.visible = show
+      node.meshes.forEach((mesh) => {
+        mesh.userData.animVisible = show
+        mesh.visible = show
+      })
     })
   }
 }
