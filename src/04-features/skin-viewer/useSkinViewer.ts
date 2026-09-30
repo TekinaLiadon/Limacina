@@ -206,6 +206,7 @@ export function useSkinViewer(
 
   watch(skinUrl, (url: string) => {
     if (url) loadSkin(url)
+    else removeGroupFromScene(scene, playerGroup)
   })
 
   watch(scene, (s) => {

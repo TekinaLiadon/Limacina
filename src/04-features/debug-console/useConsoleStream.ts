@@ -60,7 +60,10 @@ export function useConsoleStream(): {
     streamingStarted = true
     streamError.value = ''
 
+    let unlisten: (() => void) | null = null
     try {
+      unlisten = await listenGameConsole(ingest)
+
       if (logs.value.length === 0) {
         const startupLogs: ConsoleLog[] = await getStartupLogs()
         for (const log of startupLogs) {
@@ -69,10 +72,9 @@ export function useConsoleStream(): {
         flushBuffer()
       }
 
-      await listenGameConsole(ingest)
-
       setInterval(flushBuffer, FLUSH_INTERVAL)
     } catch (e: unknown) {
+      unlisten?.()
       streamingStarted = false
       streamError.value = getErrorMessage(e)
       reportError('Не удалось запустить стриминг консоли', e)

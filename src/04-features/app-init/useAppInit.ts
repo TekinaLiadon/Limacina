@@ -1,5 +1,5 @@
 import { onBeforeMount, ref } from 'vue'
-import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type ProjectConfig, type UpdateInfo } from '@/05-entities'
+import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type AppInitData, type ProjectConfig, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage, loadSettingsProject } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
@@ -14,6 +14,7 @@ export function useAppInit() {
   const router = useRouter()
   const preloaderText = ref<string>('')
   const startupError = ref<string>('')
+  let isInitializing = false
 
   const showStartupError = (message: string, e: unknown): void => {
     reportError(message, e)
@@ -34,28 +35,32 @@ export function useAppInit() {
         startupError.value = getErrorMessage(e) || 'Не удалось загрузить конфиг проекта'
       })
 
+  const applyInitData = (data: AppInitData): void => {
+    coreStore.launcherName = data.launcherName
+    coreStore.defaultParentPath = data.defaultParentPath
+    coreStore.launcherConfig = data.launcherConfig
+    coreStore.version = data.version
+    coreStore.totalMemoryMb = data.totalMemoryMb
+    coreStore.offlineBuild = data.offlineBuild
+    coreStore.envProjectName = data.envProjectName ?? ''
+
+    if (!data.launcherConfig) return
+
+    coreStore.applyLauncherProjects(data.launcherConfig)
+    settingsStore.setTheme(normalizeTheme(data.launcherConfig.theme))
+    settingsStore.setAnimationsEnabled(data.launcherConfig.animationsEnabled)
+  }
+
   const init = async (): Promise<void> => {
+    if (isInitializing) return
+    isInitializing = true
     const startTime: number = Date.now()
     void preloadThemeFonts().catch((e: unknown): void => {
       reportError('Не удалось предзагрузить шрифты', e)
     })
     try {
       const initData = await getAppInitData()
-      coreStore.launcherName = initData.launcherName
-      coreStore.defaultParentPath = initData.defaultParentPath
-      coreStore.launcherConfig = initData.launcherConfig
-      coreStore.version = initData.version
-      coreStore.totalMemoryMb = initData.totalMemoryMb
-      coreStore.offlineBuild = initData.offlineBuild
-      coreStore.envProjectName = initData.envProjectName ?? ''
-
-      if (initData.launcherConfig) {
-        coreStore.applyLauncherProjects(initData.launcherConfig)
-
-        const savedTheme = normalizeTheme(initData.launcherConfig.theme)
-        settingsStore.setTheme(savedTheme)
-        settingsStore.setAnimationsEnabled(initData.launcherConfig.animationsEnabled)
-      }
+      applyInitData(initData)
 
       const autoUpdate = initData.launcherConfig?.autoUpdate ?? false
       const isUpdateCheckEnabled = autoUpdate && !coreStore.offlineBuild
@@ -82,15 +87,7 @@ export function useAppInit() {
 
           preloaderText.value = 'Обновление завершено, загрузка...'
           const freshData = await getAppInitData()
-          coreStore.version = freshData.version
-          coreStore.launcherConfig = freshData.launcherConfig
-          if (freshData.launcherConfig) {
-            coreStore.applyLauncherProjects(freshData.launcherConfig)
-
-            const refreshedTheme = normalizeTheme(freshData.launcherConfig.theme)
-            settingsStore.setTheme(refreshedTheme)
-            settingsStore.setAnimationsEnabled(freshData.launcherConfig.animationsEnabled)
-          }
+          applyInitData(freshData)
           if (coreStore.currentProject && coreStore.currentProject !== loadedProject) {
             projectLoad = loadProject(coreStore.currentProject)
           }
@@ -116,11 +113,13 @@ export function useAppInit() {
       const remaining: number = Math.max(0, 1000 - elapsed)
       setTimeout(() => {
         coreStore.isLoading = false
+        isInitializing = false
       }, remaining)
     }
   }
 
   const retryInit = async (): Promise<void> => {
+    if (isInitializing) return
     startupError.value = ''
     coreStore.isLoading = true
     await init()

@@ -94,6 +94,7 @@ const onMaxInput = (e: Event): void => {
       <input
         type="range"
         class="memory-slider__input memory-slider__input--min"
+        aria-label="Память — минимальное значение"
         :min="min"
         :max="maxLimit"
         :step="step"
@@ -103,6 +104,7 @@ const onMaxInput = (e: Event): void => {
       <input
         type="range"
         class="memory-slider__input memory-slider__input--max"
+        aria-label="Память — максимальное значение"
         :min="min"
         :max="maxLimit"
         :step="step"

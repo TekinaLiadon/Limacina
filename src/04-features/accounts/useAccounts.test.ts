@@ -110,4 +110,31 @@ describe('useAccounts', () => {
     expect(core.isLoggedIn).toBe(false)
     expect(core.session).toBeNull()
   })
+
+  it('ignores a select while another select is running', async () => {
+    let releaseRefresh: () => void = () => {}
+    vi.mocked(authRefresh).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseRefresh = resolve
+        }),
+    )
+    const accounts = setupAccounts()
+    accounts.selectedUsername.value = 'alice'
+
+    const first = accounts.handleSelect('bob')
+    const second = await accounts.handleSelect('carol')
+
+    expect(second).toBeUndefined()
+    expect(authRefresh).toHaveBeenCalledTimes(1)
+    expect(authRefresh).toHaveBeenCalledWith('proj', 'bob')
+    expect(accounts.isLoading.value).toBe(true)
+
+    releaseRefresh()
+    await first
+
+    expect(accounts.selectedUsername.value).toBe('bob')
+    expect(accounts.isLoading.value).toBe(false)
+    expect(accounts.errorMessage.value).toBe('')
+  })
 })

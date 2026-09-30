@@ -11,9 +11,13 @@ function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
   return texture
 }
 
+function isManagedTexture(texture: THREE.Texture): boolean {
+  return texture.userData.managed === true
+}
+
 function disposeMaterial(material: THREE.Material): void {
   for (const value of Object.values(material)) {
-    if (value instanceof THREE.Texture) value.dispose()
+    if (value instanceof THREE.Texture && !isManagedTexture(value)) value.dispose()
   }
   material.dispose()
 }
@@ -33,10 +37,11 @@ export function removeGroupFromScene(
   scene: Ref<THREE.Scene | null>,
   group: Ref<THREE.Group | null>,
 ): void {
-  if (!group.value || !scene.value) return
+  const current = group.value
+  if (!current) return
 
-  scene.value.remove(group.value)
-  disposeObjectTree(group.value)
+  if (scene.value) scene.value.remove(current)
+  disposeObjectTree(current)
   group.value = null
 }
 
@@ -55,8 +60,12 @@ export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): Mana
       const generation = guard.next()
       const loader = new THREE.TextureLoader()
       loader.load(url, (texture) => {
-        if (!guard.isCurrent(generation) || !scene.value) return
+        if (!guard.isCurrent(generation) || !scene.value) {
+          texture.dispose()
+          return
+        }
         configurePixelTexture(texture)
+        texture.userData.managed = true
         if (currentTexture) currentTexture.dispose()
         currentTexture = texture
         onLoaded(texture, scene.value)

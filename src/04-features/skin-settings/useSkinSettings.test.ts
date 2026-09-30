@@ -264,4 +264,46 @@ describe('useSkinSettings', () => {
     expect(deleteSkin).toHaveBeenCalledWith(1)
     expect(getProfileSkin).toHaveBeenCalledTimes(2)
   })
+
+  it('keeps the latest preview when activation responses race', async () => {
+    goOnline()
+    let activeId = 1
+    vi.mocked(listSkins).mockImplementation(async () => [
+      makeSkin(1, activeId === 1),
+      makeSkin(2, activeId === 2),
+    ])
+    vi.mocked(setActiveSkin).mockImplementation(async (id: number): Promise<void> => {
+      activeId = id
+    })
+    createObjectURLMock.mockReturnValueOnce('blob:initial')
+    createObjectURLMock.mockReturnValueOnce('blob:current')
+    let releaseSlow: (bytes: Uint8Array) => void = () => {}
+    vi.mocked(getProfileSkin).mockReset()
+    vi.mocked(getProfileSkin)
+      .mockResolvedValueOnce(new Uint8Array([1]))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Uint8Array>((resolve) => {
+            releaseSlow = resolve
+          }),
+      )
+      .mockResolvedValueOnce(new Uint8Array([3]))
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:initial'))
+
+    const slowActivation = skins.handleActivate(2)
+    await vi.waitFor(() => expect(getProfileSkin).toHaveBeenCalledTimes(2))
+    expect(getProfileSkin).toHaveBeenNthCalledWith(2, 'https://cdn/2.png')
+
+    await skins.handleActivate(1)
+    expect(getProfileSkin).toHaveBeenNthCalledWith(3, 'https://cdn/1.png')
+    expect(skins.skinUrl.value).toBe('blob:current')
+
+    releaseSlow(new Uint8Array([2]))
+    await slowActivation
+
+    expect(skins.skinUrl.value).toBe('blob:current')
+    expect(createObjectURLMock).toHaveBeenCalledTimes(2)
+    expect(revokeObjectURLMock).not.toHaveBeenCalledWith('blob:current')
+  })
 })

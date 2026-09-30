@@ -1,56 +1,11 @@
 <script setup lang="ts">
 import type { GameCloudsMode, GameOptions } from '@/05-entities'
-import type { DropdownOption } from '@/06-shared'
-import GameSliderField from './GameSliderField.vue'
-import GameDropdownField from './GameDropdownField.vue'
-import GameCheckboxField from './GameCheckboxField.vue'
-import { createOptionsPatch } from './optionsPatch'
+import { GameCheckboxField, GameDropdownField, GameSliderField, createOptionsPatch } from './fields'
+import { cloudsOptions, graphicsModeOptions, guiScaleOptions, mipmapOptions, particlesOptions } from './options'
 
-const props = defineProps<{
-  options: GameOptions
-}>()
-
+const props = defineProps<{ options: GameOptions }>()
 const emit = defineEmits<{ 'update:options': [GameOptions] }>()
-
-const patch = createOptionsPatch(
-  () => props.options,
-  (next) => emit('update:options', next),
-)
-
-const graphicsModeOptions: DropdownOption[] = [
-  { title: 'Быстрая', value: '0' },
-  { title: 'Красивая', value: '1' },
-  { title: 'Потрясающая', value: '2' },
-  { title: 'Ручная', value: '3' },
-]
-
-const mipmapOptions: DropdownOption[] = [
-  { title: 'Выкл', value: '0' },
-  { title: '1', value: '1' },
-  { title: '2', value: '2' },
-  { title: '3', value: '3' },
-  { title: '4', value: '4' },
-]
-
-const particlesOptions: DropdownOption[] = [
-  { title: 'Все', value: '0' },
-  { title: 'Уменьшенные', value: '1' },
-  { title: 'Минимум', value: '2' },
-]
-
-const cloudsOptions: DropdownOption[] = [
-  { title: 'Включены', value: 'true' },
-  { title: 'Упрощённые', value: 'fast' },
-  { title: 'Выключены', value: 'false' },
-]
-
-const guiScaleOptions: DropdownOption[] = [
-  { title: 'Авто', value: '0' },
-  { title: '1', value: '1' },
-  { title: '2', value: '2' },
-  { title: '3', value: '3' },
-  { title: '4', value: '4' },
-]
+const patch = createOptionsPatch(props, emit)
 </script>
 
 <template>

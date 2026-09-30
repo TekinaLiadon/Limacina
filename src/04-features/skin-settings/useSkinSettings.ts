@@ -1,5 +1,5 @@
 import { ref, computed, watch, onMounted, onScopeDispose, nextTick } from 'vue'
-import { reportError } from '@/06-shared'
+import { reportError, useAsyncRaceGuard } from '@/06-shared'
 import {
   getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
 } from '@/06-shared/api'
@@ -67,16 +67,29 @@ export function useSkinSettings() {
     void persistOfflineSkin(false)
   })
 
-  const loadCurrentSkin = async (): Promise<void> => {
-    const current = activeSkin.value
-    if (!current || skinUrl.value !== '' || skinFileBytes.value.length > 0) return
+  const skinPreviewGuard = useAsyncRaceGuard()
 
+  const fetchActiveSkinPreview = async (generation: number): Promise<void> => {
+    const current = activeSkin.value
+    if (!current) return
     try {
       const bytes = await getProfileSkin(current.url)
-      setSkinUrl(await loadBlobUrl(bytes))
+      if (!skinPreviewGuard.isCurrent(generation)) return
+      const url = await loadBlobUrl(bytes)
+      if (!skinPreviewGuard.isCurrent(generation)) {
+        URL.revokeObjectURL(url)
+        return
+      }
+      setSkinUrl(url)
     } catch (e: unknown) {
+      if (!skinPreviewGuard.isCurrent(generation)) return
       reportError('Не удалось загрузить текущий скин', e)
     }
+  }
+
+  const loadCurrentSkin = async (): Promise<void> => {
+    if (!activeSkin.value || skinUrl.value !== '' || skinFileBytes.value.length > 0) return
+    await fetchActiveSkinPreview(skinPreviewGuard.next())
   }
 
   const loadOfflineSkin = async (): Promise<void> => {
@@ -142,8 +155,9 @@ export function useSkinSettings() {
   }
 
   const reloadSkinPreview = async (): Promise<void> => {
+    const generation = skinPreviewGuard.next()
     await resetSkinState()
-    await loadCurrentSkin()
+    await fetchActiveSkinPreview(generation)
   }
 
   const handleActivate = async (id: number): Promise<void> => {

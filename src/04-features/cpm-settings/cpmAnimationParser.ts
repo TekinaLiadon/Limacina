@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { reportError } from '@/06-shared'
 import type {
   CPMAnimation,
   CPMAnimationInterpolator,
@@ -89,6 +90,7 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
     .sort()
 
   const animations: CPMAnimation[] = []
+  const brokenFiles: string[] = []
 
   for (const path of files) {
     const file = zip.file(path)
@@ -98,6 +100,7 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
     try {
       raw = JSON.parse(await file.async('string')) as RawAnimation
     } catch {
+      brokenFiles.push(path.slice('animations/'.length))
       continue
     }
 
@@ -116,6 +119,10 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
       hidden: raw.hidden ?? false,
       frames: raw.frames ?? [],
     })
+  }
+
+  if (brokenFiles.length > 0) {
+    reportError(`Не удалось разобрать файлы анимаций: ${brokenFiles.join(', ')}`)
   }
 
   return animations

@@ -6,6 +6,7 @@ import { resolveMarkdownUrl, renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{
   source: string
+  baseUrl: string
 }>()
 
 const emit = defineEmits<{
@@ -23,7 +24,7 @@ async function handleAnchorClick(event: MouseEvent): Promise<void> {
   if (href === null || href === '') return
   event.preventDefault()
   try {
-    await openExternalUrl(resolveMarkdownUrl(href))
+    await openExternalUrl(resolveMarkdownUrl(href, props.baseUrl))
   } catch (e: unknown) {
     emit('link-error', getErrorMessage(e))
   }

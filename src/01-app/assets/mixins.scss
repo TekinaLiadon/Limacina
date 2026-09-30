@@ -100,6 +100,13 @@
   }
 }
 
+@mixin tool-divider {
+  width: 1px;
+  height: var(--control-height-sm);
+  background: var(--grid-line);
+  flex-shrink: 0;
+}
+
 @mixin dropdown-trigger {
   border: none;
   box-shadow: var(--elevation-inset);

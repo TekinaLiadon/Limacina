@@ -146,6 +146,44 @@ describe('useConsoleStream', () => {
     expect(stream.streamError.value).toBe('')
   })
 
+  it('keeps the live lines that arrive while the startup logs are loading', async () => {
+    let resolveStartup: (logs: { line: string; isError: boolean }[]) => void = () => {}
+    const startupPromise = new Promise<{ line: string; isError: boolean }[]>((resolve) => {
+      resolveStartup = resolve
+    })
+    api.getStartupLogs.mockImplementationOnce(() => startupPromise)
+    const stream = await loadStream()
+
+    const pending = stream.startConsoleStream()
+    expect(api.listenGameConsole).toHaveBeenCalledTimes(1)
+
+    ingest?.({ line: 'live line', isError: false })
+    resolveStartup([{ line: 'startup line', isError: false }])
+    await pending
+
+    stream.setConsoleActive(true)
+
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['live line', 'startup line'])
+  })
+
+  it('cleans up the subscription when the startup logs fail and allows a retry', async () => {
+    api.getStartupLogs.mockRejectedValueOnce(new Error('logs gone'))
+    const stopFirst = vi.fn()
+    api.listenGameConsole.mockImplementationOnce(async () => stopFirst)
+    const stream = await loadStream()
+
+    await stream.startConsoleStream()
+
+    expect(stopFirst).toHaveBeenCalledTimes(1)
+    expect(stream.streamError.value).toBe('logs gone')
+
+    api.getStartupLogs.mockResolvedValue([])
+    await stream.startConsoleStream()
+
+    expect(api.listenGameConsole).toHaveBeenCalledTimes(2)
+    expect(stream.streamError.value).toBe('')
+  })
+
   it('loads the startup logs only once across restarts', async () => {
     api.getStartupLogs.mockResolvedValue([{ line: 'boot', isError: false }])
     const stream = await loadStream()

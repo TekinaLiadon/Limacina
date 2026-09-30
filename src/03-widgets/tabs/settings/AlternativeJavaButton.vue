@@ -1,27 +1,29 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 import AlternativeJavaPopup from './AlternativeJavaPopup.vue'
+import { alternativeJavaModelDefaults, useAlternativeJavaModels, type AlternativeJavaModelProps } from './alternativeJavaModels'
 import type { JavaDistribution } from '@/05-entities'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   distributions: JavaDistribution[]
   isDownloading: boolean
   popupVisible: boolean
   isDistributionsLoading: boolean
   distributionsError: string
   versionError: string
-}>()
+} & AlternativeJavaModelProps>(), { ...alternativeJavaModelDefaults })
 
 const emit = defineEmits<{
   'open-popup': []
   download: []
   retry: []
   'close-popup': []
+  'update:selectedDistribution': [string]
+  'update:replaceDefault': [boolean]
+  'update:versionInput': [string]
 }>()
 
-const selectedDistribution = defineModel<string>('selectedDistribution', { default: '' })
-const replaceDefault = defineModel<boolean>('replaceDefault', { default: false })
-const versionInput = defineModel<string>('versionInput', { default: '' })
+const { selectedDistribution, replaceDefault, versionInput } = useAlternativeJavaModels(props)
 </script>
 
 <template>

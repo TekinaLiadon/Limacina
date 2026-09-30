@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Button, Dropdown, Input, MultiSelect, Skeleton } from '@/06-shared'
+import { Button, Dropdown, Input, MultiSelect, Skeleton, formatNumber } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type ModrinthSearchHit, type ModrinthInstalledMod } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
 import ModrinthProjectPopup from './ModrinthProjectPopup.vue'
@@ -82,10 +82,6 @@ const paginationItems = computed((): Array<number | 'gap'> => {
   result.push(pages)
   return result
 })
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('ru-RU').format(value)
-}
 
 function versionText(hit: ModrinthSearchHit): string {
   return versionNumbers.value[hit.project_id] ?? ''

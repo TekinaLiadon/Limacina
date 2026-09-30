@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, useAttrs, watch } from 'vue'
+import { computed, ref, useAttrs, watch } from 'vue'
 import { randomId } from '@/06-shared/utils/utils'
+import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
 import type { InputOptions } from '@/06-shared/types'
 import OpenEye from "@/06-shared/components/svg/OpenEye.vue";
 import ClosedEye from "@/06-shared/components/svg/ClosedEye.vue";
@@ -28,11 +29,14 @@ const inputAttrs = computed((): Record<string, unknown> => {
   return rest
 })
 
-const id = ref('')
+const id = randomId()
 const showPassword = ref(false)
-const showDropdown = ref(false)
-const activeSuggest = ref(0)
 const inputRef = ref<HTMLDivElement | null>(null)
+const { shown: showDropdown, close: closeDropdown } = useDropdownPanel(
+  inputRef,
+  (): boolean => false,
+  (): number => 10,
+)
 
 const listboxId = randomId()
 
@@ -63,8 +67,10 @@ const data = computed({
 
 const selectItem = (item: string): void => {
   emit('update:modelValue', item)
-  showDropdown.value = false
+  closeDropdown()
 }
+
+const activeSuggest = ref(0)
 
 watch(showDropdown, (shown: boolean): void => {
   if (shown) activeSuggest.value = 0
@@ -76,11 +82,6 @@ watch(filteredList, (): void => {
 
 const handleInputKeydown = (event: KeyboardEvent): void => {
   if (!showDropdown.value || filteredList.value.length === 0) return
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    showDropdown.value = false
-    return
-  }
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     activeSuggest.value = (activeSuggest.value + 1) % filteredList.value.length
@@ -93,21 +94,6 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
     if (item !== undefined) selectItem(item)
   }
 }
-
-const handleClickOutside = (e: MouseEvent): void => {
-  if (inputRef.value && !inputRef.value.contains(e.target as Node)) {
-    showDropdown.value = false
-  }
-}
-
-onMounted((): void => {
-  id.value = randomId()
-  document.addEventListener('click', handleClickOutside)
-})
-
-onUnmounted((): void => {
-  document.removeEventListener('click', handleClickOutside)
-})
 </script>
 
 <template>
@@ -137,7 +123,7 @@ onUnmounted((): void => {
                @focus="options?.list?.length && (showDropdown = true)"
                @input="options?.list?.length && (showDropdown = true)"
                @keydown="handleInputKeydown"
-               @focusout="showDropdown = false"
+               @focusout="closeDropdown"
         />
         <div v-if="showDropdown && filteredList.length" :id="listboxId" class="input__dropdown" role="listbox">
           <div

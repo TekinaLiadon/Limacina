@@ -1,7 +1,7 @@
-import { computed, type WritableComputedRef } from 'vue'
+import type { WritableComputedRef } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { authLogins, getErrorMessage } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, storeBinding } from '@/06-shared'
 
 export function useAccountsList(): {
   logins: WritableComputedRef<string[]>
@@ -10,10 +10,7 @@ export function useAccountsList(): {
   const coreStore = useCoreStore()
   const store = useAccountsStore()
 
-  const logins = computed({
-    get: (): string[] => store.logins,
-    set: (v: string[]): void => { store.logins = v },
-  })
+  const logins = storeBinding(store, 'logins')
 
   const loadAccounts = async (): Promise<void> => {
     const projectName = coreStore.currentProject

@@ -50,7 +50,11 @@ export function useGameSession(): {
   return {
     startGameSessionSync: syncGameSession,
     minimizeToTray: async (): Promise<void> => {
-      await hideMainWindow()
+      try {
+        await hideMainWindow()
+      } catch (e: unknown) {
+        reportError('Не удалось свернуть окно в трей', e)
+      }
     },
   }
 }

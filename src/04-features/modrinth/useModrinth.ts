@@ -20,6 +20,8 @@ export interface ModrinthCategory {
   label: string
 }
 
+export const MODRINTH_BASE_URL = 'https://modrinth.com'
+
 export const MODRINTH_SORTS: Array<{ value: string; label: string }> = [
   { value: 'relevance', label: 'По релевантности' },
   { value: 'downloads', label: 'По загрузкам' },

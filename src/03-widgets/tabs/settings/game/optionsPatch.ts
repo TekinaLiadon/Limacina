@@ -3,10 +3,10 @@ import type { GameOptions } from '@/05-entities'
 export type OptionsPatch = <K extends keyof GameOptions>(key: K, value: GameOptions[K]) => void
 
 export function createOptionsPatch(
-  getOptions: () => GameOptions,
-  update: (options: GameOptions) => void,
+  props: { options: GameOptions },
+  emit: (event: 'update:options', options: GameOptions) => void,
 ): OptionsPatch {
   return <K extends keyof GameOptions>(key: K, value: GameOptions[K]): void => {
-    update({ ...getOptions(), [key]: value })
+    emit('update:options', { ...props.options, [key]: value })
   }
 }

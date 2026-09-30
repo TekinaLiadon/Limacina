@@ -47,8 +47,8 @@ const title = computed((): string => {
   white-space: nowrap;
 
   &__dot {
-    width: 8px;
-    height: 8px;
+    width: var(--indicator-dot-size);
+    height: var(--indicator-dot-size);
     border-radius: var(--radius-circle);
     background: var(--accent-text);
     flex-shrink: 0;

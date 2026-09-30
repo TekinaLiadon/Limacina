@@ -2,7 +2,7 @@ import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
 import { useAccounts, useGameLaunch, useLaunchStepsStream, useSystemNotifications } from '@/04-features'
 import { clearSession, deleteAccount, getErrorMessage } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, storeBinding } from '@/06-shared'
 
 export function useAccountsPage() {
   const coreStore = useCoreStore()
@@ -101,10 +101,7 @@ export function useAccountsPage() {
     store.closeAuthForm()
   }
 
-  const activeSubTab = computed({
-    get: () => store.activeSubTab,
-    set: (v) => { store.activeSubTab = v },
-  })
+  const activeSubTab = storeBinding(store, 'activeSubTab')
   const loginError = computed((): string => store.loginError)
   const sceneUsername = computed((): string => {
     if (coreStore.session?.username) return coreStore.session.username

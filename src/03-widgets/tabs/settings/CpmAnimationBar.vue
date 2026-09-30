@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { MultiSelect, type DropdownOption } from '@/06-shared'
+import ToolIconButton from './ToolIconButton.vue'
 
 defineProps<{
   options: DropdownOption[]
@@ -32,10 +33,9 @@ const emit = defineEmits<{
       width="100%"
       @update:model-value="emit('update:modelValue', $event)"
     />
-    <button
-      class="cpm-anim-bar__btn"
+    <ToolIconButton
+      :label="isPlaying ? 'Пауза' : 'Воспроизвести'"
       :disabled="!hasAnimation"
-      :aria-label="isPlaying ? 'Пауза' : 'Воспроизвести'"
       @click="emit('toggle-play')"
     >
       <svg v-if="isPlaying" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -45,13 +45,12 @@ const emit = defineEmits<{
       <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="5 3 19 12 5 21 5 3" />
       </svg>
-    </button>
-    <button
-      class="cpm-anim-bar__btn"
-      :class="{ 'cpm-anim-bar__btn--active': isLooped }"
+    </ToolIconButton>
+    <ToolIconButton
+      label="Повторять анимацию"
+      :class="{ 'tool-icon-button--active': isLooped }"
       :disabled="!hasAnimation"
       :aria-pressed="isLooped"
-      aria-label="Повторять анимацию"
       @click="emit('toggle-loop')"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -60,31 +59,12 @@ const emit = defineEmits<{
         <polyline points="7 23 3 19 7 15" />
         <path d="M21 13v2a4 4 0 0 1-4 4H3" />
       </svg>
-    </button>
+    </ToolIconButton>
     <span class="cpm-anim-bar__divider" aria-hidden="true" />
     <div class="cpm-anim-bar__speed">
-      <button
-        class="cpm-anim-bar__btn"
-        :disabled="!canSpeedDown"
-        aria-label="Замедлить анимацию"
-        @click="emit('speed-down')"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      <ToolIconButton label="Замедлить анимацию" icon="minus" :disabled="!canSpeedDown" @click="emit('speed-down')" />
       <span class="cpm-anim-bar__speed-value">{{ speed.toFixed(2).replace(/\.?0+$/, '') }}×</span>
-      <button
-        class="cpm-anim-bar__btn"
-        :disabled="!canSpeedUp"
-        aria-label="Ускорить анимацию"
-        @click="emit('speed-up')"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      <ToolIconButton label="Ускорить анимацию" icon="plus" :disabled="!canSpeedUp" @click="emit('speed-up')" />
     </div>
   </div>
 </template>
@@ -104,16 +84,7 @@ const emit = defineEmits<{
   }
 
   &__divider {
-    width: 1px;
-    height: var(--control-height-sm);
-    background: var(--grid-line);
-    flex-shrink: 0;
-  }
-
-  &__btn {
-    @include mixins.tool-button;
-
-    flex-shrink: 0;
+    @include mixins.tool-divider;
   }
 
   &__speed {

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { downloadAlternativeJava, getErrorMessage, getJavaDistributions, getJavaVersion } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, useAsyncRaceGuard } from '@/06-shared'
 import { useNotificationStore, type JavaDistribution } from '@/05-entities'
 import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
 
@@ -17,11 +17,17 @@ export function useAlternativeJava() {
   const distributionsError = ref<string>('')
   const versionError = ref<string>('')
 
+  const versionGuard = useAsyncRaceGuard()
+
   const loadJavaVersion = async (mcVersion: string): Promise<void> => {
+    const generation = versionGuard.next()
     versionError.value = ''
     try {
-      javaVersion.value = await getJavaVersion(mcVersion)
+      const version = await getJavaVersion(mcVersion)
+      if (!versionGuard.isCurrent(generation)) return
+      javaVersion.value = version
     } catch (e: unknown) {
+      if (!versionGuard.isCurrent(generation)) return
       javaVersion.value = ''
       versionError.value = getErrorMessage(e)
       reportError('Не удалось определить требуемую версию Java', e)
@@ -46,11 +52,10 @@ export function useAlternativeJava() {
   }
 
   const openPopup = async (mcVersion: string): Promise<void> => {
-    if (distributions.value.length === 0) {
-      await loadDistributions()
-    }
-
-    await loadJavaVersion(mcVersion)
+    await Promise.all([
+      distributions.value.length === 0 ? loadDistributions() : Promise.resolve(),
+      loadJavaVersion(mcVersion),
+    ])
     isPopupOpen.value = true
   }
 

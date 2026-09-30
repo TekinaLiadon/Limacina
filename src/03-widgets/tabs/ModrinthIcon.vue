@@ -57,13 +57,13 @@ watch(
   overflow: hidden;
 
   &--sm {
-    width: 48px;
-    height: 48px;
+    width: var(--modrinth-icon-size-sm);
+    height: var(--modrinth-icon-size-sm);
   }
 
   &--lg {
-    width: 56px;
-    height: 56px;
+    width: var(--modrinth-icon-size-lg);
+    height: var(--modrinth-icon-size-lg);
     font-size: var(--text-heading-sm);
   }
 

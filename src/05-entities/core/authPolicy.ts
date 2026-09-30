@@ -11,3 +11,8 @@ const symbolsWord = (count: number): string => {
 }
 
 export const minLengthMessage = (min: number): string => `минимум ${min} ${symbolsWord(min)}`
+
+export const isPasswordConfirmed = (password: string, confirmPassword: string): boolean => {
+  if (!confirmPassword) return true
+  return password === confirmPassword
+}

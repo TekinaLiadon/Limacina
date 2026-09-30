@@ -1,18 +1,10 @@
 <script setup lang="ts">
 import type { GameOptions } from '@/05-entities'
-import GameSliderField from './GameSliderField.vue'
-import { createOptionsPatch } from './optionsPatch'
+import { createOptionsPatch, GameSliderField } from './fields'
 
-const props = defineProps<{
-  options: GameOptions
-}>()
-
+const props = defineProps<{ options: GameOptions }>()
 const emit = defineEmits<{ 'update:options': [GameOptions] }>()
-
-const patch = createOptionsPatch(
-  () => props.options,
-  (next) => emit('update:options', next),
-)
+const patch = createOptionsPatch(props, emit)
 </script>
 
 <template>

@@ -16,12 +16,12 @@ export function useThreeScene(
   options: ThreeSceneOptions = {}
 ) {
   const {
-    background = 0x1a1d2e,
     cameraPosition = [0, 5, 22],
     cameraFov = 35,
     enableZoom = false,
     autoRotate = false,
     autoRotateSpeed = 1.5,
+    background,
   } = options
 
   const renderer = shallowRef<THREE.WebGLRenderer | null>(null)
@@ -31,16 +31,23 @@ export function useThreeScene(
   let orbitControls: OrbitControls | null = null
   let resizeObserver: ResizeObserver | null = null
 
+  const resolveBackground = (): number | string => {
+    if (background !== undefined) return background
+    return getComputedStyle(document.documentElement).getPropertyValue('--viewer-bg').trim()
+  }
+
   function initScene(): void {
     if (!container.value) return
 
     const w = container.value.clientWidth
     const h = container.value.clientHeight
+    const aspect = w > 0 && h > 0 ? w / h : 1
     const s = new THREE.Scene()
-    s.background = new THREE.Color(background)
+    const cssBackground = resolveBackground()
+    if (cssBackground !== '') s.background = new THREE.Color(cssBackground)
     scene.value = s
 
-    const cam = new THREE.PerspectiveCamera(cameraFov, w / h, 0.1, 2000)
+    const cam = new THREE.PerspectiveCamera(cameraFov, aspect, 0.1, 2000)
     cam.position.set(...cameraPosition)
     camera.value = cam
 

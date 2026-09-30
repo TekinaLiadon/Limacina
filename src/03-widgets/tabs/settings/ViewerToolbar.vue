@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Tooltip } from '@/06-shared'
 import { ELEVATION_MAX, ELEVATION_MIN, MIN_ZOOM_PERCENT, useViewerControls } from './viewerControls'
+import ToolIconButton from './ToolIconButton.vue'
 
 defineProps<{
   fullscreen?: boolean
@@ -30,17 +31,7 @@ const toggleAutoRotate = (): void => {
 <template>
   <div class="viewer-toolbar" role="toolbar" aria-label="Управление просмотром">
     <Tooltip content="Приблизить">
-      <button
-        class="viewer-toolbar__btn"
-        :disabled="!canZoomIn"
-        aria-label="Приблизить"
-        @click="controls.zoomIn"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      <ToolIconButton label="Приблизить" icon="plus" :disabled="!canZoomIn" @click="controls.zoomIn" />
     </Tooltip>
 
     <Tooltip content="Сбросить масштаб">
@@ -54,80 +45,52 @@ const toggleAutoRotate = (): void => {
     </Tooltip>
 
     <Tooltip content="Отдалить">
-      <button
-        class="viewer-toolbar__btn"
-        :disabled="!canZoomOut"
-        aria-label="Отдалить"
-        @click="controls.zoomOut"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      <ToolIconButton label="Отдалить" icon="minus" :disabled="!canZoomOut" @click="controls.zoomOut" />
     </Tooltip>
 
     <span class="viewer-toolbar__divider" aria-hidden="true" />
 
     <Tooltip content="Повернуть влево">
-      <button
-        class="viewer-toolbar__btn"
-        aria-label="Повернуть влево"
-        @click="controls.rotateLeft"
-      >
+      <ToolIconButton label="Повернуть влево" @click="controls.rotateLeft">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="1 4 1 10 7 10" />
           <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
 
     <Tooltip content="Повернуть вправо">
-      <button
-        class="viewer-toolbar__btn"
-        aria-label="Повернуть вправо"
-        @click="controls.rotateRight"
-      >
+      <ToolIconButton label="Повернуть вправо" @click="controls.rotateRight">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10" />
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
 
     <Tooltip content="Повернуть вверх">
-      <button
-        class="viewer-toolbar__btn"
-        :disabled="!canRotateUp"
-        aria-label="Повернуть вверх"
-        @click="controls.rotateUp"
-      >
+      <ToolIconButton label="Повернуть вверх" :disabled="!canRotateUp" @click="controls.rotateUp">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="18 15 12 9 6 15" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
 
     <Tooltip content="Повернуть вниз">
-      <button
-        class="viewer-toolbar__btn"
-        :disabled="!canRotateDown"
-        aria-label="Повернуть вниз"
-        @click="controls.rotateDown"
-      >
+      <ToolIconButton label="Повернуть вниз" :disabled="!canRotateDown" @click="controls.rotateDown">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="6 9 12 15 18 9" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
 
     <span class="viewer-toolbar__divider" aria-hidden="true" />
 
     <Tooltip content="Автоповорот">
-      <button
-        class="viewer-toolbar__btn"
-        :class="{ 'viewer-toolbar__btn--active': controls.autoRotate.value }"
+      <ToolIconButton
+        label="Автоповорот"
+        :class="{ 'tool-icon-button--active': controls.autoRotate.value }"
         :aria-pressed="controls.autoRotate.value"
-        aria-label="Автоповорот"
         @click="toggleAutoRotate"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -135,15 +98,11 @@ const toggleAutoRotate = (): void => {
           <polyline points="1 20 1 14 7 14" />
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
 
     <Tooltip content="Сбросить вид">
-      <button
-        class="viewer-toolbar__btn"
-        aria-label="Сбросить вид"
-        @click="controls.resetView"
-      >
+      <ToolIconButton label="Сбросить вид" @click="controls.resetView">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10" />
           <line x1="22" y1="12" x2="18" y2="12" />
@@ -151,15 +110,14 @@ const toggleAutoRotate = (): void => {
           <line x1="12" y1="6" x2="12" y2="2" />
           <line x1="12" y1="22" x2="12" y2="18" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
 
     <span class="viewer-toolbar__divider" aria-hidden="true" />
 
     <Tooltip :content="fullscreen ? 'Свернуть просмотр' : 'Развернуть на весь экран'">
-      <button
-        class="viewer-toolbar__btn"
-        :aria-label="fullscreen ? 'Свернуть просмотр' : 'Развернуть на весь экран'"
+      <ToolIconButton
+        :label="fullscreen ? 'Свернуть просмотр' : 'Развернуть на весь экран'"
         @click="emit('toggle-fullscreen')"
       >
         <svg v-if="fullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -174,7 +132,7 @@ const toggleAutoRotate = (): void => {
           <line x1="21" y1="3" x2="14" y2="10" />
           <line x1="3" y1="21" x2="10" y2="14" />
         </svg>
-      </button>
+      </ToolIconButton>
     </Tooltip>
   </div>
 </template>
@@ -207,10 +165,7 @@ const toggleAutoRotate = (): void => {
   }
 
   &__divider {
-    width: 1px;
-    height: var(--control-height-sm);
-    background: var(--grid-line);
-    flex-shrink: 0;
+    @include mixins.tool-divider;
   }
 }
 </style>

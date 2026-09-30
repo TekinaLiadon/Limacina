@@ -33,8 +33,8 @@ const isVisible = computed((): boolean =>
   margin-bottom: var(--space-12);
 
   &__dot {
-    width: 8px;
-    height: 8px;
+    width: var(--indicator-dot-size);
+    height: var(--indicator-dot-size);
     border-radius: var(--radius-circle);
     background: var(--delete-text);
     flex-shrink: 0;
