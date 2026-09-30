@@ -101,6 +101,8 @@ export function useAddProfile() {
 
   const loadLoaderVersions = async (): Promise<void> => {
     if (!needsLoaderVersion.value || !offlineForm.value.mcVersion) {
+      loaderVersionsGuard.cancel()
+      isLoadingLoaderVersions.value = false
       loaderVersions.value = []
       offlineForm.value.loaderVersion = ''
       return
@@ -161,6 +163,7 @@ export function useAddProfile() {
   }
 
   const submitServer = async (): Promise<ProjectConfig | null> => {
+    if (isSubmitting.value) return null
     if (!isServerValid.value) return null
 
     isSubmitting.value = true
@@ -181,6 +184,7 @@ export function useAddProfile() {
   }
 
   const submitOffline = async (): Promise<ProjectConfig | null> => {
+    if (isSubmitting.value) return null
     if (!isOfflineValid.value) return null
 
     isSubmitting.value = true

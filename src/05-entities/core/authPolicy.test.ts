@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage } from './authPolicy'
+import { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage } from './authPolicy'
 
 describe('minLengthMessage', () => {
   it('builds the requirement from the actual minimums', () => {
@@ -17,5 +17,19 @@ describe('minLengthMessage', () => {
     expect(minLengthMessage(12)).toBe('минимум 12 символов')
     expect(minLengthMessage(14)).toBe('минимум 14 символов')
     expect(minLengthMessage(21)).toBe('минимум 21 символ')
+  })
+})
+
+describe('isPasswordConfirmed', () => {
+  it('treats an empty confirmation as not yet entered', () => {
+    expect(isPasswordConfirmed('secret', '')).toBe(true)
+  })
+
+  it('matches identical passwords', () => {
+    expect(isPasswordConfirmed('secret', 'secret')).toBe(true)
+  })
+
+  it('rejects different passwords', () => {
+    expect(isPasswordConfirmed('secret', 'other')).toBe(false)
   })
 })

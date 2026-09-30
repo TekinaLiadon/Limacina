@@ -150,6 +150,27 @@ describe('useTheme', () => {
     expect(theme.isSwitching.value).toBe(false)
   })
 
+  it('reads the switch duration at the moment of the switch', async () => {
+    prepareStore('default-dark', true)
+    const theme = await loadTheme()
+
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(
+      (() => ({
+        getPropertyValue: (prop: string): string =>
+          prop === '--switch-duration' ? '0.1s' : '',
+      })) as unknown as typeof window.getComputedStyle,
+    )
+
+    useSettingsStore().setTheme('lime-light')
+    await nextTick()
+    expect(theme.isSwitching.value).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('lime-light')
+    expect(theme.isSwitching.value).toBe(false)
+  })
+
   it('toasts when the theme choice cannot be saved', async () => {
     prepareStore('default-dark', true)
     api.saveTheme.mockRejectedValue(new Error('disk full'))

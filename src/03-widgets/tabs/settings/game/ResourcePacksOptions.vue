@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Skeleton } from '@/06-shared'
 import type { GameOptions } from '@/05-entities'
-import GameCheckboxField from './GameCheckboxField.vue'
+import { GameCheckboxField } from './fields'
 
 const props = withDefaults(defineProps<{
   options: GameOptions

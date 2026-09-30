@@ -1,34 +1,18 @@
 <script setup lang="ts">
 import type { GameChatVisibility, GameOptions } from '@/05-entities'
-import type { DropdownOption } from '@/06-shared'
-import GameSliderField from './GameSliderField.vue'
-import GameDropdownField from './GameDropdownField.vue'
-import GameCheckboxField from './GameCheckboxField.vue'
-import { createOptionsPatch } from './optionsPatch'
+import { GameCheckboxField, GameDropdownField, GameSliderField, createOptionsPatch } from './fields'
+import { chatVisibilityOptions } from './options'
 
-const props = defineProps<{
-  options: GameOptions
-}>()
-
+const props = defineProps<{ options: GameOptions }>()
 const emit = defineEmits<{ 'update:options': [GameOptions] }>()
-
-const patch = createOptionsPatch(
-  () => props.options,
-  (next) => emit('update:options', next),
-)
-
-const visibilityOptions: DropdownOption[] = [
-  { title: 'Полный', value: 'full' },
-  { title: 'Только команды', value: 'system' },
-  { title: 'Скрыт', value: 'hidden' },
-]
+const patch = createOptionsPatch(props, emit)
 </script>
 
 <template>
   <div class="chat-options">
     <GameDropdownField
       label="Видимость чата"
-      :options="visibilityOptions"
+      :options="chatVisibilityOptions"
       :model-value="options.chatVisibility"
       @update:model-value="patch('chatVisibility', $event as GameChatVisibility)"
     />

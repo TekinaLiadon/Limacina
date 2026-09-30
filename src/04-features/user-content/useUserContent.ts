@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
-import { copyToClipboard, reportError } from '@/06-shared'
+import { copyToClipboard, reportError, useAsyncRaceGuard } from '@/06-shared'
 import {
   getErrorMessage,
   listSkins, uploadSkin, deleteSkin, setActiveSkin,
@@ -34,20 +34,26 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 
   const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
+  const listGuard = useAsyncRaceGuard()
+
   const loadItems = async (): Promise<void> => {
     if (isOffline.value) return
     const uuid = coreStore.session?.uuid
     if (!uuid) return
 
+    const generation = listGuard.next()
     isListLoading.value = true
     listError.value = ''
     try {
-      items.value = await api.list(uuid)
+      const loaded = await api.list(uuid)
+      if (!listGuard.isCurrent(generation)) return
+      items.value = loaded
     } catch (e: unknown) {
+      if (!listGuard.isCurrent(generation)) return
       listError.value = `${api.listLoadErrorMessage}: ${getErrorMessage(e)}`
       reportError(api.listLoadErrorMessage, e)
     } finally {
-      isListLoading.value = false
+      if (listGuard.isCurrent(generation)) isListLoading.value = false
     }
   }
 

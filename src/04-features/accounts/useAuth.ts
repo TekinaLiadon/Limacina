@@ -1,7 +1,7 @@
 import { computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, type AuthUserData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, type AuthUserData } from '@/05-entities'
 import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAuth() {
@@ -10,28 +10,15 @@ export function useAuth() {
   const store = useAccountsStore()
   const { logins, loadAccounts } = useAccountsList()
 
-  const isLoading = computed({
-    get: (): boolean => store.authLoading,
-    set: (v: boolean): void => { store.authLoading = v },
-  })
-  const errorMessage = computed({
-    get: (): string => store.authError,
-    set: (v: string): void => { store.authError = v },
-  })
+  const isLoading = storeBinding(store, 'authLoading')
+  const errorMessage = storeBinding(store, 'authError')
 
-  const loginFormData = computed({
-    get: () => store.loginFormData,
-    set: (v) => { store.loginFormData = v },
-  })
-  const registerFormData = computed({
-    get: () => store.registerFormData,
-    set: (v) => { store.registerFormData = v },
-  })
+  const loginFormData = storeBinding(store, 'loginFormData')
+  const registerFormData = storeBinding(store, 'registerFormData')
 
-  const passwordsMatch = computed((): boolean => {
-    if (!store.registerFormData.confirmPassword) return true
-    return store.registerFormData.password === store.registerFormData.confirmPassword
-  })
+  const passwordsMatch = computed((): boolean =>
+    isPasswordConfirmed(store.registerFormData.password, store.registerFormData.confirmPassword)
+  )
 
   const isOffline = computed((): boolean => coreStore.isOfflineProject)
 

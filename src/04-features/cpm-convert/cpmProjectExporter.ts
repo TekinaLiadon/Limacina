@@ -114,8 +114,13 @@ function vecNear(v: { x: number; y: number; z: number } | undefined, base: numbe
   return Math.abs(v.x - base) < eps && Math.abs(v.y - base) < eps && Math.abs(v.z - base) < eps
 }
 
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const
+
 function pngSize(png: Uint8Array): { w: number; h: number } {
   const byte = (i: number): number => png[i] ?? 0
+  const isPng = PNG_SIGNATURE.every((expected, index) => byte(index) === expected)
+  if (!isPng || png.length < 24) throw new Error('Некорректный skin.png в файле проекта')
+
   const w = (byte(16) << 24) | (byte(17) << 16) | (byte(18) << 8) | byte(19)
   const h = (byte(20) << 24) | (byte(21) << 16) | (byte(22) << 8) | byte(23)
   return { w, h }

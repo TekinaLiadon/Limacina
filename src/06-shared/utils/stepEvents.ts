@@ -20,6 +20,14 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
       const active = steps.find((step) => step.status === 'active')
       if (active) active.status = 'done'
       const index = steps.findIndex((item) => item.key === event.id)
+      const markLimit = index === -1 ? steps.length : index
+      for (let i = 0; i < markLimit; i += 1) {
+        const before = steps[i]
+        if (before !== undefined && before.status === 'pending') {
+          before.status = 'done'
+          before.skipped = true
+        }
+      }
       if (index === -1) {
         steps.push(createStepItem(event.id, event.label, Date.now()))
         break
@@ -29,13 +37,6 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
         step.status = 'active'
         step.label = event.label
         step.shownAt = Date.now()
-      }
-      for (let i = 0; i < index; i += 1) {
-        const before = steps[i]
-        if (before !== undefined && before.status === 'pending') {
-          before.status = 'done'
-          before.skipped = true
-        }
       }
       break
     }

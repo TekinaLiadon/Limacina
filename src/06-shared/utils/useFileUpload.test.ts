@@ -71,6 +71,19 @@ describe('selectFile', () => {
     expect(String(result).startsWith('data:')).toBe(true)
   })
 
+  it('reports an error when the read result is missing', () => {
+    vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementation(function (
+      this: FileReader,
+    ) {
+      this.onload?.(new ProgressEvent('load') as ProgressEvent<FileReader>)
+    })
+
+    pickFile(new File(['abc'], 'skin.png', { type: 'image/png' }))
+
+    expect(onErrorMock).toHaveBeenCalledWith('Не удалось прочитать файл')
+    expect(onLoadMock).not.toHaveBeenCalled()
+  })
+
   it('ignores the dialog when no file was chosen', () => {
     selectFile({
       accept: '.png',

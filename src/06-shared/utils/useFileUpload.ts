@@ -33,7 +33,11 @@ export function selectFile(options: FileUploadOptions): void {
 
     const reader = new FileReader()
     reader.onload = (): void => {
-      onLoad(file, reader.result!)
+      if (reader.result === null) {
+        onError('Не удалось прочитать файл')
+        return
+      }
+      onLoad(file, reader.result)
     }
     reader.onerror = () => {
       onError('Не удалось прочитать файл')

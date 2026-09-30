@@ -82,6 +82,57 @@ describe('useAlternativeJava', () => {
     expect(java.selectedDistribution.value).toBe('zulu')
   })
 
+  it('loads the java version together with the distributions', async () => {
+    let releaseDistributions: (distributions: JavaDistribution[]) => void = () => {}
+    vi.mocked(getJavaDistributions).mockImplementationOnce(
+      () =>
+        new Promise<JavaDistribution[]>((resolve) => {
+          releaseDistributions = resolve
+        }),
+    )
+    vi.mocked(getJavaVersion).mockResolvedValue('17')
+    const java = useAlternativeJava()
+
+    const opening = java.openPopup('1.20.1')
+
+    expect(getJavaVersion).toHaveBeenCalledWith('1.20.1')
+    expect(java.isPopupOpen.value).toBe(false)
+
+    releaseDistributions([makeDistribution('temurin')])
+    await opening
+
+    expect(java.distributions.value).toHaveLength(1)
+    expect(java.javaVersion.value).toBe('17')
+    expect(java.isPopupOpen.value).toBe(true)
+  })
+
+  it('drops the stale java version when the popup reopens for another version', async () => {
+    vi.mocked(getJavaDistributions).mockResolvedValue([makeDistribution('temurin')])
+    let releaseOld: (version: string) => void = () => {}
+    vi.mocked(getJavaVersion)
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            releaseOld = resolve
+          }),
+      )
+      .mockResolvedValueOnce('21')
+    vi.mocked(downloadAlternativeJava).mockResolvedValue(undefined)
+    const java = useAlternativeJava()
+
+    const first = java.openPopup('1.20.1')
+    await java.openPopup('1.21')
+    expect(java.javaVersion.value).toBe('21')
+
+    releaseOld('17')
+    await first
+    expect(java.javaVersion.value).toBe('21')
+
+    await java.startDownload()
+
+    expect(downloadAlternativeJava).toHaveBeenCalledWith('temurin-api', '21', false)
+  })
+
   it('surfaces the distributions error and still opens the popup', async () => {
     vi.mocked(getJavaDistributions).mockRejectedValue(new Error('mirror down'))
     vi.mocked(getJavaVersion).mockResolvedValue('17')

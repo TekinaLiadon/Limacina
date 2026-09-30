@@ -57,6 +57,14 @@
   --checkbox-size: 18px;
   --badge-size: 20px;
   --theme-swatch-size: 14px;
+  --viewer-bg: #1a1d2e;
+  --indicator-dot-size: 8px;
+  --indicator-dot-size-lg: 12px;
+  --menu-action-size: 28px;
+  --modrinth-icon-size-sm: 48px;
+  --modrinth-icon-size-lg: 56px;
+  --modrinth-popup-width: min(720px, calc(100vw - var(--space-16) * 2));
+  --modrinth-popup-height: min(85vh, 720px);
   --viewer-percent-min-width: 56px;
   --cpm-speed-value-min-width: 44px;
   --skin-mode-btn-min-width: 96px;

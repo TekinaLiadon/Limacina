@@ -182,4 +182,16 @@ describe('useGameSession', () => {
 
     expect(api.hideMainWindow).toHaveBeenCalledTimes(1)
   })
+
+  it('survives a failed hide when minimizing to tray', async () => {
+    api.hideMainWindow.mockRejectedValue(new Error('tray gone'))
+    const session = await loadSession()
+
+    await expect(session.minimizeToTray()).resolves.toBeUndefined()
+
+    expect(console.error).toHaveBeenCalledWith(
+      'Не удалось свернуть окно в трей',
+      expect.any(Error),
+    )
+  })
 })

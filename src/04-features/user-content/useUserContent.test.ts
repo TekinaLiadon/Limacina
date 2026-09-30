@@ -93,6 +93,31 @@ describe('useUserContent', () => {
     expect(content.listError.value).toBe('')
   })
 
+  it('drops the stale list response when a newer load finished', async () => {
+    loginSession()
+    const { content, api } = setupContent()
+    let releaseFirst: (items: UserContentItem[]) => void = () => {}
+    api.list
+      .mockImplementationOnce(
+        () =>
+          new Promise<UserContentItem[]>((resolve) => {
+            releaseFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce([makeItem(2)])
+
+    const first = content.loadItems()
+    await content.loadItems()
+    expect(content.items.value).toEqual([makeItem(2)])
+
+    releaseFirst([makeItem(1)])
+    await first
+
+    expect(content.items.value).toEqual([makeItem(2)])
+    expect(content.isListLoading.value).toBe(false)
+    expect(content.listError.value).toBe('')
+  })
+
   it('composes the list error from the api failure', async () => {
     loginSession()
     const { content, api } = setupContent()

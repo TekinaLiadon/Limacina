@@ -42,3 +42,5 @@ export { isAnimationsEnabled, prefersReducedMotion, cssDurationMs } from './util
 export { useFocusTrap } from './utils/useFocusTrap'
 export { useFileDrop } from './utils/useFileDrop'
 export { renderMarkdown, resolveMarkdownUrl } from './utils/markdown'
+export { formatNumber, formatDate } from './utils/formatters'
+export { storeBinding } from './utils/storeBinding'

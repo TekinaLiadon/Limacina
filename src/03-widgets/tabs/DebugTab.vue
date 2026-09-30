@@ -316,7 +316,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
 
     &--error {
       color: var(--debug-error);
-      font-weight: 500;
+      font-weight: var(--weight-medium);
     }
   }
 

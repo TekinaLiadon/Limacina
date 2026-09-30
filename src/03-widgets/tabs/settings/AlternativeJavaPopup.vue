@@ -2,25 +2,27 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button, Checkbox, Dropdown, Input, Preloader, Skeleton, useFocusTrap } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
+import { alternativeJavaModelDefaults, useAlternativeJavaModels, type AlternativeJavaModelProps } from './alternativeJavaModels'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   distributions: JavaDistribution[]
   isDownloading: boolean
   isDistributionsLoading: boolean
   distributionsError: string
   versionError: string
-}>()
+} & AlternativeJavaModelProps>(), { ...alternativeJavaModelDefaults })
 
 const emit = defineEmits<{
   close: []
   download: []
   retry: []
+  'update:selectedDistribution': [string]
+  'update:replaceDefault': [boolean]
+  'update:versionInput': [string]
 }>()
 
-const selectedDistribution = defineModel<string>('selectedDistribution', { default: '' })
-const replaceDefault = defineModel<boolean>('replaceDefault', { default: false })
-const versionInput = defineModel<string>('versionInput', { default: '' })
+const { selectedDistribution, replaceDefault, versionInput } = useAlternativeJavaModels(props)
 
 const popupRef = ref<HTMLDivElement | null>(null)
 
@@ -46,7 +48,7 @@ onBeforeUnmount((): void => {
   <Teleport to="body">
     <Transition name="popup">
       <div v-if="visible" class="alt-java-popup-overlay" @click.self="emit('close')">
-        <div ref="popupRef" class="alt-java-popup popup-panel" role="dialog" aria-modal="true">
+        <div ref="popupRef" class="alt-java-popup popup-panel" role="dialog" aria-modal="true" aria-label="Загрузка Java">
           <template v-if="!isDownloading">
             <h3 class="alt-java-popup__title">Загрузка Java</h3>
             <div class="alt-java-popup__form">

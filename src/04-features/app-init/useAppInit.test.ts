@@ -238,4 +238,45 @@ describe('useAppInit', () => {
     expect(core.launcherName).toBe('Limacina')
     expect(core.isLoading).toBe(false)
   })
+
+  it('drops retries while the initialization is still running', async () => {
+    let releaseInit: (data: AppInitData) => void = () => {}
+    api.getAppInitData.mockImplementationOnce(
+      () =>
+        new Promise<AppInitData>((resolve) => {
+          releaseInit = resolve
+        }),
+    )
+
+    const app = setupApp()
+
+    await app.retryInit()
+    await app.retryInit()
+
+    expect(api.getAppInitData).toHaveBeenCalledTimes(1)
+    expect(useCoreStore().isLoading).toBe(true)
+
+    releaseInit(makeInitData())
+    await runInit()
+
+    expect(api.getAppInitData).toHaveBeenCalledTimes(1)
+    expect(useCoreStore().isLoading).toBe(false)
+    expect(app.startupError()).toBe('')
+  })
+
+  it('drops a retry during the preloader delay window', async () => {
+    api.getAppInitData.mockResolvedValue(makeInitData())
+    const app = setupApp()
+
+    await vi.advanceTimersByTimeAsync(500)
+    await app.retryInit()
+
+    expect(api.getAppInitData).toHaveBeenCalledTimes(1)
+    expect(useCoreStore().isLoading).toBe(true)
+
+    await runInit()
+
+    expect(api.getAppInitData).toHaveBeenCalledTimes(1)
+    expect(useCoreStore().isLoading).toBe(false)
+  })
 })

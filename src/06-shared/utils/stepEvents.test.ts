@@ -67,6 +67,17 @@ describe('applyStepEvent', () => {
     expect(stepById(steps, 'unexpected').status).toBe('active')
   })
 
+  it('started appends an unknown step and resolves the earlier pending steps', () => {
+    const steps = [pendingStep('a'), pendingStep('b')]
+    emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
+    expect(stepById(steps, 'a')).toMatchObject({ status: 'done', skipped: true })
+    expect(stepById(steps, 'b')).toMatchObject({ status: 'done', skipped: true })
+    expect(stepById(steps, 'unexpected').status).toBe('active')
+
+    emit(steps, { type: 'finished', id: 'unexpected', skipped: false })
+    expect(computeStepProgress(steps)).toBe(100)
+  })
+
   it('started re-activates an existing step with a fresh label', () => {
     const steps = [doneStep('a')]
     emit(steps, { type: 'started', id: 'a', label: 'Retry label' })

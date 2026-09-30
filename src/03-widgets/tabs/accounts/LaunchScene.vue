@@ -290,8 +290,8 @@ const openLoginForm = (): void => {
   }
 
   &__session-dot {
-    width: 12px;
-    height: 12px;
+    width: var(--indicator-dot-size-lg);
+    height: var(--indicator-dot-size-lg);
     border-radius: var(--radius-circle);
     background: var(--login-accent);
     flex-shrink: 0;
@@ -414,8 +414,8 @@ const openLoginForm = (): void => {
   }
 
   &__menu-check {
-    width: 28px;
-    height: 28px;
+    width: var(--menu-action-size);
+    height: var(--menu-action-size);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -426,8 +426,8 @@ const openLoginForm = (): void => {
   }
 
   &__menu-delete {
-    width: 28px;
-    height: 28px;
+    width: var(--menu-action-size);
+    height: var(--menu-action-size);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -451,8 +451,8 @@ const openLoginForm = (): void => {
   }
 
   &__menu-plus {
-    width: 28px;
-    height: 28px;
+    width: var(--menu-action-size);
+    height: var(--menu-action-size);
     display: flex;
     align-items: center;
     justify-content: center;

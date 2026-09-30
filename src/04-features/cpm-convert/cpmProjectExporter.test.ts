@@ -119,3 +119,53 @@ describe('cpmProjectExporter', () => {
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ textureSize: 200, mirror: true })]))).toThrow(/texSize/)
   })
 })
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+function makePng(w: number, h: number): Uint8Array {
+  const bytes = new Uint8Array(24)
+  PNG_SIGNATURE.forEach((byte, index) => {
+    bytes[index] = byte
+  })
+  bytes[16] = (w >>> 24) & 0xFF
+  bytes[17] = (w >>> 16) & 0xFF
+  bytes[18] = (w >>> 8) & 0xFF
+  bytes[19] = w & 0xFF
+  bytes[20] = (h >>> 24) & 0xFF
+  bytes[21] = (h >>> 16) & 0xFF
+  bytes[22] = (h >>> 8) & 0xFF
+  bytes[23] = h & 0xFF
+  return bytes
+}
+
+function containsSequence(bytes: Uint8Array, sequence: Array<number>): boolean {
+  return bytes.some((_, index) =>
+    sequence.every((expected, offset) => bytes[index + offset] === expected),
+  )
+}
+
+describe('cpmConfigToBytes skin block', () => {
+  it('writes the skin block with dimensions from a valid png header', () => {
+    const bytes = cpmConfigToBytes(makeConfig([]), makePng(0x0123, 0x0456))
+
+    expect(containsSequence(bytes, [0x01, 0x23, 0x04, 0x56])).toBe(true)
+  })
+
+  it('omits the skin block when there is no skin', () => {
+    const bytes = cpmConfigToBytes(makeConfig([]), null)
+
+    expect(containsSequence(bytes, [0x01, 0x23, 0x04, 0x56])).toBe(false)
+  })
+
+  it('throws a clear error for a file without a png signature', () => {
+    expect(() => cpmConfigToBytes(makeConfig([]), new Uint8Array([1, 2, 3, 4]))).toThrow(
+      'Некорректный skin.png в файле проекта',
+    )
+  })
+
+  it('throws a clear error for a truncated png header', () => {
+    expect(() => cpmConfigToBytes(makeConfig([]), makePng(64, 64).slice(0, 20))).toThrow(
+      'Некорректный skin.png в файле проекта',
+    )
+  })
+})

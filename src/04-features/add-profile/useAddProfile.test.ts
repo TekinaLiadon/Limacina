@@ -135,6 +135,34 @@ describe('useAddProfile', () => {
     await selected
   })
 
+  it('drops the in-flight loader versions when the loader switches to vanilla', async () => {
+    let releaseLoader: (versions: string[]) => void = () => {}
+    vi.mocked(getMinecraftVersions).mockResolvedValue(['1.20.1'])
+    vi.mocked(getLoaderVersions).mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          releaseLoader = resolve
+        }),
+    )
+    const add = useAddProfile()
+    add.offlineForm.value.name = 'My profile'
+    await add.selectKind('offline')
+
+    add.offlineForm.value.modLoader = 'fabric'
+    await vi.waitFor(() => expect(add.isLoadingLoaderVersions.value).toBe(true))
+
+    add.offlineForm.value.modLoader = 'vanilla'
+    await vi.waitFor(() => expect(add.offlineForm.value.loaderVersion).toBe(''))
+
+    releaseLoader(['0.14.21'])
+    await Promise.resolve()
+
+    expect(add.loaderVersionOptions.value).toHaveLength(0)
+    expect(add.offlineForm.value.loaderVersion).toBe('')
+    expect(add.isLoadingLoaderVersions.value).toBe(false)
+    expect(add.isOfflineValid.value).toBe(true)
+  })
+
   it('clears the loader versions for vanilla', async () => {
     vi.mocked(getMinecraftVersions).mockResolvedValue(['1.20.1'])
     const add = useAddProfile()
@@ -227,6 +255,32 @@ describe('useAddProfile', () => {
     expect(createServerProfile).not.toHaveBeenCalled()
   })
 
+  it('ignores a server submit while another submit is running', async () => {
+    let releaseCreate: (config: ProjectConfig) => void = () => {}
+    vi.mocked(createServerProfile).mockImplementationOnce(
+      () =>
+        new Promise<ProjectConfig>((resolve) => {
+          releaseCreate = resolve
+        }),
+    )
+    const add = useAddProfile()
+    add.serverForm.value.serverUrl = 'mc.example.com'
+
+    const first = add.submitServer()
+    const second = await add.submitServer()
+
+    expect(second).toBeNull()
+    expect(createServerProfile).toHaveBeenCalledTimes(1)
+    expect(createServerProfile).toHaveBeenCalledWith('mc.example.com')
+    expect(add.isSubmitting.value).toBe(true)
+
+    releaseCreate(makeConfig('example'))
+    const created = await first
+
+    expect(created).toEqual(makeConfig('example'))
+    expect(add.isSubmitting.value).toBe(false)
+  })
+
   it('surfaces the server creation error', async () => {
     vi.mocked(createServerProfile).mockRejectedValue(new Error('unreachable server'))
     const add = useAddProfile()
@@ -274,5 +328,31 @@ describe('useAddProfile', () => {
 
     expect(created).toBeNull()
     expect(createOfflineProfile).not.toHaveBeenCalled()
+  })
+
+  it('ignores an offline submit while another submit is running', async () => {
+    let releaseCreate: (config: ProjectConfig) => void = () => {}
+    vi.mocked(createOfflineProfile).mockImplementationOnce(
+      () =>
+        new Promise<ProjectConfig>((resolve) => {
+          releaseCreate = resolve
+        }),
+    )
+    const add = useAddProfile()
+    add.offlineForm.value.name = 'My profile'
+    add.offlineForm.value.mcVersion = '1.20.1'
+
+    const first = add.submitOffline()
+    const second = await add.submitOffline()
+
+    expect(second).toBeNull()
+    expect(createOfflineProfile).toHaveBeenCalledTimes(1)
+    expect(createOfflineProfile).toHaveBeenCalledWith('My profile', '1.20.1', 'vanilla', null)
+    expect(add.isSubmitting.value).toBe(true)
+
+    releaseCreate(makeConfig('My profile'))
+    await first
+
+    expect(add.isSubmitting.value).toBe(false)
   })
 })

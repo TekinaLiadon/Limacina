@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 
 const props = withDefaults(defineProps<{
   label: string
@@ -14,6 +14,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: number]
 }>()
+
+const inputId = useId()
 
 const isPercent = computed((): boolean => props.min === 0 && props.max === 1)
 
@@ -36,12 +38,13 @@ const onInput = (e: Event): void => {
 <template>
   <div class="game-slider-field">
     <div class="game-slider-field__header">
-      <span class="game-slider-field__label">{{ label }}</span>
+      <label class="game-slider-field__label" :for="inputId">{{ label }}</label>
       <span class="game-slider-field__value">{{ displayValue }}</span>
     </div>
     <div class="game-slider-field__track">
       <div class="game-slider-field__fill" :style="{ width: `${percent}%` }" />
       <input
+        :id="inputId"
         type="range"
         class="game-slider-field__input"
         :min="min"

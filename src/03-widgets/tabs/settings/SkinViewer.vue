@@ -28,7 +28,7 @@ useSkinViewer(container, skinUrl, useViewerControls(), toRef(props, 'slim'))
   height: var(--viewer-height);
   border-radius: var(--radius-card);
   overflow: hidden;
-  background: #1a1d2e;
+  background: var(--viewer-bg);
   box-shadow: var(--elevation-inset);
 
   canvas {

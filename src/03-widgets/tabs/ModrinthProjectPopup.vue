@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Button, MarkdownText, Preloader, useFocusTrap, getErrorMessage, openExternalUrl } from '@/06-shared'
+import { Button, MarkdownText, Preloader, useFocusTrap, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
-import { useModrinth, MODRINTH_CATEGORY_LABELS } from '@/04-features'
+import { useModrinth, MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
@@ -87,17 +87,6 @@ const licenseText = computed((): string => {
   return license.name ?? license.id
 })
 
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('ru-RU').format(value)
-}
-
-function formatDate(value: string | null): string {
-  if (value === null || value === '') return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('ru-RU')
-}
-
 async function loadDetails(): Promise<void> {
   const { hit } = props
   if (hit === null) return
@@ -162,7 +151,7 @@ async function handleLink(url: string): Promise<void> {
   <Teleport to="body">
     <Transition name="popup">
       <div v-if="visible" class="modrinth-popup-overlay" @click.self="emit('close')">
-        <div ref="popupRef" class="modrinth-popup popup-panel" role="dialog" aria-modal="true">
+        <div ref="popupRef" class="modrinth-popup popup-panel" role="dialog" aria-modal="true" aria-label="Страница проекта Modrinth">
           <div class="modrinth-popup__head">
             <ModrinthIcon :src="hit?.icon_url ?? null" :title="hit?.title ?? '?'" size="lg" />
             <div class="modrinth-popup__head-info">
@@ -220,6 +209,7 @@ async function handleLink(url: string): Promise<void> {
             <MarkdownText
               class="modrinth-popup__body"
               :source="details.project.body"
+              :base-url="MODRINTH_BASE_URL"
               @link-error="notification.show"
             />
 
@@ -244,6 +234,7 @@ async function handleLink(url: string): Promise<void> {
                   v-if="hasChangelog(version) && expandedChangelogs.has(version.id)"
                   class="modrinth-popup__changelog"
                   :source="version.changelog ?? ''"
+                  :base-url="MODRINTH_BASE_URL"
                   @link-error="notification.show"
                 />
               </div>
@@ -278,12 +269,12 @@ async function handleLink(url: string): Promise<void> {
 }
 
 .modrinth-popup {
-  @include mixins.popup-card(none, min(720px, calc(100vw - var(--space-16) * 2)));
+  @include mixins.popup-card(none, var(--modrinth-popup-width));
 
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
-  height: min(85vh, 720px);
+  height: var(--modrinth-popup-height);
 
   &__head {
     display: flex;

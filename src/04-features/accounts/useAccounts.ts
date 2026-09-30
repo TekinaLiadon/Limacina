@@ -1,7 +1,7 @@
-import { computed, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { authRefresh, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { reportError, storeBinding, useAsyncRaceGuard } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAccounts() {
@@ -9,18 +9,9 @@ export function useAccounts() {
   const store = useAccountsStore()
   const { logins, loadAccounts } = useAccountsList()
 
-  const isLoading = computed({
-    get: (): boolean => store.isLoading,
-    set: (v: boolean): void => { store.isLoading = v },
-  })
-  const errorMessage = computed({
-    get: (): string => store.errorMessage,
-    set: (v: string): void => { store.errorMessage = v },
-  })
-  const selectedUsername = computed({
-    get: (): string => store.selectedUsername,
-    set: (v: string): void => { store.selectedUsername = v },
-  })
+  const isLoading = storeBinding(store, 'isLoading')
+  const errorMessage = storeBinding(store, 'errorMessage')
+  const selectedUsername = storeBinding(store, 'selectedUsername')
 
   const checkSession = async (): Promise<void> => {
     try {
@@ -34,22 +25,28 @@ export function useAccounts() {
     }
   }
 
+  const sessionGuard = useAsyncRaceGuard()
+
   const handleSelect = async (username: string): Promise<void> => {
+    if (isLoading.value) return
     isLoading.value = true
     errorMessage.value = ''
     const previousUsername = selectedUsername.value
     selectedUsername.value = username
+    const generation = sessionGuard.next()
 
     try {
       await authRefresh(coreStore.currentProject, username)
       const session = await getSessionInfo()
+      if (!sessionGuard.isCurrent(generation)) return
       if (session) coreStore.applySession(session)
     } catch (e: unknown) {
+      if (!sessionGuard.isCurrent(generation)) return
       selectedUsername.value = previousUsername
       errorMessage.value = getErrorMessage(e)
       coreStore.clearSessionState()
     } finally {
-      isLoading.value = false
+      if (sessionGuard.isCurrent(generation)) isLoading.value = false
     }
   }
 

@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { useCoreStore, useNotificationStore, MIN_PASSWORD_LENGTH } from '@/05-entities'
+import { useCoreStore, useNotificationStore, MIN_PASSWORD_LENGTH, isPasswordConfirmed } from '@/05-entities'
 import { changePassword, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
@@ -16,10 +16,9 @@ export function useAccountSettings() {
   const username = computed((): string => coreStore.session?.username ?? '')
   const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
-  const passwordsMatch = computed((): boolean => {
-    if (!confirmPassword.value) return true
-    return newPassword.value === confirmPassword.value
-  })
+  const passwordsMatch = computed((): boolean =>
+    isPasswordConfirmed(newPassword.value, confirmPassword.value)
+  )
 
   const isSamePassword = computed((): boolean => {
     if (!oldPassword.value || !newPassword.value) return false

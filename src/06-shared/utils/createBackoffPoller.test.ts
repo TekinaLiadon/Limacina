@@ -200,6 +200,18 @@ describe('createBackoffPoller', () => {
     expect(harness.applyError).toHaveBeenCalledTimes(2)
   })
 
+  it('passes the fetch failure to applyError', async () => {
+    const harness = setupHarness()
+    const cause = new Error('dns down')
+    harness.fetch.mockRejectedValue(cause)
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+
+    expect(harness.applyError).toHaveBeenCalledWith(cause)
+  })
+
   it('fires the failure streak callback once per threshold crossing', async () => {
     const harness = setupHarness({ failureThreshold: 3 })
     harness.fetch.mockRejectedValue(new Error('down'))
