@@ -14,6 +14,7 @@
     "dupcheck": "jscpd src src-tauri/src",
     "tauri": "tauri",
     "fonts": "bun run scripts/subset-fonts.ts",
+    "build:installer-fonts": "bun run scripts/build-installer-fonts.ts",
     "build:dist": "bun scripts/build-dist.cjs",
     "clean": "cargo clean",
     "clean:cache": "rm -rf ~/.local/share/com.tekina.limacina/WebKitCache ~/.local/share/com.tekina.limacina/CacheStorage"

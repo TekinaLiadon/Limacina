@@ -29,7 +29,7 @@ import path from 'node:path'
 
 const ROOT: string = path.resolve(import.meta.dir, '..')
 const OUT_DIR: string = path.join(ROOT, 'src/01-app/assets/fonts')
-const CACHE_DIR: string = path.join(ROOT, 'node_modules/.cache/limacina-fonts')
+export const CACHE_DIR: string = path.join(ROOT, 'node_modules/.cache/limacina-fonts')
 
 interface SubsetGroup {
   /** Имя попадает в имя файла: `{slug}-{weight}-{name}.woff2`. */
@@ -43,7 +43,7 @@ interface SubsetGroup {
  * догружал только нужный файл. В `latin` добавлены общие спецсимволы:
  * стрелки, математика, типографика.
  */
-const GROUPS: SubsetGroup[] = [
+export const GROUPS: SubsetGroup[] = [
   {
     name: 'latin',
     ranges: [
@@ -112,7 +112,7 @@ const GROUPS: SubsetGroup[] = [
   },
 ]
 
-interface FontSource {
+export interface FontSource {
   /** Имя семейства в CSS. */
   family: string
   /** Папка и префикс файлов. */
@@ -127,7 +127,7 @@ interface FontSource {
   note: string
 }
 
-const SOURCES: FontSource[] = [
+export const SOURCES: FontSource[] = [
   {
     family: 'Inter',
     slug: 'inter',
@@ -174,7 +174,7 @@ const SOURCES: FontSource[] = [
 ]
 
 /** Разворачивает диапазоны `U+XXXX-YYYY` в строку с кодовыми точками. */
-function rangesToText(ranges: string[]): string {
+export function rangesToText(ranges: string[]): string {
   const chars: string[] = []
   for (const cp of rangesToCodePoints(ranges)) {
     chars.push(String.fromCodePoint(cp))
@@ -259,7 +259,8 @@ function readCoverage(font: Buffer): Set<number> {
   return coverage
 }
 
-async function loadSource(source: FontSource): Promise<Buffer> {
+/** Скачивает полный TTF источника или берёт его из кэша. */
+export async function loadSource(source: FontSource): Promise<Buffer> {
   await mkdir(CACHE_DIR, { recursive: true })
   const cachePath: string = path.join(CACHE_DIR, `${source.slug}.ttf`)
   if (existsSync(cachePath)) {
@@ -404,4 +405,6 @@ async function main(): Promise<void> {
   console.log(`Итого: ${formatKb(total)}`)
 }
 
-await main()
+if (import.meta.main) {
+  await main()
+}
