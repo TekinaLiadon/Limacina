@@ -79,11 +79,13 @@ ${StrLoc}
 ; Для сообщений Windows (PBM_*) нужен COLORREF 0x00BBGGRR
 !define COLORREF_ACCENT "0xF33A66"   ; COLORREF #663af3
 !define COLORREF_INPUT "0x1D1210"    ; COLORREF #10121d
+!define COLORREF_LINE "0x2B1F1B"     ; COLORREF #1b1f2b
 
 ; ── Константы Win32 ─────────────────────────────────────────────────
 !define /ifndef WM_SETFONT 0x0030
 !define /ifndef PBM_SETBARCOLOR 0x0409
 !define /ifndef PBM_SETBKCOLOR 0x2001
+!define /ifndef PBM_SETRANGE32 0x0406
 !define /ifndef SS_CENTER 0x00000001
 !define /ifndef SS_CENTERIMAGE 0x00000200
 !define /ifndef SS_NOTIFY 0x00000100
@@ -105,6 +107,7 @@ ${StrLoc}
 !define SWP_HIDE 0x15       ; NOSIZE|NOZORDER|NOACTIVATE — спрятать кнопку
 !define SWP_REZ 0x13        ; NOSIZE|NOMOVE|NOACTIVATE — только Z-порядок
 !define SWP_FRAME 0x23      ; NOSIZE|NOMOVE|FRAMECHANGED
+!define SWP_SHOW 0x0040     ; SHOWWINDOW — двигать, красить и показать
 
 ; ── Шрифты (TTF рядом с шаблоном, собираются `bun run build:installer-fonts`)
 ; Путь выводится из абсолютного ${INSTALLERICON}: …\src-tauri\icons\icon.ico
@@ -175,6 +178,8 @@ Var DeleteUserData
 Var DataStateLabel
 Var ConfirmDataPath
 Var InstOverlay
+Var InstProgress
+Var InstStatus
 Var BtnText
 Var BtnId
 Var BtnPrim
@@ -333,7 +338,9 @@ Var BtnW
     ${NSD_CreateBitmap} $1 $9 $2 $2 ""
     Pop $0
   ${Else}
-    System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i ${STYLE_BITMAP}, i $1, i $9, i $2, i $2, p $Inner, p 0, p 0, p 0) p.s'
+    ; Родитель — $R7, выставленный WStatic: на страницах файлов это
+    ; $HWNDPARENT (внутренний диалог $Inner к этому моменту мёртв).
+    System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i ${STYLE_BITMAP}, i $1, i $9, i $2, i $2, p $R7, p 0, p 0, p 0) p.s'
     Pop $0
   ${EndIf}
   ${NSD_SetStretchedImage} $0 "$PLUGINSDIR\logo.bmp" $4
@@ -1270,27 +1277,90 @@ FunctionEnd
 ; на страницу файлов умирает, и контролы в нём не создаются — чёрный
 ; экран). Нативные контролы остаются под непрозрачным оверлеем.
   ; $InstOverlay — держатель, убирается при переходе на следующую страницу.
+
+; Нативные контролы страницы файлов рисуют без WS_CLIPSIBLINGS и пробивают
+; оверлей (белая панель деталей + зелёный прогресс поверх скина). Прячем
+; нативную страницу и уводим её за экран: скрытие гасит перерисовку, а
+; вынос за клиент делает невидимыми и контролы, если их кто-то покажет.
+!macro HideNativeInstFiles
+  FindWindow $0 "#32770" "" $HWNDPARENT
+  ${If} $0 <> 0
+    System::Call 'user32::SetWindowPos(p $0, p 0, i -32000, i -32000, i 0, i 0, i ${SWP_HIDE})'
+    ShowWindow $0 0
+  ${EndIf}
+  ; Контролы instfiles: статус (1006), прогресс (1004), лог (1016).
+  ${For} $1 1004 1006
+    GetDlgItem $0 $HWNDPARENT $1
+    ${If} $0 <> 0
+      System::Call 'user32::SetWindowPos(p $0, p 0, i -32000, i -32000, i 0, i 0, i ${SWP_HIDE})'
+      ShowWindow $0 0
+    ${EndIf}
+  ${Next}
+!macroend
+
+; Скин, созданный в show-колбэке, без прокачки очереди сообщений не
+; отрисуется до первого обновления нативных контролов внутри секции
+; (~пара секунд пустого экрана). Красим всё принудительно и сразу.
+!macro RepaintShell
+  System::Call 'user32::RedrawWindow(p $HWNDPARENT, i 0, i 0, i 0x185)'
+!macroend
 !macro ShowInstFilesOverlay _t1 _t2 _t3 _t4 _active _title _sub
   System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i ${STYLE_LABEL}, i 0, i 0, i $WinW, i $WinH, p $HWNDPARENT, p 777, p 0, p 0) p.s'
   Pop $InstOverlay
   SetCtlColors $InstOverlay "" ${COLOR_BG}
-  StrCpy $R7 $InstOverlay
   !insertmacro DrawSidebar 3 "${_t1}" "${_t2}" "${_t3}" "${_t4}" "${_active}"
   !insertmacro PageHeading 3 "${_title}" "${_sub}" $SubH
-  ; декоративный прогресс: канал + заполнение акцентом
-  !insertmacro ScaleTo $1 10
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i ${STYLE_LABEL}, i $ContentX, i $BodyTop, i $ContentW, i $1, p $R7, p 0, p 0, p 0) p.s'
-  Pop $0
-  SetCtlColors $0 "" ${COLOR_INPUT}
-  IntOp $4 $BodyTop + 31
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i ${STYLE_LABEL}, i $ContentX, i $4, i $ContentW, i $1, p $R7, p 0, p 0, p 0) p.s'
-  Pop $0
-  SetCtlColors $0 "" ${COLOR_ACCENT}
+!macroend
+
+; Живой прогресс: нативную полосу (1004) и строку статуса (1006) забираем
+; из спрятанной страницы в скин — SetParent на внешнее окно. NSIS продолжает
+; обновлять их по хендлам, а выглядят они уже нашими цветами. Полоса
+; вставляется сразу над оверлеем (p $InstOverlay), статус — строкой ниже.
+; ВАЖНО: бар не переводить в marquee — классический контрол марки не рисует.
+!macro AdoptNativeProgress _x _y _w _bh _sy _sh
+  FindWindow $0 "#32770" "" $HWNDPARENT
+  ${If} $0 <> 0
+    GetDlgItem $InstProgress $0 1004
+    GetDlgItem $InstStatus $0 1006
+  ${EndIf}
+  ${If} $InstProgress <> 0
+    ; Тематический бар игнорирует PBM_SET*COLOR — снимаем тему (как с чекбоксами).
+    ; Диапазон здесь НЕ трогаем: у установщика его задаёт NSIS (проценты
+    ; извлечения), у деинсталлятора диапазон выставляет TickProgress.
+    System::Call 'uxtheme::SetWindowTheme(p $InstProgress, w "", w "")'
+    SendMessage $InstProgress ${PBM_SETBKCOLOR} 0 ${COLORREF_LINE}
+    SendMessage $InstProgress ${PBM_SETBARCOLOR} 0 ${COLORREF_ACCENT}
+    System::Call 'user32::SetParent(p $InstProgress, p $HWNDPARENT)'
+    System::Call 'user32::SetWindowPos(p $InstProgress, p $InstOverlay, i ${_x}, i ${_y}, i ${_w}, i ${_bh}, i ${SWP_SHOW})'
+  ${EndIf}
+  ${If} $InstStatus <> 0
+    System::Call 'user32::GetWindowLongW(p $InstStatus, i -16) i.r1'
+    IntOp $1 $1 & 0xFF7FFEFF      ; ~WS_BORDER, ~WS_TABSTOP
+    System::Call 'user32::SetWindowLongW(p $InstStatus, i -16, i r1)'
+    System::Call 'user32::GetWindowLongW(p $InstStatus, i -20) i.r1'
+    IntOp $1 $1 & 0xFFFFFDFF      ; ~WS_EX_CLIENTEDGE
+    System::Call 'user32::SetWindowLongW(p $InstStatus, i -20, i r1)'
+    System::Call 'user32::SetParent(p $InstStatus, p $HWNDPARENT)'
+    SetCtlColors $InstStatus ${COLOR_MUTED} ${COLOR_BG}
+    SendMessage $InstStatus ${WM_SETFONT} $FontSub 1
+    System::Call 'user32::SetWindowPos(p $InstStatus, p $InstOverlay, i ${_x}, i ${_sy}, i ${_w}, i ${_sh}, i ${SWP_SHOW} | i 0x20)'
+  ${EndIf}
+!macroend
+
+; Тик фазового прогресса деинсталляции: NSIS в uninstall-баре позицию не
+; двигает (он у него в marquee), поэтому секция сама двигает наш бар в
+; процентах между основными шагами удаления.
+!macro TickProgress _pct
+  ${If} $InstProgress <> 0
+    SendMessage $InstProgress ${PBM_SETRANGE32} 0 100
+    SendMessage $InstProgress ${PBM_SETPOS} ${_pct} 0
+  ${EndIf}
 !macroend
 Function StyleInstFiles
   Call ShellApply
   !insertmacro HideRealNavBtns
   Call DestroyNavOverlays
+  !insertmacro HideNativeInstFiles
   !insertmacro ShowInstFilesOverlay "Приветствие" "Папка установки" "Установка" "Завершение" 3 "Установка" "Пожалуйста, подождите"
 
   IntOp $FooterX $WinW - $PadR
@@ -1311,6 +1381,13 @@ Function StyleInstFiles
   StrCpy $BtnEn 0
   Call AddFooterBtn
 
+  !insertmacro ScaleTo $2 10
+  !insertmacro ScaleTo $3 24
+  !insertmacro ScaleTo $4 16
+  IntOp $5 $BodyTop + $3
+  !insertmacro AdoptNativeProgress $ContentX $BodyTop $ContentW $2 $5 $4
+
+  !insertmacro RepaintShell
   ; По завершении установки мастер сам переходит на шаг «Завершение».
   SetAutoClose true
 FunctionEnd
@@ -1318,12 +1395,28 @@ FunctionEnd
 ; ── Оверлей страницы файлов: подложка + сайдбар + заголовок ─────────
 
 Function DestroyInstFilesOverlay
+  ${If} $InstProgress <> 0
+    System::Call 'user32::DestroyWindow(p $InstProgress)'
+    StrCpy $InstProgress 0
+  ${EndIf}
+  ${If} $InstStatus <> 0
+    System::Call 'user32::DestroyWindow(p $InstStatus)'
+    StrCpy $InstStatus 0
+  ${EndIf}
   ${If} $InstOverlay <> 0
     System::Call 'user32::DestroyWindow(p $InstOverlay)'
     StrCpy $InstOverlay 0
   ${EndIf}
 FunctionEnd
 Function un.DestroyInstFilesOverlay
+  ${If} $InstProgress <> 0
+    System::Call 'user32::DestroyWindow(p $InstProgress)'
+    StrCpy $InstProgress 0
+  ${EndIf}
+  ${If} $InstStatus <> 0
+    System::Call 'user32::DestroyWindow(p $InstStatus)'
+    StrCpy $InstStatus 0
+  ${EndIf}
   ${If} $InstOverlay <> 0
     System::Call 'user32::DestroyWindow(p $InstOverlay)'
     StrCpy $InstOverlay 0
@@ -1514,7 +1607,7 @@ Function un.PageConfirm
   ${NSD_OnClick} $UserDataCheckbox un.PageConfirmToggle
 
   !insertmacro ScaleTo $1 16
-  !insertmacro ScaleTo $2 8
+  !insertmacro ScaleTo $2 10
   IntOp $3 $3 + 44
   IntOp $3 $3 + $2
   ${NSD_CreateLabel} $ContentX $3 $ContentW $1 "Настройки и данные игр (будут сохранены): $ConfirmDataPath"
@@ -1544,6 +1637,7 @@ Function un.StyleInstFiles
   Call un.ShellApply
   !insertmacro HideRealNavBtns
   Call un.DestroyNavOverlays
+  !insertmacro HideNativeInstFiles
   !insertmacro ShowInstFilesOverlay "Подтверждение" "Удаление" "Завершение" "" 2 "Удаление" "Пожалуйста, подождите"
 
   IntOp $FooterX $WinW - $PadR
@@ -1555,6 +1649,13 @@ Function un.StyleInstFiles
   Call un.AddFooterBtn
   SendMessage $HWNDPARENT ${DM_SETDEFID} 2 0
 
+  !insertmacro ScaleTo $2 10
+  !insertmacro ScaleTo $3 24
+  !insertmacro ScaleTo $4 16
+  IntOp $5 $BodyTop + $3
+  !insertmacro AdoptNativeProgress $ContentX $BodyTop $ContentW $2 $5 $4
+
+  !insertmacro RepaintShell
   ; После удаления деинсталлятор сам переходит на экран «Завершение».
   SetAutoClose true
 FunctionEnd
@@ -1852,16 +1953,20 @@ Section Uninstall
   !endif
 
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro TickProgress 5
 
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro TickProgress 10
 
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"
   {{/each}}
+  !insertmacro TickProgress 25
 
   {{#each binaries}}
     Delete "$INSTDIR\\{{this}}"
   {{/each}}
+  !insertmacro TickProgress 35
 
   {{#each file_associations as |association| ~}}
     {{#each association.ext as |ext| ~}}
@@ -1875,13 +1980,16 @@ Section Uninstall
       DeleteRegKey SHCTX "Software\Classes\\{{protocol}}"
     ${EndIf}
   {{/each}}
+  !insertmacro TickProgress 40
 
   Delete "$INSTDIR\uninstall.exe"
+  !insertmacro TickProgress 50
 
   {{#each resources_ancestors}}
   RMDir /REBOOTOK "$INSTDIR\\{{this}}"
   {{/each}}
   RMDir /r "$INSTDIR"
+  !insertmacro TickProgress 65
 
   ${If} $UpdateMode <> 1
     !insertmacro DeleteAppUserModelId
@@ -1899,6 +2007,7 @@ Section Uninstall
       Delete "$DESKTOP\${PRODUCTNAME}.lnk"
     ${EndIf}
   ${EndIf}
+  !insertmacro TickProgress 75
 
   !if "${INSTALLMODE}" == "both"
     DeleteRegKey SHCTX "${UNINSTKEY}"
@@ -1911,6 +2020,7 @@ Section Uninstall
   ${If} $UpdateMode <> 1
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   ${EndIf}
+  !insertmacro TickProgress 85
 
   ${If} $UpdateMode <> 1
     SetShellVarContext current
@@ -1936,10 +2046,12 @@ Section Uninstall
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
   ${EndIf}
+  !insertmacro TickProgress 95
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
     !insertmacro NSIS_HOOK_POSTUNINSTALL
   !endif
+  !insertmacro TickProgress 100
 
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
