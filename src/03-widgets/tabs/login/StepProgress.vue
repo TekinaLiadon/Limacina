@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import anime from 'animejs'
-import { isAnimationsEnabled } from '@/06-shared'
+import { isAnimationsEnabled, formatStepCounter } from '@/06-shared'
 import type { StepProgressItem } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
@@ -118,7 +118,7 @@ const STATUS_META: Record<StepProgressItem['status'], { modifier: string; icon: 
 const hasCounter = (step: StepProgressItem): boolean =>
   step.status === 'active' && step.total > 0
 
-const counterText = (step: StepProgressItem): string => `${step.current}/${step.total}`
+const counterText = (step: StepProgressItem): string => formatStepCounter(step.current, step.total)
 
 const subLabel = (step: StepProgressItem): string => {
   if (step.status === 'error' && step.error) return step.error
@@ -227,6 +227,7 @@ const subLabel = (step: StepProgressItem): string => {
     font-variant-numeric: tabular-nums;
     color: var(--login-text-primary);
     margin-left: var(--space-8);
+    white-space: nowrap;
   }
 
   &__sublabel {

@@ -16,6 +16,12 @@ const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.modsCheck,
 ])
 
+const LEGACY_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.legacyJvm,
+  STEP_IDS.legacyAssets,
+  STEP_IDS.legacyClient,
+])
+
 export function useIntegrityCheck(): {
   steps: Ref<StepProgressItem[]>
   progress: ComputedRef<number>
@@ -54,8 +60,12 @@ export function useIntegrityCheck(): {
   }
 
   const prefillSteps = (): void => {
-    const online = coreStore.projectConfig?.online !== false
-    const plan = online ? [...INTEGRITY_STEPS, ...SERVER_INTEGRITY_STEPS] : INTEGRITY_STEPS
+    const config = coreStore.projectConfig
+    const plan = config?.legacy
+      ? LEGACY_INTEGRITY_STEPS
+      : config?.online === false
+        ? INTEGRITY_STEPS
+        : [...INTEGRITY_STEPS, ...SERVER_INTEGRITY_STEPS]
     steps.value = plan.map((item) => ({
       ...createStepItem(item.key, item.label, 0),
       status: 'pending',

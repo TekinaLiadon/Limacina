@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyStepEvent, computeStepProgress, createStepItem } from './stepEvents'
+import { applyStepEvent, computeStepProgress, createStepItem, formatStepCounter } from './stepEvents'
 import type { StepEvent, StepProgressItem } from '@/05-entities'
 
 const pendingStep = (key: string): StepProgressItem => ({
@@ -144,5 +144,21 @@ describe('computeStepProgress', () => {
 
   it('takes the fraction from the last active step', () => {
     expect(computeStepProgress([activeStep('a', 1, 2), activeStep('b', 1, 4)])).toBeCloseTo(12.5, 5)
+  })
+})
+
+describe('formatStepCounter', () => {
+  it('keeps small totals as raw counts', () => {
+    expect(formatStepCounter(12, 40)).toBe('12/40')
+    expect(formatStepCounter(0, 99999)).toBe('0/99999')
+  })
+
+  it('formats byte totals as megabytes', () => {
+    expect(formatStepCounter(0, 330640835)).toBe('0/315,3 МБ')
+    expect(formatStepCounter(265438476, 330640835)).toBe('253,1/315,3 МБ')
+  })
+
+  it('formats gigabyte totals as gigabytes', () => {
+    expect(formatStepCounter(1024 ** 3, 2 * 1024 ** 3)).toBe('1/2 ГБ')
   })
 })

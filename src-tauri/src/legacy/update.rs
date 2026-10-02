@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use crate::legacy::hashed::{FileNameMatcher, HashedDir};
+use crate::legacy::hashed::{FileNameMatcher, HashedDir, HashedEntry};
 use crate::legacy::requests::{
     choose_profile_record, LegacyClient, LegacyProfileRecord, LegacySession,
 };
@@ -23,7 +24,7 @@ pub struct LegacyPaths {
 impl LegacyPaths {
     pub fn new(project_name: &str) -> Result<Self> {
         Ok(Self {
-            legacy_dir: launcher_path(Some(project_name))?.join("legacy"),
+            legacy_dir: launcher_path(Some(project_name))?,
         })
     }
 
@@ -207,10 +208,10 @@ pub async fn sync_update_dir(
     digest_mode: bool,
     step: &StepHandle,
 ) -> Result<Vec<u8>> {
+    log_info!("[legacy] Синк папки «{dir_name}»");
     tokio::fs::create_dir_all(dir)
         .await
         .with_context(|| format!("Не удалось создать папку {}", dir.display()))?;
-    step.detail("Хеширование локальных файлов");
     let dir_owned = dir.to_path_buf();
     let matcher_for_hash = matcher.clone();
     let local = blocking(
@@ -239,6 +240,7 @@ pub async fn sync_update_dir(
     let total = diff.total_size();
     step.set_total(total);
 
+    let files_for_progress = files.clone();
     let mut offsets = Vec::with_capacity(files.len());
     let mut offset = 0u64;
     for path in &files {
@@ -246,20 +248,79 @@ pub async fn sync_update_dir(
         offset += mismatch_file_size(&diff.mismatch, path).unwrap_or(0);
     }
 
-    let files_for_progress = files.clone();
+    let mut cursor = 0usize;
+    let mut throttle = ProgressThrottle::new(Duration::from_millis(150));
     client
         .update_files(session, dir_name, dir, &files, &mut |path, done, _| {
-            let index = files_for_progress.iter().position(|item| item == path);
-            if let Some(index) = index {
-                step.progress(offsets[index] + done, total);
+            if files_for_progress.get(cursor).map(String::as_str) != Some(path) {
+                let Some(found) = files_for_progress[cursor..]
+                    .iter()
+                    .position(|item| item == path)
+                else {
+                    return;
+                };
+                cursor += found;
+            }
+            if throttle.ready(Instant::now()) {
+                step.progress(offsets[cursor] + done, total);
             }
         })
         .await?;
+    ensure_tree_dirs(dir, &server.dir).await?;
     step.progress(total, total);
     Ok(server.signed)
 }
 
-fn apply_deletions(base: &Path, extra_files: &[String], extra_dirs: &[String]) -> Result<()> {
+async fn ensure_tree_dirs(base: &Path, dir: &HashedDir) -> Result<()> {
+    let mut created = 0usize;
+    let mut stack = vec![(base.to_path_buf(), dir)];
+    while let Some((path, dir)) = stack.pop() {
+        for (name, entry) in &dir.entries {
+            let child = path.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if let HashedEntry::Dir(sub) = entry {
+                if !child.is_dir() {
+                    created += 1;
+                }
+                tokio::fs::create_dir_all(&child).await.map_err(|e| {
+                    anyhow::Error::new(e)
+                        .context(format!("Не удалось создать папку {}", child.display()))
+                })?;
+                stack.push((child, sub));
+            }
+        }
+    }
+    if created > 0 {
+        log_info!("[legacy] Создано отсутствующих папок дерева: {created}");
+    }
+    Ok(())
+}
+
+struct ProgressThrottle {
+    interval: Duration,
+    last_emitted: Option<Instant>,
+}
+
+impl ProgressThrottle {
+    fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            last_emitted: None,
+        }
+    }
+
+    fn ready(&mut self, now: Instant) -> bool {
+        if self
+            .last_emitted
+            .is_some_and(|last| now.duration_since(last) < self.interval)
+        {
+            return false;
+        }
+        self.last_emitted = Some(now);
+        true
+    }
+}
+
+pub(crate) fn apply_deletions(base: &Path, extra_files: &[String], extra_dirs: &[String]) -> Result<()> {
     for path in extra_files {
         let full = base.join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
         match std::fs::remove_file(&full) {
@@ -283,7 +344,7 @@ fn apply_deletions(base: &Path, extra_files: &[String], extra_dirs: &[String]) -
     Ok(())
 }
 
-fn flatten_files(dir: &HashedDir) -> Vec<String> {
+pub(crate) fn flatten_files(dir: &HashedDir) -> Vec<String> {
     let mut files = Vec::new();
     flatten_dir(dir, String::new(), &mut files);
     files
@@ -432,6 +493,88 @@ pub async fn read_hdir_blobs(paths: &LegacyPaths) -> Result<(Vec<u8>, Vec<u8>, V
     let asset = read("asset").await?;
     let client = read("client").await?;
     Ok((jvm, asset, client))
+}
+
+#[cfg(test)]
+mod ensure_tree_dirs_tests {
+    use super::{ensure_tree_dirs, HashedEntry};
+    use crate::legacy::hashed::{HashedDir, HashedFile};
+    use crate::test_support::LauncherDirGuard;
+    use std::fs as std_fs;
+
+    fn file(size: u64) -> HashedEntry {
+        HashedEntry::File(HashedFile { size, digest: None })
+    }
+
+    fn tree(entries: Vec<(&str, HashedEntry)>) -> HashedDir {
+        HashedDir {
+            entries: entries
+                .into_iter()
+                .map(|(name, entry)| (name.to_string(), entry))
+                .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn creates_empty_server_directories_without_touching_files() {
+        let dir = LauncherDirGuard::acquire("ensure_tree_dirs").await;
+        let base = dir.project_dir("Cordelia");
+        std_fs::create_dir_all(&base).unwrap();
+
+        let server = tree(vec![
+            ("empty", HashedEntry::Dir(tree(vec![]))),
+            (
+                "libraries",
+                HashedEntry::Dir(tree(vec![
+                    ("nested", HashedEntry::Dir(tree(vec![]))),
+                    ("x.jar", file(10)),
+                ])),
+            ),
+        ]);
+
+        ensure_tree_dirs(&base, &server)
+            .await
+            .expect("материализация папок дерева");
+
+        assert!(
+            base.join("empty").is_dir(),
+            "пустая папка дерева должна существовать: бутстрап считает её отсутствие нарушением"
+        );
+        assert!(base.join("libraries/nested").is_dir());
+        assert!(
+            !base.join("libraries/x.jar").exists(),
+            "файлы дерева не должны создаваться"
+        );
+
+        ensure_tree_dirs(&base, &server)
+            .await
+            .expect("повторный вызов идемпотентен");
+        assert!(base.join("empty").is_dir());
+    }
+}
+
+#[cfg(test)]
+mod progress_throttle_tests {
+    use super::{Duration, Instant, ProgressThrottle};
+
+    #[test]
+    fn throttle_passes_first_call_then_rate_limits_until_interval_passes() {
+        let mut throttle = ProgressThrottle::new(Duration::from_millis(150));
+        let start = Instant::now();
+
+        assert!(throttle.ready(start), "первое событие должно пройти");
+        assert!(!throttle.ready(start), "событие в том же мгновении глушится");
+        assert!(
+            !throttle.ready(start + Duration::from_millis(149)),
+            "событие до интервала глушится"
+        );
+        assert!(
+            throttle.ready(start + Duration::from_millis(150)),
+            "событие после интервала проходит"
+        );
+        assert!(!throttle.ready(start + Duration::from_millis(299)));
+        assert!(throttle.ready(start + Duration::from_millis(300)));
+    }
 }
 
 #[cfg(test)]
@@ -600,16 +743,16 @@ mod tests {
         };
 
         let base = launcher_path(Some("TestProj")).expect("путь проекта");
-        assert_eq!(paths.legacy_dir, base.join("legacy"));
-        assert_eq!(paths.updates_dir(), base.join("legacy/updates"));
-        assert_eq!(paths.launcher_jar(), base.join("legacy/launcher.jar"));
+        assert_eq!(paths.legacy_dir, base);
+        assert_eq!(paths.updates_dir(), base.join("updates"));
+        assert_eq!(paths.launcher_jar(), base.join("launcher.jar"));
         assert_eq!(
             paths.client_dir(&profile),
-            base.join("legacy/updates/Client")
+            base.join("updates/Client")
         );
         assert_eq!(
             paths.asset_dir(&profile),
-            base.join("legacy/updates/asset1.16.5")
+            base.join("updates/asset1.16.5")
         );
         let jvm = paths.jvm_dir(&profile);
         assert!(jvm.ends_with("graalvm-11-win64"), "jvm dir: {jvm:?}");

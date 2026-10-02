@@ -22,9 +22,13 @@ pub async fn check_files_integrity(
         guard.project_config.clone()
     };
 
-    let mut report = check_minecraft_integrity(&project).await?;
+    let mut report = if project.legacy {
+        check_legacy_files_integrity(&project, &state).await?
+    } else {
+        check_minecraft_integrity(&project).await?
+    };
 
-    if project.online {
+    if !project.legacy && project.online {
         let server_report = check_server_integrity(&project, &state).await?;
         report.merge(server_report);
     } else {
@@ -35,6 +39,63 @@ pub async fn check_files_integrity(
     }
 
     Ok(report)
+}
+
+async fn check_legacy_files_integrity(
+    project: &crate::state::dto::ProjectConfig,
+    state: &tauri::State<'_, Mutex<GlobalState>>,
+) -> anyhow::Result<IntegrityReport> {
+    let (username, access_token) = {
+        let guard = state.lock().await;
+        let session = guard
+            .session
+            .as_ref()
+            .ok_or(LauncherError::NoSession)?
+            .clone();
+        (session.username, session.access_token)
+    };
+    let profile = project
+        .legacy_profile
+        .clone()
+        .ok_or_else(|| LauncherError::InvalidInput("У легаси-проекта нет профиля обновлений".to_string()))?;
+
+    let base_url = crate::legacy::launch::legacy_base_url(project)?;
+    let client = crate::legacy::requests::LegacyClient::new(&base_url)?;
+    let paths = crate::legacy::update::LegacyPaths::new(&project.project_name)?;
+
+    let plans = vec![
+        crate::legacy::integrity::IntegrityDirPlan {
+            dir_name: paths.jvm_dir_name(&profile),
+            dir: paths.jvm_dir(&profile),
+            matcher: None,
+            step_id: "legacy.jvm",
+            step_label: "Файлы JVM",
+        },
+        crate::legacy::integrity::IntegrityDirPlan {
+            dir_name: profile.asset_dir.clone(),
+            dir: paths.asset_dir(&profile),
+            matcher: crate::legacy::update::asset_matcher(&profile),
+            step_id: "legacy.assets",
+            step_label: "Файлы ресурсов",
+        },
+        crate::legacy::integrity::IntegrityDirPlan {
+            dir_name: profile.dir_name.clone(),
+            dir: paths.client_dir(&profile),
+            matcher: Some(crate::legacy::update::client_matcher(&profile)?),
+            step_id: "legacy.client",
+            step_label: "Файлы клиента",
+        },
+    ];
+
+    crate::legacy::integrity::check_legacy_integrity(
+        &client,
+        crate::legacy::requests::LegacySession {
+            username: &username,
+            access_token: &access_token,
+        },
+        plans,
+    )
+    .await
 }
 
 async fn check_server_integrity(

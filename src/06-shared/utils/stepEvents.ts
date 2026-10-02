@@ -87,3 +87,13 @@ export function computeStepProgress(steps: StepProgressItem[]): number {
   }
   return ((done + fraction) / steps.length) * 100
 }
+
+const counterFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
+
+export function formatStepCounter(current: number, total: number): string {
+  if (total < 100_000) return `${current}/${total}`
+  const gib = 1024 ** 3
+  const unit = total >= gib ? gib : 1024 ** 2
+  const suffix = unit === gib ? ' ГБ' : ' МБ'
+  return `${counterFormat.format(current / unit)}/${counterFormat.format(total / unit)}${suffix}`
+}
