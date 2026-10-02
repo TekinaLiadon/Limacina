@@ -51,6 +51,8 @@ const makeProjectConfig = (online: boolean): ProjectConfig => ({
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 describe('useAccountsPage', () => {

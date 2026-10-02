@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useCoreStore, useAccountsStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
-import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
+import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, downloadLegacyFiles, startMinecraft, exitLauncher } from '@/06-shared/api'
 import { reportError, computeStepProgress, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
@@ -23,6 +23,12 @@ const MODS_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.modsList,
   STEP_IDS.modsDownload,
   STEP_IDS.modsClean,
+])
+
+const LEGACY_FILES_STEPS: StepPlanItem[] = stepPlanItems([
+  STEP_IDS.legacyJvm,
+  STEP_IDS.legacyAssets,
+  STEP_IDS.legacyClient,
 ])
 
 const MINECRAFT_STEPS: StepPlanItem[] = stepPlanItems([
@@ -53,6 +59,12 @@ interface ActionStep {
 }
 
 function buildInstallSteps(config: ProjectConfig): ActionStep[] {
+  if (config.legacy) {
+    return [
+      { key: 'install.legacy', plan: LEGACY_FILES_STEPS, action: downloadLegacyFiles },
+      { key: null, plan: LAUNCH_STEPS, action: LAUNCH_ACTION },
+    ]
+  }
   const steps: ActionStep[] = [{ key: 'install.java', plan: JAVA_STEPS, action: downloadJava }]
   if (config.online) {
     steps.push({ key: 'install.files', plan: SERVER_FILES_STEPS, action: downloadServerFile })
@@ -70,6 +82,9 @@ function buildInstallSteps(config: ProjectConfig): ActionStep[] {
 }
 
 function buildLaunchPlan(config: ProjectConfig): StepPlanItem[] {
+  if (config.legacy) {
+    return [...LEGACY_FILES_STEPS, ...LAUNCH_STEPS]
+  }
   const plan: StepPlanItem[] = []
   if (config.online) {
     plan.push(...SERVER_FILES_STEPS)
@@ -82,6 +97,12 @@ function buildLaunchPlan(config: ProjectConfig): StepPlanItem[] {
 }
 
 function buildLaunchActions(config: ProjectConfig): ActionStep[] {
+  if (config.legacy) {
+    return [
+      { key: null, plan: [], action: downloadLegacyFiles },
+      { key: null, plan: [], action: LAUNCH_ACTION },
+    ]
+  }
   const steps: ActionStep[] = []
   if (config.online) {
     steps.push({ key: null, plan: [], action: downloadServerFile })
@@ -100,6 +121,7 @@ function buildInstallFingerprint(config: ProjectConfig): string {
     config.modLoader,
     config.loaderVersion ?? '',
     config.online ? (config.serverUrl ?? '') : 'offline',
+    config.legacy ? (config.legacyProfile?.dirName ?? '') : '',
   ].join('|')
 }
 

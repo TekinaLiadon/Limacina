@@ -32,6 +32,29 @@ pub fn default_server_url() -> Option<String> {
         .map(str::to_string)
 }
 
+pub fn get_legacy_server_url() -> Option<String> {
+    env::var("LAUNCHER_LEGACY_SERVER_URL")
+        .ok()
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+}
+
+pub fn is_legacy_build() -> bool {
+    get_legacy_server_url().is_some()
+}
+
+pub fn jvm_dir_suffix() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "-win64"
+    } else if cfg!(target_os = "linux") {
+        "-linux64"
+    } else if cfg!(target_os = "macos") {
+        "-macosx"
+    } else {
+        "-unknown"
+    }
+}
+
 pub fn is_offline_build() -> bool {
     default_server_url().is_none()
 }
@@ -109,7 +132,42 @@ pub fn get_arch() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_safe_relative_path, is_safe_relative_path, normalize_server_url};
+    use super::{
+        ensure_safe_relative_path, get_legacy_server_url, is_safe_relative_path, jvm_dir_suffix,
+        normalize_server_url,
+    };
+
+    #[test]
+    fn legacy_url_reads_runtime_env_var() {
+        let _env_guard = crate::test_support::env_test_lock();
+        let original = std::env::var("LAUNCHER_LEGACY_SERVER_URL").ok();
+        std::env::set_var("LAUNCHER_LEGACY_SERVER_URL", "https://legacy.example.com");
+        assert_eq!(
+            get_legacy_server_url().as_deref(),
+            Some("https://legacy.example.com")
+        );
+        std::env::set_var("LAUNCHER_LEGACY_SERVER_URL", "   ");
+        assert_eq!(get_legacy_server_url(), None);
+        match original {
+            Some(value) => std::env::set_var("LAUNCHER_LEGACY_SERVER_URL", value),
+            None => std::env::remove_var("LAUNCHER_LEGACY_SERVER_URL"),
+        }
+    }
+
+    #[test]
+    fn jvm_suffix_matches_current_platform() {
+        let suffix = jvm_dir_suffix();
+        assert!(
+            suffix == "-win64"
+                || suffix == "-linux64"
+                || suffix == "-macosx"
+                || suffix == "-unknown",
+            "неожиданный суффикс JVM: {suffix}"
+        );
+        if cfg!(target_os = "windows") {
+            assert_eq!(suffix, "-win64");
+        }
+    }
 
     #[test]
     fn ensure_safe_relative_path_rejects_traversal_and_accepts_plain() {

@@ -27,6 +27,8 @@ const makeConfig = (online: boolean): ProjectConfig => ({
   initialized: true,
   serverUrl: 'https://example.com',
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 const OK_INTERVAL_MS = 30_000

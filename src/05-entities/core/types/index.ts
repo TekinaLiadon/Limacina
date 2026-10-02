@@ -113,6 +113,25 @@ export interface CoreState {
   pendingCpmProjectPath: string | null
 }
 
+export interface LegacyProfile {
+  version: string
+  assetIndex: string
+  dirName: string
+  assetDir: string
+  sortIndex: number
+  serverAddress: string
+  serverPort: number
+  jvmVersion: string
+  updateFastCheck: boolean
+  update: string[]
+  updateVerify: string[]
+  updateExclusions: string[]
+  mainClass: string
+  classPath: string[]
+  jvmArgs: string[]
+  clientArgs: string[]
+}
+
 export interface ProjectConfig {
   projectName: string
   mcVersion: string
@@ -127,6 +146,8 @@ export interface ProjectConfig {
   initialized: boolean
   serverUrl: string | null
   autoJoinServer: boolean
+  legacy: boolean
+  legacyProfile: LegacyProfile | null
 }
 
 export type ModLoaderKind = 'vanilla' | 'fabric' | 'forge' | 'neoforge'

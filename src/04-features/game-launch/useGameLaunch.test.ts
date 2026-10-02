@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import {
   clearInstallJournal,
   downloadJava,
+  downloadLegacyFiles,
   downloadMinecraft,
   downloadServerFile,
   downloadServerMods,
@@ -28,6 +29,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   downloadServerFile: vi.fn(),
   downloadServerMods: vi.fn(),
   downloadMinecraft: vi.fn(),
+  downloadLegacyFiles: vi.fn(),
   startMinecraft: vi.fn(),
   exitLauncher: vi.fn(),
 }))
@@ -56,6 +58,8 @@ const makeConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
   initialized: false,
   serverUrl: 'https://example.com',
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
   ...overrides,
 })
 
@@ -162,6 +166,60 @@ describe('useGameLaunch', () => {
     expect(keys).not.toContain(STEP_IDS.modsDownload)
     expect(keys).not.toContain(STEP_IDS.loader)
     expect(keys).toContain(STEP_IDS.launchConfig)
+  })
+
+  it('runs the legacy install flow with only files and launch steps', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(
+      makeConfig({ legacy: true, initialized: false }),
+    )
+    vi.mocked(setInitialized).mockResolvedValue(
+      makeConfig({ legacy: true, initialized: true }),
+    )
+    vi.mocked(loadInstallJournal).mockResolvedValue([])
+
+    await useGameLaunch().executeSteps()
+
+    expect(downloadLegacyFiles).toHaveBeenCalledTimes(1)
+    expect(downloadJava).not.toHaveBeenCalled()
+    expect(downloadServerFile).not.toHaveBeenCalled()
+    expect(downloadServerMods).not.toHaveBeenCalled()
+    expect(downloadMinecraft).not.toHaveBeenCalled()
+    expect(startMinecraft).toHaveBeenCalledTimes(1)
+    expect(loadInstallJournal).toHaveBeenCalledWith('proj', expect.any(String), [
+      'install.legacy',
+    ])
+    expect(setInitialized).toHaveBeenCalledTimes(1)
+
+    const keys = prefillPlanKeys()
+    expect(keys).toEqual([
+      STEP_IDS.legacyJvm,
+      STEP_IDS.legacyAssets,
+      STEP_IDS.legacyClient,
+      STEP_IDS.launchConfig,
+      STEP_IDS.launchProcess,
+      STEP_IDS.launchWindow,
+    ])
+  })
+
+  it('runs the legacy launch plan without the journal for an initialized project', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(
+      makeConfig({ legacy: true, initialized: true }),
+    )
+
+    await useGameLaunch().executeSteps()
+
+    expect(downloadLegacyFiles).toHaveBeenCalledTimes(1)
+    expect(startMinecraft).toHaveBeenCalledTimes(1)
+    expect(loadInstallJournal).not.toHaveBeenCalled()
+    expect(setInitialized).not.toHaveBeenCalled()
+
+    const keys = prefillPlanKeys()
+    expect(keys).toContain(STEP_IDS.legacyJvm)
+    expect(keys).toContain(STEP_IDS.launchWindow)
+    expect(keys).not.toContain(STEP_IDS.javaCheck)
+    expect(keys).not.toContain(STEP_IDS.filesDownload)
   })
 
   it('uses the launch plan without the journal for an initialized project', async () => {

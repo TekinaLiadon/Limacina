@@ -12,6 +12,27 @@ pub enum ModLoader {
     NeoForge,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyProfile {
+    pub version: String,
+    pub asset_index: String,
+    pub dir_name: String,
+    pub asset_dir: String,
+    pub sort_index: u32,
+    pub server_address: String,
+    pub server_port: u16,
+    pub jvm_version: String,
+    pub update_fast_check: bool,
+    pub update: Vec<String>,
+    pub update_verify: Vec<String>,
+    pub update_exclusions: Vec<String>,
+    pub main_class: String,
+    pub class_path: Vec<String>,
+    pub jvm_args: Vec<String>,
+    pub client_args: Vec<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
@@ -35,6 +56,11 @@ pub struct ProjectConfig {
 
     #[serde(default)]
     pub auto_join_server: bool,
+
+    #[serde(default)]
+    pub legacy: bool,
+    #[serde(default)]
+    pub legacy_profile: Option<LegacyProfile>,
 }
 
 pub(crate) fn default_true() -> bool {
@@ -57,6 +83,8 @@ impl Default for ProjectConfig {
             initialized: false,
             server_url: None,
             auto_join_server: false,
+            legacy: false,
+            legacy_profile: None,
         }
     }
 }
@@ -167,6 +195,47 @@ maxMemory = "-Xmx4G"
         assert!(!parsed.initialized);
         assert_eq!(parsed.java_version, None);
         assert_eq!(parsed.server_url, None);
+        assert!(!parsed.legacy);
+        assert_eq!(parsed.legacy_profile, None);
+    }
+
+    #[test]
+    fn legacy_project_config_toml_round_trip() {
+        let config = ProjectConfig {
+            project_name: "StargazerPrologue".to_string(),
+            mc_version: "1.16.5".to_string(),
+            server_url: Some("https://launcher.ariadna.su".to_string()),
+            legacy: true,
+            legacy_profile: Some(LegacyProfile {
+                version: "1.16.5".to_string(),
+                asset_index: "1.16.5".to_string(),
+                dir_name: "StargazerPrologue".to_string(),
+                asset_dir: "asset1.16.5".to_string(),
+                sort_index: 0,
+                server_address: "nonames.su".to_string(),
+                server_port: 25545,
+                jvm_version: "graalvm-11".to_string(),
+                update_fast_check: true,
+                update: vec!["servers\\.dat".to_string()],
+                update_verify: vec!["libraries".to_string()],
+                update_exclusions: vec!["openloader/.cache".to_string()],
+                main_class: "cpw.mods.modlauncher.Launcher".to_string(),
+                class_path: vec!["forge.jar".to_string(), "minecraft.jar".to_string()],
+                jvm_args: vec!["-XX:+UseG1GC".to_string()],
+                client_args: vec!["--launchTarget".to_string(), "fmlclient".to_string()],
+            }),
+            ..ProjectConfig::default()
+        };
+
+        let toml_string = toml::to_string_pretty(&config).expect("сериализация в TOML");
+        let parsed: ProjectConfig = toml::from_str(&toml_string).expect("разбор TOML");
+
+        assert!(parsed.legacy);
+        let profile = parsed.legacy_profile.expect("легаси-профиль");
+        assert_eq!(profile.dir_name, "StargazerPrologue");
+        assert_eq!(profile.server_port, 25545);
+        assert_eq!(profile.class_path.len(), 2);
+        assert!(toml_string.contains("legacy = true"));
     }
 
     #[test]

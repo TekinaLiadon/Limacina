@@ -85,6 +85,8 @@ const makeProjectConfig = (name: string): ProjectConfig => ({
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 describe('useAppInit', () => {

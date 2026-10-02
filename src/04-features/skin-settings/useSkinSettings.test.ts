@@ -58,6 +58,8 @@ const makeProjectConfig = (online: boolean): ProjectConfig => ({
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 const makeSkin = (id: number, active = false): UserContentItem => ({

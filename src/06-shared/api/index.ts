@@ -246,6 +246,10 @@ export async function downloadServerMods(): Promise<void> {
   return invoke('download_server_mods')
 }
 
+export async function downloadLegacyFiles(): Promise<void> {
+  return invoke('download_legacy_files')
+}
+
 export async function startMinecraft(): Promise<void> {
   return invoke('start_minecraft')
 }

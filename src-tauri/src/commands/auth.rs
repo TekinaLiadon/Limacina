@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth::{self, storage, AuthData};
+use crate::auth::{self, storage, AuthData, AuthTokens};
 use crate::commands::launcher_config::update_launcher_config;
 use crate::log_err;
 use crate::log_info;
@@ -115,7 +115,19 @@ pub(crate) async fn restore_session(
     username: &str,
     password: Option<&str>,
 ) -> Result<AuthData> {
-    let server_url = project_server_url(project_name, "серверная авторизация недоступна").await?;
+    let project = load_config_or_default(project_name).await?;
+    if !project.online {
+        bail!(LauncherError::OfflineProfile(
+            "серверная авторизация недоступна".to_string()
+        ));
+    }
+    if project.legacy {
+        return restore_legacy_session(&project, project_name, username, password).await;
+    }
+
+    let server_url = project
+        .resolved_server_url()
+        .ok_or(LauncherError::ServerUrlMissing)?;
 
     if let Ok(refresh_token) =
         storage::get_credential(project_name, username, "refresh_token").await
@@ -151,6 +163,66 @@ pub(crate) async fn restore_session(
     let stored_password = password.map(|password| password.to_string());
     match stored_password {
         Some(password) => auth::login(&server_url, username, &password).await,
+        None => bail!(LauncherError::NoSavedCredentials(username.to_string())),
+    }
+}
+
+fn legacy_auth_data(auth: &crate::legacy::requests::LegacyAuth) -> AuthData {
+    AuthData {
+        tokens: AuthTokens {
+            access_token: auth.access_token.clone(),
+            refresh_token: crate::utils::hex::to_hex(&auth.password_blob),
+        },
+        profile: Some(crate::auth::AuthProfile {
+            uuid: auth.profile.uuid.clone(),
+            username: auth.profile.username.clone(),
+        }),
+        uuid: None,
+        username: None,
+        role: None,
+    }
+}
+
+async fn restore_legacy_session(
+    project: &crate::state::dto::ProjectConfig,
+    project_name: &str,
+    username: &str,
+    password: Option<&str>,
+) -> Result<AuthData> {
+    let base_url = crate::legacy::launch::legacy_base_url(project)?;
+    let client = crate::legacy::requests::LegacyClient::new(&base_url)?;
+    let paths = crate::legacy::update::LegacyPaths::new(project_name)?;
+
+    if let Ok(blob_hex) = storage::get_credential(project_name, username, "refresh_token").await {
+        if let Ok(blob) = crate::utils::hex::from_hex(blob_hex.trim()) {
+            if !blob.is_empty() {
+                match client.auth_with_blob(username, &blob).await {
+                    Ok(auth) => {
+                        crate::legacy::update::store_auth_cache(&paths, &auth.profile).await?;
+                        return Ok(legacy_auth_data(&auth));
+                    }
+                    Err(e) => {
+                        log_err!(
+                            "restore_legacy_session: сервер отклонил сохранённый пароль ({}), удаляем",
+                            e
+                        );
+                        let _ = storage::delete_credential(project_name, username, "refresh_token")
+                            .await;
+                    }
+                }
+            }
+        }
+    }
+
+    match password {
+        Some(password) => {
+            let auth = client
+                .auth(username, password)
+                .await
+                .context("Неверный логин или пароль")?;
+            crate::legacy::update::store_auth_cache(&paths, &auth.profile).await?;
+            Ok(legacy_auth_data(&auth))
+        }
         None => bail!(LauncherError::NoSavedCredentials(username.to_string())),
     }
 }
@@ -215,6 +287,12 @@ async fn register_account(
     username: &str,
     password: &str,
 ) -> Result<()> {
+    let project = load_config_or_default(project_name).await?;
+    if project.legacy {
+        bail!(LauncherError::OfflineProfile(
+            "регистрация на легаси-сервере недоступна".to_string()
+        ));
+    }
     let server_url = project_server_url(project_name, "регистрация недоступна").await?;
 
     auth::register(&server_url, username, password).await?;
@@ -340,6 +418,12 @@ async fn change_password_flow(
         (session.username.clone(), session.access_token.clone())
     };
 
+    let project = load_config_or_default(project_name).await?;
+    if project.legacy {
+        bail!(LauncherError::OfflineProfile(
+            "смена пароля на легаси-сервере недоступна".to_string()
+        ));
+    }
     let server_url = project_server_url(project_name, "смена пароля недоступна").await?;
 
     let data = auth::change_password(&server_url, &access_token, old_password, new_password)
@@ -386,15 +470,22 @@ pub async fn delete_account(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
-    if let Ok(refresh_token) =
-        storage::get_credential(&project_name, &username, "refresh_token").await
-    {
-        if !refresh_token.is_empty() {
-            if let Ok(server_url) =
-                project_server_url(&project_name, "удаление аккаунта недоступно").await
-            {
-                if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+    let is_legacy = load_config_or_default(&project_name)
+        .await
+        .map(|project| project.legacy)
+        .unwrap_or(false);
+
+    if !is_legacy {
+        if let Ok(refresh_token) =
+            storage::get_credential(&project_name, &username, "refresh_token").await
+        {
+            if !refresh_token.is_empty() {
+                if let Ok(server_url) =
+                    project_server_url(&project_name, "удаление аккаунта недоступно").await
+                {
+                    if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
+                        log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                    }
                 }
             }
         }

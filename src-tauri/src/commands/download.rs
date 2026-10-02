@@ -116,6 +116,51 @@ pub async fn download_server_mods(
 }
 
 #[tauri::command]
+pub async fn download_legacy_files(
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> CommandResult<()> {
+    let _guard = crate::state::launch_state::acquire_launch_step();
+    let (project, username, access_token) = {
+        let guard = state.lock().await;
+        let session = guard
+            .session
+            .as_ref()
+            .ok_or(LauncherError::NoSession)?
+            .clone();
+        (
+            guard.project_config.clone(),
+            session.username,
+            session.access_token,
+        )
+    };
+    if !project.legacy {
+        return Err(
+            LauncherError::InvalidInput("Проект не является легаси-профилем".to_string()).into(),
+        );
+    }
+    let profile = project
+        .legacy_profile
+        .clone()
+        .ok_or_else(|| LauncherError::InvalidInput("У легаси-проекта нет профиля".to_string()))?;
+
+    let base_url = crate::legacy::launch::legacy_base_url(&project)?;
+    let client = crate::legacy::requests::LegacyClient::new(&base_url)?;
+    let paths = crate::legacy::update::LegacyPaths::new(&project.project_name)?;
+    let _ = crate::legacy::update::ensure_launcher_jar(&client, &paths).await?;
+    crate::legacy::update::sync_all(
+        &client,
+        crate::legacy::requests::LegacySession {
+            username: &username,
+            access_token: &access_token,
+        },
+        &profile,
+        &paths,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_java_distributions() -> CommandResult<Vec<JavaDistribution>> {
     Ok(get_java_distributions_list())
 }

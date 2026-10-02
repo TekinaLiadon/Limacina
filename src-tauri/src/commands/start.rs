@@ -90,9 +90,9 @@ async fn start_minecraft_inner(
     let project_config = repair_stale_java_path(&state, project_config).await;
 
     let mut offline_skin_server: Option<offline::SkinServer> = None;
-    let authlib_server_url = if project_config.online {
+    let authlib_server_url = if project_config.online && !project_config.legacy {
         project_config.resolved_server_url()
-    } else {
+    } else if !project_config.online {
         match offline::start_offline_skin_server(&project, &username, &uuid).await {
             Ok(Some(server)) => {
                 let url = server.url().to_string();
@@ -109,86 +109,117 @@ async fn start_minecraft_inner(
                 None
             }
         }
+    } else {
+        None
     };
 
-    if project_config.online {
+    if project_config.online && !project_config.legacy {
         if let Err(e) = crate::commands::cpm_models::sync_player_models(&state).await {
             log_err!("Не удалось синхронизировать модели CPM: {}", e);
         }
     }
 
-    let config = step_try!(
-        config_step,
-        LauncherError::classify(
-            new_launch_config(&username, &uuid, &access_token, &project_config)
-                .await
-                .with_context(|| format!(
-                    "Не удалось создать конфиг запуска (проект: {})",
-                    project
-                )),
-            LauncherError::ManifestParse
-        )
-    );
-    let vanilla_config = step_try!(
-        config_step,
-        LauncherError::classify(
-            Vanilla
-                .config(&project_config, &config)
-                .await
-                .with_context(|| format!(
-                    "Не удалось получить Vanilla конфиг (проект: {})",
-                    project
-                )),
-            LauncherError::ManifestParse
-        )
-    );
-
-    let mut game_config = if matches!(project_config.mod_loader, ModLoader::Vanilla) {
-        vanilla_config
-    } else {
-        let loader = step_try!(config_step, create_mod_loader(&project_config.mod_loader));
-        let versions = step_try!(
+    let mut game_config = if project_config.legacy {
+        let profile = step_try!(
             config_step,
-            LauncherError::classify(
-                loader
-                    .versions(&project_config)
-                    .await
-                    .with_context(|| format!(
-                        "Не удалось получить список версий лоадера (проект: {})",
-                        project
-                    )),
-                LauncherError::ManifestParse
-            )
-        );
-        let version = step_try!(
-            config_step,
-            LauncherError::classify(
-                loader
-                    .version_current(&project_config, &versions)
-                    .await
-                    .with_context(|| format!(
-                        "Не удалось получить текущую версию лоадера (проект: {})",
-                        project
-                    )),
-                LauncherError::ManifestParse
-            )
+            project_config.legacy_profile.clone().ok_or_else(|| {
+                anyhow!(LauncherError::InvalidInput(
+                    "У легаси-проекта нет профиля обновлений".to_string()
+                ))
+            })
         );
         step_try!(
             config_step,
             LauncherError::classify(
-                loader
-                    .config(&project_config, vanilla_config, &version)
-                    .await
-                    .with_context(|| format!(
-                        "Не удалось собрать конфиг игры (проект: {})",
-                        project
-                    )),
-                LauncherError::LoaderSetup
+                crate::legacy::launch::build_game_config(
+                    &project_config,
+                    &profile,
+                    &username,
+                    &uuid,
+                    &access_token
+                )
+                .await
+                .with_context(|| format!(
+                    "Не удалось собрать конфиг легаси-запуска (проект: {})",
+                    project
+                )),
+                LauncherError::GameDownload
             )
         )
+    } else {
+        let config = step_try!(
+            config_step,
+            LauncherError::classify(
+                new_launch_config(&username, &uuid, &access_token, &project_config)
+                    .await
+                    .with_context(|| format!(
+                        "Не удалось создать конфиг запуска (проект: {})",
+                        project
+                    )),
+                LauncherError::ManifestParse
+            )
+        );
+        let vanilla_config = step_try!(
+            config_step,
+            LauncherError::classify(
+                Vanilla
+                    .config(&project_config, &config)
+                    .await
+                    .with_context(|| format!(
+                        "Не удалось получить Vanilla конфиг (проект: {})",
+                        project
+                    )),
+                LauncherError::ManifestParse
+            )
+        );
+
+        if matches!(project_config.mod_loader, ModLoader::Vanilla) {
+            vanilla_config
+        } else {
+            let loader = step_try!(config_step, create_mod_loader(&project_config.mod_loader));
+            let versions = step_try!(
+                config_step,
+                LauncherError::classify(
+                    loader
+                        .versions(&project_config)
+                        .await
+                        .with_context(|| format!(
+                            "Не удалось получить список версий лоадера (проект: {})",
+                            project
+                        )),
+                    LauncherError::ManifestParse
+                )
+            );
+            let version = step_try!(
+                config_step,
+                LauncherError::classify(
+                    loader
+                        .version_current(&project_config, &versions)
+                        .await
+                        .with_context(|| format!(
+                            "Не удалось получить текущую версию лоадера (проект: {})",
+                            project
+                        )),
+                    LauncherError::ManifestParse
+                )
+            );
+            step_try!(
+                config_step,
+                LauncherError::classify(
+                    loader
+                        .config(&project_config, vanilla_config, &version)
+                        .await
+                        .with_context(|| format!(
+                            "Не удалось собрать конфиг игры (проект: {})",
+                            project
+                        )),
+                    LauncherError::LoaderSetup
+                )
+            )
+        }
     };
 
-    if project_config.auto_join_server {
+    if project_config.auto_join_server && !project_config.legacy {
         let game_dir = game_config.game_dir.clone();
         let address = step_try!(
             config_step,

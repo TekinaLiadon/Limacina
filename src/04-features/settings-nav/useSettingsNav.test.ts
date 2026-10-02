@@ -24,6 +24,8 @@ describe('useSettingsNav', () => {
       initialized: true,
       serverUrl: null,
       autoJoinServer: false,
+      legacy: false,
+      legacyProfile: null,
     }
     store.isLoaded = true
     store.config.initialized = true

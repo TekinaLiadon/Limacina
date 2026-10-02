@@ -17,6 +17,9 @@ export const STEP_IDS = {
   mcAssetsIndex: 'mc.assets.index',
   mcAssets: 'mc.assets',
   loader: 'loader',
+  legacyJvm: 'legacy.jvm',
+  legacyAssets: 'legacy.assets',
+  legacyClient: 'legacy.client',
   launchConfig: 'launch.config',
   launchProcess: 'launch.process',
   launchWindow: 'launch.window',
@@ -43,6 +46,9 @@ export const STEP_CATALOG: Record<StepId, string> = {
   [STEP_IDS.mcAssetsIndex]: 'Загрузка индекса ресурсов',
   [STEP_IDS.mcAssets]: 'Загрузка ресурсов',
   [STEP_IDS.loader]: 'Установка мод-лоадера',
+  [STEP_IDS.legacyJvm]: 'Обновление файлов JVM',
+  [STEP_IDS.legacyAssets]: 'Обновление файлов ресурсов',
+  [STEP_IDS.legacyClient]: 'Обновление файлов клиента',
   [STEP_IDS.launchConfig]: 'Подготовка конфигурации',
   [STEP_IDS.launchProcess]: 'Запуск процесса игры',
   [STEP_IDS.launchWindow]: 'Ожидание окна игры',
@@ -66,9 +72,16 @@ const downloadStepIds: readonly StepId[] = [
   STEP_IDS.mcNatives,
   STEP_IDS.loader,
   STEP_IDS.modsDownload,
+  STEP_IDS.legacyJvm,
+  STEP_IDS.legacyAssets,
+  STEP_IDS.legacyClient,
 ]
 
-const flowEntryStepIds: readonly StepId[] = [STEP_IDS.javaCheck, STEP_IDS.filesList]
+const flowEntryStepIds: readonly StepId[] = [
+  STEP_IDS.javaCheck,
+  STEP_IDS.filesList,
+  STEP_IDS.legacyJvm,
+]
 
 export const DOWNLOAD_STEP_IDS: ReadonlySet<string> = new Set(downloadStepIds)
 

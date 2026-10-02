@@ -45,6 +45,10 @@ tauri-plugin-updater = "2"
 url = "2"
 discord-rich-presence = "1.1.0"
 sysinfo = "0.38"
+rsa = "=0.9.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+regex = "1.11"
+bytes = "1"
 
 [dev-dependencies]
 mockito = "1.7"

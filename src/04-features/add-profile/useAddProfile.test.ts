@@ -38,6 +38,8 @@ const makeConfig = (name: string): ProjectConfig => ({
   initialized: false,
   serverUrl: null,
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 describe('useAddProfile', () => {

@@ -25,6 +25,19 @@ export function useAccounts() {
     }
   }
 
+  const restoreFirstAccount = async (): Promise<void> => {
+    if (coreStore.isLoggedIn || selectedUsername.value) return
+    const [firstLogin] = logins.value
+    if (firstLogin === undefined) return
+    await handleSelect(firstLogin)
+  }
+
+  const restoreSession = async (): Promise<void> => {
+    await loadAccounts()
+    await checkSession()
+    await restoreFirstAccount()
+  }
+
   const sessionGuard = useAsyncRaceGuard()
 
   const handleSelect = async (username: string): Promise<void> => {
@@ -51,8 +64,7 @@ export function useAccounts() {
   }
 
   onMounted(() => {
-    loadAccounts()
-    checkSession()
+    void restoreSession()
   })
 
   return {
@@ -62,5 +74,6 @@ export function useAccounts() {
     selectedUsername,
     handleSelect,
     loadAccounts,
+    restoreSession,
   }
 }

@@ -36,6 +36,8 @@ const makeConfig = (name: string, online: boolean): ProjectConfig => ({
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 describe('useProjectSwitch', () => {

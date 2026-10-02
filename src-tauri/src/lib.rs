@@ -4,6 +4,7 @@ mod discord;
 mod init;
 mod java;
 mod launcher_server;
+mod legacy;
 mod minecraft;
 mod modrinth;
 mod offline;
@@ -24,6 +25,7 @@ use commands::cpm_models::{
 };
 use commands::download::download_alternative_java;
 use commands::download::download_java;
+use commands::download::download_legacy_files;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
@@ -234,6 +236,7 @@ pub fn run() {
             download_server_mods,
             check_files_integrity,
             download_minecraft,
+            download_legacy_files,
             download_java,
             download_alternative_java,
             get_java_distributions,

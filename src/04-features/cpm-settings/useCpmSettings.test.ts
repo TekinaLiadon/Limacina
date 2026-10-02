@@ -122,6 +122,8 @@ describe('useCpmSettings', () => {
       initialized: true,
       serverUrl: null,
       autoJoinServer: false,
+      legacy: false,
+      legacyProfile: null,
     }
     core.session = { uuid: 'u-1', username: 'alice' }
   })

@@ -33,6 +33,9 @@ describe('DOWNLOAD_STEP_IDS', () => {
         STEP_IDS.mcNatives,
         STEP_IDS.loader,
         STEP_IDS.modsDownload,
+        STEP_IDS.legacyJvm,
+        STEP_IDS.legacyAssets,
+        STEP_IDS.legacyClient,
       ].sort(),
     )
   })
@@ -63,11 +66,14 @@ describe('FLOW_ENTRY_STEP_IDS', () => {
   })
 
   it('contains exactly the flow entry steps', () => {
-    expect([...FLOW_ENTRY_STEP_IDS].sort()).toEqual([STEP_IDS.filesList, STEP_IDS.javaCheck].sort())
+    expect([...FLOW_ENTRY_STEP_IDS].sort()).toEqual(
+      [STEP_IDS.filesList, STEP_IDS.javaCheck, STEP_IDS.legacyJvm].sort(),
+    )
   })
 
-  it('does not overlap the download steps', () => {
+  it('does not overlap the download steps except the legacy entry', () => {
     for (const id of FLOW_ENTRY_STEP_IDS) {
+      if (id === STEP_IDS.legacyJvm) continue
       expect(DOWNLOAD_STEP_IDS.has(id)).toBe(false)
     }
   })

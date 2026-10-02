@@ -31,6 +31,7 @@ export type {
   GameExitInfo,
   LauncherSettingsPayload,
   SavePlayerModelPayload,
+  LegacyProfile,
   CPMVec3,
   CPMFaceUV,
   CPMChild,

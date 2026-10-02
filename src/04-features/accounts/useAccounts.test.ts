@@ -38,13 +38,13 @@ describe('useAccounts', () => {
     vi.mocked(getSessionInfo).mockResolvedValue(makeSession('alice'))
 
     const accounts = setupAccounts()
-    await vi.waitFor(() => expect(accounts.isLoading.value).toBe(false))
+    await vi.waitFor(() => expect(accounts.logins.value).toEqual(['alice', 'bob']))
+    await vi.waitFor(() => expect(useCoreStore().isLoggedIn).toBe(true))
 
-    expect(accounts.logins.value).toEqual(['alice', 'bob'])
     const core = useCoreStore()
-    expect(core.isLoggedIn).toBe(true)
     expect(core.session).toEqual(makeSession('alice'))
     expect(useAccountsStore().selectedUsername).toBe('alice')
+    expect(authRefresh).not.toHaveBeenCalled()
   })
 
   it('stays logged out when there is no saved session', async () => {
@@ -56,6 +56,22 @@ describe('useAccounts', () => {
 
     expect(useCoreStore().isLoggedIn).toBe(false)
     expect(accounts.selectedUsername.value).toBe('')
+    expect(authRefresh).not.toHaveBeenCalled()
+  })
+
+  it('auto-restores the first saved login when there is no session', async () => {
+    vi.mocked(authLogins).mockResolvedValue(['alice', 'bob'])
+    vi.mocked(getSessionInfo)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(makeSession('alice'))
+    vi.mocked(authRefresh).mockResolvedValue(undefined)
+
+    const accounts = setupAccounts()
+    await vi.waitFor(() => expect(accounts.selectedUsername.value).toBe('alice'))
+
+    expect(authRefresh).toHaveBeenCalledWith('proj', 'alice')
+    expect(useCoreStore().session).toEqual(makeSession('alice'))
+    expect(useCoreStore().isLoggedIn).toBe(true)
   })
 
   it('reports the logins load failure', async () => {

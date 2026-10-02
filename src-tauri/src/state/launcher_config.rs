@@ -285,7 +285,23 @@ impl LauncherConfig {
     }
 
     pub fn apply_default_project(&mut self) -> bool {
-        if !self.project_names.is_empty() || crate::utils::env_info::is_offline_build() {
+        if !self.project_names.is_empty() {
+            return false;
+        }
+        if crate::utils::env_info::is_legacy_build() {
+            let env_name = crate::utils::env_info::get_default_project_name();
+            let name = if env_name.is_empty() {
+                "Legacy".to_string()
+            } else {
+                env_name
+            };
+            self.project_names = vec![name.clone()];
+            if self.current_project.is_none() {
+                self.current_project = Some(name);
+            }
+            return true;
+        }
+        if crate::utils::env_info::is_offline_build() {
             return false;
         }
         let default_project = crate::utils::env_info::get_default_project_name();
@@ -520,28 +536,39 @@ mod tests {
     }
 
     struct ProjectNameEnvGuard {
-        original: Option<String>,
+        original_project: Option<String>,
+        original_legacy: Option<String>,
     }
 
     impl ProjectNameEnvGuard {
         fn acquire() -> Self {
-            let original = std::env::var("LAUNCHER_PROJECT_NAME").ok();
+            let original_project = std::env::var("LAUNCHER_PROJECT_NAME").ok();
+            let original_legacy = std::env::var("LAUNCHER_LEGACY_SERVER_URL").ok();
             std::env::remove_var("LAUNCHER_PROJECT_NAME");
-            Self { original }
+            std::env::remove_var("LAUNCHER_LEGACY_SERVER_URL");
+            Self {
+                original_project,
+                original_legacy,
+            }
         }
     }
 
     impl Drop for ProjectNameEnvGuard {
         fn drop(&mut self) {
-            match &self.original {
+            match &self.original_project {
                 Some(value) => std::env::set_var("LAUNCHER_PROJECT_NAME", value),
                 None => std::env::remove_var("LAUNCHER_PROJECT_NAME"),
+            }
+            match &self.original_legacy {
+                Some(value) => std::env::set_var("LAUNCHER_LEGACY_SERVER_URL", value),
+                None => std::env::remove_var("LAUNCHER_LEGACY_SERVER_URL"),
             }
         }
     }
 
     #[test]
     fn apply_default_project_follows_env_and_existing_state() {
+        let _env_guard = crate::test_support::env_test_lock();
         let _guard = ProjectNameEnvGuard::acquire();
 
         let mut config = LauncherConfig::default();
@@ -549,15 +576,32 @@ mod tests {
         assert!(config.project_names.is_empty());
 
         std::env::set_var("LAUNCHER_PROJECT_NAME", "Avelmor");
-        assert!(config.apply_default_project());
-        assert_eq!(config.project_names, vec!["Avelmor"]);
-        assert_eq!(config.current_project.as_deref(), Some("Avelmor"));
+        if crate::utils::env_info::is_offline_build() {
+            assert!(
+                !config.apply_default_project(),
+                "в оффлайн-сборке без легаси сидинга нет"
+            );
+            assert!(config.project_names.is_empty());
+
+            let mut legacy = LauncherConfig::default();
+            std::env::set_var("LAUNCHER_LEGACY_SERVER_URL", "https://legacy.example.com");
+            assert!(legacy.apply_default_project(), "легаси-сборка сеет проект");
+            assert_eq!(legacy.project_names, vec!["Avelmor"]);
+            assert_eq!(legacy.current_project.as_deref(), Some("Avelmor"));
+            std::env::remove_var("LAUNCHER_LEGACY_SERVER_URL");
+        } else {
+            assert!(config.apply_default_project());
+            assert_eq!(config.project_names, vec!["Avelmor"]);
+            assert_eq!(config.current_project.as_deref(), Some("Avelmor"));
+        }
 
         assert!(
             !config.apply_default_project(),
             "повторный вызов без эффекта"
         );
-        assert_eq!(config.project_names.len(), 1);
+        if !crate::utils::env_info::is_offline_build() {
+            assert_eq!(config.project_names.len(), 1);
+        }
 
         let mut kept = LauncherConfig::default();
         kept.add_project("Her");

@@ -82,6 +82,10 @@ pub async fn init_project_config(
         }
     }
 
+    if crate::utils::env_info::is_legacy_build() {
+        return init_legacy_project_config(&config_dir, project_name).await;
+    }
+
     let base_url = match server_url {
         Some(url) => normalize_server_url(url),
         None => default_server_url().ok_or_else(|| {
@@ -136,6 +140,58 @@ pub async fn init_project_config(
     Ok(config)
 }
 
+async fn init_legacy_project_config(
+    config_dir: &std::path::Path,
+    project_name: &str,
+) -> Result<ProjectConfig> {
+    use crate::legacy::requests::LegacyClient;
+
+    let base_url = crate::utils::env_info::get_legacy_server_url().ok_or_else(|| {
+        anyhow::Error::new(LauncherError::Offline(
+            "легаси-сервер не настроен в сборке".to_string(),
+        ))
+    })?;
+    let client = LegacyClient::new(&base_url)?;
+    init_legacy_project_config_with(config_dir, project_name, &client, &base_url).await
+}
+
+async fn init_legacy_project_config_with(
+    config_dir: &std::path::Path,
+    project_name: &str,
+    client: &crate::legacy::requests::LegacyClient,
+    base_url: &str,
+) -> Result<ProjectConfig> {
+    validate_project_name(project_name)?;
+    let (_, profiles) = client
+        .fetch_profiles()
+        .await
+        .context("Не удалось получить профили легаси-сервера")?;
+    let profile = crate::legacy::requests::choose_profile_record(profiles)?.profile;
+
+    let project = ProjectConfig {
+        project_name: project_name.to_string(),
+        mc_version: profile.version.clone(),
+        mod_loader: crate::state::dto::ModLoader::Vanilla,
+        loader_version: None,
+        java_path: None,
+        java_version: None,
+        jvm_args: Vec::new(),
+        min_memory: "-Xms512M".to_string(),
+        max_memory: "-Xmx4G".to_string(),
+        online: true,
+        initialized: false,
+        server_url: Some(base_url.to_string()),
+        auto_join_server: false,
+        legacy: true,
+        legacy_profile: Some(profile),
+    };
+
+    let toml_path = config_dir.join(format!("{}.toml", project_name));
+    let toml_string = toml::to_string_pretty(&project)?;
+    write_atomic(&toml_path, toml_string.as_bytes()).await?;
+    Ok(project)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::LauncherDirGuard;
@@ -157,5 +213,69 @@ mod tests {
             .map(|entries| entries.count())
             .unwrap_or(0);
         assert_eq!(written, 0, "в config не должно быть записей");
+    }
+
+    #[tokio::test]
+    async fn init_legacy_project_picks_lowest_sort_index() {
+        use crate::legacy::crypto::{generate_test_key, sign_sha256_with_rsa_raw};
+        use crate::legacy::requests::LegacyClient;
+        use crate::test_support::legacy_profile_data;
+        use rsa::RsaPublicKey;
+
+        let _guard = LauncherDirGuard::acquire("init_legacy").await;
+        let mut server = mockito::Server::new_async().await;
+        let key = generate_test_key(2048).expect("тестовый ключ");
+        let client = LegacyClient::with_test_key(&server.url(), RsaPublicKey::from(&key));
+
+        let first = legacy_profile_data("LowSort", 5);
+        let second = legacy_profile_data("HighSort", 9);
+        let mut body = crate::legacy::protocol::HWriter::new();
+        body.write_string("");
+        body.write_fixed(&vec![0u8; 256]);
+        body.write_varint(2);
+        body.write_prefixed(&first);
+        body.write_fixed(&sign_sha256_with_rsa_raw(&key, &first).expect("подпись"));
+        body.write_prefixed(&second);
+        body.write_fixed(&sign_sha256_with_rsa_raw(&key, &second).expect("подпись"));
+
+        let mock = server
+            .mock("POST", "/api/launcher")
+            .with_status(200)
+            .with_body(body.into_inner())
+            .create_async()
+            .await;
+
+        let config_dir = _guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("папка конфигов");
+
+        let config = super::init_legacy_project_config_with(
+            &config_dir,
+            "LegacyProj",
+            &client,
+            &server.url(),
+        )
+        .await
+        .expect("легаси-конфиг создаётся");
+        mock.assert_async().await;
+
+        assert!(config.legacy);
+        assert_eq!(config.mc_version, "1.16.5");
+        assert_eq!(config.server_url.as_deref(), Some(server.url().as_str()));
+        let profile = config.legacy_profile.expect("профиль");
+        assert_eq!(
+            profile.dir_name, "LowSort",
+            "выбирается минимальный sortIndex"
+        );
+
+        let toml_path = config_dir.join("LegacyProj.toml");
+        assert!(toml_path.exists(), "TOML записан");
+        let reparsed: crate::state::dto::ProjectConfig =
+            toml::from_str(&std::fs::read_to_string(&toml_path).expect("чтение TOML"))
+                .expect("TOML читается");
+        assert!(reparsed.legacy);
+        assert_eq!(
+            reparsed.legacy_profile.expect("профиль").dir_name,
+            "LowSort"
+        );
     }
 }

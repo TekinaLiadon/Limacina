@@ -113,6 +113,19 @@ impl StepHandle {
         );
     }
 
+    pub fn progress(&self, current: u64, total: u64) {
+        self.state.current.store(current, Ordering::Relaxed);
+        self.state.total.store(total, Ordering::Relaxed);
+        emit_step_event(
+            self.channel,
+            &StepEvent::Progress {
+                id: self.id.to_string(),
+                current,
+                total,
+            },
+        );
+    }
+
     pub fn inc(&self) {
         let current = self.state.current.fetch_add(1, Ordering::Relaxed) + 1;
         let total = self.state.total.load(Ordering::Relaxed);

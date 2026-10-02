@@ -23,6 +23,11 @@ pub fn library_mod(name: &str, path: &str) -> LibraryMod {
 
 pub static LAUNCHER_DIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+pub fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+}
+
 pub struct LauncherDirGuard {
     _permit: tokio::sync::MutexGuard<'static, ()>,
     root: PathBuf,
@@ -172,4 +177,57 @@ pub fn write_test_zip(path: &Path, entries: &[(&str, &[u8])]) {
         writer.write_all(data).expect("запись данных");
     }
     writer.finish().expect("завершение архива");
+}
+
+pub fn legacy_profile_data(dir_name: &str, sort_index: u32) -> Vec<u8> {
+    use crate::legacy::protocol::HWriter;
+
+    fn string_entry(writer: &mut HWriter, name: &str, value: &str) {
+        writer.write_string(name);
+        writer.write_varint(4);
+        writer.write_string(value);
+    }
+
+    fn int_entry(writer: &mut HWriter, name: &str, value: u64) {
+        writer.write_string(name);
+        writer.write_varint(3);
+        writer.write_varlong(value);
+    }
+
+    fn bool_entry(writer: &mut HWriter, name: &str, value: bool) {
+        writer.write_string(name);
+        writer.write_varint(2);
+        writer.write_bool(value);
+    }
+
+    fn list_entry(writer: &mut HWriter, name: &str, items: &[&str]) {
+        writer.write_string(name);
+        writer.write_varint(5);
+        writer.write_varint(items.len() as u32);
+        for item in items {
+            writer.write_varint(4);
+            writer.write_string(item);
+        }
+    }
+
+    let mut writer = HWriter::new();
+    writer.write_varint(17);
+    string_entry(&mut writer, "version", "1.16.5");
+    string_entry(&mut writer, "assetIndex", "1.16.5");
+    string_entry(&mut writer, "dir", dir_name);
+    string_entry(&mut writer, "assetDir", "asset1.16.5");
+    int_entry(&mut writer, "sortIndex", sort_index as u64);
+    string_entry(&mut writer, "title", dir_name);
+    string_entry(&mut writer, "serverAddress", "play.example.com");
+    int_entry(&mut writer, "serverPort", 25545);
+    string_entry(&mut writer, "jvmVersion", "graalvm-11");
+    bool_entry(&mut writer, "updateFastCheck", true);
+    list_entry(&mut writer, "update", &["servers\\.dat"]);
+    list_entry(&mut writer, "updateVerify", &["mods"]);
+    list_entry(&mut writer, "updateExclusions", &["openloader/.cache"]);
+    string_entry(&mut writer, "mainClass", "cpw.mods.modlauncher.Launcher");
+    list_entry(&mut writer, "classPath", &["minecraft.jar"]);
+    list_entry(&mut writer, "jvmArgs", &["-XX:+UseG1GC"]);
+    list_entry(&mut writer, "clientArgs", &["--launchTarget"]);
+    writer.into_inner()
 }

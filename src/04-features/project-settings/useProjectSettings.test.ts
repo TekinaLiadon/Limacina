@@ -67,6 +67,8 @@ const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfi
   initialized: true,
   serverUrl: 'https://example.com',
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
   ...overrides,
 })
 

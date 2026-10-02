@@ -29,6 +29,8 @@ const makeProjectConfig = (online: boolean): ProjectConfig => ({
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  legacy: false,
+  legacyProfile: null,
 })
 
 const makeSession = (username: string): SessionInfo => ({ uuid: 'u-1', username })

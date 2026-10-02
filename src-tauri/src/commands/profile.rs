@@ -343,7 +343,7 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
         bail!(LauncherError::ProjectNameReserved);
     }
     let env_project = crate::utils::env_info::get_default_project_name();
-    if !crate::utils::env_info::is_offline_build()
+    if (!crate::utils::env_info::is_offline_build() || crate::utils::env_info::is_legacy_build())
         && !env_project.is_empty()
         && project_name == env_project
     {
