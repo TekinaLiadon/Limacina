@@ -37,6 +37,49 @@ const OUT_OF_MEMORY_MARKER: &str = "OutOfMemoryError";
 const OUT_OF_MEMORY_REASON: &str =
     "Недостаточно выделенной памяти (OutOfMemoryError). Увеличьте максимум памяти в настройках игры";
 
+const DISABLE_ATTACH_FLAG: &str = "-XX:+DisableAttachMechanism";
+
+const FORBIDDEN_JVM_ARG_PREFIXES: &[&str] = &[
+    "-agentlib:",
+    "-agentpath:",
+    "-javaagent:",
+    "-Xrunjdwp",
+    "-Xdebug",
+    "-Dcom.sun.management.jmxremote",
+];
+
+pub(crate) fn validate_jvm_args(jvm_args: &[String]) -> Result<()> {
+    let forbidden = jvm_args.iter().find_map(|arg| {
+        FORBIDDEN_JVM_ARG_PREFIXES
+            .iter()
+            .find(|prefix| arg.starts_with(**prefix))
+            .map(|_| arg.as_str())
+    });
+    let Some(arg) = forbidden else {
+        return Ok(());
+    };
+    Err(LauncherError::GameProcess(format!(
+        "В JVM-аргументах проекта указан запрещённый параметр «{arg}»: debug-агенты и удалённое управление JVM отключены в целях безопасности. Удалите его в настройках проекта"
+    ))
+    .into())
+}
+
+fn finalize_jvm_args(
+    jvm_args: Vec<String>,
+    authlib_agent: Option<String>,
+    disable_attach: bool,
+) -> Result<Vec<String>> {
+    validate_jvm_args(&jvm_args)?;
+    let mut args = jvm_args;
+    if let Some(agent) = authlib_agent {
+        args.insert(0, agent);
+    }
+    if disable_attach {
+        args.push(DISABLE_ATTACH_FLAG.to_string());
+    }
+    Ok(args)
+}
+
 fn exit_reason(last_output: &StdMutex<VecDeque<String>>) -> Option<String> {
     let log = last_output.lock().unwrap_or_else(|e| e.into_inner());
     if log.iter().any(|line| line.contains(OUT_OF_MEMORY_MARKER)) {
@@ -194,23 +237,26 @@ pub fn spawn_game_process(
     let mut command = Command::new(&config.java_path);
     let separator = get_classpath_separator();
     let classpath = &config.classpath.join(separator);
-    let mut jvm_args: Vec<String> = config
+    let jvm_args: Vec<String> = config
         .jvm_args
         .iter()
         .filter(|&arg| !arg.is_empty())
         .cloned()
         .collect();
 
-    if let (Some(server_url), Some(authlib_path)) = (server_url, find_authlib_jar(&config.game_dir))
-    {
-        let agent_arg = format!(
-            "-javaagent:{}={}",
-            authlib_path.to_string_lossy(),
-            server_url
-        );
-        log_info!("Authlib-injector: {}", agent_arg);
-        jvm_args.insert(0, agent_arg);
-    }
+    let authlib_agent = match (server_url, find_authlib_jar(&config.game_dir)) {
+        (Some(server_url), Some(authlib_path)) => {
+            let agent_arg = format!(
+                "-javaagent:{}={}",
+                authlib_path.to_string_lossy(),
+                server_url
+            );
+            log_info!("Authlib-injector: {}", agent_arg);
+            Some(agent_arg)
+        }
+        _ => None,
+    };
+    let jvm_args = finalize_jvm_args(jvm_args, authlib_agent, !cfg!(debug_assertions))?;
 
     log_info!("{}", classpath);
     log_info!("{}", jvm_args.join(" "));
@@ -305,6 +351,140 @@ pub fn spawn_game_process(
     });
 
     Ok(process)
+}
+
+#[cfg(test)]
+mod jvm_args_guard_tests {
+    use super::{finalize_jvm_args, validate_jvm_args, DISABLE_ATTACH_FLAG};
+
+    fn validation_error(args: &[&str]) -> String {
+        let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+        validate_jvm_args(&args)
+            .expect_err("запрещённый аргумент должен прервать запуск")
+            .to_string()
+    }
+
+    #[test]
+    fn blocks_debug_jmx_and_agent_flags() {
+        for arg in [
+            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n",
+            "-agentlib:jdwp",
+            "-agentlib:hang",
+            "-agentpath:/tools/libagent.so=opt",
+            "-javaagent:/tools/evil.jar",
+            "-Xrunjdwp",
+            "-Xrunjdwp:transport=dt_socket,server=y",
+            "-Xdebug",
+            "-Dcom.sun.management.jmxremote",
+            "-Dcom.sun.management.jmxremote.port=1616",
+            "-Dcom.sun.management.jmxremote.authenticate=false",
+        ] {
+            let message = validation_error(&[arg]);
+            assert!(
+                message.contains(arg),
+                "ошибка должна называть аргумент {arg}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn names_forbidden_flag_from_mixed_list() {
+        let message = validation_error(&[
+            "-Xmx4G",
+            "-XX:+UseG1GC",
+            "-javaagent:evil.jar",
+            "-Dfile.encoding=UTF-8",
+        ]);
+
+        assert!(
+            message.contains("-javaagent:evil.jar"),
+            "ошибка должна назвать запрещённый аргумент из списка: {message}"
+        );
+    }
+
+    #[test]
+    fn allows_standard_args_and_presets() {
+        let args: Vec<String> = [
+            "-XX:+UseG1GC",
+            "-XX:-DisableAttachMechanism",
+            "-XX:+DisableAttachMechanism",
+            "-Xms512M",
+            "-Xmx4G",
+            "-Xss1M",
+            "-Dfile.encoding=UTF-8",
+            "-Dsun.rmi.dgc.server.gcInterval=2147483646",
+            "-Djava.library.path=/game/natives",
+            "--add-modules=jdk.incubator.vector",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        validate_jvm_args(&args).expect("штатные аргументы пресетов не должны запрещаться");
+    }
+
+    #[test]
+    fn launcher_authlib_agent_passes_after_validation() {
+        let agent = "-javaagent:/game/authlib-injector.jar=https://server.example".to_string();
+
+        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], Some(agent.clone()), false)
+            .expect("агент лаунчера не должен блокироваться");
+
+        assert_eq!(args[0], agent);
+        assert_eq!(args[1], "-Xmx4G");
+    }
+
+    #[test]
+    fn forbidden_user_arg_aborts_even_with_authlib() {
+        let agent = "-javaagent:/game/authlib-injector.jar=https://server.example".to_string();
+
+        let error = finalize_jvm_args(vec!["-Xdebug".to_string()], Some(agent), true)
+            .expect_err("запрещённый аргумент должен прервать запуск до вставки агента");
+
+        assert!(
+            error.to_string().contains("-Xdebug"),
+            "ошибка должна называть аргумент пользователя: {error}"
+        );
+    }
+
+    #[test]
+    fn disable_attach_flag_stands_last_and_overrides_user_opt_out() {
+        let args = finalize_jvm_args(
+            vec![
+                "-Xmx4G".to_string(),
+                "-XX:-DisableAttachMechanism".to_string(),
+            ],
+            None,
+            true,
+        )
+        .expect("аргументы должны собраться без ошибок");
+
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some(DISABLE_ATTACH_FLAG),
+            "флаг должен стоять последним jvm-аргументом: {args:?}"
+        );
+        let opt_out = args
+            .iter()
+            .position(|arg| arg == "-XX:-DisableAttachMechanism")
+            .expect("попытка отключения из пользовательских аргументов должна сохраниться");
+        let opt_in = args
+            .iter()
+            .position(|arg| arg == DISABLE_ATTACH_FLAG)
+            .expect("флаг должен быть добавлен");
+        assert!(
+            opt_out < opt_in,
+            "последнее вхождение булевого -XX флага побеждает: {args:?}"
+        );
+    }
+
+    #[test]
+    fn disable_attach_flag_is_not_added_when_disabled() {
+        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], None, false)
+            .expect("аргументы должны собраться без ошибок");
+
+        assert_eq!(args, vec!["-Xmx4G".to_string()]);
+    }
 }
 
 #[cfg(test)]

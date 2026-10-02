@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore } from '@/05-entities'
-import { useAccounts, useGameLaunch, useLaunchStepsStream, useSystemNotifications } from '@/04-features'
+import { useAccounts, useGameLaunch, useLaunchStepsStream } from '@/04-features'
 import { clearSession, deleteAccount, getErrorMessage } from '@/06-shared/api'
 import { reportError, storeBinding } from '@/06-shared'
 
@@ -24,7 +24,6 @@ export function useAccountsPage() {
     executeSteps,
   } = useGameLaunch()
 
-  const { sendSystemNotification } = useSystemNotifications()
   const { resetLaunchSteps } = useLaunchStepsStream()
 
   const isServerOffline = computed((): boolean =>
@@ -35,7 +34,6 @@ export function useAccountsPage() {
     if (store.isLaunching) return
     if (isServerOffline.value) {
       notificationStore.show('Сервер лаунчера недоступен, запуск невозможен')
-      void sendSystemNotification('Запуск заблокирован', 'Сервер лаунчера недоступен')
       return
     }
     store.isCancelPending = false

@@ -89,6 +89,7 @@ ${StrLoc}
 !define /ifndef SS_CENTER 0x00000001
 !define /ifndef SS_CENTERIMAGE 0x00000200
 !define /ifndef SS_NOTIFY 0x00000100
+!define /ifndef WS_TABSTOP 0x00010000
 !define /ifndef SS_ICON 0x00000003
 !define /ifndef WS_GROUP 0x00020000
 !define /ifndef BST_CHECKED 0x0001
@@ -182,6 +183,7 @@ Var InstProgress
 Var InstStatus
 Var BtnText
 Var BtnId
+Var BtnTab
 Var BtnPrim
 Var BtnEn
 Var BtnW
@@ -390,7 +392,11 @@ FunctionEnd
 Function AddFooterBtn
   Call BtnWidth
   IntOp $FooterX $FooterX - $BtnW
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "$BtnText", i ${STYLE_CENTER}, i $FooterX, i $FooterBtnY, i $BtnW, i $BtnH, p $HWNDPARENT, p $BtnId, p 0, p 0) p.s'
+  StrCpy $0 ${STYLE_CENTER}
+  ${If} $BtnTab = 1
+    IntOp $0 $0 | ${WS_TABSTOP}
+  ${EndIf}
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "$BtnText", i $0, i $FooterX, i $FooterBtnY, i $BtnW, i $BtnH, p $HWNDPARENT, p $BtnId, p 0, p 0) p.s'
   Pop $0
   ${If} $BtnPrim = 1
     ${If} $BtnEn = 1
@@ -443,7 +449,11 @@ FunctionEnd
 Function un.AddFooterBtn
   Call un.BtnWidth
   IntOp $FooterX $FooterX - $BtnW
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "$BtnText", i ${STYLE_CENTER}, i $FooterX, i $FooterBtnY, i $BtnW, i $BtnH, p $HWNDPARENT, p $BtnId, p 0, p 0) p.s'
+  StrCpy $0 ${STYLE_CENTER}
+  ${If} $BtnTab = 1
+    IntOp $0 $0 | ${WS_TABSTOP}
+  ${EndIf}
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "$BtnText", i $0, i $FooterX, i $FooterBtnY, i $BtnW, i $BtnH, p $HWNDPARENT, p $BtnId, p 0, p 0) p.s'
   Pop $0
   ${If} $BtnPrim = 1
     ${If} $BtnEn = 1
@@ -504,13 +514,23 @@ Function un.DestroyNavOverlays
 FunctionEnd
 
 ; Спрятать настоящие кнопки мастера — вместо них пилюли.
+; Табстопы снимаются, иначе Tab по кромке уходит в невидимые кнопки.
 !macro HideRealNavBtns
   GetDlgItem $0 $HWNDPARENT 1
   System::Call 'user32::SetWindowPos(p $0, p 0, i -32000, i -32000, i 0, i 0, i ${SWP_HIDE})'
+  System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
+  IntOp $1 $1 & 0xFFFEFFFF
+  System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
   GetDlgItem $0 $HWNDPARENT 2
   System::Call 'user32::SetWindowPos(p $0, p 0, i -32000, i -32000, i 0, i 0, i ${SWP_HIDE})'
+  System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
+  IntOp $1 $1 & 0xFFFEFFFF
+  System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
   GetDlgItem $0 $HWNDPARENT 3
   System::Call 'user32::SetWindowPos(p $0, p 0, i -32000, i -32000, i 0, i 0, i ${SWP_HIDE})'
+  System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
+  IntOp $1 $1 & 0xFFFEFFFF
+  System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
 !macroend
 
 ; Линия-разделитель футера. Перед вызовом задать $FooterX.
@@ -537,10 +557,37 @@ FunctionEnd
     Pop $FocusPill
   ${EndIf}
   SetCtlColors $FocusPill "" `${_color}`
-  System::Call 'user32::SetWindowPos(p $FocusPill, p `${_overlay}`, i r2, i r3, i r6, i r7, i 0x50)'
+  System::Call 'user32::GetWindow(p `${_overlay}`, i 2) p.r8'
+  ${If} $8 = 0
+    StrCpy $8 1
+  ${EndIf}
+  System::Call 'user32::SetWindowPos(p $FocusPill, p $8, i r2, i r3, i r6, i r7, i 0x50)'
+  System::Call 'user32::RedrawWindow(p $FocusPill, i 0, i 0, i 0x185)'
+!macroend
+
+!macro RaisePillsCore
+  ${If} $FooterLine <> 0
+    System::Call 'user32::SetWindowPos(p $FooterLine, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
+  ${EndIf}
+  ${If} $NavOverlay3 <> 0
+    System::Call 'user32::SetWindowPos(p $NavOverlay3, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
+  ${EndIf}
+  ${If} $NavOverlay2 <> 0
+    System::Call 'user32::SetWindowPos(p $NavOverlay2, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
+  ${EndIf}
+  ${If} $NavOverlay1 <> 0
+    System::Call 'user32::SetWindowPos(p $NavOverlay1, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
+  ${EndIf}
 !macroend
 
 !macro FocusPollCore
+  !insertmacro RaisePillsCore
+  System::Call 'user32::RedrawWindow(p $NavOverlay1, i 0, i 0, i 0x185)'
+  System::Call 'user32::RedrawWindow(p $NavOverlay2, i 0, i 0, i 0x185)'
+  System::Call 'user32::RedrawWindow(p $NavOverlay3, i 0, i 0, i 0x185)'
+  ${If} $FooterLine <> 0
+    System::Call 'user32::RedrawWindow(p $FooterLine, i 0, i 0, i 0x185)'
+  ${EndIf}
   System::Call 'user32::GetFocus() p.r0'
   ${If} $0 = 0
     Return
@@ -550,6 +597,7 @@ FunctionEnd
     SendMessage $HWNDPARENT ${DM_SETDEFID} 1 0
   ${ElseIf} $0 = $NavOverlay2
     !insertmacro FocusRing $NavOverlay2 ${COLOR_ACCENT}
+    SendMessage $HWNDPARENT ${DM_SETDEFID} 2 0
   ${ElseIf} $0 = $NavOverlay3
     !insertmacro FocusRing $NavOverlay3 ${COLOR_ACCENT}
     SendMessage $HWNDPARENT ${DM_SETDEFID} 3 0
@@ -561,39 +609,25 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+Function FocusPoll
+  !insertmacro FocusPollCore
+FunctionEnd
+
+Function un.FocusPoll
+  !insertmacro FocusPollCore
+FunctionEnd
+
 ; Пилюли создаются до nsDialogs::Show, а плагин при показе страницы
 ; поднимает свой диалог на вершину z-порядка — он глотает клики.
 ; Одноразовый таймер возвращает кнопкам верхнюю позицию уже внутри
 ; цикла сообщений страницы и самоуничтожается.
 Function RaisePills
-  ${If} $FooterLine <> 0
-    System::Call 'user32::SetWindowPos(p $FooterLine, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
-  ${If} $NavOverlay3 <> 0
-    System::Call 'user32::SetWindowPos(p $NavOverlay3, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
-  ${If} $NavOverlay2 <> 0
-    System::Call 'user32::SetWindowPos(p $NavOverlay2, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
-  ${If} $NavOverlay1 <> 0
-    System::Call 'user32::SetWindowPos(p $NavOverlay1, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
+  !insertmacro RaisePillsCore
   ${NSD_KillTimer} RaisePills
 FunctionEnd
 
 Function un.RaisePills
-  ${If} $FooterLine <> 0
-    System::Call 'user32::SetWindowPos(p $FooterLine, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
-  ${If} $NavOverlay3 <> 0
-    System::Call 'user32::SetWindowPos(p $NavOverlay3, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
-  ${If} $NavOverlay2 <> 0
-    System::Call 'user32::SetWindowPos(p $NavOverlay2, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
-  ${If} $NavOverlay1 <> 0
-    System::Call 'user32::SetWindowPos(p $NavOverlay1, p 0, i 0, i 0, i 0, i 0, i ${SWP_REZ})'
-  ${EndIf}
+  !insertmacro RaisePillsCore
   ${NSD_KillTimer} un.RaisePills
 FunctionEnd
 
@@ -927,15 +961,19 @@ Function PageWelcome
 StrCpy $BtnId 1
 StrCpy $BtnPrim 1
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
   StrCpy $BtnText "Отмена"
 StrCpy $BtnId 2
 StrCpy $BtnPrim 0
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
 
   ${NSD_CreateTimer} RaisePills 30
+  ${NSD_CreateTimer} FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} FocusPoll
   Call DestroyNavOverlays
 FunctionEnd
 
@@ -1008,30 +1046,32 @@ Function PageReinstall
     !insertmacro DrawSidebar 1 "Приветствие" "Папка установки" "Установка" "Завершение" 0
     !insertmacro PageHeading 1 "$(alreadyInstalled)" "$R1" $SubH2
 
-    ; выбор действия — две пилюли вместо системных радиокнопок
     !insertmacro ScaleTo $1 44
     !insertmacro ScaleTo $2 10
-    ${NSD_CreateLabel} $ContentX $BodyTop $ContentW $1 $R2
+    ${NSD_CreateRadioButton} $ContentX $BodyTop $ContentW $1 $R2
     Pop $Radio1
-    ${NSD_AddStyle} $Radio1 ${STYLE_CENTER}
-    SendMessage $Radio1 ${WM_SETFONT} $FontBtn 1
+    ${NSD_AddStyle} $Radio1 ${WS_GROUP}
+    System::Call 'uxtheme::SetWindowTheme(p $Radio1, w "", w "")'
+    SendMessage $Radio1 ${WM_SETFONT} $FontText 1
+    SetCtlColors $Radio1 ${COLOR_BODY} ${COLOR_BG}
     ${NSD_OnClick} $Radio1 PageReinstallSelect1
 
     IntOp $3 $BodyTop + $1
     IntOp $3 $3 + $2
-    ${NSD_CreateLabel} $ContentX $3 $ContentW $1 $R3
+    ${NSD_CreateRadioButton} $ContentX $3 $ContentW $1 $R3
     Pop $Radio2
-    ${NSD_AddStyle} $Radio2 ${STYLE_CENTER}
-    SendMessage $Radio2 ${WM_SETFONT} $FontBtn 1
+    System::Call 'uxtheme::SetWindowTheme(p $Radio2, w "", w "")'
+    SendMessage $Radio2 ${WM_SETFONT} $FontText 1
+    SetCtlColors $Radio2 ${COLOR_BODY} ${COLOR_BG}
     ${NSD_OnClick} $Radio2 PageReinstallSelect2
 
-    Call PageReinstallRestyle
+    ${NSD_Check} $Radio1
 
     !if "${ALLOWDOWNGRADES}" == "false"
       ${If} $R0 = -1
         EnableWindow $Radio2 0
+        SetCtlColors $Radio2 ${COLOR_MUTED} ${COLOR_BG}
         StrCpy $ReinstallPageCheck 1
-        Call PageReinstallRestyle
       ${EndIf}
     !endif
 
@@ -1041,53 +1081,35 @@ Function PageReinstall
 StrCpy $BtnId 1
 StrCpy $BtnPrim 1
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
     StrCpy $BtnText "Отмена"
 StrCpy $BtnId 2
 StrCpy $BtnPrim 0
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
     StrCpy $BtnText "Назад"
 StrCpy $BtnId 3
 StrCpy $BtnPrim 0
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
 
     ${NSD_CreateTimer} RaisePills 30
+    ${NSD_CreateTimer} FocusPoll 50
     nsDialogs::Show
+    ${NSD_KillTimer} FocusPoll
     Call DestroyNavOverlays
   ${EndIf}
 FunctionEnd
 
 Function PageReinstallSelect1
   StrCpy $ReinstallPageCheck 1
-  Call PageReinstallRestyle
 FunctionEnd
 
 Function PageReinstallSelect2
   StrCpy $ReinstallPageCheck 2
-  Call PageReinstallRestyle
-FunctionEnd
-
-; Подсветка выбранной пилюли на странице переустановки.
-; После SetCtlColors обязателен InvalidateRect — иначе контрол
-; не перерисовывается, пока его что-то не заденет.
-Function PageReinstallRestyle
-  System::Call 'user32::IsWindowEnabled(p $Radio2) i.r0'
-  ${If} $ReinstallPageCheck = 1
-    SetCtlColors $Radio1 0xFFFFFF ${COLOR_ACCENT}
-  ${Else}
-    SetCtlColors $Radio1 ${COLOR_BODY} ${COLOR_INPUT}
-  ${EndIf}
-  ${If} $0 = 0
-    SetCtlColors $Radio2 ${COLOR_MUTED} ${COLOR_INPUT}
-  ${ElseIf} $ReinstallPageCheck = 2
-    SetCtlColors $Radio2 0xFFFFFF ${COLOR_ACCENT}
-  ${Else}
-    SetCtlColors $Radio2 ${COLOR_BODY} ${COLOR_INPUT}
-  ${EndIf}
-  System::Call 'user32::InvalidateRect(p $Radio1, i 0, i 1)'
-  System::Call 'user32::InvalidateRect(p $Radio2, i 0, i 1)'
 FunctionEnd
 
 Function PageLeaveReinstall
@@ -1224,20 +1246,25 @@ StrCpy $3 $BtnW
 StrCpy $BtnId 2
 StrCpy $BtnPrim 0
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
   StrCpy $BtnText "Установить"
 StrCpy $BtnId 1
 StrCpy $BtnPrim 1
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
   StrCpy $BtnText "Назад"
 StrCpy $BtnId 3
 StrCpy $BtnPrim 0
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
 
   ${NSD_CreateTimer} RaisePills 30
+  ${NSD_CreateTimer} FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} FocusPoll
   Call DestroyNavOverlays
 FunctionEnd
 
@@ -1369,16 +1396,19 @@ Function StyleInstFiles
   StrCpy $BtnId 2
   StrCpy $BtnPrim 0
   StrCpy $BtnEn 1
+  StrCpy $BtnTab 0
   Call AddFooterBtn
   StrCpy $BtnText "Далее"
   StrCpy $BtnId 1
   StrCpy $BtnPrim 1
   StrCpy $BtnEn 0
+  StrCpy $BtnTab 0
   Call AddFooterBtn
   StrCpy $BtnText "Назад"
   StrCpy $BtnId 3
   StrCpy $BtnPrim 0
   StrCpy $BtnEn 0
+  StrCpy $BtnTab 0
   Call AddFooterBtn
 
   !insertmacro ScaleTo $2 10
@@ -1462,10 +1492,13 @@ Function PageFinish
 StrCpy $BtnId 1
 StrCpy $BtnPrim 1
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call AddFooterBtn
 
   ${NSD_CreateTimer} RaisePills 30
+  ${NSD_CreateTimer} FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} FocusPoll
   Call DestroyNavOverlays
 FunctionEnd
 
@@ -1621,15 +1654,19 @@ Function un.PageConfirm
 StrCpy $BtnId 1
 StrCpy $BtnPrim 1
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call un.AddFooterBtn
   StrCpy $BtnText "Отмена"
 StrCpy $BtnId 2
 StrCpy $BtnPrim 0
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call un.AddFooterBtn
 
   ${NSD_CreateTimer} un.RaisePills 30
+  ${NSD_CreateTimer} un.FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} un.FocusPoll
   Call un.DestroyNavOverlays
 FunctionEnd
 
@@ -1646,6 +1683,7 @@ Function un.StyleInstFiles
   StrCpy $BtnId 2
   StrCpy $BtnPrim 0
   StrCpy $BtnEn 1
+  StrCpy $BtnTab 0
   Call un.AddFooterBtn
   SendMessage $HWNDPARENT ${DM_SETDEFID} 2 0
 
@@ -1691,10 +1729,13 @@ Function un.PageDone
 StrCpy $BtnId 1
 StrCpy $BtnPrim 1
 StrCpy $BtnEn 1
+StrCpy $BtnTab 1
 Call un.AddFooterBtn
 
   ${NSD_CreateTimer} un.RaisePills 30
+  ${NSD_CreateTimer} un.FocusPoll 50
   nsDialogs::Show
+  ${NSD_KillTimer} un.FocusPoll
   Call un.DestroyNavOverlays
 FunctionEnd
 

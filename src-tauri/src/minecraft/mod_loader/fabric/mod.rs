@@ -114,3 +114,55 @@ impl ModLoader for Fabric {
         Ok(vanilla_config.with_loader(classpath, version.main_class.clone()))
     }
 }
+
+#[cfg(test)]
+mod config_tests {
+    use super::Fabric;
+    use crate::minecraft::process::validate_jvm_args;
+    use crate::minecraft::structs::{GameConfig, ModLoader, VersionMod};
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::LauncherDirGuard;
+    use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn fabric_config_keeps_user_jvm_args_on_validated_spawn_path() {
+        let dir = LauncherDirGuard::acquire("fabric_args_guard").await;
+        let game_root = dir.project_dir("FabGuard");
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xmx4G".to_string(), "-javaagent:evil.jar".to_string()],
+            vec![],
+            vec![],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root,
+        );
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.1-fabric0.16.9".to_string(),
+            main_class: "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
+            library: Vec::new(),
+        };
+        let state = ProjectConfig {
+            project_name: "FabGuard".to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+
+        let config = Fabric
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг Fabric");
+
+        assert!(
+            config.jvm_args.contains(&"-javaagent:evil.jar".to_string()),
+            "пользовательский аргумент должен пройти через конфиг лоадера: {:?}",
+            config.jvm_args
+        );
+        let error = validate_jvm_args(&config.jvm_args)
+            .expect_err("пользовательский debug-аргумент должен быть отклонён");
+        assert!(
+            error.to_string().contains("-javaagent:evil.jar"),
+            "ошибка должна называть аргумент: {error}"
+        );
+    }
+}

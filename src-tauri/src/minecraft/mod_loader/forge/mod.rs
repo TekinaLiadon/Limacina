@@ -97,6 +97,7 @@ impl ModLoader for Forge {
 mod config_tests {
     use super::*;
     use crate::minecraft::mod_loader::installer::setup_loader;
+    use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::LibraryMod;
     use crate::test_support::{sha1_hex, LauncherDirGuard};
     use crate::utils::get_classpath_separator;
@@ -481,5 +482,66 @@ mod config_tests {
         );
         assert!(!config.game_args.iter().any(|arg| arg.contains("${")));
         assert_eq!(config.main_class, "net.minecraft.launchwrapper.Launch");
+    }
+
+    #[tokio::test]
+    async fn forge_config_keeps_user_jvm_args_on_validated_spawn_path() {
+        let dir = LauncherDirGuard::acquire("forge_args_guard").await;
+
+        let manifest_json = json!({
+            "id": "1.20.1-forge-0.16.9",
+            "time": "2023-01-01T00:00:00+00:00",
+            "releaseTime": "2023-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
+            "inheritsFrom": "1.20.1",
+            "arguments": {
+                "game": ["--fml.forgeVersion", "0.16.9"],
+                "jvm": ["-Dforge.keep=1", "-cp", "${classpath}"]
+            },
+            "libraries": []
+        });
+        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "ForgeGuard".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("0.16.9".to_string()),
+            ..ProjectConfig::default()
+        };
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.1-0.16.9".to_string(),
+            main_class: "LoaderMain".to_string(),
+            library: Vec::new(),
+        };
+        let game_root = dir.project_dir("ForgeGuard");
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xmx4G".to_string(), "-Xdebug".to_string()],
+            vec![],
+            vec![game_root.join("1.20.1.jar").to_string_lossy().to_string()],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root,
+        );
+
+        let config = Forge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг Forge");
+
+        assert!(
+            config.jvm_args.contains(&"-Xdebug".to_string()),
+            "пользовательский аргумент должен пройти через конфиг лоадера: {:?}",
+            config.jvm_args
+        );
+        let error = validate_jvm_args(&config.jvm_args)
+            .expect_err("пользовательский debug-аргумент должен быть отклонён");
+        assert!(
+            error.to_string().contains("-Xdebug"),
+            "ошибка должна называть аргумент: {error}"
+        );
     }
 }

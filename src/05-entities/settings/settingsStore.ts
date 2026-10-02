@@ -37,7 +37,7 @@ export const useSettingsStore = defineStore('settings', {
 
   getters: {
     isDark(): boolean {
-      return !this.theme.endsWith('-light')
+      return this.themeMode === 'dark'
     },
 
     themeMode(): ThemeMode {

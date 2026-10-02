@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useSettingsStore } from './settingsStore'
+import { buildThemeId, THEME_FAMILIES } from './themes'
 
 const THEME_KEY = 'limacina-theme'
 const ANIMATIONS_KEY = 'limacina-animations'
@@ -81,6 +82,17 @@ describe('useSettingsStore', () => {
     expect(store.theme).toBe('monologue-light')
     expect(store.themeFamily).toBe('monologue')
     expect(store.themeMode).toBe('light')
+  })
+
+  it('keeps isDark in sync with the parsed theme mode for every theme', () => {
+    const store = useSettingsStore()
+    for (const family of THEME_FAMILIES) {
+      for (const mode of ['dark', 'light'] as const) {
+        store.setTheme(buildThemeId(family.id, mode))
+        expect(store.themeMode).toBe(mode)
+        expect(store.isDark).toBe(mode === 'dark')
+      }
+    }
   })
 
   it('toggles animations and persists the preference', () => {

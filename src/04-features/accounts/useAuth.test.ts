@@ -241,6 +241,21 @@ describe('useAuth', () => {
     unmount()
   })
 
+  it('clears the auth error through clearError', async () => {
+    fillLoginForm()
+    useAccountsStore().showAuthForm = true
+    vi.mocked(authLogin).mockRejectedValue({ code: 'bad_credentials', message: 'Неверный пароль' })
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+    expect(auth.errorMessage.value).toBe('Неверный пароль')
+
+    auth.clearError()
+
+    expect(auth.errorMessage.value).toBe('')
+    unmount()
+  })
+
   it('does not submit an invalid or already running login', async () => {
     const { auth, unmount } = setupAuth()
 

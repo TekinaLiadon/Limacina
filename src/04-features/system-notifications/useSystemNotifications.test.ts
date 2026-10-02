@@ -268,4 +268,39 @@ describe('useSystemNotifications', () => {
       expect(api.sendOsNotification).not.toHaveBeenCalled()
     })
   })
+
+  describe('notification icon', () => {
+    it('retries the icon request after a transient failure', async () => {
+      windowApi.minimized = true
+      api.getNotificationIcon
+        .mockRejectedValueOnce(new Error('ipc hiccup'))
+        .mockResolvedValue('/icon.png')
+      await start()
+
+      await emitExit?.(exitInfo({ success: true, code: 0 }))
+      expect(api.sendOsNotification).toHaveBeenCalledWith({
+        title: 'Игра завершена',
+        body: 'Игра закрыта — лаунчер ждёт в трее',
+      })
+
+      await emitExit?.(exitInfo({ success: true, code: 0 }))
+
+      expect(api.getNotificationIcon).toHaveBeenCalledTimes(2)
+      expect(api.sendOsNotification).toHaveBeenLastCalledWith({
+        title: 'Игра завершена',
+        body: 'Игра закрыта — лаунчер ждёт в трее',
+        icon: '/icon.png',
+      })
+    })
+
+    it('caches a resolved missing icon instead of asking again', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await emitExit?.(exitInfo({ success: true, code: 0 }))
+      await emitExit?.(exitInfo({ success: true, code: 0 }))
+
+      expect(api.getNotificationIcon).toHaveBeenCalledTimes(1)
+    })
+  })
 })

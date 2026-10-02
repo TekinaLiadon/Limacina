@@ -106,10 +106,7 @@ describe('useAccountsPage', () => {
     expect(stubs.executeSteps).not.toHaveBeenCalled()
     expect(useAccountsStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe('Сервер лаунчера недоступен, запуск невозможен')
-    expect(stubs.sendSystemNotification).toHaveBeenCalledWith(
-      'Запуск заблокирован',
-      'Сервер лаунчера недоступен',
-    )
+    expect(stubs.sendSystemNotification).not.toHaveBeenCalled()
   })
 
   it('runs the launch pipeline and clears the launching flag', async () => {

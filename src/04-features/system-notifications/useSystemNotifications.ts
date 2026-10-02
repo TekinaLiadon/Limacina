@@ -16,9 +16,10 @@ const resolveNotificationIcon = async (): Promise<string | null> => {
   if (notificationIcon === undefined) {
     try {
       notificationIcon = await getNotificationIcon()
+      return notificationIcon
     } catch (e: unknown) {
       reportError('Не удалось получить иконку для уведомлений', e)
-      notificationIcon = null
+      return null
     }
   }
   return notificationIcon

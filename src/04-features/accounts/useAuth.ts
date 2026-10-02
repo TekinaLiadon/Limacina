@@ -59,6 +59,10 @@ export function useAuth() {
     }
   }
 
+  const clearError = (): void => {
+    errorMessage.value = ''
+  }
+
   const handleLogin = async (): Promise<void> => {
     if (!isLoginValid.value || isLoading.value) return
 
@@ -122,6 +126,7 @@ export function useAuth() {
   return {
     isLoading,
     errorMessage,
+    clearError,
     logins,
     loginFormData,
     registerFormData,

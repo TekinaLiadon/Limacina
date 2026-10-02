@@ -36,11 +36,6 @@ export function useLauncherSettings(): {
     launcherPath: string
   }
 
-  const dirtyState = useDirtySnapshot((): DirtySnapshot => ({
-    launcherPath: launcherPath.value,
-    ...formSettings(),
-  }))
-  const { isDirty } = dirtyState
   const launcherPath = ref<string>('')
   const discordActivity = ref<boolean>(true)
   const autoUpdate = ref<boolean>(false)
@@ -54,9 +49,9 @@ export function useLauncherSettings(): {
 
   const parseSpeedLimit = (raw: string): number | null => {
     const trimmed = raw.trim()
-    if (!trimmed) return null
+    if (!/^\d+$/.test(trimmed)) return null
     const parsed = Number.parseInt(trimmed, 10)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+    return parsed > 0 ? parsed : null
   }
 
   const formSettings = (): LauncherSettingsPayload => ({
@@ -72,6 +67,12 @@ export function useLauncherSettings(): {
   })
 
   const settings = computed<LauncherSettingsPayload>(formSettings)
+
+  const dirtyState = useDirtySnapshot((): DirtySnapshot => ({
+    launcherPath: launcherPath.value,
+    ...formSettings(),
+  }))
+  const { isDirty } = dirtyState
 
   const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
     try {
@@ -151,8 +152,9 @@ export function useLauncherSettings(): {
         coreStore.launcherConfig = await saveLauncherConfig(parentPath)
       }
 
-      if (!(await applyStartWithSystem(startWithSystem.value))) return
       dirtyState.captureBaseline()
+
+      if (!(await applyStartWithSystem(startWithSystem.value))) return
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       await resyncLauncherConfig()
