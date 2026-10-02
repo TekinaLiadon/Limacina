@@ -117,6 +117,7 @@ describe('useAccountSettings', () => {
 
     expect(changePassword).toHaveBeenCalledWith('proj', 'oldpassword', 'newpassword')
     expect(core.session).toEqual(makeSession('alice'))
+    expect(core.isLoggedIn).toBe(true)
     expect(useNotificationStore().message).toBe('Пароль изменён')
     expect(settings.oldPassword.value).toBe('')
     expect(settings.newPassword.value).toBe('')

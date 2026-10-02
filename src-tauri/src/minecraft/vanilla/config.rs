@@ -688,6 +688,7 @@ mod for_loader_tests {
 #[cfg(test)]
 mod args_pipeline_tests {
     use super::{get_game_args, get_jvm_args, strip_classpath_args, ArgumentsMap};
+    use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::LaunchConfig;
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
     use std::path::PathBuf;
@@ -843,6 +844,27 @@ mod args_pipeline_tests {
         assert_eq!(
             strip_classpath_args(args),
             vec!["-Xmx4G".to_string(), "-Dkeep=1".to_string()]
+        );
+    }
+
+    #[test]
+    fn user_debug_arg_reaches_jvm_args_and_is_caught_by_spawn_validator() {
+        let mut config = launch_config();
+        config.jvm_sub_arg.push("-javaagent:evil.jar".to_string());
+        let args_map = ArgumentsMap::new(&config, "5");
+        let manifest = modern_manifest();
+
+        let jvm_args = get_jvm_args(&manifest, &config, &args_map);
+
+        assert!(
+            jvm_args.contains(&"-javaagent:evil.jar".to_string()),
+            "пользовательский аргумент должен пройти в итоговый список: {jvm_args:?}"
+        );
+        let error = validate_jvm_args(&jvm_args)
+            .expect_err("пользовательский debug-аргумент должен быть отклонён");
+        assert!(
+            error.to_string().contains("-javaagent:evil.jar"),
+            "ошибка должна называть аргумент: {error}"
         );
     }
 }

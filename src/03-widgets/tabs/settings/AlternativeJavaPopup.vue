@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button, Checkbox, Dropdown, Input, Preloader, Skeleton, useFocusTrap } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
 import { alternativeJavaModelDefaults, useAlternativeJavaModels, type AlternativeJavaModelProps } from './alternativeJavaModels'
@@ -28,8 +28,9 @@ const popupRef = ref<HTMLDivElement | null>(null)
 
 useFocusTrap(popupRef, (): boolean => props.visible)
 
-const dropdownOptions = () =>
-  props.distributions.map((d) => ({ title: d.name, value: d.name }))
+const dropdownOptions = computed((): { title: string; value: string }[] =>
+  props.distributions.map((d) => ({ title: d.name, value: d.name })),
+)
 
 function handleKeydown(e: KeyboardEvent): void {
   if (props.visible && !props.isDownloading && e.key === 'Escape') emit('close')
@@ -57,7 +58,7 @@ onBeforeUnmount((): void => {
                 <Dropdown
                   v-if="distributions.length > 0"
                   v-model="selectedDistribution"
-                  :options="dropdownOptions()"
+                  :options="dropdownOptions"
                   width="100%"
                 />
                 <Skeleton

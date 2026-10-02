@@ -18,6 +18,7 @@ const emit = defineEmits<{
 const {
   isLoading,
   errorMessage,
+  clearError,
   logins,
   loginFormData,
   registerFormData,
@@ -46,7 +47,7 @@ const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props
 
 const switchTab = (tab: AuthSubTab): void => {
   if (tab === props.activeTab) return
-  errorMessage.value = ''
+  clearError()
   emit('update:activeTab', tab)
 }
 </script>

@@ -113,7 +113,7 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
-  it('keeps the dirty state and skips the success toast when the autostart apply fails', async () => {
+  it('resets dirty state and skips the success toast when the autostart apply fails after a successful save', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
     useCoreStore().launcherConfig = makeLauncherConfig(false)
@@ -127,7 +127,48 @@ describe('useLauncherSettings', () => {
 
     expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
     expect(useNotificationStore().message).toBe('Не удалось включить автозапуск: autostart locked')
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('parses only whole-number speed limits', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.downloadSpeedLimitInput.value = '12abc'
+    expect(settings.settings.value.downloadSpeedLimit).toBeNull()
+
+    settings.downloadSpeedLimitInput.value = '12'
+    expect(settings.settings.value.downloadSpeedLimit).toBe(12)
+
+    settings.downloadSpeedLimitInput.value = '12.5'
+    expect(settings.settings.value.downloadSpeedLimit).toBeNull()
+
+    settings.downloadSpeedLimitInput.value = ' 7 '
+    expect(settings.settings.value.downloadSpeedLimit).toBe(7)
+
+    settings.downloadSpeedLimitInput.value = ''
+    expect(settings.settings.value.downloadSpeedLimit).toBeNull()
+
+    unmount()
+  })
+
+  it('tracks launcher path changes through the dirty snapshot', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.launcherPath.value = '/other'
     expect(settings.isDirty.value).toBe(true)
+
+    settings.launcherPath.value = '/launcher'
+    expect(settings.isDirty.value).toBe(false)
 
     unmount()
   })

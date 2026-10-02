@@ -12,7 +12,7 @@
  *   bun run build:installer-fonts
  */
 import subsetFont from 'subset-font'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CACHE_DIR, SOURCES, loadSource, rangesToText } from './subset-fonts.ts'
 

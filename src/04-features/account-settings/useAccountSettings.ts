@@ -63,9 +63,7 @@ export function useAccountSettings() {
 
     try {
       const session = await getSessionInfo()
-      if (session) {
-        coreStore.session = session
-      }
+      if (session) coreStore.applySession(session)
     } catch (e: unknown) {
       reportError('Не удалось обновить сессию после смены пароля', e)
     }

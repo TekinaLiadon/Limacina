@@ -110,6 +110,7 @@ impl ModLoader for NeoForge {
 #[cfg(test)]
 mod tests {
     use super::NeoForge;
+    use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::{GameConfig, ModLoader, VersionMod};
     use crate::state::dto::ProjectConfig;
     use crate::test_support::LauncherDirGuard;
@@ -209,6 +210,67 @@ mod tests {
         assert_eq!(
             config.main_class,
             "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        );
+    }
+
+    #[tokio::test]
+    async fn neoforge_config_keeps_user_jvm_args_on_validated_spawn_path() {
+        let dir = LauncherDirGuard::acquire("neoforge_args_guard").await;
+
+        let manifest_json = json!({
+            "id": "neoforge-20.4.237",
+            "time": "2023-01-01T00:00:00+00:00",
+            "releaseTime": "2023-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "inheritsFrom": "1.20.4",
+            "arguments": {
+                "game": ["--launchTarget", "forgeclient"],
+                "jvm": ["-Dneoforge.keep=1", "-cp", "${classpath}"]
+            },
+            "libraries": []
+        });
+        let manifest_path = dir.root().join("manifest").join("neoforge_20.4.237.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "NeoGuard".to_string(),
+            mc_version: "1.20.4".to_string(),
+            loader_version: Some("20.4.237".to_string()),
+            ..ProjectConfig::default()
+        };
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.4-20.4.237".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        };
+        let game_root = dir.project_dir("NeoGuard");
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xmx4G".to_string(), "-Xdebug".to_string()],
+            vec![],
+            vec![],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root,
+        );
+
+        let config = NeoForge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг NeoForge");
+
+        assert!(
+            config.jvm_args.contains(&"-Xdebug".to_string()),
+            "пользовательский аргумент должен пройти через конфиг лоадера: {:?}",
+            config.jvm_args
+        );
+        let error = validate_jvm_args(&config.jvm_args)
+            .expect_err("пользовательский debug-аргумент должен быть отклонён");
+        assert!(
+            error.to_string().contains("-Xdebug"),
+            "ошибка должна называть аргумент: {error}"
         );
     }
 }
