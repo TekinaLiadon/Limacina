@@ -210,6 +210,20 @@ describe('useCpmSettings', () => {
     expect(URL.createObjectURL).toHaveBeenCalled()
   })
 
+  it('rejects an oversized pending project file with the dialog message', async () => {
+    vi.mocked(readCpmProjectFile).mockResolvedValue(new ArrayBuffer(3 * 1024 * 1024))
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.errorMessage.value).not.toBe(''))
+
+    expect(core.pendingCpmProjectPath).toBeNull()
+    expect(cpm.errorMessage.value).toBe('Размер файла не должен превышать 2048 КБ (загружено 3072 КБ)')
+    expect(parser.parseCpmProjectFile).not.toHaveBeenCalled()
+    expect(cpm.cpmData.value).toBeNull()
+  })
+
   it('collects the layers skipping empty and hidden parts', async () => {
     const bytes = new ArrayBuffer(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)

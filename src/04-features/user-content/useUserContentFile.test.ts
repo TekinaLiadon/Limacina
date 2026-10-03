@@ -36,11 +36,19 @@ describe('useUserContentFile', () => {
   })
 
   const setupFile = (): ReturnType<typeof useUserContentFile> => {
+    return setupWithLimits({ accept: '.cpmproject', extensions: ['cpmproject'], maxBytes: 1024 })
+  }
+
+  const setupWithLimits = (options: {
+    accept: string
+    extensions: string[]
+    maxBytes: number
+  }): ReturnType<typeof useUserContentFile> => {
     const { result } = withSetup(() =>
       useUserContentFile({
-        accept: '.cpmproject',
-        extensions: ['cpmproject'],
-        maxBytes: 1024,
+        accept: options.accept,
+        extensions: options.extensions,
+        maxBytes: options.maxBytes,
         readFile,
         processFile,
         errorMessage,
@@ -148,5 +156,60 @@ describe('useUserContentFile', () => {
     await vi.waitFor(() => expect(processFile).toHaveBeenCalled())
 
     expect(processFile).toHaveBeenCalledWith(expect.any(ArrayBuffer), 'dropped.cpmproject')
+  })
+
+  it('rejects a path file above the limit with the dialog message', async () => {
+    readFile.mockResolvedValue(new ArrayBuffer(2048))
+    const file = setupFile()
+
+    await file.loadFromPath('/models/hero.cpmproject')
+
+    expect(errorMessage.value).toBe('Размер файла не должен превышать 1 КБ (загружено 2 КБ)')
+    expect(processFile).not.toHaveBeenCalled()
+  })
+
+  it('accepts a path file at exactly the limit', async () => {
+    readFile.mockResolvedValue(new ArrayBuffer(1024))
+    const file = setupFile()
+
+    await file.loadFromPath('/models/hero.cpmproject')
+
+    expect(errorMessage.value).toBe('')
+    expect(processFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an oversized skin from a path with the dialog message', async () => {
+    readFile.mockResolvedValue(new ArrayBuffer(300 * 1024))
+    const file = setupWithLimits({ accept: '.png,image/png', extensions: ['png'], maxBytes: 256 * 1024 })
+
+    await file.loadFromPath('/skins/heavy.png')
+
+    expect(errorMessage.value).toBe('Размер файла не должен превышать 256 КБ (загружено 300 КБ)')
+    expect(processFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized cpm project from a path with the dialog message', async () => {
+    readFile.mockResolvedValue(new ArrayBuffer(3 * 1024 * 1024))
+    const file = setupWithLimits({ accept: '.cpmproject', extensions: ['cpmproject'], maxBytes: 2 * 1024 * 1024 })
+
+    await file.loadFromPath('/models/hero.cpmproject')
+
+    expect(errorMessage.value).toBe('Размер файла не должен превышать 2048 КБ (загружено 3072 КБ)')
+    expect(processFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized dropped file with the dialog message', async () => {
+    readFile.mockResolvedValue(new ArrayBuffer(2048))
+    setupFile()
+    await vi.waitFor(() => expect(shared.useFileDrop).toHaveBeenCalledTimes(1))
+    const dropOptions = shared.useFileDrop.mock.calls[0]?.[0] as {
+      onDrop: (path: string) => void
+    }
+
+    dropOptions.onDrop('/models/dropped.cpmproject')
+    await vi.waitFor(() => expect(errorMessage.value).not.toBe(''))
+
+    expect(errorMessage.value).toBe('Размер файла не должен превышать 1 КБ (загружено 2 КБ)')
+    expect(processFile).not.toHaveBeenCalled()
   })
 })

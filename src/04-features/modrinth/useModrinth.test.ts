@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import {
   modrinthCheckUpdates,
   modrinthInstall,
@@ -7,13 +9,14 @@ import {
   modrinthSearch,
   modrinthUninstall,
 } from '@/06-shared/api'
-import type {
-  ModrinthInstallResult,
-  ModrinthInstalledMod,
-  ModrinthSearchHit,
-  ModrinthSearchResult,
+import {
+  useCoreStore,
+  type ModrinthInstallResult,
+  type ModrinthInstalledMod,
+  type ModrinthSearchHit,
+  type ModrinthSearchResult,
 } from '@/05-entities'
-import { PAGE_SIZE, useModrinth } from './useModrinth'
+import { fetchModrinthProjectDetails, PAGE_SIZE, useModrinth } from './useModrinth'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -65,6 +68,7 @@ const makeInstalled = (id: string): ModrinthInstalledMod => ({
 
 describe('useModrinth', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.mocked(modrinthSearch).mockReset()
     vi.mocked(modrinthProject).mockReset()
     vi.mocked(modrinthInstalled).mockReset()
@@ -149,6 +153,18 @@ describe('useModrinth', () => {
     expect(mods.currentPage.value).toBe(3)
   })
 
+  it('replaces the catalog versions with each search instead of accumulating them', async () => {
+    vi.mocked(modrinthSearch)
+      .mockResolvedValueOnce(makeResult({ hits: [makeHit('a')], version_numbers: { a: '2.0' } }))
+      .mockResolvedValueOnce(makeResult({ hits: [makeHit('b')], version_numbers: { b: '1.0' } }))
+    const mods = useModrinth()
+
+    await mods.search()
+    await mods.search()
+
+    expect(mods.versionNumbers.value).toEqual({ b: '1.0' })
+  })
+
   it('loads the installed list and reports load failures', async () => {
     vi.mocked(modrinthInstalled).mockResolvedValue([makeInstalled('sodium')])
     const mods = useModrinth()
@@ -184,16 +200,18 @@ describe('useModrinth', () => {
     expect(mods.actionError.value).toBe('offline')
   })
 
-  it('installs a mod and reloads the installed list', async () => {
+  it('installs a mod and reloads the installed list clearing its update badge', async () => {
     vi.mocked(modrinthInstall).mockResolvedValue({ installed: ['a'], skipped: [] })
     vi.mocked(modrinthInstalled).mockResolvedValue([makeInstalled('a')])
     const mods = useModrinth()
+    mods.updates.value = { a: '2.0', b: '3.0' }
 
     const installed = await mods.install('a')
 
     expect(installed).toBe(true)
     expect(modrinthInstall).toHaveBeenCalledWith('a')
     expect(mods.installed.value).toHaveLength(1)
+    expect(mods.updates.value).toEqual({ b: '3.0' })
     expect(mods.installingId.value).toBeNull()
   })
 
@@ -302,13 +320,64 @@ describe('useModrinth', () => {
     expect(mods.installingId.value).toBeNull()
   })
 
-  it('fetches the project details for the popup', async () => {
+  it('fetches the project details for the popup without a composable instance', async () => {
     const details = { project: { id: 'a' }, versions: [] } as never
     vi.mocked(modrinthProject).mockResolvedValue(details)
-    const mods = useModrinth()
 
-    await mods.fetchProjectDetails('a')
+    await fetchModrinthProjectDetails('a')
 
     expect(modrinthProject).toHaveBeenCalledWith('a')
+  })
+
+  it('reloads the tab state when the project switches', async () => {
+    vi.mocked(modrinthInstalled).mockResolvedValue([makeInstalled('fresh')])
+    vi.mocked(modrinthSearch).mockResolvedValue(
+      makeResult({ hits: [makeHit('fresh')], version_numbers: { fresh: '2.0' } }),
+    )
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const mods = useModrinth()
+
+    await mods.search()
+    mods.query.value = 'sodium'
+    mods.categories.value = ['utility']
+    mods.updates.value = { stale: '9.9' }
+    vi.mocked(modrinthInstalled).mockClear()
+    vi.mocked(modrinthSearch).mockClear()
+
+    core.currentProject = 'new'
+    await nextTick()
+    await vi.waitFor(() => expect(modrinthInstalled).toHaveBeenCalledTimes(1))
+
+    expect(modrinthSearch).toHaveBeenCalledWith({
+      query: '',
+      index: 'relevance',
+      categories: [],
+      offset: 0,
+    })
+    expect(mods.query.value).toBe('')
+    expect(mods.categories.value).toEqual([])
+    expect(mods.updates.value).toEqual({})
+    expect(mods.versionNumbers.value).toEqual({ fresh: '2.0' })
+    expect(mods.installed.value.map((mod) => mod.project_id)).toEqual(['fresh'])
+  })
+
+  it('keeps the tab state when the project name is emptied', async () => {
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult({ hits: [makeHit('a')] }))
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const mods = useModrinth()
+
+    await mods.search()
+    vi.mocked(modrinthInstalled).mockClear()
+    vi.mocked(modrinthSearch).mockClear()
+
+    core.currentProject = ''
+    await nextTick()
+
+    expect(modrinthInstalled).not.toHaveBeenCalled()
+    expect(modrinthSearch).not.toHaveBeenCalled()
+    expect(mods.query.value).toBe('')
+    expect(mods.hits.value).toHaveLength(1)
   })
 })
