@@ -11,6 +11,9 @@ const PLAYER_PART_IDS: Record<string, number> = {
   right_leg: 5,
 }
 
+export const SPEED_MIN = 0.25
+export const SPEED_MAX = 3
+
 const MODEL_ORIGIN_Y = 24
 
 interface AnimatedNode {
@@ -295,7 +298,7 @@ export class CpmAnimationPlayer {
   }
 
   setSpeed(speed: number): void {
-    const clamped = Math.max(0.25, Math.min(3, speed))
+    const clamped = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speed))
     this.defaultSpeed = clamped
     this.clocks.forEach((clock) => {
       if (clock.speed === clamped) return

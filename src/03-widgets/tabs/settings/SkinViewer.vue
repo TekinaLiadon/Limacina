@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, toRef, watch } from 'vue'
+import { ref, toRef } from 'vue'
 import { useSkinViewer } from '@/04-features'
 import { useViewerControls } from './viewerControls'
 
@@ -12,10 +12,7 @@ const props = withDefaults(defineProps<{
 
 const container = ref<HTMLDivElement | null>(null)
 
-const skinUrl = shallowRef(props.skinUrl)
-watch(() => props.skinUrl, (url: string) => { skinUrl.value = url })
-
-useSkinViewer(container, skinUrl, useViewerControls(), toRef(props, 'slim'))
+useSkinViewer(container, toRef(props, 'skinUrl'), useViewerControls(), toRef(props, 'slim'))
 </script>
 
 <template>
@@ -23,16 +20,9 @@ useSkinViewer(container, skinUrl, useViewerControls(), toRef(props, 'slim'))
 </template>
 
 <style lang="scss">
-.skin-viewer__canvas {
-  width: 100%;
-  height: var(--viewer-height);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  background: var(--viewer-bg);
-  box-shadow: var(--elevation-inset);
+@use '@/01-app/assets/mixins';
 
-  canvas {
-    display: block;
-  }
+.skin-viewer__canvas {
+  @include mixins.viewer-canvas;
 }
 </style>

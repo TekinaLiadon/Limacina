@@ -88,4 +88,37 @@ describe('useNotificationStore', () => {
     expect(store.popupVisible).toBe(false)
     expect(store.popupResolve).toBeNull()
   })
+
+  it('runConfirmed performs the action after confirmation', async () => {
+    const store = useNotificationStore()
+    const action = vi.fn()
+
+    const pending = store.runConfirmed('Удалить?', action)
+    store.resolvePopup(true)
+    await pending
+
+    expect(action).toHaveBeenCalledTimes(1)
+  })
+
+  it('runConfirmed skips the action when the confirmation is declined', async () => {
+    const store = useNotificationStore()
+    const action = vi.fn()
+
+    const pending = store.runConfirmed('Удалить?', action)
+    store.resolvePopup(false)
+    await pending
+
+    expect(action).not.toHaveBeenCalled()
+  })
+
+  it('runConfirmed propagates the action failure', async () => {
+    const store = useNotificationStore()
+    const action = vi.fn(async (): Promise<void> => {
+      throw new Error('boom')
+    })
+
+    const pending = store.runConfirmed('Удалить?', action)
+    store.resolvePopup(true)
+    await expect(pending).rejects.toThrow('boom')
+  })
 })

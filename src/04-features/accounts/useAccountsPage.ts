@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore } from '@/05-entities'
-import { useAccounts, useGameLaunch, useLaunchStepsStream } from '@/04-features'
+import { isIntegrityCheckRunning, useAccounts, useGameLaunch, useLaunchStepsStream } from '@/04-features'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
 import { reportError, storeBinding } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
@@ -40,6 +40,10 @@ export function useAccountsPage() {
     }
     if (isServerOffline.value) {
       notificationStore.show('Сервер лаунчера недоступен, запуск невозможен')
+      return
+    }
+    if (isIntegrityCheckRunning()) {
+      notificationStore.show('Идёт проверка целостности, запуск невозможен')
       return
     }
     try {

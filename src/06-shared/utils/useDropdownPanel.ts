@@ -26,15 +26,16 @@ export function useDropdownPanel(
 
   const measurePanel = (): void => {
     const panel = panelRef.value
-    const firstItem = panel?.firstElementChild as HTMLElement | null
-    if (!panel || !firstItem) return
+    if (!panel) return
 
+    const firstItem = panel.firstElementChild as HTMLElement | null
     const style = getComputedStyle(panel)
     const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
     const gap = Number.parseFloat(style.rowGap) || 0
     const visible = maxVisible()
+    const itemHeight = firstItem?.offsetHeight ?? 0
     measuredHeight.value =
-      visible * firstItem.offsetHeight + padding + gap * Math.max(visible - 1, 0)
+      visible * itemHeight + padding + gap * Math.max(visible - 1, 0)
   }
 
   const computeDirection = (): void => {
@@ -67,14 +68,22 @@ export function useDropdownPanel(
     if (e.key === 'Escape' && shown.value) close()
   }
 
+  const handleResize = (): void => {
+    if (!shown.value) return
+    measurePanel()
+    computeDirection()
+  }
+
   onMounted((): void => {
     document.addEventListener('click', handleClickOutside)
     window.addEventListener('keydown', handleKeydown)
+    window.addEventListener('resize', handleResize)
   })
 
   onBeforeUnmount((): void => {
     document.removeEventListener('click', handleClickOutside)
     window.removeEventListener('keydown', handleKeydown)
+    window.removeEventListener('resize', handleResize)
   })
 
   return { shown, openUp, maxHeight, panelRef, toggle, close }

@@ -12,6 +12,7 @@ const src = computed((): string => generateIdenticon(props.username))
 
 <template>
   <img
+    v-if="src"
     class="identicon"
     :src="src"
     alt=""

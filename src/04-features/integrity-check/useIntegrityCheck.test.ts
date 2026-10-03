@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   useCoreStore,
+  useLaunchStore,
   useNotificationStore,
   type IntegrityReport,
   type ProjectConfig,
   type StepEvent,
 } from '@/05-entities'
 import { STEP_IDS } from '@/06-shared'
-import { useIntegrityCheck } from './useIntegrityCheck'
 import { withSetup } from '@/test-support/withSetup'
+import type { useIntegrityCheck } from './useIntegrityCheck'
 
 const api = vi.hoisted(() => ({
   checkFilesIntegrity: vi.fn(),
@@ -46,10 +47,13 @@ const makeReport = (failed: string[] = []): IntegrityReport => ({
   failed,
 })
 
+type IntegrityCheckComposable = ReturnType<typeof useIntegrityCheck>
+
 describe('useIntegrityCheck', () => {
   let emitStep: ((event: StepEvent) => void) | undefined
 
   beforeEach(() => {
+    vi.resetModules()
     setActivePinia(createPinia())
     vi.spyOn(console, 'error').mockImplementation(() => {})
     emitStep = undefined
@@ -65,9 +69,10 @@ describe('useIntegrityCheck', () => {
     vi.restoreAllMocks()
   })
 
-  const setupCheck = (): ReturnType<typeof useIntegrityCheck> => {
-    const { result } = withSetup(() => useIntegrityCheck())
-    return result
+  const setupCheck = async (): Promise<{ check: IntegrityCheckComposable; unmount: () => void }> => {
+    const { useIntegrityCheck: loadIntegrityCheck } = await import('./useIntegrityCheck')
+    const { result, unmount } = withSetup(() => loadIntegrityCheck())
+    return { check: result, unmount }
   }
 
   const deferredReport = (): { pending: Promise<void>; release: () => void } => {
@@ -85,7 +90,7 @@ describe('useIntegrityCheck', () => {
   it('prefills the full plan for an online project and stores the report', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     const pending = check.handleCheck()
     expect(check.isChecking.value).toBe(true)
@@ -112,7 +117,7 @@ describe('useIntegrityCheck', () => {
   it('drops the server steps for an offline project', async () => {
     useCoreStore().projectConfig = makeProjectConfig(false)
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     await check.handleCheck()
 
@@ -123,7 +128,7 @@ describe('useIntegrityCheck', () => {
   it('applies step events while the check is running', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     const { release } = deferredReport()
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     const pending = check.handleCheck()
     emitStep?.({ type: 'started', id: STEP_IDS.mcJar, label: 'Клиент игры' })
@@ -147,7 +152,7 @@ describe('useIntegrityCheck', () => {
   it('ignores step events after the check completes', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     await check.handleCheck()
     emitStep?.({ type: 'started', id: STEP_IDS.mcJar, label: 'Клиент игры' })
@@ -158,7 +163,7 @@ describe('useIntegrityCheck', () => {
   it('surfaces the command error and shows a toast for the hidden popup', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockRejectedValue(new Error('ipc down'))
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     const pending = check.handleCheck()
     check.closeResult()
@@ -174,7 +179,7 @@ describe('useIntegrityCheck', () => {
   it('keeps the error without a toast while the popup is visible', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockRejectedValue(new Error('ipc down'))
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     await check.handleCheck()
 
@@ -185,7 +190,7 @@ describe('useIntegrityCheck', () => {
   it('keeps the popup hidden and toasts the summary when closed mid-check', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockResolvedValue(makeReport(['client.jar', 'notes.txt']))
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     const pending = check.handleCheck()
     check.closeResult()
@@ -201,7 +206,7 @@ describe('useIntegrityCheck', () => {
   it('toasts the all-good summary when the popup was hidden', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     const pending = check.handleCheck()
     check.closeResult()
@@ -213,7 +218,7 @@ describe('useIntegrityCheck', () => {
   it('clears the result on close after completion', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     await check.handleCheck()
     check.closeResult()
@@ -228,11 +233,54 @@ describe('useIntegrityCheck', () => {
   it('does not start a second check while one is running', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockReturnValue(new Promise(() => {}))
-    const check = setupCheck()
+    const { check } = await setupCheck()
 
     void check.handleCheck()
     await check.handleCheck()
 
     expect(api.checkFilesIntegrity).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not start a second backend check after remount while one is running', async () => {
+    useCoreStore().projectConfig = makeProjectConfig(true)
+    const { release } = deferredReport()
+    const first = await setupCheck()
+    const pending = first.check.handleCheck()
+    await vi.waitFor(() => expect(api.checkFilesIntegrity).toHaveBeenCalledTimes(1))
+    first.unmount()
+
+    const second = await setupCheck()
+    await second.check.handleCheck()
+
+    expect(api.checkFilesIntegrity).toHaveBeenCalledTimes(1)
+    expect(useNotificationStore().message).toBe('Проверка целостности уже выполняется')
+
+    release()
+    await pending
+
+    api.checkFilesIntegrity.mockResolvedValue(makeReport())
+    await second.check.handleCheck()
+
+    expect(api.checkFilesIntegrity).toHaveBeenCalledTimes(2)
+    expect(second.check.report.value).toEqual(makeReport())
+  })
+
+  it('blocks the check while the game launch is running and allows it after', async () => {
+    useCoreStore().projectConfig = makeProjectConfig(true)
+    useLaunchStore().beginLaunch()
+    const { check } = await setupCheck()
+
+    await check.handleCheck()
+
+    expect(api.checkFilesIntegrity).not.toHaveBeenCalled()
+    expect(api.listenIntegritySteps).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe('Идёт запуск игры, проверка целостности недоступна')
+
+    useLaunchStore().finishLaunch()
+    api.checkFilesIntegrity.mockResolvedValue(makeReport())
+    await check.handleCheck()
+
+    expect(api.checkFilesIntegrity).toHaveBeenCalledTimes(1)
+    expect(check.report.value).toEqual(makeReport())
   })
 })

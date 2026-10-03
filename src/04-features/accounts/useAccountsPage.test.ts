@@ -15,6 +15,7 @@ import { withSetup } from '@/test-support/withSetup'
 const stubs = vi.hoisted(() => ({
   executeSteps: vi.fn(),
   sendSystemNotification: vi.fn(),
+  isIntegrityCheckRunning: vi.fn(),
 }))
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -37,6 +38,7 @@ vi.mock('@/04-features', async (importOriginal) => ({
     sendSystemNotification: stubs.sendSystemNotification,
     startSystemNotifications: async (): Promise<void> => {},
   }),
+  isIntegrityCheckRunning: (...args: unknown[]) => stubs.isIntegrityCheckRunning(...args),
 }))
 
 const makeProjectConfig = (online: boolean): ProjectConfig => ({
@@ -61,6 +63,8 @@ describe('useAccountsPage', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     stubs.executeSteps.mockReset()
     stubs.sendSystemNotification.mockReset()
+    stubs.isIntegrityCheckRunning.mockReset()
+    stubs.isIntegrityCheckRunning.mockReturnValue(false)
     vi.mocked(authLogins).mockReset()
     vi.mocked(clearSession).mockReset()
     vi.mocked(deleteAccount).mockReset()
@@ -111,6 +115,20 @@ describe('useAccountsPage', () => {
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe('Сервер лаунчера недоступен, запуск невозможен')
     expect(stubs.sendSystemNotification).not.toHaveBeenCalled()
+  })
+
+  it('blocks the launch while a file integrity check is running', async () => {
+    const core = useCoreStore()
+    core.projectConfig = makeProjectConfig(true)
+    stubs.isIntegrityCheckRunning.mockReturnValue(true)
+    const page = setupPage()
+
+    await page.handleLaunch()
+
+    expect(stubs.executeSteps).not.toHaveBeenCalled()
+    expect(getGameState).not.toHaveBeenCalled()
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe('Идёт проверка целостности, запуск невозможен')
   })
 
   it('blocks the launch while a game session is already active', async () => {

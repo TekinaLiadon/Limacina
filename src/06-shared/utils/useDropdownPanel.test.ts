@@ -3,15 +3,17 @@ import { ref, type Ref } from 'vue'
 import { useDropdownPanel } from './useDropdownPanel'
 import { withSetup } from '@/test-support/withSetup'
 
-const buildDom = (): { root: HTMLDivElement; panel: HTMLDivElement } => {
+const buildDom = (withItem: boolean = true): { root: HTMLDivElement; panel: HTMLDivElement } => {
   const root = document.createElement('div')
   const panel = document.createElement('div')
   panel.setAttribute(
     'style',
     'padding-top: 4px; padding-bottom: 6px; row-gap: 2px; display: flex; flex-direction: column;',
   )
-  const item = document.createElement('div')
-  panel.appendChild(item)
+  if (withItem) {
+    const item = document.createElement('div')
+    panel.appendChild(item)
+  }
   root.appendChild(panel)
   document.body.appendChild(root)
   return { root, panel }
@@ -111,5 +113,32 @@ describe('useDropdownPanel', () => {
 
     expect(panel.shown.value).toBe(true)
     expect(panel.maxHeight.value).toBe('none')
+  })
+
+  it('measures the panel and resolves the direction without items', async () => {
+    const { root, panel: panelElement } = buildDom(false)
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef)
+    panel.panelRef.value = panelElement
+
+    await panel.toggle()
+
+    expect(panel.maxHeight.value).toBe('12px')
+    expect(panel.openUp.value).toBe(false)
+  })
+
+  it('remeasures the panel on window resize while shown', async () => {
+    const { root, panel: panelElement } = buildDom()
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef)
+    panel.panelRef.value = panelElement
+
+    await panel.toggle()
+    expect(panel.maxHeight.value).toBe('12px')
+
+    panelElement.setAttribute('style', 'padding-top: 14px; padding-bottom: 6px; row-gap: 2px; display: flex; flex-direction: column;')
+    window.dispatchEvent(new Event('resize'))
+
+    expect(panel.maxHeight.value).toBe('22px')
   })
 })

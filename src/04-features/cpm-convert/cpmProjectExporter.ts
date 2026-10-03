@@ -1,5 +1,6 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
-import { readCpmProjectZip } from '@/04-features/cpm-settings/cpmProjectParser'
+import { readCpmProjectZip } from './cpmProjectZip'
+import { parseHexColor } from '@/06-shared'
 import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
@@ -28,6 +29,7 @@ const ROT_ORDINAL: Record<string, number> = { '0': 0, '90': 1, '180': 2, '270': 
 const FACE_ORDER = ['up', 'down', 'north', 'south', 'east', 'west']
 
 interface V1Cube {
+  name: string
   size: { x: number; y: number; z: number }
   pos: { x: number; y: number; z: number }
   offset: { x: number; y: number; z: number }
@@ -38,13 +40,6 @@ interface V1Cube {
   u: number
   v: number
   rgb: number
-}
-
-function parseHexColor(color: string | undefined): number {
-  if (!color) return 0
-  const value = parseInt(color, 16)
-  if (Number.isNaN(value)) return 0
-  return value
 }
 
 const TEX_SIZE_EPSILON = 1e-6
@@ -63,15 +58,21 @@ function texSizeOf(child: CPMChild): number {
   return rounded
 }
 
-function writeVec3ub(w: CpmBinaryWriter, v: { x: number; y: number; z: number }): void {
-  const clamp = (val: number): number => Math.max(0, Math.min(255, Math.round(val * 10)))
-  w.writeByte(clamp(v.x))
-  w.writeByte(clamp(v.y))
-  w.writeByte(clamp(v.z))
+function writeVec3ub(w: CpmBinaryWriter, v: { x: number; y: number; z: number }, name: string): void {
+  const toByte = (val: number): number => {
+    const scaled = Math.round(val * 10)
+    if (!(scaled >= 0 && scaled <= 255)) {
+      throw new Error(`Размер куба «${name}» = ${val} не помещается в байт`)
+    }
+    return scaled
+  }
+  w.writeByte(toByte(v.x))
+  w.writeByte(toByte(v.y))
+  w.writeByte(toByte(v.z))
 }
 
 function writeCubeV1(w: CpmBinaryWriter, cube: V1Cube): void {
-  writeVec3ub(w, cube.size)
+  writeVec3ub(w, cube.size, cube.name)
   w.writeVec6b(cube.pos)
   w.writeVec6b(cube.offset)
   w.writeAngle(cube.rotation)
@@ -140,6 +141,7 @@ function flatten(config: CPMConfig): FlatModel {
     const fakeId = nextId++
     elementIds.set(root, fakeId)
     cubes.push({
+      name: root.name,
       size: { x: 0, y: 0, z: 0 },
       pos: root.pos ?? { x: 0, y: 0, z: 0 },
       offset: { x: 0, y: 0, z: 0 },
@@ -177,6 +179,7 @@ function flatten(config: CPMConfig): FlatModel {
       const id = nextId++
       elementIds.set(child, id)
       cubes.push({
+        name: child.name,
         size: child.size ?? { x: 0, y: 0, z: 0 },
         pos: child.pos ?? { x: 0, y: 0, z: 0 },
         offset: child.offset ?? { x: 0, y: 0, z: 0 },
@@ -186,7 +189,7 @@ function flatten(config: CPMConfig): FlatModel {
         texSize: texSizeOf(child),
         u: child.u ?? 0,
         v: child.v ?? 0,
-        rgb: parseHexColor(child.color),
+        rgb: parseHexColor(child.color) ?? 0,
       })
       walk(child.children ?? [], id)
     }
@@ -299,7 +302,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
 
   const writeChildEffects = (child: CPMChild): void => {
     const id = elementIds.get(child) ?? 0
-    const rgb = parseHexColor(child.color)
+    const rgb = parseHexColor(child.color) ?? 0
 
     if (child.glow) {
       renderEffect(RE.GLOW, (w) => {
@@ -341,7 +344,8 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
         w.writeVarInt(id)
         writeFaceUVs(w, child.faceUV as Record<string, CPMFaceUV>)
       })
-    } else if ((child.u ?? 0) > 255 || (child.v ?? 0) > 255) {
+    }
+    if ((child.u ?? 0) > 255 || (child.v ?? 0) > 255) {
       renderEffect(RE.UV_OVERFLOW, (w) => {
         w.writeVarInt(id)
         w.writeVarInt(child.u ?? 0)

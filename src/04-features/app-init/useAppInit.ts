@@ -45,6 +45,7 @@ export function useAppInit() {
     if (!data.launcherConfig) return
 
     coreStore.applyLauncherProjects(data.launcherConfig)
+    settingsStore.markThemeHydration(data.launcherConfig.theme)
     settingsStore.setTheme(normalizeTheme(data.launcherConfig.theme))
     settingsStore.setAnimationsEnabled(data.launcherConfig.animationsEnabled)
   }

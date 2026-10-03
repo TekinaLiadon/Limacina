@@ -1,26 +1,14 @@
 <script setup lang="ts">
 import { useThemeSettings } from '@/04-features'
-import type { ThemeMode } from '@/05-entities'
-
-interface ModeOption {
-  value: ThemeMode
-  label: string
-}
+import ThemeModeToggle from '../../theme/ThemeModeToggle.vue'
 
 const {
   families,
   currentFamily,
-  currentMode,
   isSwitchDisabled,
   previewOf,
   selectFamily,
-  selectMode,
 } = useThemeSettings()
-
-const modes: ModeOption[] = [
-  { value: 'dark', label: 'Тёмная' },
-  { value: 'light', label: 'Светлая' },
-]
 </script>
 
 <template>
@@ -28,20 +16,7 @@ const modes: ModeOption[] = [
     <div class="theme-selector__head">
       <span class="theme-selector__label eyebrow">Тема оформления</span>
 
-      <div class="theme-selector__modes" role="group" aria-label="Режим темы">
-        <button
-          v-for="mode in modes"
-          :key="mode.value"
-          type="button"
-          class="theme-selector__mode"
-          :class="{ 'theme-selector__mode--active': currentMode === mode.value }"
-          :disabled="isSwitchDisabled"
-          :aria-pressed="currentMode === mode.value"
-          @click="selectMode(mode.value)"
-        >
-          {{ mode.label }}
-        </button>
-      </div>
+      <ThemeModeToggle variant="labels" />
     </div>
 
     <div class="theme-selector__list" role="radiogroup" aria-label="Тема оформления">
@@ -104,18 +79,6 @@ const modes: ModeOption[] = [
     align-items: center;
     justify-content: space-between;
     gap: var(--space-12);
-  }
-
-  &__modes {
-    @include mixins.segmented;
-  }
-
-  &__mode {
-    @include mixins.segmented-item($hover-bg: false);
-    @include mixins.mode-toggle;
-
-    padding: var(--space-4) var(--space-16);
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
   }
 
   &__list {

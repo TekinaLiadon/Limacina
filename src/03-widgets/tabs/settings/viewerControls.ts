@@ -10,6 +10,7 @@ export const ELEVATION_MAX = 45
 const DEFAULT_ELEVATION = 13
 const ZOOM_STEP_FACTOR = 1.25
 export const MIN_ZOOM_PERCENT = 10
+export const DEFAULT_VIEWER_MIN_ZOOM = 5
 
 function createViewerControls(getMinZoom: () => number): ViewerControls {
   const zoomLevel = ref<number>(22)
@@ -64,5 +65,5 @@ export function provideViewerControls(getMinZoom: () => number): ViewerControls 
 }
 
 export function useViewerControls(): ViewerControls {
-  return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(() => 5), true)
+  return inject(VIEWER_CONTROLS_KEY, () => createViewerControls(() => DEFAULT_VIEWER_MIN_ZOOM), true)
 }

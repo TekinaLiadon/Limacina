@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { useNotificationStore, useSettingsStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsStore, type LauncherConfig } from '@/05-entities'
 import { withSetup } from '@/test-support/withSetup'
 
 const api = vi.hoisted(() => ({
@@ -40,7 +40,16 @@ describe('useTheme', () => {
   const loadTheme = async (): Promise<ThemeApi> => {
     const { useTheme } = await import('./useTheme')
     const { result } = withSetup(() => useTheme())
-    return { isSwitching: result.isSwitching, switchDirection: result.switchDirection }
+    return {
+      isSwitching: result.isSwitching,
+      switchDirection: result.switchDirection,
+    }
+  }
+
+  const hydrateTheme = (theme: string): void => {
+    const settings = useSettingsStore()
+    settings.markThemeHydration(theme)
+    settings.setTheme(theme)
   }
 
   const prepareStore = (theme: string, animations: boolean): void => {
@@ -183,5 +192,45 @@ describe('useTheme', () => {
     expect(useNotificationStore().message).toBe(
       'Тема применена, но не сохранена — после перезапуска вернётся прежняя',
     )
+  })
+
+  it('stores the config returned by saveTheme in the core store', async () => {
+    prepareStore('default-dark', true)
+    const config = { theme: 'lime-dark' } as LauncherConfig
+    api.saveTheme.mockResolvedValue(config)
+    await loadTheme()
+
+    useSettingsStore().setTheme('lime-dark')
+    await nextTick()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(useCoreStore().launcherConfig).toEqual(config)
+  })
+
+  it('applies the hydration theme immediately without animation or save', async () => {
+    prepareStore('default-dark', true)
+    const theme = await loadTheme()
+
+    hydrateTheme('lime-light')
+    await nextTick()
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('lime-light')
+    expect(theme.isSwitching.value).toBe(false)
+    expect(api.saveTheme).not.toHaveBeenCalled()
+  })
+
+  it('keeps the interactive switch after a hydration without divergence', async () => {
+    prepareStore('default-dark', true)
+    const theme = await loadTheme()
+
+    hydrateTheme('default-dark')
+    await nextTick()
+
+    useSettingsStore().setTheme('lime-light')
+    await nextTick()
+
+    expect(theme.isSwitching.value).toBe(true)
+    expect(api.saveTheme).toHaveBeenCalledWith('lime-light')
   })
 })

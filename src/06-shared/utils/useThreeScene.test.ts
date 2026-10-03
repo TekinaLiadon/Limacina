@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
 import { useThreeScene } from './useThreeScene'
 
@@ -58,5 +59,27 @@ describe('useThreeScene', () => {
 
     unmount()
     expect(result.camera.value).toBeNull()
+  })
+
+  it('accepts a numeric scene background', () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const { result, unmount } = withSetup(() => useThreeScene(container, { background: 0x112233 }))
+
+    const background = result.scene.value?.background
+    expect(background).toBeInstanceOf(THREE.Color)
+    expect((background as THREE.Color).getHex()).toBe(0x112233)
+
+    unmount()
+  })
+
+  it('accepts a CSS color string as the scene background', () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const { result, unmount } = withSetup(() => useThreeScene(container, { background: '#ff8800' }))
+
+    const background = result.scene.value?.background
+    expect(background).toBeInstanceOf(THREE.Color)
+    expect((background as THREE.Color).getHex()).toBe(0xff8800)
+
+    unmount()
   })
 })

@@ -5,6 +5,7 @@ import { buildThemeId, normalizeTheme, parseThemeId } from './themes'
 export interface SettingsState {
   animationsEnabled: boolean
   theme: string
+  lastHydratedTheme: string | null
 }
 
 const THEME_CACHE_KEY = 'limacina-theme'
@@ -33,6 +34,7 @@ export const useSettingsStore = defineStore('settings', {
   state: (): SettingsState => ({
     animationsEnabled: loadCachedAnimationsEnabled(),
     theme: loadCachedTheme(),
+    lastHydratedTheme: null,
   }),
 
   getters: {
@@ -66,11 +68,18 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     setThemeFamily(family: string): void {
+      this.lastHydratedTheme = null
       this.setTheme(buildThemeId(family, this.themeMode))
     },
 
     setThemeMode(mode: ThemeMode): void {
+      this.lastHydratedTheme = null
       this.setTheme(buildThemeId(this.themeFamily, mode))
+    },
+
+    markThemeHydration(theme: string): void {
+      const normalized = normalizeTheme(theme)
+      this.lastHydratedTheme = normalized === this.theme ? null : normalized
     },
   },
 })

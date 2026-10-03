@@ -1,7 +1,8 @@
-import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
+import { watch, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
-import { useViewerCamera, fitFovRadians } from '@/04-features/viewer/useViewerCamera'
+import { parseHexColor, type ViewerControls } from '@/06-shared'
+import { useViewerModel } from '@/04-features/viewer/useViewerModel'
+import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type SharedClock } from './cpmAnimationPlayer'
 
@@ -33,12 +34,6 @@ const ROOT_PIVOTS: Record<string, CPMVec3> = {
   armor_right_leg:  { x: -2, y: 12, z: 0 },
   armor_left_foot:  { x: 2,  y: 12, z: 0 },
   armor_right_foot: { x: -2, y: 12, z: 0 },
-}
-
-function parseColor(color: string | undefined): number | null {
-  if (!color) return null
-  const value = parseInt(color, 16)
-  return Number.isNaN(value) ? null : value
 }
 
 function setFaceQuad(uvAttr: THREE.BufferAttribute, base: number, quad: Array<[number, number]>): void {
@@ -308,9 +303,9 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
         let mat: THREE.MeshLambertMaterial
         let mesh: THREE.Mesh
         if (child.texture === false) {
-          const rgb = parseColor(child.color)
+          const rgb = parseHexColor(child.color)
           mat = new THREE.MeshLambertMaterial({
-            color: rgb === null ? 0xffffff : rgb,
+            color: rgb ?? 0xffffff,
             side: THREE.DoubleSide,
           })
           mesh = new THREE.Mesh(geo, mat)
@@ -409,51 +404,46 @@ export function useCpmViewer(
     isAnimationLooped: Ref<boolean>,
     options: CpmViewerOptions = {},
 ) {
-  const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
-  const modelGroup = shallowRef<THREE.Group | null>(null)
-  const textureLoader = createManagedTextureLoader(scene)
   const animationClocks = new Map<string, SharedClock>()
   let player: CpmAnimationPlayer | null = null
+  let currentData: CPMData | null = null
   let tickId = 0
 
-  const { setFitDistance, modelBoundingSphereRadius } = useViewerCamera(
-      { camera, getOrbitControls },
-      modelGroup,
-      controls,
+  const { modelGroup, loadModel, clearModel } = useViewerModel(
+    container,
+    controls,
+    {
+      build: (texture: THREE.Texture): THREE.Group =>
+        currentData ? buildCpmModel(currentData.config, texture) : new THREE.Group(),
+      onModelShown: (model, _texture, api): void => {
+        player?.dispose()
+        player = new CpmAnimationPlayer(indexModelNodes(model), {
+          activeLayerIds,
+          isPlaying: isAnimationPlaying,
+          onFinished: () => {
+            options.onAnimationFinished?.()
+          },
+        }, animationClocks)
+
+        player.setSpeed(animationSpeed.value)
+        player.setForceLoop(isAnimationLooped.value)
+        player.setAnimations(activeAnimations.value)
+        player.setPlaying(isAnimationPlaying.value)
+
+        updateVisibility()
+
+        const radius = api.modelBoundingSphereRadius()
+        const perspectiveCamera = api.camera.value
+        if (radius !== null && perspectiveCamera) {
+          api.setFitDistance((radius / Math.sin(fitFovRadians(perspectiveCamera) / 2)) * 1.08)
+        }
+      },
+      onModelCleared: (): void => {
+        player?.dispose()
+        player = null
+      },
+    },
   )
-
-  function loadModel(data: CPMData): void {
-    removeGroupFromScene(scene, modelGroup)
-    player?.dispose()
-    player = null
-
-    textureLoader.load(data.textureUrl, (texture, targetScene) => {
-      const model = buildCpmModel(data.config, texture)
-      targetScene.add(model)
-      modelGroup.value = model
-
-      player = new CpmAnimationPlayer(indexModelNodes(model), {
-        activeLayerIds,
-        isPlaying: isAnimationPlaying,
-        onFinished: () => {
-          options.onAnimationFinished?.()
-        },
-      }, animationClocks)
-
-      player.setSpeed(animationSpeed.value)
-      player.setForceLoop(isAnimationLooped.value)
-      player.setAnimations(activeAnimations.value)
-      player.setPlaying(isAnimationPlaying.value)
-
-      updateVisibility()
-
-      const radius = modelBoundingSphereRadius()
-      const perspectiveCamera = camera.value
-      if (radius !== null && perspectiveCamera) {
-        setFitDistance((radius / Math.sin(fitFovRadians(perspectiveCamera) / 2)) * 1.08)
-      }
-    })
-  }
 
   function updateVisibility(): void {
     if (!modelGroup.value) return
@@ -481,7 +471,9 @@ export function useCpmViewer(
   }
 
   watch(cpmData, (data) => {
-    if (data) loadModel(data)
+    currentData = data
+    if (data) loadModel(data.textureUrl)
+    else clearModel()
   }, { immediate: true })
 
   watch(activeAnimations, (animations) => {
@@ -501,10 +493,6 @@ export function useCpmViewer(
     player?.setForceLoop(looped)
   })
 
-  watch(scene, (s) => {
-    if (s && cpmData.value) loadModel(cpmData.value)
-  })
-
   watch(activeLayerIds, () => {
     updateVisibility()
   })
@@ -513,10 +501,7 @@ export function useCpmViewer(
 
   onBeforeUnmount(() => {
     cancelAnimationFrame(tickId)
-    removeGroupFromScene(scene, modelGroup)
-    textureLoader.dispose()
-    player?.dispose()
-    player = null
+    clearModel()
   })
 
   return {}

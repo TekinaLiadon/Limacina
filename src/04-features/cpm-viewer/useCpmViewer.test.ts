@@ -288,6 +288,24 @@ describe('useCpmViewer', () => {
     expect(playerState.disposed).toBe(1)
   })
 
+  it('removes the model and disposes the player when the cpm data is reset', async () => {
+    const harness = await mountViewer()
+    await loadModel(harness, 'model.png')
+
+    const geometryDispose = vi.spyOn(firstModelMesh().geometry, 'dispose')
+
+    harness.cpmData.value = null
+    await nextTick()
+
+    expect(modelGroups()).toHaveLength(0)
+    expect(geometryDispose).toHaveBeenCalledOnce()
+    expect(playerState.disposed).toBe(1)
+
+    harness.unmount()
+
+    expect(playerState.disposed).toBe(1)
+  })
+
   it('reports the real playing state when the animation selection changes', async () => {
     const onPlayingChanged = vi.fn()
     const harness = await mountViewer({ onPlayingChanged })

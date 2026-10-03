@@ -49,6 +49,8 @@ export const useAccountsStore = defineStore('accounts', {
     closeAuthForm(): void {
       this.showAuthForm = false
       this.loginFormData.password = ''
+      this.registerFormData.password = ''
+      this.registerFormData.confirmPassword = ''
     },
 
     reset(): void {

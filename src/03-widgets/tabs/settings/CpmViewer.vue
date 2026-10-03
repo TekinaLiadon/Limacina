@@ -48,16 +48,9 @@ useCpmViewer(
 </template>
 
 <style lang="scss">
-.cpm-viewer__canvas {
-  width: 100%;
-  height: var(--viewer-height);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  background: var(--viewer-bg);
-  box-shadow: var(--elevation-inset);
+@use '@/01-app/assets/mixins';
 
-  canvas {
-    display: block;
-  }
+.cpm-viewer__canvas {
+  @include mixins.viewer-canvas;
 }
 </style>

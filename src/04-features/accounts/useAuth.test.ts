@@ -358,6 +358,28 @@ describe('useAuth', () => {
     unmount()
   })
 
+  it('wipes the registration passwords when the form is closed after a failed registration', async () => {
+    useCoreStore().currentProject = 'proj'
+    const store = useAccountsStore()
+    store.showAuthForm = true
+    store.registerFormData = {
+      login: 'user',
+      password: 'password',
+      confirmPassword: 'password',
+    }
+    vi.mocked(authRegister).mockRejectedValue(new Error('login taken'))
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleRegister()
+    store.closeAuthForm()
+
+    expect(store.showAuthForm).toBe(false)
+    expect(store.registerFormData.login).toBe('user')
+    expect(store.registerFormData.password).toBe('')
+    expect(store.registerFormData.confirmPassword).toBe('')
+    unmount()
+  })
+
   it('does not submit an invalid registration', async () => {
     const { auth, unmount } = setupAuth()
     await auth.handleRegister()

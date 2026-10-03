@@ -7,14 +7,28 @@ import { useNotificationStore, type UserContentItem, type SkinModelMode } from '
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 
+const SKIN_SIZE_UNIT = 64
+
+function assertSkinSize(width: number, height: number): void {
+  const isSupported = width > 0 && height > 0
+    && width % SKIN_SIZE_UNIT === 0
+    && (height === width || height * 2 === width)
+  if (!isSupported) {
+    throw new Error(`Неподдерживаемый размер скина ${width}x${height} — поддерживаются 64x32, 64x64 и кратные им форматы`)
+  }
+}
+
 async function loadBlobUrl(bytes: Uint8Array): Promise<string> {
   const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+  let size: { width: number; height: number }
   try {
     const bitmap = await createImageBitmap(blob)
+    size = { width: bitmap.width, height: bitmap.height }
     bitmap.close()
   } catch {
     throw new Error('Не удалось декодировать изображение')
   }
+  assertSkinSize(size.width, size.height)
   return URL.createObjectURL(blob)
 }
 
@@ -148,11 +162,10 @@ export function useSkinSettings() {
     }
   }
 
-  const resetSkin = async (): Promise<void> => {
-    const confirmed = await notification.confirm('Сбросить текущий скин?')
-    if (!confirmed) return
-    await resetSkinState()
-  }
+  const resetSkin = (): Promise<void> =>
+    notification.runConfirmed('Сбросить текущий скин?', async (): Promise<void> => {
+      await resetSkinState()
+    })
 
   const reloadSkinPreview = async (): Promise<void> => {
     const generation = skinPreviewGuard.next()
@@ -165,12 +178,11 @@ export function useSkinSettings() {
     await reloadSkinPreview()
   }
 
-  const handleDelete = async (id: number): Promise<void> => {
-    const confirmed = await notification.confirm('Удалить скин из списка загруженных?')
-    if (!confirmed) return
-    await content.handleDelete(id)
-    await reloadSkinPreview()
-  }
+  const handleDelete = (id: number): Promise<void> =>
+    notification.runConfirmed('Удалить скин из списка загруженных?', async (): Promise<void> => {
+      await content.handleDelete(id)
+      await reloadSkinPreview()
+    })
 
   onMounted(async (): Promise<void> => {
     isSkinLoading.value = true

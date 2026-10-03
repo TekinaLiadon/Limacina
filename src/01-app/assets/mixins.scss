@@ -459,3 +459,16 @@
   flex-direction: column;
   height: 100%;
 }
+
+@mixin viewer-canvas {
+  width: 100%;
+  height: var(--viewer-height);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--viewer-bg);
+  box-shadow: var(--elevation-inset);
+
+  canvas {
+    display: block;
+  }
+}

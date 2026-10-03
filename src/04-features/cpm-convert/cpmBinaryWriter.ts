@@ -29,8 +29,11 @@ export class CpmBinaryWriter {
   }
 
   writeFloat2(f: number): void {
-    const clamped = Math.max(-32768, Math.min(32767, Math.round(f * DIV)))
-    this.writeShort(clamped)
+    const scaled = Math.round(f * DIV)
+    if (!(scaled >= -32768 && scaled <= 32767)) {
+      throw new Error(`Значение ${f} не помещается в формат вектора`)
+    }
+    this.writeShort(scaled)
   }
 
   writeVec6b(v: { x: number; y: number; z: number }): void {

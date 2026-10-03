@@ -218,6 +218,40 @@ describe('useAppInit', () => {
     expect(useCoreStore().isLoading).toBe(false)
   })
 
+  it('marks the divergent theme as hydration for every init data application', async () => {
+    localStorage.setItem('limacina-theme', 'default-dark')
+    api.getAppInitData
+      .mockResolvedValueOnce(
+        makeInitData({ launcherConfig: makeLauncherConfig({ autoUpdate: true, theme: 'default-dark' }) }),
+      )
+      .mockResolvedValueOnce(
+        makeInitData({
+          version: '2.0.0',
+          launcherConfig: makeLauncherConfig({ autoUpdate: true, theme: 'lime-light' }),
+        }),
+      )
+    api.checkUpdate.mockResolvedValue({ version: '2.0.0' })
+    api.applyUpdateCmd.mockResolvedValue(undefined)
+
+    setupApp()
+    await runInit()
+
+    expect(useSettingsStore().theme).toBe('lime-light')
+    expect(useSettingsStore().lastHydratedTheme).toBe('lime-light')
+    localStorage.removeItem('limacina-theme')
+  })
+
+  it('leaves no hydration mark when the backend theme matches the cache', async () => {
+    localStorage.setItem('limacina-theme', 'default-dark')
+    api.getAppInitData.mockResolvedValue(makeInitData())
+
+    setupApp()
+    await runInit()
+
+    expect(useSettingsStore().lastHydratedTheme).toBeNull()
+    localStorage.removeItem('limacina-theme')
+  })
+
   it('keeps initializing when the update check fails', async () => {
     api.getAppInitData.mockResolvedValue(
       makeInitData({ launcherConfig: makeLauncherConfig({ autoUpdate: true }) }),

@@ -1,9 +1,8 @@
 import { ref, computed, watch, type Ref } from 'vue'
 import type { CPMAnimation, CPMData } from '@/05-entities'
 import type { DropdownOption } from '@/06-shared'
+import { SPEED_MAX, SPEED_MIN } from '../cpm-viewer/cpmAnimationPlayer'
 
-const SPEED_MIN = 0.25
-const SPEED_MAX = 3
 const SPEED_STEP = 0.25
 
 const roundSpeed = (value: number): number => Math.round(value * 100) / 100

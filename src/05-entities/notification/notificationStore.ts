@@ -48,6 +48,12 @@ export const useNotificationStore = defineStore('notification', {
       })
     },
 
+    async runConfirmed(message: string, action: () => Promise<void> | void): Promise<void> {
+      const confirmed = await this.confirm(message)
+      if (!confirmed) return
+      await action()
+    },
+
     resolvePopup(result: boolean): void {
       if (this.popupResolve) this.popupResolve(result)
 

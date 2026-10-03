@@ -116,17 +116,14 @@ export function useCpmSettings() {
     content.errorMessage.value = ''
   }
 
-  const resetCpm = async (): Promise<void> => {
-    const confirmed = await notification.confirm('Сбросить текущую модель?')
-    if (!confirmed) return
-    resetCpmState()
-  }
+  const resetCpm = (): Promise<void> =>
+    notification.runConfirmed('Сбросить текущую модель?', (): void => {
+      resetCpmState()
+    })
 
-  const handleDeleteModel = async (id: number): Promise<void> => {
-    const confirmed = await notification.confirm('Удалить модель из списка загруженных?')
-    if (!confirmed) return
-    await content.handleDelete(id)
-  }
+  const handleDeleteModel = (id: number): Promise<void> =>
+    notification.runConfirmed('Удалить модель из списка загруженных?', (): Promise<void> =>
+      content.handleDelete(id))
 
   const handleUploadModel = async (): Promise<void> => {
     if (!cpmFileBytes.value || !cpmData.value) return

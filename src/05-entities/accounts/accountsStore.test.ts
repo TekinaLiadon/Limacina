@@ -43,6 +43,20 @@ describe('useAccountsStore', () => {
     expect(store.loginFormData.rememberMe).toBe(true)
   })
 
+  it('closes the auth form and wipes the registration passwords', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.showAuthForm = true
+    store.registerFormData = { login: 'user', password: 'secret', confirmPassword: 'secret' }
+
+    store.closeAuthForm()
+
+    expect(store.showAuthForm).toBe(false)
+    expect(store.registerFormData.login).toBe('user')
+    expect(store.registerFormData.password).toBe('')
+    expect(store.registerFormData.confirmPassword).toBe('')
+  })
+
   it('resets every accounts field to its initial value', () => {
     setActivePinia(createPinia())
     const store = useAccountsStore()

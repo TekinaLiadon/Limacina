@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
 interface ThreeSceneOptions {
-  background?: number
+  background?: number | string
   cameraPosition?: [number, number, number]
   cameraFov?: number
   enableZoom?: boolean

@@ -41,7 +41,13 @@ const revokeObjectURLMock = vi.fn()
 URL.createObjectURL = createObjectURLMock
 URL.revokeObjectURL = revokeObjectURLMock
 
-const createImageBitmapMock = vi.fn(async (): Promise<{ close: () => void }> => ({ close: () => {} }))
+interface FakeBitmap {
+  width: number
+  height: number
+  close: () => void
+}
+
+const createImageBitmapMock = vi.fn(async (): Promise<FakeBitmap> => ({ width: 64, height: 64, close: () => {} }))
 vi.stubGlobal('createImageBitmap', createImageBitmapMock)
 
 const makeProjectConfig = (online: boolean): ProjectConfig => ({
@@ -161,6 +167,30 @@ describe('useSkinSettings', () => {
 
     expect(skins.hasSkin.value).toBe(false)
     expect(getOfflineSkinModel).not.toHaveBeenCalled()
+  })
+
+  it('accepts the legacy 64x32 skin format', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    createImageBitmapMock.mockResolvedValueOnce({ width: 64, height: 32, close: () => {} })
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
+
+    expect(skins.hasSkin.value).toBe(true)
+  })
+
+  it('rejects a skin whose size does not match the Minecraft formats', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    createImageBitmapMock.mockResolvedValueOnce({ width: 100, height: 50, close: () => {} })
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalled())
+
+    expect(skins.hasSkin.value).toBe(false)
+    expect(skins.skinUrl.value).toBe('')
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 
   it('does not re-persist the offline skin while restoring the stored model', async () => {

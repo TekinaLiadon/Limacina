@@ -118,6 +118,46 @@ describe('cpmProjectExporter', () => {
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ textureSize: 200 })]))).toThrow(/texSize/)
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ textureSize: 200, mirror: true })]))).toThrow(/texSize/)
   })
+
+  it('rejects a cube size that does not fit the unsigned byte range', () => {
+    expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ size: { x: 30, y: 8, z: 8 } })]))).toThrow(
+      /Размер куба «Cube»/,
+    )
+    expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ size: { x: -1, y: 8, z: 8 } })]))).toThrow(
+      /Размер куба «Cube»/,
+    )
+  })
+
+  it('rejects a position that does not fit the vector range', () => {
+    expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ pos: { x: 100, y: 0, z: 0 } })]))).toThrow(
+      /не помещается/,
+    )
+    expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ offset: { x: 0, y: -60, z: 0 } })]))).toThrow(
+      /не помещается/,
+    )
+  })
+
+  it('emits UV_OVERFLOW for a cube with faceUV and overflowing u/v', () => {
+    const child = makeChild({
+      textureSize: 64,
+      u: 300,
+      v: 2,
+      faceUV: { east: { sx: 0, sy: 0, ex: 8, ey: 8, rot: '0', autoUV: false } },
+    })
+    const bytes = cpmConfigToLinkBytes(makeConfig([child]))
+
+    expect(containsSequence(bytes, [8, 5, 6, 10, 172, 2, 2])).toBe(true)
+  })
+
+  it('skips UV_OVERFLOW while the u/v values stay in a byte', () => {
+    const child = makeChild({
+      textureSize: 64,
+      faceUV: { east: { sx: 0, sy: 0, ex: 8, ey: 8, rot: '0', autoUV: false } },
+    })
+    const bytes = cpmConfigToLinkBytes(makeConfig([child]))
+
+    expect(containsSequence(bytes, [8, 4, 6, 10, 0, 0])).toBe(false)
+  })
 })
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]

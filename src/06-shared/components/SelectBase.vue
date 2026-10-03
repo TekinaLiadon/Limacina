@@ -54,7 +54,7 @@ const moveActive = (delta: number): void => {
 const handleTriggerKeydown = (event: KeyboardEvent): void => {
   if (props.disabled) return
   if (!shown.value) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       toggle()
     }

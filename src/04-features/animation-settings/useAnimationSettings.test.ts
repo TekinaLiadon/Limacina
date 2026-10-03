@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveAnimationsEnabled } from '@/06-shared/api'
-import { useNotificationStore, useSettingsStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
 import { useAnimationSettings } from './useAnimationSettings'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -52,5 +52,15 @@ describe('useAnimationSettings', () => {
     expect(animations.animationsEnabled.value).toBe(true)
     expect(useNotificationStore().message).toBe('disk full')
     expect(document.documentElement.dataset.animations).toBe('on')
+  })
+
+  it('stores the config returned by the command in the core store', async () => {
+    const config = { animationsEnabled: false } as never
+    vi.mocked(saveAnimationsEnabled).mockResolvedValue(config)
+    const animations = useAnimationSettings()
+
+    await animations.setAnimationsEnabled(false)
+
+    expect(useCoreStore().launcherConfig).toEqual(config)
   })
 })
