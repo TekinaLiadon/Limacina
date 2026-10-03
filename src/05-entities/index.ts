@@ -49,6 +49,8 @@ export type {
 
 export { useSettingsStore } from './settings/settingsStore'
 export type { SettingsState } from './settings/settingsStore'
+export { useSettingsDirtyStore } from './settings/settingsDirtyStore'
+export type { SettingsDirtyTab } from './settings/settingsDirtyStore'
 export { THEME_FAMILIES, parseThemeId, normalizeTheme } from './settings/themes'
 export type { ThemeFamily, ThemeMode, ThemePreview } from './settings/types'
 
@@ -57,7 +59,10 @@ export { useNotificationStore } from './notification/notificationStore'
 export { useAccountsStore } from './accounts/accountsStore'
 export type { AccountsState } from './accounts/accountsStore'
 
-export { useProjectSettingsStore } from './project-settings/projectSettingsStore'
+export { useLaunchStore } from './launch/launchStore'
+export type { LaunchState } from './launch/launchStore'
+
+export { useProjectSettingsStore, projectSettingsFormFromConfig } from './project-settings/projectSettingsStore'
 export type { ProjectSettingsForm, ProjectSettingsState } from './project-settings/projectSettingsStore'
 
 export type {

@@ -154,4 +154,21 @@ describe('useAccountSettings', () => {
     expect(settings.oldPassword.value).toBe('')
     expect(core.session).toEqual(makeSession('alice'))
   })
+
+  it('skips the session refresh and the toast when the project changed during the change', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'proj'
+    core.session = makeSession('alice')
+    vi.mocked(changePassword).mockImplementation(async () => {
+      core.currentProject = 'other'
+    })
+    const settings = useAccountSettings()
+    fillForm(settings)
+
+    await settings.handleChangePassword()
+
+    expect(getSessionInfo).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe('')
+    expect(settings.isChanging.value).toBe(false)
+  })
 })

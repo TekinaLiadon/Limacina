@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import {
   useCoreStore,
   useNotificationStore,
+  useProjectSettingsStore,
   useSettingsStore,
   type AppInitData,
   type LauncherConfig,
@@ -138,6 +139,36 @@ describe('useAppInit', () => {
     expect(app.startupError()).toBe('')
     expect(core.isLoading).toBe(false)
     expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('loads the project config through one pipeline into both stores', async () => {
+    api.getAppInitData.mockResolvedValue(makeInitData())
+    api.loadSettingsProject.mockClear()
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+
+    setupApp()
+    await runInit()
+
+    expect(api.loadSettingsProject).toHaveBeenCalledTimes(1)
+    const settings = useProjectSettingsStore()
+    expect(settings.isLoaded).toBe(true)
+    expect(settings.loadedProject).toBe('proj')
+    expect(settings.config.projectName).toBe('proj')
+    expect(settings.isDirty).toBe(false)
+  })
+
+  it('reloads the project config after an update rehydration', async () => {
+    api.getAppInitData
+      .mockResolvedValueOnce(makeInitData())
+      .mockResolvedValueOnce(makeInitData({ version: '2.0.0' }))
+    api.checkUpdate.mockResolvedValue({ version: '2.0.0' })
+    api.applyUpdateCmd.mockResolvedValue(undefined)
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+
+    setupApp()
+    await runInit()
+
+    expect(api.loadSettingsProject).toHaveBeenCalledTimes(1)
   })
 
   it('routes to the setup screen when there is no launcher config', async () => {

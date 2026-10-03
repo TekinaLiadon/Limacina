@@ -1,5 +1,5 @@
-import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type LauncherSettingsPayload } from '@/05-entities'
+import { computed, onMounted, onScopeDispose, ref, watchEffect, type ComputedRef, type Ref } from 'vue'
+import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import {
   joinPath,
@@ -73,6 +73,14 @@ export function useLauncherSettings(): {
     ...formSettings(),
   }))
   const { isDirty } = dirtyState
+
+  const settingsDirtyStore = useSettingsDirtyStore()
+  watchEffect((): void => {
+    settingsDirtyStore.setTabDirty('launcher', isDirty.value)
+  })
+  onScopeDispose((): void => {
+    settingsDirtyStore.setTabDirty('launcher', false)
+  })
 
   const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
     try {

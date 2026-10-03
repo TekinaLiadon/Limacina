@@ -279,6 +279,43 @@ describe('useAuth', () => {
     unmount()
   })
 
+  it('does not apply the login result when the project changed during the login', async () => {
+    fillLoginForm()
+    useAccountsStore().showAuthForm = true
+    vi.mocked(authLogin).mockImplementation(async () => {
+      useCoreStore().currentProject = 'other'
+    })
+    vi.mocked(getSessionInfo).mockResolvedValue({ uuid: 'u-1', username: 'user' })
+    vi.mocked(authLogins).mockResolvedValue(['user'])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    const coreStore = useCoreStore()
+    expect(coreStore.session).toBeNull()
+    expect(coreStore.isLoggedIn).toBe(false)
+    expect(useNotificationStore().message).toBe('')
+    expect(useAccountsStore().showAuthForm).toBe(true)
+    expect(auth.isLoading.value).toBe(false)
+    unmount()
+  })
+
+  it('does not surface a login error for a project that changed during the login', async () => {
+    fillLoginForm()
+    useAccountsStore().showAuthForm = true
+    vi.mocked(authLogin).mockImplementation(async () => {
+      useCoreStore().currentProject = 'other'
+      throw new Error('Неверный пароль')
+    })
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(auth.errorMessage.value).toBe('')
+    expect(useCoreStore().isLoggedIn).toBe(false)
+    unmount()
+  })
+
   it('registers, resets the form and switches to the login tab', async () => {
     useCoreStore().currentProject = 'proj'
     useAccountsStore().registerFormData = {

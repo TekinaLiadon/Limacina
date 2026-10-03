@@ -13,6 +13,7 @@ const {
   isLoading,
   loadError,
   maxMemoryLimit,
+  jvmArgsError,
   isSaving,
   isClearingConfig,
   isRefreshingManifests,
@@ -115,12 +116,14 @@ const handleDownload = async (): Promise<void> => {
 
         <JvmPreset class="settings-row" :config="config" />
 
-        <Input
-          class="settings-row"
-          :model-value="config.jvmArgs"
-          :options="{ label: 'JVM аргументы', placeholder: '-XX:+UseG1GC, -XX:MaxGCPauseMillis=50' }"
-          @update:model-value="config.jvmArgs = $event"
-        />
+        <div class="settings-row project-settings__jvm">
+          <Input
+            :model-value="config.jvmArgs"
+            :options="{ label: 'JVM аргументы', placeholder: '-XX:+UseG1GC, -XX:MaxGCPauseMillis=50' }"
+            @update:model-value="config.jvmArgs = $event"
+          />
+          <p v-if="jvmArgsError" class="project-settings__jvm-error">{{ jvmArgsError }}</p>
+        </div>
       </div>
     </SettingsSection>
 
@@ -222,6 +225,18 @@ const handleDownload = async (): Promise<void> => {
 
   &__autojoin {
     align-self: center;
+  }
+
+  &__jvm {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+  }
+
+  &__jvm-error {
+    @include mixins.error-box;
+
+    margin: 0;
   }
 
   &__danger {

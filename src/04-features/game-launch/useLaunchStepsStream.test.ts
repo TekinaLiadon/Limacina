@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { STEP_IDS, type StepPlanItem } from '@/06-shared'
-import { useAccountsStore, useCoreStore, type StepEvent } from '@/05-entities'
+import { useLaunchStore, useCoreStore, type StepEvent } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   listenLaunchSteps: vi.fn(),
@@ -86,7 +86,7 @@ describe('useLaunchStepsStream', () => {
   it('marks an interrupted launch when the backend reports one', async () => {
     api.getLaunchState.mockResolvedValue(true)
     await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
 
     expect(store.isLaunching).toBe(true)
     expect(store.launchInterrupted).toBe(true)
@@ -99,16 +99,16 @@ describe('useLaunchStepsStream', () => {
     useCoreStore().gameUsername = 'user'
     await startStream()
 
-    expect(useAccountsStore().isLaunching).toBe(false)
-    expect(useAccountsStore().launchInterrupted).toBe(false)
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useLaunchStore().launchInterrupted).toBe(false)
   })
 
   it('skips the interrupted marker while a launch is already active', async () => {
     api.getLaunchState.mockResolvedValue(true)
-    useAccountsStore().isLaunching = true
+    useLaunchStore().isLaunching = true
     await startStream()
 
-    expect(useAccountsStore().launchInterrupted).toBe(false)
+    expect(useLaunchStore().launchInterrupted).toBe(false)
   })
 
   it('waits for the session hydration before marking an interrupted launch', async () => {
@@ -125,15 +125,15 @@ describe('useLaunchStepsStream', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(api.syncGameSession).toHaveBeenCalledTimes(1)
-    expect(useAccountsStore().isLaunching).toBe(false)
-    expect(useAccountsStore().launchInterrupted).toBe(false)
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useLaunchStore().launchInterrupted).toBe(false)
 
     useCoreStore().gameUsername = 'alice'
     resolveSync()
     await pending
 
-    expect(useAccountsStore().isLaunching).toBe(false)
-    expect(useAccountsStore().launchInterrupted).toBe(false)
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useLaunchStore().launchInterrupted).toBe(false)
   })
 
   it('still marks the interrupted launch when the session sync fails', async () => {
@@ -141,21 +141,21 @@ describe('useLaunchStepsStream', () => {
     api.getLaunchState.mockResolvedValue(true)
     await startStream()
 
-    expect(useAccountsStore().isLaunching).toBe(true)
-    expect(useAccountsStore().launchInterrupted).toBe(true)
+    expect(useLaunchStore().isLaunching).toBe(true)
+    expect(useLaunchStore().launchInterrupted).toBe(true)
   })
 
   it('ignores hydrate failures and keeps the state clean', async () => {
     api.getLaunchState.mockRejectedValue(new Error('ipc down'))
     await startStream()
 
-    expect(useAccountsStore().isLaunching).toBe(false)
-    expect(useAccountsStore().launchInterrupted).toBe(false)
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useLaunchStore().launchInterrupted).toBe(false)
   })
 
   it('prefills the plan as pending steps and resets progress', async () => {
     const stream = await loadStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     store.isLaunching = true
     store.launchInterrupted = true
 
@@ -170,7 +170,7 @@ describe('useLaunchStepsStream', () => {
 
   it('applies started, progress and finished events in order', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
 
     emit?.(startedEvent(STEP_IDS.javaCheck, 'Проверка Java'))
@@ -192,7 +192,7 @@ describe('useLaunchStepsStream', () => {
 
   it('holds a finished event for the minimum display time', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
 
     emit?.(startedEvent(STEP_IDS.javaCheck))
@@ -208,7 +208,7 @@ describe('useLaunchStepsStream', () => {
 
   it('flushes held events immediately on demand', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
 
     emit?.(startedEvent(STEP_IDS.javaCheck))
@@ -223,9 +223,9 @@ describe('useLaunchStepsStream', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('stops the queue on a failed event and surfaces the error', async () => {
+  it('stops the queue on a failed event and marks only the step', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
     store.isLaunching = true
     store.launchInterrupted = true
@@ -241,15 +241,15 @@ describe('useLaunchStepsStream', () => {
       status: 'error',
       error: 'Скачивание сорвалось',
     })
-    expect(store.isLaunching).toBe(false)
-    expect(store.launchInterrupted).toBe(false)
-    expect(store.loginError).toBe('Скачивание сорвалось')
+    expect(store.isLaunching).toBe(true)
+    expect(store.launchInterrupted).toBe(true)
+    expect(store.loginError).toBe('')
     expect(store.launchSteps[1]).toMatchObject({ status: 'pending' })
   })
 
   it('ignores events before a prefill', async () => {
     await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
 
     emit?.(startedEvent(STEP_IDS.javaCheck))
     expect(store.launchSteps).toEqual([])
@@ -257,7 +257,7 @@ describe('useLaunchStepsStream', () => {
 
   it('ignores events from a stale launch generation', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
     store.launchGeneration += 1
 
@@ -267,7 +267,7 @@ describe('useLaunchStepsStream', () => {
 
   it('resetLaunchSteps clears steps, progress and the queue state', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
 
     emit?.(startedEvent(STEP_IDS.javaCheck))
@@ -288,7 +288,7 @@ describe('useLaunchStepsStream', () => {
 
   it('computes progress from done steps and the active fraction', async () => {
     const stream = await startStream()
-    const store = useAccountsStore()
+    const store = useLaunchStore()
     stream.prefillLaunchSteps(PLAN)
 
     emit?.(startedEvent(STEP_IDS.javaCheck))

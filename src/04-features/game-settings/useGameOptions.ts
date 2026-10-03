@@ -1,5 +1,5 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type GameOptions } from '@/05-entities'
+import { computed, onScopeDispose, ref, watch, watchEffect, type ComputedRef, type Ref } from 'vue'
+import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type GameOptions } from '@/05-entities'
 import {
   getErrorMessage,
   getGameOptions,
@@ -81,6 +81,14 @@ export function useGameOptions(): {
   let loadGeneration = 0
 
   const isDirty = computed<boolean>((): boolean => dirtyState.isDirty.value)
+
+  const settingsDirtyStore = useSettingsDirtyStore()
+  watchEffect((): void => {
+    settingsDirtyStore.setTabDirty('game', isDirty.value)
+  })
+  onScopeDispose((): void => {
+    settingsDirtyStore.setTabDirty('game', false)
+  })
 
   const loadOptions = async (project: string, force: boolean = false): Promise<void> => {
     if (!project) return

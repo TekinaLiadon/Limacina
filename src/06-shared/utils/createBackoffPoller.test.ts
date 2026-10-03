@@ -54,10 +54,12 @@ function setupHarness(options: HarnessOptions = {}): Harness {
 describe('createBackoffPoller', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('polls immediately when a watched value appears', async () => {
@@ -289,5 +291,74 @@ describe('createBackoffPoller', () => {
     await flushJobs()
     expect(harness.fetch).toHaveBeenCalledTimes(1)
     expect(harness.applySuccess).toHaveBeenCalledWith('ok')
+  })
+
+  it('resumes polling when shouldPoll flips to true without a watch change', async () => {
+    const harness = setupHarness()
+    harness.state.shouldPollFlag = false
+    harness.fetch.mockResolvedValue('ok')
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).not.toHaveBeenCalled()
+
+    harness.state.shouldPollFlag = true
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS)
+    await flushJobs()
+
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+    expect(harness.applySuccess).toHaveBeenCalledWith('ok')
+  })
+
+  it('keeps polling when applyError throws', async () => {
+    const harness = setupHarness()
+    harness.fetch.mockRejectedValue(new Error('down'))
+    harness.applyError.mockImplementation(() => {
+      throw new Error('broken subscriber')
+    })
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+    expect(harness.applyError).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps polling when the success callback throws', async () => {
+    const harness = setupHarness()
+    harness.fetch.mockResolvedValue('ok')
+    harness.applySuccess.mockImplementation(() => {
+      throw new Error('broken subscriber')
+    })
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS)
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps polling when the failure streak callback throws', async () => {
+    const harness = setupHarness({ failureThreshold: 1 })
+    harness.fetch.mockRejectedValue(new Error('down'))
+    harness.onFailureStreak.mockImplementation(() => {
+      throw new Error('broken handler')
+    })
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+    expect(harness.onFailureStreak).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+    expect(harness.onFailureStreak).toHaveBeenCalledTimes(2)
   })
 })

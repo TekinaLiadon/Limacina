@@ -13,6 +13,7 @@ import {
 import {
   useAccountsStore,
   useCoreStore,
+  useLaunchStore,
   useNotificationStore,
   useProjectSettingsStore,
   type LauncherConfig,
@@ -177,6 +178,20 @@ describe('useProjectSettings', () => {
     expect(settings.isDirty.value).toBe(true)
   })
 
+  it('keeps the dirty baseline when the settings page remounts', async () => {
+    await loadReady()
+    const store = useProjectSettingsStore()
+    store.config.javaPath = '/edited/java'
+    expect(store.isDirty).toBe(true)
+
+    const remounted = setupSettings()
+
+    expect(remounted.isLoaded.value).toBe(true)
+    expect(remounted.isDirty.value).toBe(true)
+    expect(store.isFieldDirty('javaPath')).toBe(true)
+    expect(loadSettingsProject).toHaveBeenCalledTimes(1)
+  })
+
   it('saves only the dirty fields and keeps fresh external values', async () => {
     const settings = await loadReady()
     vi.mocked(loadSettingsProject).mockResolvedValue(
@@ -198,6 +213,8 @@ describe('useProjectSettings', () => {
     )
     expect(useCoreStore().projectConfig?.javaPath).toBe('/local/java')
     expect(useCoreStore().projectConfig?.loaderVersion).toBe('9.9.9')
+    expect(useProjectSettingsStore().config.loaderVersion).toBe('9.9.9')
+    expect(useProjectSettingsStore().config.javaPath).toBe('/local/java')
     expect(useNotificationStore().message).toBe('Настройки сохранены')
     expect(settings.isDirty.value).toBe(false)
     expect(settings.isSaving.value).toBe(false)
@@ -220,6 +237,52 @@ describe('useProjectSettings', () => {
         maxMemory: '-Xmx8192M',
       }),
     )
+  })
+
+  it('splits space-separated jvm args into separate argv entries', async () => {
+    const settings = await loadReady()
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    useProjectSettingsStore().config.jvmArgs = '-Xms512M -XX:+UseG1GC'
+
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledWith(
+      expect.objectContaining({ jvmArgs: ['-Xms512M', '-XX:+UseG1GC'] }),
+    )
+  })
+
+  it('flags quote characters in the jvm args field', async () => {
+    const settings = await loadReady()
+
+    useProjectSettingsStore().config.jvmArgs = '-XX:+UseG1GC "-a, b"'
+    expect(settings.jvmArgsError.value).not.toBe('')
+
+    useProjectSettingsStore().config.jvmArgs = '-XX:+UseG1GC -Xmx2G'
+    expect(settings.jvmArgsError.value).toBe('')
+  })
+
+  it('blocks the save while the edited jvm args contain quotes', async () => {
+    const settings = await loadReady()
+    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    useProjectSettingsStore().config.jvmArgs = '"-Xmx2G"'
+
+    await settings.handleSave()
+
+    expect(saveSettingsProject).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe(settings.jvmArgsError.value)
+  })
+
+  it('saves untouched quoted jvm args from the stored config without blocking', async () => {
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ jvmArgs: ['"-Xmx2G"'] }))
+    const settings = setupSettings()
+    await vi.waitFor(() => expect(useProjectSettingsStore().isLoaded).toBe(true))
+    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+
+    expect(settings.jvmArgsError.value).not.toBe('')
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledTimes(1)
   })
 
   it('ignores the save while the config is not loaded', async () => {
@@ -261,7 +324,7 @@ describe('useProjectSettings', () => {
     await settings.handleSave()
 
     expect(saveSettingsProject).not.toHaveBeenCalled()
-    expect(core.projectConfig).toBeNull()
+    await vi.waitFor(() => expect(core.projectConfig?.projectName).toBe('beta'))
     expect(useNotificationStore().message).toBe('')
     expect(settings.isSaving.value).toBe(false)
   })
@@ -277,7 +340,7 @@ describe('useProjectSettings', () => {
     await settings.handleSave()
 
     expect(saveSettingsProject).toHaveBeenCalledTimes(1)
-    expect(core.projectConfig).toBeNull()
+    expect(core.projectConfig?.javaPath).not.toBe('/local/java')
     expect(useNotificationStore().message).toBe('')
     expect(settings.isSaving.value).toBe(false)
   })
@@ -370,14 +433,14 @@ describe('useProjectSettings', () => {
   it('blocks the delete while the game is running or launching', async () => {
     const settings = await loadReady()
     const core = useCoreStore()
-    const accounts = useAccountsStore()
+    const launch = useLaunchStore()
 
     core.gameUsername = 'alice'
     await settings.handleDeleteProject()
     expect(useNotificationStore().message).toBe('Нельзя удалить проект, пока запущена игра')
 
     core.gameUsername = null
-    accounts.isLaunching = true
+    launch.isLaunching = true
     await settings.handleDeleteProject()
     expect(useNotificationStore().message).toBe('Дождитесь завершения запуска игры')
     expect(deleteProject).not.toHaveBeenCalled()

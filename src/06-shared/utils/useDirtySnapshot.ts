@@ -1,5 +1,29 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
+export type DirtyBaseline<T extends object> = Record<keyof T, string>
+
+export function captureDirtyBaseline<T extends object>(data: T): DirtyBaseline<T> {
+  const snapshot = {} as DirtyBaseline<T>
+  for (const key of Object.keys(data) as (keyof T)[]) {
+    snapshot[key] = JSON.stringify(data[key])
+  }
+  return snapshot
+}
+
+export function hasDirtyFields<T extends object>(baseline: DirtyBaseline<T>, data: T): boolean {
+  return (Object.keys(data) as (keyof T)[]).some(
+    (key) => baseline[key] !== JSON.stringify(data[key]),
+  )
+}
+
+export function isFieldDirtyAgainst<T extends object>(
+  baseline: DirtyBaseline<T>,
+  data: T,
+  key: keyof T,
+): boolean {
+  return baseline[key] !== JSON.stringify(data[key])
+}
+
 export interface DirtySnapshotState<T extends object> {
   isDirty: ComputedRef<boolean>
   hasBaseline: ComputedRef<boolean>
@@ -8,15 +32,10 @@ export interface DirtySnapshotState<T extends object> {
 }
 
 export function useDirtySnapshot<T extends object>(source: () => T): DirtySnapshotState<T> {
-  const baseline = ref<Record<keyof T, string> | null>(null)
+  const baseline = ref<DirtyBaseline<T> | null>(null)
 
   const captureBaseline = (): void => {
-    const data = source()
-    const snapshot = {} as Record<keyof T, string>
-    for (const key of Object.keys(data) as (keyof T)[]) {
-      snapshot[key] = JSON.stringify(data[key])
-    }
-    baseline.value = snapshot
+    baseline.value = captureDirtyBaseline(source())
   }
 
   const hasBaseline = computed((): boolean => baseline.value !== null)
@@ -24,16 +43,13 @@ export function useDirtySnapshot<T extends object>(source: () => T): DirtySnapsh
   const isFieldDirty = (key: keyof T): boolean => {
     const snapshot = baseline.value
     if (snapshot === null) return false
-    return snapshot[key] !== JSON.stringify(source()[key])
+    return isFieldDirtyAgainst(snapshot, source(), key)
   }
 
   const isDirty = computed((): boolean => {
     const snapshot = baseline.value
     if (snapshot === null) return false
-    const data = source()
-    return (Object.keys(data) as (keyof T)[]).some(
-      (key) => snapshot[key] !== JSON.stringify(data[key]),
-    )
+    return hasDirtyFields(snapshot, source())
   })
 
   return { isDirty, hasBaseline, captureBaseline, isFieldDirty }

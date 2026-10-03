@@ -7,6 +7,7 @@ import {
   isPresetAvailable,
   splitJvmArgs,
   useJvmPresets,
+  validateJvmArgs,
   type JvmPreset,
 } from './jvmPresets'
 
@@ -49,13 +50,32 @@ describe('splitJvmArgs', () => {
     expect(splitJvmArgs(' -a , -b ')).toEqual(['-a', '-b'])
   })
 
-  it('keeps commas inside double quotes and preserves the quotes', () => {
-    expect(splitJvmArgs('"-Xarg1,part", -b')).toEqual(['"-Xarg1,part"', '-b'])
+  it('splits on whitespace the same way as on commas', () => {
+    expect(splitJvmArgs(' -a -b ')).toEqual(['-a', '-b'])
+    expect(splitJvmArgs('-a\t-b\n-c')).toEqual(['-a', '-b', '-c'])
+  })
+
+  it('splits mixed comma and space separators', () => {
+    expect(splitJvmArgs('-a, -b -c,, -d')).toEqual(['-a', '-b', '-c', '-d'])
   })
 
   it('drops empty entries from trailing separators', () => {
     expect(splitJvmArgs('-a,')).toEqual(['-a'])
-    expect(splitJvmArgs(',,-a,,')).toEqual(['-a'])
+    expect(splitJvmArgs(',, -a  , ')).toEqual(['-a'])
+  })
+})
+
+describe('validateJvmArgs', () => {
+  it('accepts plain comma and space separated input', () => {
+    expect(validateJvmArgs('')).toBe('')
+    expect(validateJvmArgs('-XX:+UseG1GC, -XX:MaxGCPauseMillis=50')).toBe('')
+    expect(validateJvmArgs('-XX:+UseG1GC -XX:MaxGCPauseMillis=50')).toBe('')
+  })
+
+  it('reports single and double quotes as unsupported characters', () => {
+    expect(validateJvmArgs('"-a, b"')).not.toBe('')
+    expect(validateJvmArgs("-Dkey='v'")).not.toBe('')
+    expect(validateJvmArgs('-a,b"')).not.toBe('')
   })
 })
 
@@ -80,6 +100,10 @@ describe('detectActivePresetId', () => {
     expect(detectActivePresetId(SERIAL_ARGS.join(', '))).toBe('serial')
   })
 
+  it('detects the serial preset from space-separated input', () => {
+    expect(detectActivePresetId(SERIAL_ARGS.join(' '))).toBe('serial')
+  })
+
   it('detects the g1 preset by its full argument set', () => {
     expect(detectActivePresetId(G1_ARGS.join(', '))).toBe('g1')
   })
@@ -99,6 +123,12 @@ describe('applyJvmPreset', () => {
   it('replaces the previous preset arguments with the new ones', () => {
     const result = applyJvmPreset(SERIAL_ARGS.join(', '), 'g1')
     expect(result).toBe(G1_ARGS.join(', '))
+  })
+
+  it('replaces space-separated preset arguments with the new ones', () => {
+    const result = applyJvmPreset(SERIAL_ARGS.join(' '), 'g1')
+    expect(result).toBe(G1_ARGS.join(', '))
+    expect(applyJvmPreset(result, 'serial')).toBe(SERIAL_ARGS.join(', '))
   })
 
   it('keeps custom arguments across preset switches', () => {

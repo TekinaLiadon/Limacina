@@ -19,19 +19,14 @@ describe('useAccountsStore', () => {
     expect(store.authError).toBe('')
   })
 
-  it('starts without an active launch or auth form', () => {
+  it('starts without an active auth form or switching', () => {
     setActivePinia(createPinia())
     const store = useAccountsStore()
     expect(store.showAuthForm).toBe(false)
     expect(store.activeSubTab).toBe('login')
-    expect(store.isLaunching).toBe(false)
-    expect(store.launchInterrupted).toBe(false)
-    expect(store.isCancelPending).toBe(false)
     expect(store.isSwitching).toBe(false)
-    expect(store.launchGeneration).toBe(0)
-    expect(store.launchSteps).toEqual([])
-    expect(store.activeProgress).toBe(0)
     expect(store.selectedUsername).toBe('')
+    expect(store.isLoading).toBe(false)
   })
 
   it('closes the auth form and wipes the login password', () => {
@@ -46,6 +41,44 @@ describe('useAccountsStore', () => {
     expect(store.loginFormData.password).toBe('')
     expect(store.loginFormData.username).toBe('user')
     expect(store.loginFormData.rememberMe).toBe(true)
+  })
+
+  it('resets every accounts field to its initial value', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.isLoading = true
+    store.errorMessage = 'boom'
+    store.logins = ['alice']
+    store.loginsError = 'ipc down'
+    store.isLoginsLoading = true
+    store.selectedUsername = 'alice'
+    store.authLoading = true
+    store.authError = 'bad credentials'
+    store.loginFormData = { username: 'user', password: 'secret', rememberMe: true }
+    store.registerFormData = { login: 'user', password: 'secret', confirmPassword: 'secret' }
+    store.showAuthForm = true
+    store.activeSubTab = 'register'
+    store.isSwitching = true
+
+    store.reset()
+
+    expect(store.isLoading).toBe(false)
+    expect(store.errorMessage).toBe('')
+    expect(store.logins).toEqual([])
+    expect(store.loginsError).toBe('')
+    expect(store.isLoginsLoading).toBe(false)
+    expect(store.selectedUsername).toBe('')
+    expect(store.authLoading).toBe(false)
+    expect(store.authError).toBe('')
+    expect(store.loginFormData).toEqual({ username: '', password: '', rememberMe: false })
+    expect(store.registerFormData).toEqual({
+      login: '',
+      password: '',
+      confirmPassword: '',
+    })
+    expect(store.showAuthForm).toBe(false)
+    expect(store.activeSubTab).toBe('login')
+    expect(store.isSwitching).toBe(true)
   })
 
   it('keeps state across accesses within the same pinia', () => {

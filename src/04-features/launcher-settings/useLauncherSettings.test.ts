@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveLauncherSettings } from '@/06-shared/api'
 import { isAutostartEnabled } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type LauncherConfig } from '@/05-entities'
 import { useLauncherSettings } from './useLauncherSettings'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -171,5 +171,30 @@ describe('useLauncherSettings', () => {
     expect(settings.isDirty.value).toBe(false)
 
     unmount()
+  })
+
+  it('registers the dirty tab in the settings registry and cleans up on unmount', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+    const registry = useSettingsDirtyStore()
+    expect(registry.hasDirtyTabs).toBe(false)
+
+    settings.launcherPath.value = '/other'
+    await flushPromises()
+    expect(registry.dirtyTabs).toEqual(['launcher'])
+
+    settings.launcherPath.value = '/launcher'
+    await flushPromises()
+    expect(registry.hasDirtyTabs).toBe(false)
+
+    settings.launcherPath.value = '/other'
+    await flushPromises()
+    expect(registry.hasDirtyTabs).toBe(true)
+
+    unmount()
+    expect(registry.hasDirtyTabs).toBe(false)
   })
 })

@@ -47,16 +47,22 @@ export function useAccountSettings() {
 
     isChanging.value = true
     errorMessage.value = ''
+    const projectName = coreStore.currentProject
 
     try {
       await changePassword(
-        coreStore.currentProject,
+        projectName,
         oldPassword.value,
         newPassword.value
       )
     } catch (e: unknown) {
       reportError('Не удалось сменить пароль', e)
       errorMessage.value = getErrorMessage(e)
+      isChanging.value = false
+      return
+    }
+
+    if (coreStore.currentProject !== projectName) {
       isChanging.value = false
       return
     }

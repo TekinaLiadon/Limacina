@@ -1,12 +1,23 @@
 import { computed } from 'vue'
-import { useAccountsStore, useCoreStore, useNotificationStore } from '@/05-entities'
-import { authLogins, clearSession, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
+import {
+  useAccountsStore,
+  useCoreStore,
+  useLaunchStore,
+  useNotificationStore,
+  useProjectSettingsStore,
+  useSettingsDirtyStore,
+  projectSettingsFormFromConfig,
+} from '@/05-entities'
+import { authLogins, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import { reportError, type DropdownOption } from '@/06-shared'
-import { useLaunchStepsStream } from '@/04-features'
+import { finalizeSession, useLaunchStepsStream } from '@/04-features'
 
 export function useProjectSwitch() {
   const coreStore = useCoreStore()
   const accountsStore = useAccountsStore()
+  const launchStore = useLaunchStore()
+  const settingsDirtyStore = useSettingsDirtyStore()
+  const projectSettingsStore = useProjectSettingsStore()
   const notification = useNotificationStore()
   const { resetLaunchSteps } = useLaunchStepsStream()
 
@@ -18,18 +29,8 @@ export function useProjectSwitch() {
 
   const resetAccountsState = (): void => {
     coreStore.clearSessionState()
-    accountsStore.loginError = ''
-    accountsStore.logins = []
-    accountsStore.selectedUsername = ''
-    accountsStore.errorMessage = ''
-    accountsStore.authError = ''
-    accountsStore.loginsError = ''
-    accountsStore.isLoginsLoading = false
-    accountsStore.loginFormData = { username: '', password: '', rememberMe: false }
-    accountsStore.registerFormData = { login: '', password: '', confirmPassword: '' }
-    accountsStore.closeAuthForm()
-    accountsStore.activeSubTab = 'login'
-    accountsStore.isLaunching = false
+    accountsStore.reset()
+    launchStore.reset()
     resetLaunchSteps()
   }
 
@@ -38,10 +39,11 @@ export function useProjectSwitch() {
   const applyProjectSwitch = async (projectName: string): Promise<void> => {
     const projectConfig = await loadSettingsProject(projectName)
     const logins = await authLogins(projectName)
-    await clearSession()
+    await finalizeSession()
 
     coreStore.currentProject = projectName
     coreStore.projectConfig = projectConfig
+    projectSettingsStore.adoptLoaded(projectName, projectSettingsFormFromConfig(projectConfig))
     resetAccountsState()
     accountsStore.logins = logins
   }
@@ -62,9 +64,19 @@ export function useProjectSwitch() {
       notification.show('Нельзя переключить проект, пока запущена игра')
       return
     }
-    if (accountsStore.isLaunching) {
+    if (launchStore.isLaunching) {
       notification.show('Дождитесь завершения запуска игры')
       return
+    }
+    if (accountsStore.authLoading || accountsStore.isLoading) {
+      notification.show('Дождитесь завершения авторизации')
+      return
+    }
+    if (projectSettingsStore.isDirty || settingsDirtyStore.hasDirtyTabs) {
+      const confirmed = await notification.confirm(
+        'В настройках есть несохранённые изменения. Переключить проект и потерять их?'
+      )
+      if (!confirmed) return
     }
 
     const previousProject = coreStore.currentProject

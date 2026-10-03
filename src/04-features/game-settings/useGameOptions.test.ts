@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   getGameOptions,
@@ -6,7 +7,7 @@ import {
   saveGameOptions,
   saveGlobalGameOptions,
 } from '@/06-shared/api'
-import { useCoreStore, useNotificationStore, type GameOptions, type GameOptionsData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type GameOptions, type GameOptionsData } from '@/05-entities'
 import { DEFAULT_GAME_OPTIONS, useGameOptions } from './useGameOptions'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -218,5 +219,28 @@ describe('useGameOptions', () => {
 
     expect(useNotificationStore().message).toBe('denied')
     expect(options.isSavingGlobal.value).toBe(false)
+  })
+
+  it('registers the dirty tab in the settings registry and cleans up on unmount', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData())
+    const { result, unmount } = withSetup(() => useGameOptions())
+    await vi.waitFor(() => expect(result.fileExists.value).toBe(true))
+    const registry = useSettingsDirtyStore()
+    expect(registry.hasDirtyTabs).toBe(false)
+
+    result.options.value.fov = 110
+    await nextTick()
+    expect(registry.dirtyTabs).toEqual(['game'])
+
+    result.options.value.fov = DEFAULT_GAME_OPTIONS.fov
+    await nextTick()
+    expect(registry.hasDirtyTabs).toBe(false)
+
+    result.options.value.fov = 110
+    await nextTick()
+    expect(registry.hasDirtyTabs).toBe(true)
+
+    unmount()
+    expect(registry.hasDirtyTabs).toBe(false)
   })
 })

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { authLogins, clearSession, deleteAccount, getSessionInfo } from '@/06-shared/api'
+import { authLogins, clearSession, deleteAccount, getGameState, getSessionInfo } from '@/06-shared/api'
 import {
   useAccountsStore,
   useCoreStore,
+  useLaunchStore,
   useNotificationStore,
   type ProjectConfig,
 } from '@/05-entities'
@@ -21,6 +22,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   authLogins: vi.fn(),
   clearSession: vi.fn(),
   deleteAccount: vi.fn(),
+  getGameState: vi.fn(),
   getSessionInfo: vi.fn(),
 }))
 
@@ -62,9 +64,11 @@ describe('useAccountsPage', () => {
     vi.mocked(authLogins).mockReset()
     vi.mocked(clearSession).mockReset()
     vi.mocked(deleteAccount).mockReset()
+    vi.mocked(getGameState).mockReset()
     vi.mocked(getSessionInfo).mockReset()
     vi.mocked(authLogins).mockResolvedValue([])
     vi.mocked(getSessionInfo).mockResolvedValue(null)
+    vi.mocked(getGameState).mockResolvedValue(null)
     useCoreStore().currentProject = 'proj'
   })
 
@@ -104,23 +108,66 @@ describe('useAccountsPage', () => {
     await page.handleLaunch()
 
     expect(stubs.executeSteps).not.toHaveBeenCalled()
-    expect(useAccountsStore().isLaunching).toBe(false)
+    expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe('Сервер лаунчера недоступен, запуск невозможен')
     expect(stubs.sendSystemNotification).not.toHaveBeenCalled()
   })
 
+  it('blocks the launch while a game session is already active', async () => {
+    const core = useCoreStore()
+    core.gameUsername = 'alice'
+    const page = setupPage()
+
+    await page.handleLaunch()
+
+    expect(stubs.executeSteps).not.toHaveBeenCalled()
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe('Игра уже запущена')
+  })
+
+  it('blocks the launch when the backend reports a session the store missed', async () => {
+    const core = useCoreStore()
+    vi.mocked(getGameState).mockResolvedValue('alice')
+    const page = setupPage()
+
+    await page.handleLaunch()
+
+    expect(stubs.executeSteps).not.toHaveBeenCalled()
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(core.gameUsername).toBe('alice')
+    expect(useNotificationStore().message).toBe('Игра уже запущена')
+  })
+
+  it('blocks the launch when the session check fails', async () => {
+    vi.mocked(getGameState).mockRejectedValue(new Error('ipc down'))
+    const page = setupPage()
+
+    await page.handleLaunch()
+
+    expect(stubs.executeSteps).not.toHaveBeenCalled()
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe('Не удалось проверить состояние игры, запуск заблокирован')
+  })
+
   it('runs the launch pipeline and clears the launching flag', async () => {
-    stubs.executeSteps.mockResolvedValue(undefined)
+    let releaseSteps: () => void = () => {}
+    stubs.executeSteps.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSteps = resolve
+        }),
+    )
     const page = setupPage()
 
     const pending = page.handleLaunch()
-    expect(useAccountsStore().isLaunching).toBe(true)
+    await vi.waitFor(() => expect(useLaunchStore().isLaunching).toBe(true))
+    releaseSteps()
     await pending
 
     expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
-    expect(useAccountsStore().isLaunching).toBe(false)
-    expect(useAccountsStore().isCancelPending).toBe(false)
-    expect(useAccountsStore().loginError).toBe('')
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useLaunchStore().isCancelPending).toBe(false)
+    expect(useLaunchStore().loginError).toBe('')
   })
 
   it('surfaces the pipeline failure through the login error', async () => {
@@ -129,8 +176,8 @@ describe('useAccountsPage', () => {
 
     await page.handleLaunch()
 
-    expect(useAccountsStore().loginError).toBe('java missing')
-    expect(useAccountsStore().isLaunching).toBe(false)
+    expect(useLaunchStore().loginError).toBe('java missing')
+    expect(useLaunchStore().isLaunching).toBe(false)
   })
 
   it('ignores a repeated launch while one is running', async () => {
@@ -144,6 +191,7 @@ describe('useAccountsPage', () => {
     const page = setupPage()
 
     const first = page.handleLaunch()
+    await vi.waitFor(() => expect(useLaunchStore().isLaunching).toBe(true))
     await page.handleLaunch()
 
     expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
@@ -163,17 +211,18 @@ describe('useAccountsPage', () => {
     const page = setupPage()
 
     const pending = page.handleLaunch()
+    await vi.waitFor(() => expect(useLaunchStore().isLaunching).toBe(true))
     await page.goToAccounts()
-    expect(useAccountsStore().isCancelPending).toBe(true)
+    expect(useLaunchStore().isCancelPending).toBe(true)
 
     releaseSteps()
     await pending
 
     expect(clearSession).toHaveBeenCalledTimes(1)
-    const accounts = useAccountsStore()
-    expect(accounts.isLaunching).toBe(false)
-    expect(accounts.isCancelPending).toBe(false)
-    expect(accounts.showAuthForm).toBe(false)
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useLaunchStore().isCancelPending).toBe(false)
+    expect(useLaunchStore().loginError).toBe('')
+    expect(useAccountsStore().showAuthForm).toBe(false)
     expect(useCoreStore().isLoggedIn).toBe(false)
   })
 

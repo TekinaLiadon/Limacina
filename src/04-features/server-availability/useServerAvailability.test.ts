@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { useCoreStore, type ProjectConfig } from '@/05-entities'
-import { FAILURE_THRESHOLD } from '../server-status/useServerStatus'
+import { SERVER_POLL_FAILURE_THRESHOLD as FAILURE_THRESHOLD } from '../server-polling/createServerPoller'
 
 const api = vi.hoisted(() => ({
   pingLauncherServer: vi.fn(),

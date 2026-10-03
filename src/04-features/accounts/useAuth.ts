@@ -68,23 +68,27 @@ export function useAuth() {
 
     isLoading.value = true
     errorMessage.value = ''
+    const projectName = coreStore.currentProject
 
     try {
       const authData: AuthUserData = {
-        projectName: coreStore.currentProject,
+        projectName,
         username: store.loginFormData.username,
         password: store.loginFormData.password,
         rememberMe: store.loginFormData.rememberMe,
       }
       await authLogin(authData)
+      if (coreStore.currentProject !== projectName) return
 
       const session = await getSessionInfo()
       if (session) coreStore.applySession(session)
 
       await loadAccounts()
+      if (coreStore.currentProject !== projectName) return
       store.closeAuthForm()
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
+      if (coreStore.currentProject !== projectName) return
       reportError('Ошибка авторизации', e)
       errorMessage.value = getErrorMessage(e)
     } finally {
@@ -97,24 +101,28 @@ export function useAuth() {
 
     isLoading.value = true
     errorMessage.value = ''
+    const projectName = coreStore.currentProject
 
     const {login} = store.registerFormData
     const {password} = store.registerFormData
 
     try {
       await authRegister(
-        coreStore.currentProject,
+        projectName,
         login,
         password
       )
+      if (coreStore.currentProject !== projectName) return
 
       notification.show('Аккаунт успешно создан. Ожидайте одобрения администратора.')
       await loadAccounts()
+      if (coreStore.currentProject !== projectName) return
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
       store.closeAuthForm()
       store.activeSubTab = 'login'
     } catch (e: unknown) {
+      if (coreStore.currentProject !== projectName) return
       errorMessage.value = getErrorMessage(e)
     } finally {
       isLoading.value = false

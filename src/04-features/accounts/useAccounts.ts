@@ -1,7 +1,7 @@
 import { onMounted } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { authRefresh, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { reportError, storeBinding, useAsyncRaceGuard } from '@/06-shared'
+import { reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAccounts() {
@@ -14,8 +14,10 @@ export function useAccounts() {
   const selectedUsername = storeBinding(store, 'selectedUsername')
 
   const checkSession = async (): Promise<void> => {
+    const projectName = coreStore.currentProject
     try {
       const session = await getSessionInfo()
+      if (coreStore.currentProject !== projectName) return
       if (session) {
         coreStore.applySession(session)
         store.selectedUsername = session.username
@@ -25,28 +27,25 @@ export function useAccounts() {
     }
   }
 
-  const sessionGuard = useAsyncRaceGuard()
-
   const handleSelect = async (username: string): Promise<void> => {
     if (isLoading.value) return
     isLoading.value = true
     errorMessage.value = ''
+    const projectName = coreStore.currentProject
     const previousUsername = selectedUsername.value
     selectedUsername.value = username
-    const generation = sessionGuard.next()
 
     try {
-      await authRefresh(coreStore.currentProject, username)
+      await authRefresh(projectName, username)
       const session = await getSessionInfo()
-      if (!sessionGuard.isCurrent(generation)) return
+      if (coreStore.currentProject !== projectName) return
       if (session) coreStore.applySession(session)
     } catch (e: unknown) {
-      if (!sessionGuard.isCurrent(generation)) return
+      if (coreStore.currentProject !== projectName) return
       selectedUsername.value = previousUsername
       errorMessage.value = getErrorMessage(e)
-      coreStore.clearSessionState()
     } finally {
-      if (sessionGuard.isCurrent(generation)) isLoading.value = false
+      if (coreStore.currentProject === projectName) isLoading.value = false
     }
   }
 
