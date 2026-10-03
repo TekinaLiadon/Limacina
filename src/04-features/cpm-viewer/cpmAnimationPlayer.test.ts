@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { ref, type Ref } from 'vue'
+import * as THREE from 'three'
 import type { CPMAnimation } from '@/05-entities'
-import { CpmAnimationPlayer, type NodeIndex, type SharedClock } from './cpmAnimationPlayer'
+import { CpmAnimationPlayer, indexModelNodes, type NodeIndex, type SharedClock } from './cpmAnimationPlayer'
 
 const makeAnimation = (overrides: Partial<CPMAnimation> = {}): CPMAnimation => ({
   id: 'wave',
@@ -54,6 +55,29 @@ const makePlayer = (isPlayingInitially = false): PlayerHarness => {
     onFinished,
   }, clocks)
   return { player, clocks, isPlaying, onFinished }
+}
+
+interface ModelPlayerHarness extends PlayerHarness {
+  mesh: THREE.Mesh
+}
+
+const makePlayerWithModel = (activeLayerIds: Ref<number[]>, isPlayingInitially = false): ModelPlayerHarness => {
+  const group = new THREE.Group()
+  group.userData.storeID = 0
+  group.userData.isRoot = true
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1))
+  mesh.userData.layerId = 7
+  group.add(mesh)
+
+  const clocks = new Map<string, SharedClock>()
+  const onFinished = vi.fn()
+  const isPlaying = ref(isPlayingInitially)
+  const player = new CpmAnimationPlayer(indexModelNodes(group), {
+    activeLayerIds,
+    isPlaying,
+    onFinished,
+  }, clocks)
+  return { player, clocks, isPlaying, onFinished, mesh }
 }
 
 let now = 0
@@ -190,5 +214,66 @@ describe('CpmAnimationPlayer', () => {
 
     expect(clocks.get('a')?.speed).toBe(2)
     expect(clocks.get('b')?.speed).toBe(2)
+  })
+
+  it('clears the shared clocks on dispose so a rebuilt player starts animations from zero', () => {
+    const { player, clocks } = makePlayer(true)
+
+    player.setAnimations([makeAnimation()])
+    expect(clocks.size).toBe(1)
+
+    player.dispose()
+
+    expect(clocks.size).toBe(0)
+  })
+
+  it('composes the animation show track with the active layers while a frame is applied', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds)
+
+    player.setAnimations([makeAnimation()])
+    expect(mesh.userData.animVisible).toBe(true)
+    expect(mesh.visible).toBe(true)
+
+    activeLayerIds.value = []
+    player.applyCurrentFrame()
+    expect(mesh.visible).toBe(false)
+
+    activeLayerIds.value = [7]
+    player.applyCurrentFrame()
+    expect(mesh.visible).toBe(true)
+  })
+
+  it('hides the mesh when the show track is off even though the layer is active', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds)
+
+    const hiddenPart = makeAnimation({
+      frames: [
+        { components: [{ storeID: 0, pos: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: false }] },
+        { components: [{ storeID: 0, pos: { x: 0, y: 8, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: false }] },
+      ],
+    })
+
+    player.setAnimations([hiddenPart])
+
+    expect(mesh.userData.animVisible).toBe(false)
+    expect(mesh.visible).toBe(false)
+  })
+
+  it('restores layer-based visibility after the animations are deselected', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds)
+
+    player.setAnimations([makeAnimation()])
+    expect(mesh.visible).toBe(true)
+
+    activeLayerIds.value = []
+    player.setAnimations([])
+    expect(mesh.visible).toBe(false)
+
+    activeLayerIds.value = [7]
+    player.setAnimations([])
+    expect(mesh.visible).toBe(true)
   })
 })

@@ -459,7 +459,10 @@ export class CpmAnimationPlayer {
       node.group.visible = show
       node.meshes.forEach((mesh) => {
         mesh.userData.animVisible = show
-        mesh.visible = show
+        const layerId = mesh.userData.layerId as number | undefined
+        mesh.visible = show && (layerId !== undefined
+          ? this.host.activeLayerIds.value.includes(layerId)
+          : mesh.userData.defaultVisible !== false)
       })
     })
   }

@@ -394,7 +394,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
 }
 
 export interface CpmViewerOptions {
-  onAnimationsChanged?: (playing: boolean) => void
+  onPlayingChanged?: (playing: boolean) => void
   onAnimationFinished?: () => void
 }
 
@@ -424,6 +424,8 @@ export function useCpmViewer(
 
   function loadModel(data: CPMData): void {
     removeGroupFromScene(scene, modelGroup)
+    player?.dispose()
+    player = null
 
     textureLoader.load(data.textureUrl, (texture, targetScene) => {
       const model = buildCpmModel(data.config, texture)
@@ -483,9 +485,8 @@ export function useCpmViewer(
   }, { immediate: true })
 
   watch(activeAnimations, (animations) => {
-    if (!player) return
-    player.setAnimations(animations)
-    options.onAnimationsChanged?.(animations.length > 0)
+    player?.setAnimations(animations)
+    options.onPlayingChanged?.(isAnimationPlaying.value && animations.length > 0)
   }, { deep: true })
 
   watch(isAnimationPlaying, (playing: boolean) => {

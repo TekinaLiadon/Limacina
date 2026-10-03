@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, ref, type Ref, type ShallowRef } from 'vue'
 import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
-import { useCpmViewer } from './useCpmViewer'
+import { useCpmViewer, type CpmViewerOptions } from './useCpmViewer'
 import type { CPMAnimation, CPMConfig, CPMData } from '@/05-entities'
 import type { ViewerControls } from '@/06-shared'
 
@@ -32,7 +32,10 @@ vi.mock('three', async (importOriginal) => {
 })
 
 const mountedScene = vi.hoisted(() => ({ current: null as ShallowRef<THREE.Scene | null> | null }))
-const playerState = vi.hoisted(() => ({ disposed: 0 }))
+const playerState = vi.hoisted(() => ({
+  disposed: 0,
+  instances: [] as Array<{ calls: string[] }>,
+}))
 
 vi.mock('@/06-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/06-shared')>()
@@ -65,13 +68,38 @@ vi.mock('@/06-shared', async (importOriginal) => {
 vi.mock('./cpmAnimationPlayer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./cpmAnimationPlayer')>()
   class FakeCpmAnimationPlayer {
-    setSpeed(): void {}
-    setForceLoop(): void {}
-    setAnimations(): void {}
-    setPlaying(): void {}
-    applyCurrentFrame(): void {}
-    update(): void {}
+    calls: string[] = []
+
+    constructor() {
+      playerState.instances.push(this)
+    }
+
+    setSpeed(): void {
+      this.calls.push('setSpeed')
+    }
+
+    setForceLoop(): void {
+      this.calls.push('setForceLoop')
+    }
+
+    setAnimations(): void {
+      this.calls.push('setAnimations')
+    }
+
+    setPlaying(): void {
+      this.calls.push('setPlaying')
+    }
+
+    applyCurrentFrame(): void {
+      this.calls.push('applyCurrentFrame')
+    }
+
+    update(): void {
+      this.calls.push('update')
+    }
+
     dispose(): void {
+      this.calls.push('dispose')
       playerState.disposed += 1
     }
   }
@@ -122,6 +150,31 @@ function makeConfig(): CPMConfig {
   }
 }
 
+function makeAnimation(id: string): CPMAnimation {
+  return {
+    id,
+    name: id,
+    kind: 'gesture',
+    duration: 1000,
+    priority: 0,
+    loop: false,
+    additive: false,
+    interpolator: 'linear_single',
+    hidden: false,
+    frames: [
+      {
+        components: [{
+          storeID: 0,
+          pos: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          show: true,
+        }],
+      },
+    ],
+  }
+}
+
 function modelGroups(): THREE.Group[] {
   const scene = mountedScene.current
   if (!scene?.value) return []
@@ -145,23 +198,33 @@ async function resolveLastLoad(texture: THREE.Texture): Promise<void> {
   await nextTick()
 }
 
-async function mountViewer(): Promise<{ cpmData: Ref<CPMData | null>; unmount: () => void }> {
+interface ViewerHarness {
+  cpmData: Ref<CPMData | null>
+  activeAnimations: Ref<CPMAnimation[]>
+  isAnimationPlaying: Ref<boolean>
+  unmount: () => void
+}
+
+async function mountViewer(options: CpmViewerOptions = {}): Promise<ViewerHarness> {
   const container = ref<HTMLDivElement | null>(document.createElement('div'))
   const cpmData = ref<CPMData | null>(null)
+  const activeAnimations = ref<CPMAnimation[]>([])
+  const isAnimationPlaying = ref(false)
   const { unmount } = withSetup(() => useCpmViewer(
     container,
     cpmData,
     ref<number[]>([]),
     createControls(),
-    ref<CPMAnimation[]>([]),
-    ref(false),
+    activeAnimations,
+    isAnimationPlaying,
     ref(1),
     ref(false),
+    options,
   ))
-  return { cpmData, unmount }
+  return { cpmData, activeAnimations, isAnimationPlaying, unmount }
 }
 
-async function loadModel(harness: { cpmData: Ref<CPMData | null> }, textureUrl: string): Promise<void> {
+async function loadModel(harness: ViewerHarness, textureUrl: string): Promise<void> {
   harness.cpmData.value = { config: makeConfig(), textureUrl }
   await nextTick()
   await resolveLastLoad(new THREE.Texture())
@@ -172,6 +235,7 @@ describe('useCpmViewer', () => {
     textureLoads.length = 0
     mountedScene.current = null
     playerState.disposed = 0
+    playerState.instances = []
     vi.stubGlobal('requestAnimationFrame', vi.fn((): number => 1))
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
@@ -201,6 +265,17 @@ describe('useCpmViewer', () => {
     harness.unmount()
   })
 
+  it('disposes the previous animation player when a new model loads', async () => {
+    const harness = await mountViewer()
+    await loadModel(harness, 'model.png')
+    await loadModel(harness, 'model2.png')
+
+    expect(playerState.disposed).toBe(1)
+    harness.unmount()
+
+    expect(playerState.disposed).toBe(2)
+  })
+
   it('disposes the model and the animation player on unmount even though the scene was cleaned up first', async () => {
     const harness = await mountViewer()
     await loadModel(harness, 'model.png')
@@ -211,5 +286,41 @@ describe('useCpmViewer', () => {
 
     expect(geometryDispose).toHaveBeenCalledOnce()
     expect(playerState.disposed).toBe(1)
+  })
+
+  it('reports the real playing state when the animation selection changes', async () => {
+    const onPlayingChanged = vi.fn()
+    const harness = await mountViewer({ onPlayingChanged })
+    await loadModel(harness, 'model.png')
+
+    harness.isAnimationPlaying.value = false
+    harness.activeAnimations.value = [makeAnimation('wave')]
+    await nextTick()
+    expect(onPlayingChanged).toHaveBeenLastCalledWith(false)
+
+    harness.isAnimationPlaying.value = true
+    harness.activeAnimations.value = [makeAnimation('wave'), makeAnimation('idle')]
+    await nextTick()
+    expect(onPlayingChanged).toHaveBeenLastCalledWith(true)
+
+    harness.activeAnimations.value = []
+    await nextTick()
+    expect(onPlayingChanged).toHaveBeenLastCalledWith(false)
+  })
+
+  it('reports the playing state when animations are selected before the model loads', async () => {
+    const onPlayingChanged = vi.fn()
+    const harness = await mountViewer({ onPlayingChanged })
+
+    harness.isAnimationPlaying.value = true
+    harness.activeAnimations.value = [makeAnimation('wave')]
+    await nextTick()
+    expect(onPlayingChanged).toHaveBeenCalledWith(true)
+    expect(playerState.instances).toHaveLength(0)
+
+    await loadModel(harness, 'model.png')
+    expect(playerState.instances).toHaveLength(1)
+    expect(playerState.instances[0]?.calls).toContain('setAnimations')
+    expect(playerState.instances[0]?.calls).toContain('setPlaying')
   })
 })

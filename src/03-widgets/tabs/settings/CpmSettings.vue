@@ -97,7 +97,7 @@ const applyLimitInput = async (): Promise<void> => {
         :is-animation-playing="isAnimationPlaying"
         :animation-speed="animationSpeed"
         :is-animation-looped="isAnimationLooped"
-        @animations-changed="setPlaying"
+        @playing-changed="setPlaying"
         @animation-finished="setPlaying(false)"
       />
       <template #bottom>

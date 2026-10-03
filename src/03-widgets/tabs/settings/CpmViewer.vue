@@ -14,7 +14,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'animations-changed': [playing: boolean]
+  'playing-changed': [playing: boolean]
   'animation-finished': []
 }>()
 
@@ -37,7 +37,7 @@ useCpmViewer(
   animationSpeed,
   isAnimationLooped,
   {
-    onAnimationsChanged: (playing: boolean) => emit('animations-changed', playing),
+    onPlayingChanged: (playing: boolean) => emit('playing-changed', playing),
     onAnimationFinished: () => emit('animation-finished'),
   },
 )
