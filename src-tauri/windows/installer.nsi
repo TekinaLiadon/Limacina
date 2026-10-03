@@ -582,12 +582,6 @@ FunctionEnd
 
 !macro FocusPollCore
   !insertmacro RaisePillsCore
-  System::Call 'user32::RedrawWindow(p $NavOverlay1, i 0, i 0, i 0x185)'
-  System::Call 'user32::RedrawWindow(p $NavOverlay2, i 0, i 0, i 0x185)'
-  System::Call 'user32::RedrawWindow(p $NavOverlay3, i 0, i 0, i 0x185)'
-  ${If} $FooterLine <> 0
-    System::Call 'user32::RedrawWindow(p $FooterLine, i 0, i 0, i 0x185)'
-  ${EndIf}
   System::Call 'user32::GetFocus() p.r0'
   ${If} $0 = 0
     Return
