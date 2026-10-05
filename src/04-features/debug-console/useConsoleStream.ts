@@ -12,7 +12,7 @@ const FLUSH_BATCH = 100
 const stripAnsi = (str: string): string => {
   return str
     .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-    .replace(/\x1B\].*?\x07/g, '')
+    .replace(/\x1B\].*?(?:\x07|\x1B\\)/g, '')
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
 }
 
@@ -26,6 +26,22 @@ const rawBacklog: ConsoleLog[] = []
 
 let streamingStarted = false
 let buffer: ConsoleLog[] = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+const capBuffer = (): void => {
+  if (buffer.length > LOG_LIMIT) {
+    buffer.splice(0, buffer.length - LOG_LIMIT)
+  }
+}
+
+const scheduleFlush = (): void => {
+  if (flushTimer !== null) return
+  flushTimer = setTimeout((): void => {
+    flushTimer = null
+    flushBuffer()
+    if (buffer.length > 0) scheduleFlush()
+  }, FLUSH_INTERVAL)
+}
 
 const ingest = (log: ConsoleLog): void => {
   if (!isConsoleActive.value) {
@@ -36,6 +52,8 @@ const ingest = (log: ConsoleLog): void => {
     return
   }
   buffer.push(cleanLog(log))
+  capBuffer()
+  scheduleFlush()
 }
 
 const flushBuffer = (): number => {
@@ -69,10 +87,7 @@ export function useConsoleStream(): {
         for (const log of startupLogs) {
           ingest(log)
         }
-        flushBuffer()
       }
-
-      setInterval(flushBuffer, FLUSH_INTERVAL)
     } catch (e: unknown) {
       unlisten?.()
       streamingStarted = false
@@ -89,8 +104,10 @@ export function useConsoleStream(): {
         buffer.push(cleanLog(log))
       }
       rawBacklog.length = 0
+      capBuffer()
     }
     flushBuffer()
+    scheduleFlush()
   }
 
   return {

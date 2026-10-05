@@ -33,6 +33,7 @@ describe('createStepItem', () => {
       label: 'Клиент игры',
       status: 'active',
       skipped: false,
+      untracked: false,
       current: 0,
       total: 0,
       detail: '',
@@ -43,13 +44,17 @@ describe('createStepItem', () => {
 })
 
 describe('applyStepEvent', () => {
-  it('started marks the previous active step as done and activates the target', () => {
+  it('started keeps the previous active step active until its finished arrives', () => {
     const steps = [pendingStep('a'), pendingStep('b')]
     emit(steps, { type: 'started', id: 'a', label: 'A' })
     emit(steps, { type: 'started', id: 'b', label: 'B' })
-    expect(stepById(steps, 'a').status).toBe('done')
+    expect(stepById(steps, 'a').status).toBe('active')
     expect(stepById(steps, 'b').status).toBe('active')
     expect(steps).toHaveLength(2)
+
+    emit(steps, { type: 'finished', id: 'a', skipped: false })
+    expect(stepById(steps, 'a').status).toBe('done')
+    expect(stepById(steps, 'b').status).toBe('active')
   })
 
   it('started marks earlier pending steps as done and skipped', () => {
@@ -60,11 +65,11 @@ describe('applyStepEvent', () => {
     expect(stepById(steps, 'c').status).toBe('active')
   })
 
-  it('started appends an unknown step instead of failing', () => {
+  it('started appends an unknown step marked as untracked instead of failing', () => {
     const steps = [pendingStep('a')]
     emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
     expect(steps).toHaveLength(2)
-    expect(stepById(steps, 'unexpected').status).toBe('active')
+    expect(stepById(steps, 'unexpected')).toMatchObject({ status: 'active', untracked: true })
   })
 
   it('started appends an unknown step and resolves the earlier pending steps', () => {
@@ -82,6 +87,20 @@ describe('applyStepEvent', () => {
     const steps = [doneStep('a')]
     emit(steps, { type: 'started', id: 'a', label: 'Retry label' })
     expect(stepById(steps, 'a')).toMatchObject({ status: 'active', label: 'Retry label' })
+  })
+
+  it('an unknown appended step does not distort the progress denominator', () => {
+    const steps = [pendingStep('a'), pendingStep('b')]
+    emit(steps, { type: 'started', id: 'a', label: 'A' })
+    emit(steps, { type: 'finished', id: 'a', skipped: false })
+    emit(steps, { type: 'started', id: 'b', label: 'B' })
+    emit(steps, { type: 'progress', id: 'b', current: 5, total: 10 })
+    emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
+
+    expect(computeStepProgress(steps)).toBeCloseTo(75, 5)
+
+    emit(steps, { type: 'finished', id: 'b', skipped: false })
+    expect(computeStepProgress(steps)).toBe(100)
   })
 
   it('progress updates counters and ignores unknown ids', () => {

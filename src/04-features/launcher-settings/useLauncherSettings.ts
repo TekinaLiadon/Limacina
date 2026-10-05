@@ -23,7 +23,7 @@ export function useLauncherSettings(): {
   systemNotifications: Ref<boolean>
   debugMode: Ref<boolean>
   downloadSpeedLimitInput: Ref<string>
-  settings: ComputedRef<LauncherSettingsPayload>
+  downloadSpeedLimitError: ComputedRef<string>
   isSaving: Ref<boolean>
   isDirty: ComputedRef<boolean>
   selectLauncherFolder: () => Promise<void>
@@ -53,6 +53,15 @@ export function useLauncherSettings(): {
     const parsed = Number.parseInt(trimmed, 10)
     return parsed > 0 ? parsed : null
   }
+
+  const downloadSpeedLimitError = computed((): string => {
+    const trimmed = downloadSpeedLimitInput.value.trim()
+    if (trimmed === '') return ''
+    if (!/^\d+$/.test(trimmed) || Number.parseInt(trimmed, 10) <= 0) {
+      return 'Ограничение скорости — целое число больше нуля, КБ/с'
+    }
+    return ''
+  })
 
   const formSettings = (): LauncherSettingsPayload => ({
     discordActivity: discordActivity.value,
@@ -127,7 +136,7 @@ export function useLauncherSettings(): {
     }
     dirtyState.captureBaseline()
     void syncStartWithSystemState(startWithSystem.value).then((changed: boolean): void => {
-      if (changed) dirtyState.captureBaseline()
+      if (changed) dirtyState.patchBaseline({ startWithSystem: startWithSystem.value })
     })
   })
 
@@ -149,6 +158,10 @@ export function useLauncherSettings(): {
 
   const handleSave = async (): Promise<void> => {
     if (isSaving.value) return
+    if (downloadSpeedLimitError.value) {
+      notification.show(downloadSpeedLimitError.value)
+      return
+    }
     isSaving.value = true
     try {
       const savedSettings = await saveLauncherSettings(settings.value)
@@ -183,7 +196,7 @@ export function useLauncherSettings(): {
     systemNotifications,
     debugMode,
     downloadSpeedLimitInput,
-    settings,
+    downloadSpeedLimitError,
     isSaving,
     isDirty,
     selectLauncherFolder,

@@ -1,29 +1,14 @@
 <script setup lang="ts">
 import { Checkbox, Input } from '@/06-shared'
 import SettingsSection from './SettingsSection.vue'
+import type { LauncherBehaviorForm } from '../../types'
 
 defineProps<{
-  discordActivity: boolean
-  autoUpdate: boolean
-  keepOldConfigs: boolean
-  startWithSystem: boolean
-  closeAfterLaunch: boolean
-  minimizeToTray: boolean
-  systemNotifications: boolean
-  debugMode: boolean
-  downloadSpeedLimit: string
+  form: LauncherBehaviorForm
 }>()
 
 const emit = defineEmits<{
-  'update:discordActivity': [value: boolean]
-  'update:autoUpdate': [value: boolean]
-  'update:keepOldConfigs': [value: boolean]
-  'update:startWithSystem': [value: boolean]
-  'update:closeAfterLaunch': [value: boolean]
-  'update:minimizeToTray': [value: boolean]
-  'update:systemNotifications': [value: boolean]
-  'update:debugMode': [value: boolean]
-  'update:downloadSpeedLimit': [value: string]
+  'update:form': [value: LauncherBehaviorForm]
 }>()
 </script>
 
@@ -31,19 +16,19 @@ const emit = defineEmits<{
   <SettingsSection title="Запуск и закрытие" storage-key="launcher-run">
     <div class="settings-grid">
       <Checkbox
-        :model-value="startWithSystem"
+        :model-value="form.startWithSystem"
         label="Запускать лаунчер при старте системы"
-        @update:model-value="emit('update:startWithSystem', $event)"
+        @update:model-value="emit('update:form', { ...form, startWithSystem: $event })"
       />
       <Checkbox
-        :model-value="closeAfterLaunch"
+        :model-value="form.closeAfterLaunch"
         label="Закрывать лаунчер после запуска игры"
-        @update:model-value="emit('update:closeAfterLaunch', $event)"
+        @update:model-value="emit('update:form', { ...form, closeAfterLaunch: $event })"
       />
       <Checkbox
-        :model-value="minimizeToTray"
+        :model-value="form.minimizeToTray"
         label="Сворачивать в трей при закрытии"
-        @update:model-value="emit('update:minimizeToTray', $event)"
+        @update:model-value="emit('update:form', { ...form, minimizeToTray: $event })"
       />
     </div>
   </SettingsSection>
@@ -51,14 +36,14 @@ const emit = defineEmits<{
   <SettingsSection title="Уведомления" storage-key="launcher-notifications">
     <div class="settings-grid">
       <Checkbox
-        :model-value="systemNotifications"
+        :model-value="form.systemNotifications"
         label="Системные уведомления при свёрнутом лаунчере"
-        @update:model-value="emit('update:systemNotifications', $event)"
+        @update:model-value="emit('update:form', { ...form, systemNotifications: $event })"
       />
       <Checkbox
-        :model-value="discordActivity"
+        :model-value="form.discordActivity"
         label="Показывать статус в Discord"
-        @update:model-value="emit('update:discordActivity', $event)"
+        @update:model-value="emit('update:form', { ...form, discordActivity: $event })"
       />
     </div>
   </SettingsSection>
@@ -66,16 +51,16 @@ const emit = defineEmits<{
   <SettingsSection title="Загрузка и обновление" storage-key="launcher-downloads">
     <div class="settings-grid">
       <Checkbox
-        :model-value="autoUpdate"
+        :model-value="form.autoUpdate"
         label="Обновлять лаунчер автоматически"
-        @update:model-value="emit('update:autoUpdate', $event)"
+        @update:model-value="emit('update:form', { ...form, autoUpdate: $event })"
       />
       <Input
         class="launcher-behavior__speed span-full"
-        :model-value="downloadSpeedLimit"
+        :model-value="form.downloadSpeedLimit"
         :options="{ label: 'Ограничение скорости скачивания (КБ/с)', placeholder: 'Без ограничений', type: 'number' }"
         :min="1"
-        @update:model-value="emit('update:downloadSpeedLimit', $event)"
+        @update:model-value="emit('update:form', { ...form, downloadSpeedLimit: $event })"
       />
     </div>
   </SettingsSection>
@@ -83,14 +68,14 @@ const emit = defineEmits<{
   <SettingsSection title="Продвинутое" storage-key="launcher-advanced">
     <div class="settings-grid">
       <Checkbox
-        :model-value="keepOldConfigs"
+        :model-value="form.keepOldConfigs"
         label="Сохранять старые конфиги Minecraft"
-        @update:model-value="emit('update:keepOldConfigs', $event)"
+        @update:model-value="emit('update:form', { ...form, keepOldConfigs: $event })"
       />
       <Checkbox
-        :model-value="debugMode"
+        :model-value="form.debugMode"
         label="Показывать страницу отладки"
-        @update:model-value="emit('update:debugMode', $event)"
+        @update:model-value="emit('update:form', { ...form, debugMode: $event })"
       />
     </div>
   </SettingsSection>

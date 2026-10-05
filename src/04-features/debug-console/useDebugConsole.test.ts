@@ -72,6 +72,7 @@ describe('useDebugConsole', () => {
 
   it('filters the logs by the query and the error flag', async () => {
     const debug = await loadConsole()
+    await vi.advanceTimersByTimeAsync(500)
 
     expect(debug.logs.value).toHaveLength(3)
     expect(debug.linesCount.value).toBe(3)
@@ -107,6 +108,7 @@ describe('useDebugConsole', () => {
   it('copies the filtered lines to the clipboard', async () => {
     shared.copyToClipboard.mockResolvedValue(undefined)
     const debug = await loadConsole()
+    await vi.advanceTimersByTimeAsync(500)
     debug.onlyErrors.value = true
 
     await debug.handleCopy()

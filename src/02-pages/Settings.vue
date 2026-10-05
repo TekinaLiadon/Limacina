@@ -13,7 +13,7 @@ useSettingsDirtyGuard()
 
 watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   if (offline && route.name === 'SettingsAccount') router.replace({ name: 'SettingsLauncher' })
-})
+}, { immediate: true })
 </script>
 
 <template>

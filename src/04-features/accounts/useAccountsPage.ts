@@ -1,6 +1,9 @@
 import { computed } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore } from '@/05-entities'
-import { isIntegrityCheckRunning, useAccounts, useGameLaunch, useLaunchStepsStream } from '@/04-features'
+import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore, AUTH_LOGIN_TAB } from '@/05-entities'
+import { useAccounts } from '@/04-features/accounts/useAccounts'
+import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
+import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
+import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
 import { reportError, storeBinding } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
@@ -87,7 +90,7 @@ export function useAccountsPage() {
 
   const showLoginForm = (): void => {
     store.showAuthForm = true
-    store.activeSubTab = 'login'
+    store.activeSubTab = AUTH_LOGIN_TAB
   }
 
   const finalizeCancel = async (): Promise<void> => {

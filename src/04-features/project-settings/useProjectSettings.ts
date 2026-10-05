@@ -9,9 +9,9 @@ import {
   type ProjectSettingsForm,
   type ProjectConfig,
 } from '@/05-entities'
-import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
+import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJavaVersion, refreshManifests, saveSettingsProject } from '@/06-shared/api'
 import { copyToClipboard, selectDirectory } from '@/06-shared'
-import { useProjectSwitch } from '@/04-features'
+import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { loadProjectConfig } from './loadProjectConfig'
 import { splitJvmArgs, validateJvmArgs } from './jvmPresets'
 
@@ -61,7 +61,14 @@ export function useProjectSettings(): {
 
   const selectJavaFolder = async (): Promise<void> => {
     const selected = await selectDirectory()
-    if (selected) config.value.javaPath = selected
+    if (!selected) return
+    config.value.javaPath = selected
+    try {
+      config.value.javaVersion = await probeJavaVersion(selected)
+    } catch (e: unknown) {
+      config.value.javaVersion = null
+      notification.show(getErrorMessage(e))
+    }
   }
 
   const loadConfig = async (project: string, force: boolean = false): Promise<void> => {
@@ -100,10 +107,10 @@ export function useProjectSettings(): {
         maxMemory: store.isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
         autoJoinServer: store.isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
-      await saveSettingsProject(projectConfig)
+      const saved = await saveSettingsProject(projectConfig)
       if (coreStore.currentProject !== projectName) return
-      coreStore.projectConfig = projectConfig
-      store.adoptLoaded(projectName, projectSettingsFormFromConfig(projectConfig))
+      coreStore.projectConfig = saved
+      store.adoptLoaded(projectName, projectSettingsFormFromConfig(saved))
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))

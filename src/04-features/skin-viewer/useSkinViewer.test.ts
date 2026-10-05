@@ -128,6 +128,20 @@ describe('useSkinViewer', () => {
     mountedScene.current = null
   })
 
+  it('loads the model when mounted with the skin url already set', async () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const skinUrl = ref('skin.png')
+    const slim = ref(false)
+    const { unmount } = withSetup(() => useSkinViewer(container, skinUrl, createControls(), slim))
+
+    await nextTick()
+
+    expect(textureLoads).toHaveLength(1)
+    await resolveLastLoad(makeSkinTexture())
+    expect(modelGroups()).toHaveLength(1)
+    unmount()
+  })
+
   it('removes the model from the scene when the skin url is reset', async () => {
     const { skinUrl, unmount } = await mountViewer()
     await loadSkin(skinUrl, makeSkinTexture())

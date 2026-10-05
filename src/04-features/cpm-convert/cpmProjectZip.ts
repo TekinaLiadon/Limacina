@@ -7,23 +7,32 @@ export interface CpmProjectZip {
   skinPng: Uint8Array | null
 }
 
-function parseCpmConfig(configText: string): CPMConfig {
-  let config: CPMConfig
-  try {
-    config = JSON.parse(configText) as CPMConfig
-  } catch {
-    throw new Error('Некорректный config.json в файле проекта')
-  }
+const INVALID_CONFIG_MESSAGE = 'Некорректный config.json в файле проекта'
 
-  const { skinSize } = config
-  if (!skinSize || typeof skinSize.x !== 'number' || typeof skinSize.y !== 'number' || !Array.isArray(config.elements)) {
-    throw new Error('Некорректный config.json в файле проекта')
-  }
-
-  return config
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export async function readCpmProjectZip(data: ArrayBuffer): Promise<CpmProjectZip> {
+function isValidCpmConfig(value: unknown): value is CPMConfig {
+  if (!isRecord(value)) return false
+  const { skinSize, elements } = value
+  if (!isRecord(skinSize) || typeof skinSize.x !== 'number' || typeof skinSize.y !== 'number') return false
+  return Array.isArray(elements) && elements.every(isRecord)
+}
+
+function parseCpmConfig(configText: string): CPMConfig {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(configText)
+  } catch {
+    throw new Error(INVALID_CONFIG_MESSAGE)
+  }
+  if (!isValidCpmConfig(parsed)) throw new Error(INVALID_CONFIG_MESSAGE)
+
+  return parsed
+}
+
+export async function readCpmProjectZip(data: Uint8Array): Promise<CpmProjectZip> {
   const zip = await JSZip.loadAsync(data)
 
   const configFile = zip.file('config.json')

@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
-import { randomId } from '../utils/utils'
+import { randomId } from '@/06-shared/utils/utils'
 
 const props = withDefaults(defineProps<{
   options: DropdownOption[]

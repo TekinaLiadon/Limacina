@@ -10,7 +10,8 @@ import {
 } from '@/05-entities'
 import { authLogins, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import { reportError, type DropdownOption } from '@/06-shared'
-import { finalizeSession, useLaunchStepsStream } from '@/04-features'
+import { finalizeSession } from '@/04-features/accounts/finalizeSession'
+import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 
 export function useProjectSwitch() {
   const coreStore = useCoreStore()

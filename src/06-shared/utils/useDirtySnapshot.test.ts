@@ -60,4 +60,22 @@ describe('useDirtySnapshot', () => {
     state.captureBaseline()
     expect(state.isDirty.value).toBe(false)
   })
+
+  it('patches a single baseline field without absorbing unrelated edits', () => {
+    const first = ref('a')
+    const second = ref('b')
+    const state = useDirtySnapshot(() => ({ first: first.value, second: second.value }))
+    state.captureBaseline()
+
+    second.value = 'edited'
+    expect(state.isDirty.value).toBe(true)
+
+    first.value = 'synced'
+    state.patchBaseline({ first: first.value })
+
+    expect(state.isDirty.value).toBe(true)
+
+    second.value = 'b'
+    expect(state.isDirty.value).toBe(false)
+  })
 })

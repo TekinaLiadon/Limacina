@@ -1,5 +1,5 @@
 export { useCoreStore } from './core/coreStore'
-export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, isPasswordConfirmed } from './core/authPolicy'
+export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, isPasswordConfirmed, AUTH_LOGIN_TAB, AUTH_REGISTER_TAB } from './core/authPolicy'
 export { LOADER_LABELS } from './core/loaders'
 export type {
   CoreState,
@@ -39,6 +39,7 @@ export type {
   CPMAnimation,
   CPMAnimationKind,
   CPMAnimationFrame,
+  CPMAnimationFrameComponent,
   CPMAnimationInterpolator,
   CPMData,
   GameOptions,

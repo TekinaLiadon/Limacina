@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { IconButton, Tooltip } from '@/06-shared'
 import { useSettingsNav } from '@/04-features'
-import type { TabItem, TabKey } from '@/03-widgets/types'
+import type { TabItem } from '@/03-widgets/types'
+import type { TabKey } from '@/05-entities'
 
 const props = defineProps<{
   activeTab: TabKey

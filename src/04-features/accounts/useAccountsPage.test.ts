@@ -27,18 +27,26 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   getSessionInfo: vi.fn(),
 }))
 
-vi.mock('@/04-features', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/04-features')>()),
+vi.mock('@/04-features/game-launch/useGameLaunch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/04-features/game-launch/useGameLaunch')>()),
   useGameLaunch: () => ({
     launchSteps: computed((): [] => []),
     activeProgress: computed((): number => 0),
     executeSteps: stubs.executeSteps,
   }),
+}))
+
+vi.mock('@/04-features/integrity-check/useIntegrityCheck', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/04-features/integrity-check/useIntegrityCheck')>()),
+  isIntegrityCheckRunning: (...args: unknown[]) => stubs.isIntegrityCheckRunning(...args),
+}))
+
+vi.mock('@/04-features', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/04-features')>()),
   useSystemNotifications: () => ({
     sendSystemNotification: stubs.sendSystemNotification,
     startSystemNotifications: async (): Promise<void> => {},
   }),
-  isIntegrityCheckRunning: (...args: unknown[]) => stubs.isIntegrityCheckRunning(...args),
 }))
 
 const makeProjectConfig = (online: boolean): ProjectConfig => ({

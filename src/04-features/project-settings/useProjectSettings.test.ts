@@ -25,6 +25,7 @@ import { withSetup } from '@/test-support/withSetup'
 const api = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
   selectDirectory: vi.fn(),
+  probeJavaVersion: vi.fn(),
 }))
 
 const router = vi.hoisted(() => ({
@@ -40,6 +41,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   deleteProject: vi.fn(),
   getServerConnectUrl: vi.fn(),
   loadSettingsProject: vi.fn(),
+  probeJavaVersion: api.probeJavaVersion,
   refreshManifests: vi.fn(),
   saveSettingsProject: vi.fn(),
 }))
@@ -102,6 +104,7 @@ describe('useProjectSettings', () => {
     vi.mocked(loadSettingsProject).mockReset()
     vi.mocked(refreshManifests).mockReset()
     vi.mocked(saveSettingsProject).mockReset()
+    api.probeJavaVersion.mockReset()
     api.copyToClipboard.mockReset()
     api.selectDirectory.mockReset()
     useCoreStore().currentProject = 'proj'
@@ -166,6 +169,29 @@ describe('useProjectSettings', () => {
     expect(settings.isLoaded.value).toBe(false)
     expect(settings.isLoading.value).toBe(false)
     expect(settings.loadError.value).toBe('config locked')
+    expect(useProjectSettingsStore().config.projectName).toBe('')
+  })
+
+  it('shows the loading state without the previous project values while a retry is in flight', async () => {
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(loadSettingsProject).mockImplementationOnce(
+      () =>
+        new Promise<ProjectConfig>((resolve) => {
+          release = (): void => resolve(makeProjectConfig())
+        }),
+    )
+
+    const pending = settings.retryLoad()
+
+    expect(settings.isLoading.value).toBe(true)
+    expect(useProjectSettingsStore().config.projectName).toBe('')
+
+    release()
+    await pending
+
+    expect(settings.isLoading.value).toBe(false)
+    expect(useProjectSettingsStore().config.projectName).toBe('proj')
   })
 
   it('picks the folder into the java path field', async () => {
@@ -176,6 +202,29 @@ describe('useProjectSettings', () => {
 
     expect(useProjectSettingsStore().config.javaPath).toBe('/custom/java')
     expect(settings.isDirty.value).toBe(true)
+  })
+
+  it('probes the java version right after the folder is picked', async () => {
+    const settings = await loadReady()
+    api.selectDirectory.mockResolvedValueOnce('/custom/java')
+    api.probeJavaVersion.mockResolvedValueOnce(21)
+
+    await settings.selectJavaFolder()
+
+    expect(api.probeJavaVersion).toHaveBeenCalledWith('/custom/java')
+    expect(useProjectSettingsStore().config.javaVersion).toBe(21)
+  })
+
+  it('falls back to an unknown java version when the probe fails', async () => {
+    const settings = await loadReady()
+    api.selectDirectory.mockResolvedValueOnce('/broken/java')
+    api.probeJavaVersion.mockRejectedValueOnce(new Error('no java found'))
+
+    await settings.selectJavaFolder()
+
+    expect(useProjectSettingsStore().config.javaPath).toBe('/broken/java')
+    expect(useProjectSettingsStore().config.javaVersion).toBeNull()
+    expect(useNotificationStore().message).toBe('no java found')
   })
 
   it('keeps the dirty baseline when the settings page remounts', async () => {
@@ -197,7 +246,9 @@ describe('useProjectSettings', () => {
     vi.mocked(loadSettingsProject).mockResolvedValue(
       makeProjectConfig({ loaderVersion: '9.9.9', javaPath: '/fresh/java' }),
     )
-    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    vi.mocked(saveSettingsProject).mockResolvedValue(
+      makeProjectConfig({ loaderVersion: '9.9.9', javaPath: '/local/java' }),
+    )
 
     useProjectSettingsStore().config.javaPath = '/local/java'
     await settings.handleSave()
@@ -220,10 +271,26 @@ describe('useProjectSettings', () => {
     expect(settings.isSaving.value).toBe(false)
   })
 
+  it('refreshes the form from the server response after the save', async () => {
+    const settings = await loadReady()
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    vi.mocked(saveSettingsProject).mockResolvedValue(
+      makeProjectConfig({ javaVersion: 21, minMemory: '-Xms1024M', maxMemory: '-Xmx4096M' }),
+    )
+
+    useProjectSettingsStore().config.memoryRange = [1024, 4096]
+    await settings.handleSave()
+
+    expect(useProjectSettingsStore().config.javaVersion).toBe(21)
+    expect(useCoreStore().projectConfig?.javaVersion).toBe(21)
+    expect(useNotificationStore().message).toBe('Настройки сохранены')
+    expect(settings.isDirty.value).toBe(false)
+  })
+
   it('splits the jvm args and applies the memory range when edited', async () => {
     const settings = await loadReady()
     vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
-    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    vi.mocked(saveSettingsProject).mockResolvedValue(makeProjectConfig())
     const store = useProjectSettingsStore()
 
     store.config.jvmArgs = ' -Xms512M, -XX:+UseG1GC ,, '
@@ -242,7 +309,7 @@ describe('useProjectSettings', () => {
   it('splits space-separated jvm args into separate argv entries', async () => {
     const settings = await loadReady()
     vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
-    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    vi.mocked(saveSettingsProject).mockResolvedValue(makeProjectConfig())
     useProjectSettingsStore().config.jvmArgs = '-Xms512M -XX:+UseG1GC'
 
     await settings.handleSave()
@@ -264,7 +331,7 @@ describe('useProjectSettings', () => {
 
   it('blocks the save while the edited jvm args contain quotes', async () => {
     const settings = await loadReady()
-    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    vi.mocked(saveSettingsProject).mockResolvedValue(makeProjectConfig())
     useProjectSettingsStore().config.jvmArgs = '"-Xmx2G"'
 
     await settings.handleSave()
@@ -277,7 +344,7 @@ describe('useProjectSettings', () => {
     vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ jvmArgs: ['"-Xmx2G"'] }))
     const settings = setupSettings()
     await vi.waitFor(() => expect(useProjectSettingsStore().isLoaded).toBe(true))
-    vi.mocked(saveSettingsProject).mockResolvedValue(undefined)
+    vi.mocked(saveSettingsProject).mockResolvedValue(makeProjectConfig())
 
     expect(settings.jvmArgsError.value).not.toBe('')
     await settings.handleSave()
@@ -298,8 +365,8 @@ describe('useProjectSettings', () => {
     let release: () => void = () => {}
     vi.mocked(saveSettingsProject).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          release = resolve
+        new Promise<ProjectConfig>((resolve) => {
+          release = (): void => resolve(makeProjectConfig())
         }),
     )
     useProjectSettingsStore().config.javaPath = '/local/java'
@@ -334,6 +401,7 @@ describe('useProjectSettings', () => {
     const settings = await loadReady()
     vi.mocked(saveSettingsProject).mockImplementation(async () => {
       core.currentProject = 'beta'
+      return makeProjectConfig({ projectName: 'beta' })
     })
     useProjectSettingsStore().config.javaPath = '/local/java'
 

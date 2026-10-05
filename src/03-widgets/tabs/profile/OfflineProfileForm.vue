@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Button, Checkbox, Dropdown, Input, type DropdownOption } from '@/06-shared'
+import { Checkbox, Dropdown, Input, type DropdownOption } from '@/06-shared'
+import ProfileFormShell from './ProfileFormShell.vue'
 import type { OfflineProfileForm as OfflineForm } from '@/05-entities'
 
-const props = defineProps<{
+defineProps<{
   form: OfflineForm
   mcVersionOptions: DropdownOption[]
   loaderOptions: DropdownOption[]
@@ -21,22 +22,20 @@ const emit = defineEmits<{
   submit: []
   back: []
 }>()
-
-const handleSubmit = (): void => {
-  if (props.isSubmitting || !props.isValid) return
-  emit('submit')
-}
 </script>
 
 <template>
-  <form class="offline-profile" @submit.prevent="handleSubmit">
-    <div class="offline-profile__head">
-      <h2 class="offline-profile__title heading-display">Одиночная игра</h2>
-      <p class="offline-profile__subtitle">
-        Локальный профиль: сервер не используется, файлы не синхронизируются
-      </p>
-    </div>
-
+  <ProfileFormShell
+    title="Одиночная игра"
+    subtitle="Локальный профиль: сервер не используется, файлы не синхронизируются"
+    submit-label="Создать профиль"
+    :is-submitting="isSubmitting"
+    :is-valid="isValid"
+    :error-message="errorMessage"
+    :can-go-back="canGoBack"
+    @submit="emit('submit')"
+    @back="emit('back')"
+  >
     <Input
       :model-value="form.name"
       @update:model-value="emit('update:form', { ...form, name: $event })"
@@ -79,46 +78,21 @@ const handleSubmit = (): void => {
         :disabled="isLoadingLoaderVersions || loaderVersionOptions.length === 0"
       />
     </div>
-
-    <p v-if="errorMessage" class="offline-profile__error">{{ errorMessage }}</p>
-
-    <div class="offline-profile__actions">
-      <Button
-        class="btn-primary btn-lg btn-block"
-        type="submit"
-        :is-loading="isSubmitting"
-        :is-disabled="!isValid"
-      >
-        Создать профиль
-      </Button>
-      <Button
-        v-if="canGoBack"
-        class="btn-quiet btn-block"
-        @click="emit('back')"
-      >Назад</Button>
-    </div>
-  </form>
+  </ProfileFormShell>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
-.offline-profile {
+
+.offline-profile__field {
   display: flex;
   flex-direction: column;
-  gap: var(--element-gap);
+  gap: var(--space-8);
+}
 
-  @include mixins.form-head;
+.offline-profile__label {
+  @include mixins.eyebrow;
 
-  &__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-  }
-
-  &__label {
-    @include mixins.eyebrow;
-
-    text-align: left;
-  }
+  text-align: left;
 }
 </style>

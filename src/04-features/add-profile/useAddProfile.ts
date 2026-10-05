@@ -17,7 +17,7 @@ import {
   getMinecraftVersions,
 } from '@/06-shared/api'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
-import { finalizeSession } from '@/04-features'
+import { finalizeSession } from '@/04-features/accounts/finalizeSession'
 import { useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 
 const loaderOption = (value: ModLoaderKind): DropdownOption => ({

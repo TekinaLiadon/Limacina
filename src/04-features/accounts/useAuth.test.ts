@@ -170,12 +170,7 @@ describe('useAuth', () => {
 
     await auth.handleLogin()
 
-    expect(authLogin).toHaveBeenCalledWith({
-      projectName: 'proj',
-      username: 'user',
-      password: 'password',
-      rememberMe: true,
-    })
+    expect(authLogin).toHaveBeenCalledWith('proj', 'user', 'password', true)
     const coreStore = useCoreStore()
     expect(coreStore.session).toEqual({ uuid: 'u-1', username: 'user' })
     expect(coreStore.isLoggedIn).toBe(true)

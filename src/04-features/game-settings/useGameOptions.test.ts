@@ -52,7 +52,7 @@ describe('useGameOptions', () => {
       makeData({ fov: 90, gamma: 1.2 }, { hasGlobal: true }),
     )
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     expect(getGameOptions).toHaveBeenCalledWith('proj')
     expect(options.options.value.fov).toBe(90)
@@ -77,6 +77,22 @@ describe('useGameOptions', () => {
     expect(options.loadError.value).toBe('')
     expect(options.options.value.fov).toBe(90)
     expect(options.options.value.renderDistance).toBe(DEFAULT_GAME_OPTIONS.renderDistance)
+    expect(options.isDirty.value).toBe(false)
+  })
+
+  it('resets the state to defaults when the load fails after a previous project', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({ fov: 90 }, { hasGlobal: true }))
+    const core = useCoreStore()
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    core.currentProject = 'beta'
+    vi.mocked(getGameOptions).mockRejectedValue(new Error('beta unreadable'))
+    await vi.waitFor(() => expect(options.loadError.value).toBe('beta unreadable'))
+
+    expect(options.options.value).toEqual(DEFAULT_GAME_OPTIONS)
+    expect(options.hasGlobal.value).toBe(false)
+    expect(options.availableResourcePacks.value).toEqual([])
     expect(options.isDirty.value).toBe(false)
   })
 
@@ -115,7 +131,7 @@ describe('useGameOptions', () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData())
     vi.mocked(saveGameOptions).mockResolvedValue(undefined)
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     options.options.value.fov = 110
     expect(options.isDirty.value).toBe(true)
@@ -123,7 +139,6 @@ describe('useGameOptions', () => {
     await options.handleSave()
 
     expect(saveGameOptions).toHaveBeenCalledWith('proj', expect.objectContaining({ fov: 110 }))
-    expect(options.fileExists.value).toBe(true)
     expect(useNotificationStore().message).toBe('Настройки игры сохранены')
     expect(options.isDirty.value).toBe(false)
     expect(options.isSaving.value).toBe(false)
@@ -136,7 +151,7 @@ describe('useGameOptions', () => {
       core.currentProject = 'beta'
     })
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     options.options.value.fov = 110
     await options.handleSave()
@@ -160,7 +175,7 @@ describe('useGameOptions', () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData())
     vi.mocked(saveGameOptions).mockRejectedValue(new Error('disk full'))
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     await options.handleSave()
 
@@ -172,7 +187,7 @@ describe('useGameOptions', () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData())
     vi.mocked(importGlobalGameOptions).mockResolvedValue(null)
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     await options.handleImportGlobal()
 
@@ -185,7 +200,7 @@ describe('useGameOptions', () => {
     const global: Partial<GameOptions> = { fov: 75, gamma: 0 }
     vi.mocked(importGlobalGameOptions).mockResolvedValue(global as GameOptions)
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     await options.handleImportGlobal()
 
@@ -196,11 +211,36 @@ describe('useGameOptions', () => {
     expect(useNotificationStore().message).toBe('Общие настройки подставлены, не забудьте сохранить')
   })
 
+  it('drops a stale import when the project switches during the request', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({ fov: 55 }))
+    const core = useCoreStore()
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    let releaseImport: (global: GameOptions | null) => void = () => {}
+    vi.mocked(importGlobalGameOptions).mockImplementationOnce(
+      () =>
+        new Promise<GameOptions | null>((resolve) => {
+          releaseImport = resolve
+        }),
+    )
+    const pending = options.handleImportGlobal()
+
+    core.currentProject = 'beta'
+    await vi.waitFor(() => expect(options.options.value.fov).toBe(55))
+
+    releaseImport({ ...DEFAULT_GAME_OPTIONS, fov: 33 })
+    await pending
+
+    expect(options.options.value.fov).toBe(55)
+    expect(useNotificationStore().message).toBe('')
+  })
+
   it('saves the options as global', async () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData())
     vi.mocked(saveGlobalGameOptions).mockResolvedValue(undefined)
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     await options.handleSaveGlobal()
 
@@ -213,7 +253,7 @@ describe('useGameOptions', () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData())
     vi.mocked(saveGlobalGameOptions).mockRejectedValue(new Error('denied'))
     const options = setupOptions()
-    await vi.waitFor(() => expect(options.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     await options.handleSaveGlobal()
 
@@ -224,7 +264,7 @@ describe('useGameOptions', () => {
   it('registers the dirty tab in the settings registry and cleans up on unmount', async () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData())
     const { result, unmount } = withSetup(() => useGameOptions())
-    await vi.waitFor(() => expect(result.fileExists.value).toBe(true))
+    await vi.waitFor(() => expect(result.isLoading.value).toBe(false))
     const registry = useSettingsDirtyStore()
     expect(registry.hasDirtyTabs).toBe(false)
 

@@ -179,7 +179,7 @@ export function useSkinViewer(
   watch(skinUrl, (url: string) => {
     if (url) loadModel(url)
     else clearModel()
-  })
+  }, { immediate: true })
 
   watch(slim, () => {
     rebuildModel()

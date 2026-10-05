@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AuthSubTab, LoginForm, RegisterForm } from '../core/types'
+import { AUTH_LOGIN_TAB } from '../core/authPolicy'
 
 export interface AccountsState {
   isLoading: boolean
@@ -42,7 +43,7 @@ export const useAccountsStore = defineStore('accounts', {
     },
 
     showAuthForm: false,
-    activeSubTab: 'login' as AuthSubTab,
+    activeSubTab: AUTH_LOGIN_TAB,
     isSwitching: false,
   }),
   actions: {
@@ -65,7 +66,7 @@ export const useAccountsStore = defineStore('accounts', {
       this.loginFormData = { username: '', password: '', rememberMe: false }
       this.registerFormData = { login: '', password: '', confirmPassword: '' }
       this.closeAuthForm()
-      this.activeSubTab = 'login'
+      this.activeSubTab = AUTH_LOGIN_TAB
     },
   },
 })

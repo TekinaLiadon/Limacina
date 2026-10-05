@@ -57,7 +57,6 @@ export function useGameOptions(): {
   isSavingGlobal: Ref<boolean>
   isDirty: ComputedRef<boolean>
   hasGlobal: Ref<boolean>
-  fileExists: Ref<boolean>
   availableResourcePacks: Ref<string[]>
   loadOptions: (project: string, force?: boolean) => Promise<void>
   retryLoad: () => Promise<void>
@@ -74,7 +73,6 @@ export function useGameOptions(): {
   const isSaving = ref<boolean>(false)
   const isSavingGlobal = ref<boolean>(false)
   const hasGlobal = ref<boolean>(false)
-  const fileExists = ref<boolean>(false)
   const availableResourcePacks = ref<string[]>([])
   const dirtyState = useDirtySnapshot((): GameOptions => options.value)
   let loadedProject = ''
@@ -102,12 +100,15 @@ export function useGameOptions(): {
       if (generation !== loadGeneration) return
       options.value = { ...cloneDefaults(), ...data.options }
       hasGlobal.value = data.hasGlobal
-      fileExists.value = data.fileExists
       availableResourcePacks.value = data.availableResourcePacks
       loadedProject = project
       dirtyState.captureBaseline()
     } catch (e: unknown) {
       if (generation !== loadGeneration) return
+      options.value = cloneDefaults()
+      hasGlobal.value = false
+      availableResourcePacks.value = []
+      dirtyState.captureBaseline()
       loadError.value = getErrorMessage(e)
       reportError('Не удалось загрузить настройки игры', e)
     } finally {
@@ -124,8 +125,10 @@ export function useGameOptions(): {
 
   const handleImportGlobal = async (): Promise<void> => {
     if (isLoading.value) return
+    const generation = ++loadGeneration
     try {
       const global = await importGlobalGameOptions()
+      if (generation !== loadGeneration) return
       if (!global) {
         notification.show('Общие настройки не найдены')
         return
@@ -133,6 +136,7 @@ export function useGameOptions(): {
       options.value = { ...cloneDefaults(), ...global }
       notification.show('Общие настройки подставлены, не забудьте сохранить')
     } catch (e: unknown) {
+      if (generation !== loadGeneration) return
       notification.show(getErrorMessage(e))
     }
   }
@@ -145,7 +149,6 @@ export function useGameOptions(): {
     try {
       await saveGameOptions(project, options.value)
       if (coreStore.currentProject !== project) return
-      fileExists.value = true
       dirtyState.captureBaseline()
       notification.show('Настройки игры сохранены')
     } catch (e: unknown) {
@@ -178,7 +181,6 @@ export function useGameOptions(): {
     isSavingGlobal,
     isDirty,
     hasGlobal,
-    fileExists,
     availableResourcePacks,
     loadOptions,
     retryLoad,

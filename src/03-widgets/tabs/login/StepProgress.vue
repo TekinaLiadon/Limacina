@@ -101,7 +101,11 @@ const animateHeight = async (): Promise<void> => {
   current.addEventListener('transitionend', onEnd)
 }
 
-onBeforeUnmount(detachHeightEnd)
+onBeforeUnmount((): void => {
+  detachHeightEnd()
+  const root = rootRef.value
+  if (root !== null) anime.remove(root.querySelectorAll('.step-progress__indicator'))
+})
 
 watch(
   () => props.steps.map(s => `${s.status}|${s.detail}|${s.error}`).join(';'),

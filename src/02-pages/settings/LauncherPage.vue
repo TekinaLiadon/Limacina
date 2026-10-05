@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useLauncherSettings } from '@/04-features'
-import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar } from '@/03-widgets'
+import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar, type LauncherBehaviorForm } from '@/03-widgets'
 import { useCoreStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
@@ -21,6 +22,31 @@ const {
   selectLauncherFolder,
   handleSave,
 } = useLauncherSettings()
+
+const behaviorForm = computed<LauncherBehaviorForm>({
+  get: () => ({
+    discordActivity: discordActivity.value,
+    autoUpdate: autoUpdate.value,
+    keepOldConfigs: keepOldConfigs.value,
+    startWithSystem: startWithSystem.value,
+    closeAfterLaunch: closeAfterLaunch.value,
+    minimizeToTray: minimizeToTray.value,
+    systemNotifications: systemNotifications.value,
+    debugMode: debugMode.value,
+    downloadSpeedLimit: downloadSpeedLimitInput.value,
+  }),
+  set: (value) => {
+    discordActivity.value = value.discordActivity
+    autoUpdate.value = value.autoUpdate
+    keepOldConfigs.value = value.keepOldConfigs
+    startWithSystem.value = value.startWithSystem
+    closeAfterLaunch.value = value.closeAfterLaunch
+    minimizeToTray.value = value.minimizeToTray
+    systemNotifications.value = value.systemNotifications
+    debugMode.value = value.debugMode
+    downloadSpeedLimitInput.value = value.downloadSpeedLimit
+  },
+})
 </script>
 
 <template>
@@ -37,26 +63,7 @@ const {
       </div>
     </SettingsSection>
 
-    <LauncherBehavior
-      :discord-activity="discordActivity"
-      :auto-update="autoUpdate"
-      :keep-old-configs="keepOldConfigs"
-      :start-with-system="startWithSystem"
-      :close-after-launch="closeAfterLaunch"
-      :minimize-to-tray="minimizeToTray"
-      :system-notifications="systemNotifications"
-      :debug-mode="debugMode"
-      :download-speed-limit="downloadSpeedLimitInput"
-      @update:discord-activity="discordActivity = $event"
-      @update:auto-update="autoUpdate = $event"
-      @update:keep-old-configs="keepOldConfigs = $event"
-      @update:start-with-system="startWithSystem = $event"
-      @update:close-after-launch="closeAfterLaunch = $event"
-      @update:minimize-to-tray="minimizeToTray = $event"
-      @update:system-notifications="systemNotifications = $event"
-      @update:debug-mode="debugMode = $event"
-      @update:download-speed-limit="downloadSpeedLimitInput = $event"
-    />
+    <LauncherBehavior v-model:form="behaviorForm" />
 
     <SettingsSection title="Внешний вид" storage-key="launcher-appearance">
       <AnimationToggle />

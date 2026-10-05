@@ -199,12 +199,12 @@ function flatten(config: CPMConfig): FlatModel {
   return { cubes, elementIds }
 }
 
-export async function cpmProjectToBytes(data: ArrayBuffer): Promise<Uint8Array> {
+export async function cpmProjectToBytes(data: Uint8Array): Promise<Uint8Array> {
   const { config, skinPng } = await readCpmProjectZip(data)
   return cpmConfigToBytes(config, skinPng)
 }
 
-export async function cpmProjectToLinkBase64(data: ArrayBuffer): Promise<string> {
+export async function cpmProjectToLinkBase64(data: Uint8Array): Promise<string> {
   const { config, skinPng } = await readCpmProjectZip(data)
   return bytesToBase64(cpmConfigToLinkBytes(config, skinPng))
 }

@@ -125,6 +125,7 @@ export const useProjectSettingsStore = defineStore('projectSettings', {
 
     startLoading(project: string): void {
       this.loadingProject = project
+      this.config = defaultForm()
       this.loadError = ''
       this.isLoaded = false
       this.baseline = null

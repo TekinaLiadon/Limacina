@@ -11,7 +11,7 @@ export interface CpmProject {
   animations: CPMAnimation[]
 }
 
-export async function parseCpmProjectFile(data: ArrayBuffer): Promise<CpmProject> {
+export async function parseCpmProjectFile(data: Uint8Array): Promise<CpmProject> {
   const { zip, config, skinPng } = await readCpmProjectZip(data)
   if (skinPng === null) throw new Error('Файл не содержит skin.png')
 

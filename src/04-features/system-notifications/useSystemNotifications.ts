@@ -6,11 +6,13 @@ const GAME_START_TITLE = 'Игра запущена'
 const gameStartBody = (username: string): string => `Сессия ${username} запущена — лаунчер ждёт в трее`
 const GAME_EXIT_OK_TITLE = 'Игра завершена'
 const GAME_EXIT_OK_BODY = 'Игра закрыта — лаунчер ждёт в трее'
+const PENDING_START_TTL_MS = 60_000
 
 let notificationsStarted = false
 let downloadRan = false
 let notificationIcon: string | null | undefined
 let pendingStartUsername: string | null = null
+let pendingStartAt = 0
 
 const resolveNotificationIcon = async (): Promise<string | null> => {
   if (notificationIcon === undefined) {
@@ -89,11 +91,13 @@ export function useSystemNotifications(): {
     const username = pendingStartUsername
     if (username === null) return
     pendingStartUsername = null
+    if (Date.now() - pendingStartAt > PENDING_START_TTL_MS) return
     await sendSystemNotification(GAME_START_TITLE, gameStartBody(username))
   }
 
   const handleGameStarted = async (username: string): Promise<void> => {
     pendingStartUsername = username
+    pendingStartAt = Date.now()
     if (!(await isWindowHidden())) return
     await sendStartNotification()
   }

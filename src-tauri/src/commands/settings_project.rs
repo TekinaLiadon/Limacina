@@ -1,11 +1,14 @@
 use crate::utils::errors::LauncherError;
 use anyhow::{bail, Context, Result};
+use std::path::PathBuf;
 use tokio::sync::Mutex;
 
 use crate::init::init_project_config;
+use crate::java::find_java_executable;
 use crate::log_info;
 use crate::state::config::{load_config, update_project_config};
 use crate::state::dto::{GlobalState, ProjectConfig};
+use crate::utils::blocking;
 use crate::utils::env_info::launcher_path;
 use crate::utils::tauri_err::CommandResult;
 
@@ -13,20 +16,66 @@ use crate::utils::tauri_err::CommandResult;
 pub async fn save_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     config: ProjectConfig,
-) -> CommandResult<()> {
-    save_project_settings(&state, config).await?;
-    Ok(())
+) -> CommandResult<ProjectConfig> {
+    let saved = save_project_settings(&state, config).await?;
+    Ok(saved)
 }
 
-async fn save_project_settings(state: &Mutex<GlobalState>, config: ProjectConfig) -> Result<()> {
-    update_project_config(state, async |stored: &mut ProjectConfig| {
+async fn save_project_settings(
+    state: &Mutex<GlobalState>,
+    config: ProjectConfig,
+) -> Result<ProjectConfig> {
+    let saved = update_project_config(state, async |stored: &mut ProjectConfig| {
         let mut incoming = config;
         incoming.java_version = resolve_saved_java_version(&incoming).await;
         *stored = incoming;
         Ok(())
     })
     .await?;
-    Ok(())
+    Ok(saved)
+}
+
+fn extract_java_major(output: &str) -> Option<u32> {
+    let start = output.find('"')? + 1;
+    let rest = &output[start..];
+    let end = rest.find('"')?;
+    let version = rest[..end].trim();
+    let mut parts = version.split('.');
+    let first = parts.next()?.trim();
+    if first == "1" {
+        parts.next()?.trim().parse().ok()
+    } else {
+        first.parse().ok()
+    }
+}
+
+#[tauri::command]
+pub async fn probe_java_version(path: String) -> CommandResult<Option<u32>> {
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(LauncherError::Java(format!(
+            "Папка {path} не существует или недоступна"
+        ))
+        .into());
+    }
+    let executable = blocking("Поиск Java в выбранной папке", move || {
+        find_java_executable(&dir)
+    })
+    .await?
+    .context("В выбранной папке не найден исполняемый файл Java (bin/java)")?;
+    let output = tokio::process::Command::new(&executable)
+        .arg("-version")
+        .output()
+        .await
+        .context("Не удалось запустить java -version")?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let major = extract_java_major(&text)
+        .ok_or_else(|| anyhow::anyhow!("Не удалось определить версию Java в выбранной папке"))?;
+    Ok(Some(major))
 }
 
 async fn resolve_saved_java_version(config: &ProjectConfig) -> Option<u32> {
@@ -122,8 +171,8 @@ async fn clear_minecraft_config_inner(
 
 #[cfg(test)]
 mod save_settings_tests {
-    use super::save_project_settings;
-    use crate::state::config::{load_config, update_project_config};
+    use super::{extract_java_major, save_project_settings};
+    use crate::state::config::update_project_config;
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::LauncherDirGuard;
     use std::time::Duration;
@@ -161,12 +210,23 @@ mod save_settings_tests {
             save_project_settings(&state, payload),
         );
         update_result.expect("мутация java_path");
-        save_result.expect("сохранение настроек");
-
-        let saved = load_config("RaceSave").await.expect("чтение конфига");
+        let saved = save_result.expect("сохранение настроек");
         assert_eq!(
             saved.max_memory, "-Xmx8G",
             "параллельное сохранение настроек не должно теряться"
         );
+    }
+
+    #[test]
+    fn extracts_major_from_java_version_output() {
+        assert_eq!(
+            extract_java_major(r#"openjdk version "21.0.3" 2024-04-16"#),
+            Some(21)
+        );
+        assert_eq!(
+            extract_java_major(r#"java version "1.8.0_392""#),
+            Some(8)
+        );
+        assert_eq!(extract_java_major("no version here"), None);
     }
 }

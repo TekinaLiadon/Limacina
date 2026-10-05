@@ -257,6 +257,23 @@ describe('useSystemNotifications', () => {
       await vi.waitFor(() => expect(api.sendOsNotification).not.toHaveBeenCalled())
     })
 
+    it('drops the stale start notification once the pending username outlives the ttl', async () => {
+      vi.useFakeTimers()
+      try {
+        await start()
+
+        await emitStarted?.('alice')
+        await vi.advanceTimersByTimeAsync(90_000)
+
+        setVisibility('hidden')
+        await vi.advanceTimersByTimeAsync(0)
+
+        expect(api.sendOsNotification).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('sends nothing when system notifications are disabled', async () => {
       useCoreStore().launcherConfig = makeLauncherConfig(false)
       windowApi.minimized = true

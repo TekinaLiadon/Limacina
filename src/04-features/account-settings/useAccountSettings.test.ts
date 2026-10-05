@@ -61,6 +61,32 @@ describe('useAccountSettings', () => {
     expect(settings.isOffline.value).toBe(true)
   })
 
+  it('disables the submit for an offline project even with a valid form', () => {
+    const core = useCoreStore()
+    core.projectConfig = makeProjectConfig(false)
+    const settings = useAccountSettings()
+    settings.oldPassword.value = 'oldpassword'
+    settings.newPassword.value = 'newpassword'
+    settings.confirmPassword.value = 'newpassword'
+
+    expect(settings.isFormValid.value).toBe(true)
+    expect(settings.isSubmitDisabled.value).toBe(true)
+  })
+
+  it('enables the submit for an online project only with a valid form', () => {
+    const core = useCoreStore()
+    core.projectConfig = makeProjectConfig(true)
+    const settings = useAccountSettings()
+
+    expect(settings.isSubmitDisabled.value).toBe(true)
+
+    settings.oldPassword.value = 'oldpassword'
+    settings.newPassword.value = 'newpassword'
+    settings.confirmPassword.value = 'newpassword'
+
+    expect(settings.isSubmitDisabled.value).toBe(false)
+  })
+
   it('treats an empty confirmation as matching', () => {
     const settings = useAccountSettings()
     settings.newPassword.value = 'newpassword'

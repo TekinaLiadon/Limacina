@@ -118,6 +118,98 @@ describe('parseCpmAnimations', () => {
     expect(reportError).toHaveBeenCalledWith(expect.stringContaining('broken.json'))
   })
 
+  it('reports non-object animation bodies as broken instead of crashing', async () => {
+    const zip = await buildZip({
+      'animations/ok.json': JSON.stringify({ name: 'Ok' }),
+      'animations/null.json': 'null',
+      'animations/list.json': '[1, 2]',
+    })
+
+    const animations = await parseCpmAnimations(zip)
+
+    expect(animations).toHaveLength(1)
+    expect(animations[0]?.id).toBe('ok.json')
+    expect(reportError).toHaveBeenCalledOnce()
+    expect(reportError).toHaveBeenCalledWith(expect.stringContaining('null.json'))
+    expect(reportError).toHaveBeenCalledWith(expect.stringContaining('list.json'))
+  })
+
+  it('falls back to defaults for wrongly typed scalar fields', async () => {
+    const zip = await buildZip({
+      'animations/scalars.json': JSON.stringify({
+        name: 5,
+        duration: '800',
+        priority: null,
+        loop: 'yes',
+        additive: 0,
+        hidden: 1,
+      }),
+    })
+
+    const animations = await parseCpmAnimations(zip)
+
+    expect(animations[0]).toMatchObject({
+      name: 'Unnamed',
+      duration: 1000,
+      priority: 0,
+      loop: false,
+      additive: true,
+      hidden: false,
+    })
+  })
+
+  it('sanitizes damaged frame structures to plain component lists', async () => {
+    const zip = await buildZip({
+      'animations/frames.json': JSON.stringify({
+        name: 'Frames',
+        frames: [
+          {
+            components: [
+              {
+                storeID: 3,
+                pos: { x: 1, y: 2, z: 3 },
+                rotation: { x: 0, y: 0, z: 0 },
+                scale: { x: 1, y: 1, z: 1 },
+                show: true,
+              },
+              { storeID: 'head' },
+              { storeID: 4, pos: { x: 1 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: 1 },
+            ],
+          },
+          { components: 'all' },
+          5,
+        ],
+      }),
+    })
+
+    const animations = await parseCpmAnimations(zip)
+
+    expect(animations).toHaveLength(1)
+    expect(animations[0]?.frames).toEqual([
+      {
+        components: [
+          {
+            storeID: 3,
+            pos: { x: 1, y: 2, z: 3 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            show: true,
+          },
+        ],
+      },
+    ])
+  })
+
+  it('uses an empty frame list when frames are not an array', async () => {
+    const zip = await buildZip({
+      'animations/no-frames.json': JSON.stringify({ name: 'NoFrames', frames: { all: true } }),
+    })
+
+    const animations = await parseCpmAnimations(zip)
+
+    expect(animations[0]?.frames).toEqual([])
+  })
+
   it('returns an empty list when the archive has no animations', async () => {
     const zip = await buildZip({ 'config.json': '{}' })
 

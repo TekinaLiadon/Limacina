@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   deleteModel,
@@ -39,8 +40,8 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   uploadModel: vi.fn(),
 }))
 
-vi.mock('@/04-features', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/04-features')>()),
+vi.mock('@/04-features/cpm-convert/cpmProjectExporter', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/04-features/cpm-convert/cpmProjectExporter')>()),
   cpmProjectToBytes: exporter.cpmProjectToBytes,
   cpmProjectToLinkBase64: exporter.cpmProjectToLinkBase64,
 }))
@@ -196,7 +197,7 @@ describe('useCpmSettings', () => {
   })
 
   it('opens the pending project file from the launch args', async () => {
-    const bytes = new ArrayBuffer(8)
+    const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue(makeProject())
     const core = useCoreStore()
@@ -211,7 +212,7 @@ describe('useCpmSettings', () => {
   })
 
   it('rejects an oversized pending project file with the dialog message', async () => {
-    vi.mocked(readCpmProjectFile).mockResolvedValue(new ArrayBuffer(3 * 1024 * 1024))
+    vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(3 * 1024 * 1024))
     const core = useCoreStore()
     const cpm = setupCpm()
 
@@ -225,7 +226,7 @@ describe('useCpmSettings', () => {
   })
 
   it('collects the layers skipping empty and hidden parts', async () => {
-    const bytes = new ArrayBuffer(8)
+    const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue({
       config: {
@@ -255,7 +256,7 @@ describe('useCpmSettings', () => {
   })
 
   it('uploads the model as a link and registers it in the game', async () => {
-    const bytes = new ArrayBuffer(8)
+    const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue(makeProject('slim'))
     vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
@@ -283,7 +284,7 @@ describe('useCpmSettings', () => {
   })
 
   it('surfaces the upload failure', async () => {
-    const bytes = new ArrayBuffer(8)
+    const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue(makeProject())
     vi.mocked(uploadModel).mockRejectedValue(new Error('bad archive'))
@@ -309,7 +310,7 @@ describe('useCpmSettings', () => {
   })
 
   it('saves the model into the game as raw bytes', async () => {
-    const bytes = new ArrayBuffer(8)
+    const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue(makeProject())
     vi.mocked(savePlayerModel).mockResolvedValue(undefined)
@@ -334,7 +335,7 @@ describe('useCpmSettings', () => {
   })
 
   it('resets the model after confirmation', async () => {
-    const bytes = new ArrayBuffer(8)
+    const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue(makeProject())
     const core = useCoreStore()
@@ -365,5 +366,50 @@ describe('useCpmSettings', () => {
     await pending
 
     expect(deleteModel).toHaveBeenCalledWith(4)
+  })
+
+  it('resets the loaded model and reloads the limit when the project switches', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    vi.mocked(getPlayerModelsLimit).mockClear()
+    vi.mocked(getPlayerModelsLimit).mockResolvedValue(7)
+    core.currentProject = 'other'
+    core.clearSessionState()
+    await nextTick()
+
+    expect(cpm.cpmData.value).toBeNull()
+    expect(cpm.uploadedModels.value).toEqual([])
+    expect(vi.mocked(URL.revokeObjectURL)).toHaveBeenCalledWith('blob:mock-texture')
+    await vi.waitFor(() => expect(cpm.modelsLimit.value).toBe(7))
+  })
+
+  it('drops the limit save result when the project switches mid-save', async () => {
+    let releaseSave: () => void = () => {}
+    vi.mocked(setPlayerModelsLimit).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSave = resolve
+        }),
+    )
+    const core = useCoreStore()
+    const cpm = setupCpm()
+    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
+
+    const pending = cpm.handleSaveModelsLimit(3)
+    core.currentProject = 'other'
+    await nextTick()
+    releaseSave()
+    await pending
+
+    expect(cpm.modelsLimit.value).toBeNull()
+    expect(cpm.isSavingLimit.value).toBe(false)
+    expect(cpm.limitSaveError.value).toBe('')
   })
 })

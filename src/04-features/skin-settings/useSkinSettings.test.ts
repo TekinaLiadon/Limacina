@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import {
@@ -17,6 +18,7 @@ import {
   useCoreStore,
   useNotificationStore,
   type ProjectConfig,
+  type SkinModelMode,
   type UserContentItem,
 } from '@/05-entities'
 import { useSkinSettings } from './useSkinSettings'
@@ -137,13 +139,24 @@ describe('useSkinSettings', () => {
     expect(getProfileSkin).toHaveBeenCalledWith('https://cdn/5.png')
   })
 
-  it('keeps the preview silent failure when the profile skin cannot load', async () => {
+  it('surfaces the profile skin load error to the user', async () => {
     goOnline()
     vi.mocked(listSkins).mockResolvedValue([makeSkin(1)])
     vi.mocked(getProfileSkin).mockRejectedValue(new Error('cache miss'))
     const skins = setupSkins()
 
-    await vi.waitFor(() => expect(console.error).toHaveBeenCalled())
+    await vi.waitFor(() => expect(skins.errorMessage.value).toBe('cache miss'))
+
+    expect(console.error).toHaveBeenCalled()
+    expect(skins.hasSkin.value).toBe(false)
+  })
+
+  it('surfaces the offline skin load error to the user', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockRejectedValue(new Error('disk gone'))
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(skins.errorMessage.value).toBe('disk gone'))
 
     expect(skins.hasSkin.value).toBe(false)
   })
@@ -220,6 +233,79 @@ describe('useSkinSettings', () => {
     await vi.waitFor(() => expect(saveOfflineSkin).toHaveBeenCalledTimes(1))
 
     expect(saveOfflineSkin).toHaveBeenCalledWith(expect.any(Uint8Array), 'slim')
+  })
+
+  it('serializes the offline skin writes when the model flips rapidly', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
+    let releaseFirst: () => void = () => {}
+    vi.mocked(saveOfflineSkin).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        }),
+    )
+    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+
+    skins.modelMode.value = 'slim'
+    await nextTick()
+    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
+
+    skins.modelMode.value = 'classic'
+    await nextTick()
+    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
+
+    releaseFirst()
+    await vi.waitFor(() => expect(saveOfflineSkin).toHaveBeenCalledTimes(2))
+
+    expect(saveOfflineSkin).toHaveBeenLastCalledWith(expect.any(Uint8Array), 'classic')
+  })
+
+  it('revokes the pending preview url when the page unmounts mid-decode', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([makeSkin(1, true)])
+    let releaseBitmap: () => void = () => {}
+    createImageBitmapMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseBitmap = resolve
+      })
+      return { width: 64, height: 64, close: () => {} }
+    })
+    const { result, unmount } = withSetup(() => useSkinSettings())
+    await vi.waitFor(() => expect(getProfileSkin).toHaveBeenCalled())
+
+    createObjectURLMock.mockReturnValueOnce('blob:pending')
+    unmount()
+    releaseBitmap()
+    await flushPromises()
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pending')
+    expect(result.skinUrl.value).toBe('')
+  })
+
+  it('revokes the pending offline skin url when the page unmounts mid-load', async () => {
+    goOffline()
+    let releaseModel: (model: SkinModelMode) => void = () => {}
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    vi.mocked(getOfflineSkinModel).mockImplementationOnce(
+      () =>
+        new Promise<SkinModelMode>((resolve) => {
+          releaseModel = resolve
+        }),
+    )
+    createObjectURLMock.mockReturnValueOnce('blob:pending-offline')
+    const { result, unmount } = withSetup(() => useSkinSettings())
+    await vi.waitFor(() => expect(getOfflineSkinModel).toHaveBeenCalled())
+
+    unmount()
+    releaseModel('classic')
+    await flushPromises()
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pending-offline')
+    expect(result.skinUrl.value).toBe('')
   })
 
   it('skips the offline persistence without skin bytes', async () => {
@@ -335,5 +421,69 @@ describe('useSkinSettings', () => {
     expect(skins.skinUrl.value).toBe('blob:current')
     expect(createObjectURLMock).toHaveBeenCalledTimes(2)
     expect(revokeObjectURLMock).not.toHaveBeenCalledWith('blob:current')
+  })
+
+  it('resets the preview and the list when the project switches', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([makeSkin(1, true)])
+    const core = useCoreStore()
+    core.currentProject = 'proj'
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
+    expect(skins.uploadedSkins.value).toHaveLength(1)
+
+    core.currentProject = 'other'
+    core.clearSessionState()
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe(''))
+
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-url')
+    expect(skins.uploadedSkins.value).toEqual([])
+    expect(skins.listError.value).toBe('')
+    expect(skins.isListLoading.value).toBe(false)
+  })
+
+  it('drops the stale preview response when the project switches mid-load', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([makeSkin(1, true)])
+    let releaseBytes: (bytes: Uint8Array) => void = () => {}
+    vi.mocked(getProfileSkin).mockImplementationOnce(
+      () =>
+        new Promise<Uint8Array>((resolve) => {
+          releaseBytes = resolve
+        }),
+    )
+    const core = useCoreStore()
+    core.currentProject = 'proj'
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(getProfileSkin).toHaveBeenCalled())
+
+    core.currentProject = 'other'
+    core.clearSessionState()
+    await nextTick()
+    releaseBytes(new Uint8Array([1, 2, 3]))
+    await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
+
+    expect(skins.skinUrl.value).toBe('')
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('reloads the offline skin when the project switches to an offline project', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([])
+    const core = useCoreStore()
+    core.currentProject = 'proj'
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
+    expect(skins.hasSkin.value).toBe(false)
+
+    core.projectConfig = makeProjectConfig(false)
+    core.currentProject = 'offline-proj'
+    core.clearSessionState()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
+
+    expect(getOfflineSkin).toHaveBeenCalledTimes(1)
+    expect(getProfileSkin).not.toHaveBeenCalled()
   })
 })

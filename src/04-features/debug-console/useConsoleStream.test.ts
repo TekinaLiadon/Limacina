@@ -67,6 +67,19 @@ describe('useConsoleStream', () => {
     expect(stream.streamError.value).toBe('')
   })
 
+  it('strips OSC sequences with both BEL and ST terminators', async () => {
+    api.getStartupLogs.mockResolvedValue([
+      { line: '\x1B]0;window title\x07after-bel', isError: false },
+      { line: '\x1B]8;;http://example.com\x1B\\after-st', isError: false },
+    ])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+
+    stream.setConsoleActive(true)
+
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['after-bel', 'after-st'])
+  })
+
   it('keeps the live lines in the backlog until the console opens', async () => {
     api.getStartupLogs.mockResolvedValue([])
     const stream = await loadStream()
@@ -95,6 +108,46 @@ describe('useConsoleStream', () => {
     await vi.advanceTimersByTimeAsync(500)
 
     expect(stream.logs.value.map((log) => log.line)).toEqual(['tick 1', 'tick 2'])
+  })
+
+  it('stops the flush timer once the buffer drains and restarts it on new lines', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    ingest?.({ line: 'tick 1', isError: false })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['tick 1'])
+    expect(vi.getTimerCount()).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(stream.logs.value).toHaveLength(1)
+
+    ingest?.({ line: 'tick 2', isError: false })
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['tick 1', 'tick 2'])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('caps the buffered lines while they outpace the flush', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    for (let i = 0; i < 2100; i += 1) {
+      ingest?.({ line: `line ${i}`, isError: false })
+    }
+    expect(vi.getTimerCount()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(500 * 25)
+
+    expect(stream.logs.value).toHaveLength(2000)
+    expect(stream.logs.value[0]?.line).toBe('line 100')
+    expect(stream.logs.value[1999]?.line).toBe('line 2099')
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('caps the kept lines at the limit while active', async () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useThemeSettings } from '@/04-features'
-import ThemeModeToggle from '../../theme/ThemeModeToggle.vue'
+import ThemeModeToggle from '@/03-widgets/theme/ThemeModeToggle.vue'
 
 const {
   families,

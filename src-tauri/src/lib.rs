@@ -50,6 +50,7 @@ use commands::profile::{
 };
 use commands::settings_project::clear_minecraft_config;
 use commands::settings_project::load_settings_project;
+use commands::settings_project::probe_java_version;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
 use commands::start::get_game_state;
@@ -244,6 +245,7 @@ pub fn run() {
             get_launch_state,
             save_settings_project,
             load_settings_project,
+            probe_java_version,
             clear_minecraft_config,
             get_game_options,
             save_game_options,

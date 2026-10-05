@@ -1,24 +1,20 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { Button, Input } from '@/06-shared'
 import { useAccountSettings } from '@/04-features'
 import SettingsInfoRow from './SettingsInfoRow.vue'
 
 const {
   username,
-  isOffline,
   oldPassword,
   newPassword,
   confirmPassword,
   passwordsMatch,
   isSamePassword,
-  isFormValid,
+  isSubmitDisabled,
   isChanging,
   errorMessage,
   handleChangePassword,
 } = useAccountSettings()
-
-const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value)
 </script>
 
 <template>
@@ -58,7 +54,7 @@ const isDisabled = computed((): boolean => isOffline.value || !isFormValid.value
       <Button
         class="btn-primary btn-lg account-settings__submit span-full"
         :is-loading="isChanging"
-        :is-disabled="isDisabled"
+        :is-disabled="isSubmitDisabled"
         @click="handleChangePassword"
       >
         Сменить пароль

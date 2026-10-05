@@ -2,8 +2,8 @@
 import { computed } from 'vue'
 import { Button, Input, Checkbox } from '@/06-shared'
 import { useAuth } from '@/04-features'
-import AuthForm from '../login/AuthForm.vue'
-import type { AuthSubTab } from '@/05-entities'
+import AuthForm from '@/03-widgets/tabs/login/AuthForm.vue'
+import { AUTH_LOGIN_TAB, AUTH_REGISTER_TAB, type AuthSubTab } from '@/05-entities'
 
 const props = defineProps<{
   activeTab: AuthSubTab
@@ -38,12 +38,12 @@ interface AuthButtonTab  {
 }
 
 const tabs: AuthButtonTab[] = [
-  {text: "Вход", key: "login" },
-  {text: "Регистрация", key: "register" }
+  {text: 'Вход', key: AUTH_LOGIN_TAB },
+  {text: 'Регистрация', key: AUTH_REGISTER_TAB }
 ]
 
 const showTabs = computed((): boolean => !isOffline.value)
-const currentTab = computed((): AuthSubTab => (isOffline.value ? 'login' : props.activeTab))
+const currentTab = computed((): AuthSubTab => (isOffline.value ? AUTH_LOGIN_TAB : props.activeTab))
 
 const switchTab = (tab: AuthSubTab): void => {
   if (tab === props.activeTab) return
@@ -68,7 +68,7 @@ const switchTab = (tab: AuthSubTab): void => {
 
     <div class="auth-tabs__content">
       <AuthForm
-        v-if="currentTab === 'login'"
+        v-if="currentTab === AUTH_LOGIN_TAB"
         v-model:username="loginFormData.username"
         v-model:password="loginFormData.password"
         :submit-label="isOffline ? 'Играть' : 'Войти'"

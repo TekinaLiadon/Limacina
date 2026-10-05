@@ -1,5 +1,5 @@
 import { computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, type AuthUserData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, AUTH_LOGIN_TAB } from '@/05-entities'
 import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
@@ -71,13 +71,12 @@ export function useAuth() {
     const projectName = coreStore.currentProject
 
     try {
-      const authData: AuthUserData = {
+      await authLogin(
         projectName,
-        username: store.loginFormData.username,
-        password: store.loginFormData.password,
-        rememberMe: store.loginFormData.rememberMe,
-      }
-      await authLogin(authData)
+        store.loginFormData.username,
+        store.loginFormData.password,
+        store.loginFormData.rememberMe
+      )
       if (coreStore.currentProject !== projectName) return
 
       const session = await getSessionInfo()
@@ -120,7 +119,7 @@ export function useAuth() {
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
       store.closeAuthForm()
-      store.activeSubTab = 'login'
+      store.activeSubTab = AUTH_LOGIN_TAB
     } catch (e: unknown) {
       if (coreStore.currentProject !== projectName) return
       errorMessage.value = getErrorMessage(e)

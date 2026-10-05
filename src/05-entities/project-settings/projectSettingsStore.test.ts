@@ -102,6 +102,20 @@ describe('useProjectSettingsStore', () => {
     expect(store.isLoaded).toBe(false)
   })
 
+  it('startLoading drops the previous project form values', () => {
+    const store = useProjectSettingsStore()
+    store.startLoading('Alpha')
+    store.applyLoaded('Alpha', makeForm())
+
+    store.startLoading('Beta')
+
+    expect(store.config.projectName).toBe('')
+    expect(store.config.mcVersion).toBe('')
+    expect(store.config.loaderVersion).toBe('')
+    expect(store.config.memoryRange).toEqual([512, 4096])
+    expect(store.isDirty).toBe(false)
+  })
+
   it('applyLoaded accepts the result for the project being loaded', () => {
     const store = useProjectSettingsStore()
     store.startLoading('Alpha')

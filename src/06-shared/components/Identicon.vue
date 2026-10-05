@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { generateIdenticon } from '../utils/identicon'
+import { generateIdenticon } from '@/06-shared/utils/identicon'
 
 const props = defineProps<{
   username: string

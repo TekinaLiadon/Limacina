@@ -39,4 +39,4 @@ export { default as SettingsSaveBar } from './tabs/settings/SettingsSaveBar.vue'
 
 export { default as ThemeSwitchAnimation } from './theme/ThemeSwitchAnimation.vue'
 
-export type { TabItem, TabKey } from './types'
+export type { TabItem, LauncherBehaviorForm } from './types'

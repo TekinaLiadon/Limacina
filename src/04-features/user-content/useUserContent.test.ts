@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { copyToClipboard } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type ProjectConfig, type UserContentItem } from '@/05-entities'
@@ -263,5 +264,49 @@ describe('useUserContent', () => {
     await content.handleCopyUrl('https://cdn/1.png')
 
     expect(content.errorMessage.value).toBe('Не удалось скопировать')
+  })
+
+  it('resets the list state when the project switches', async () => {
+    loginSession()
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+    api.list.mockResolvedValue([makeItem(1)])
+    await content.loadItems()
+    expect(content.items.value).toHaveLength(1)
+
+    core.currentProject = 'new'
+    core.clearSessionState()
+    await nextTick()
+
+    expect(content.items.value).toEqual([])
+    expect(content.isListLoading.value).toBe(false)
+    expect(content.listError.value).toBe('')
+    expect(api.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the stale list response when the project switches mid-load', async () => {
+    loginSession()
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+    let releaseFirst: (items: UserContentItem[]) => void = () => {}
+    api.list.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem[]>((resolve) => {
+          releaseFirst = resolve
+        }),
+    )
+
+    const pending = content.loadItems()
+    core.currentProject = 'new'
+    core.clearSessionState()
+    await nextTick()
+    releaseFirst([makeItem(1)])
+    await pending
+
+    expect(content.items.value).toEqual([])
+    expect(content.isListLoading.value).toBe(false)
+    expect(content.listError.value).toBe('')
   })
 })

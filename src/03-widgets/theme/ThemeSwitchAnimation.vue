@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import shigureGif from '@/01-app/assets/shigure-ui-smol.gif'
+import shigureGif from './assets/shigure-ui-smol.gif'
 
 defineProps<{
   visible: boolean

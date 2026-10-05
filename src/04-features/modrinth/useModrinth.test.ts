@@ -15,6 +15,7 @@ import {
   type ModrinthInstalledMod,
   type ModrinthSearchHit,
   type ModrinthSearchResult,
+  type ModrinthUpdateCheck,
 } from '@/05-entities'
 import { fetchModrinthProjectDetails, PAGE_SIZE, useModrinth } from './useModrinth'
 
@@ -379,5 +380,118 @@ describe('useModrinth', () => {
     expect(modrinthSearch).not.toHaveBeenCalled()
     expect(mods.query.value).toBe('')
     expect(mods.hits.value).toHaveLength(1)
+  })
+
+  it('drops the stale update-check response after a project switch', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    let releaseChecks: (checks: ModrinthUpdateCheck[]) => void = () => {}
+    vi.mocked(modrinthCheckUpdates).mockImplementationOnce(
+      () =>
+        new Promise<ModrinthUpdateCheck[]>((resolve) => {
+          releaseChecks = resolve
+        }),
+    )
+    vi.mocked(modrinthInstalled).mockResolvedValue([])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult())
+    const mods = useModrinth()
+
+    const pending = mods.checkForUpdates()
+    expect(mods.isCheckingUpdates.value).toBe(true)
+
+    core.currentProject = 'new'
+    await nextTick()
+    releaseChecks([{ project_id: 'a', current_version: '1.0', available_version: '2.0' }])
+    await pending
+
+    expect(mods.updates.value).toEqual({})
+    expect(mods.isCheckingUpdates.value).toBe(false)
+    expect(mods.actionError.value).toBe('')
+  })
+
+  it('clears the installing flag and skips the stale install work after a project switch', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    let releaseInstall: (result: ModrinthInstallResult) => void = () => {}
+    vi.mocked(modrinthInstall).mockImplementationOnce(
+      () =>
+        new Promise<ModrinthInstallResult>((resolve) => {
+          releaseInstall = resolve
+        }),
+    )
+    vi.mocked(modrinthInstalled).mockResolvedValue([])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult())
+    const mods = useModrinth()
+
+    const pending = mods.install('a')
+    expect(mods.installingId.value).toBe('a')
+
+    core.currentProject = 'new'
+    await nextTick()
+    expect(mods.installingId.value).toBeNull()
+
+    vi.mocked(modrinthInstalled).mockClear()
+    releaseInstall({ installed: ['a'], skipped: [] })
+    const installed = await pending
+
+    expect(installed).toBe(false)
+    expect(modrinthInstalled).not.toHaveBeenCalled()
+    expect(mods.updates.value).toEqual({})
+    expect(mods.actionError.value).toBe('')
+  })
+
+  it('keeps the failed install error of the old project out of the new one', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    let failInstall: (error: unknown) => void = () => {}
+    vi.mocked(modrinthInstall).mockImplementationOnce(
+      () =>
+        new Promise<ModrinthInstallResult>((_, reject) => {
+          failInstall = reject
+        }),
+    )
+    vi.mocked(modrinthInstalled).mockResolvedValue([])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult())
+    const mods = useModrinth()
+
+    const pending = mods.install('a')
+    core.currentProject = 'new'
+    await nextTick()
+
+    failInstall(new Error('disk full'))
+    const installed = await pending
+
+    expect(installed).toBe(false)
+    expect(mods.actionError.value).toBe('')
+  })
+
+  it('does not reload the installed list of the old project when a switch interrupts the uninstall', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    let releaseUninstall: () => void = () => {}
+    vi.mocked(modrinthUninstall).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseUninstall = resolve
+        }),
+    )
+    vi.mocked(modrinthInstalled)
+      .mockResolvedValueOnce([makeInstalled('fresh')])
+      .mockResolvedValueOnce([makeInstalled('stale')])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult())
+    const mods = useModrinth()
+    mods.updates.value = { a: '2.0' }
+
+    const pending = mods.uninstall('a')
+    core.currentProject = 'new'
+    await nextTick()
+    await vi.waitFor(() => expect(mods.installed.value.map((mod) => mod.project_id)).toEqual(['fresh']))
+
+    releaseUninstall()
+    await pending
+
+    expect(mods.installed.value.map((mod) => mod.project_id)).toEqual(['fresh'])
+    expect(mods.updates.value).toEqual({})
+    expect(mods.actionError.value).toBe('')
   })
 })

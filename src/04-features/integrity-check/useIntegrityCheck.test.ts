@@ -114,8 +114,52 @@ describe('useIntegrityCheck', () => {
     expect(check.errorMessage.value).toBe('')
   })
 
+  it('derives the report summary and the running phase', async () => {
+    useCoreStore().projectConfig = makeProjectConfig(false)
+    api.checkFilesIntegrity.mockResolvedValue(makeReport(['a', 'b']))
+    const { check } = await setupCheck()
+
+    expect(check.isCheckingNow.value).toBe(false)
+    expect(check.hasErrors.value).toBe(false)
+    expect(check.isClean.value).toBe(false)
+    expect(check.resultText.value).toBe('')
+
+    const pending = check.handleCheck()
+    expect(check.isCheckingNow.value).toBe(true)
+
+    await pending
+
+    expect(check.isCheckingNow.value).toBe(false)
+    expect(check.hasErrors.value).toBe(true)
+    expect(check.isClean.value).toBe(false)
+    expect(check.resultText.value).toBe('проверено: 10, повреждено: 2')
+  })
+
+  it('lists only the non-zero counters in the report summary', async () => {
+    useCoreStore().projectConfig = makeProjectConfig(false)
+    api.checkFilesIntegrity.mockResolvedValue({ total: 10, broken: 0, repaired: 3, missing: 2, failed: [] })
+    const { check } = await setupCheck()
+
+    await check.handleCheck()
+
+    expect(check.hasErrors.value).toBe(false)
+    expect(check.isClean.value).toBe(true)
+    expect(check.resultText.value).toBe('проверено: 10, отсутствовало: 2, восстановлено: 3')
+  })
+
   it('drops the server steps for an offline project', async () => {
     useCoreStore().projectConfig = makeProjectConfig(false)
+    api.checkFilesIntegrity.mockResolvedValue(makeReport())
+    const { check } = await setupCheck()
+
+    await check.handleCheck()
+
+    expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.filesCheck)
+    expect(check.steps.value).toHaveLength(5)
+  })
+
+  it('prefills only the vanilla plan while the project config is missing', async () => {
+    useCoreStore().projectConfig = null
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
 

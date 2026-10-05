@@ -35,6 +35,8 @@ export function useAccountSettings() {
     )
   })
 
+  const isSubmitDisabled = computed((): boolean => isOffline.value || !isFormValid.value)
+
   const resetForm = (): void => {
     oldPassword.value = ''
     newPassword.value = ''
@@ -88,6 +90,7 @@ export function useAccountSettings() {
     passwordsMatch,
     isSamePassword,
     isFormValid,
+    isSubmitDisabled,
     isChanging,
     errorMessage,
     resetForm,

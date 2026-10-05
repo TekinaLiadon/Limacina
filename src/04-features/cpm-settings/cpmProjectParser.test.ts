@@ -24,12 +24,12 @@ const config: CPMConfig = {
 
 const skinBytes = new Uint8Array([1, 2, 3, 4])
 
-async function buildZip(files: Record<string, string | Uint8Array>): Promise<ArrayBuffer> {
+async function buildZip(files: Record<string, string | Uint8Array>): Promise<Uint8Array> {
   const zip = new JSZip()
   for (const [path, content] of Object.entries(files)) {
     zip.file(path, content)
   }
-  return zip.generateAsync({ type: 'arraybuffer' })
+  return zip.generateAsync({ type: 'uint8array' })
 }
 
 describe('readCpmProjectZip', () => {
@@ -80,6 +80,37 @@ describe('readCpmProjectZip', () => {
   it('throws a clear error when config.json is missing elements', async () => {
     const data = await buildZip({
       'config.json': JSON.stringify({ skinSize: { x: 64, y: 64 } }),
+      'skin.png': skinBytes,
+    })
+
+    await expect(readCpmProjectZip(data)).rejects.toThrow('Некорректный config.json в файле проекта')
+  })
+
+  it('throws a clear error when config.json is not an object', async () => {
+    for (const body of ['null', '"text"', '[1, 2]']) {
+      const data = await buildZip({
+        'config.json': body,
+        'skin.png': skinBytes,
+      })
+
+      await expect(readCpmProjectZip(data)).rejects.toThrow('Некорректный config.json в файле проекта')
+    }
+  })
+
+  it('throws a clear error when skinSize is not an object of numbers', async () => {
+    for (const skinSize of ['64x64', { x: '64', y: 64 }, { x: 64 }]) {
+      const data = await buildZip({
+        'config.json': JSON.stringify({ skinSize, elements: [] }),
+        'skin.png': skinBytes,
+      })
+
+      await expect(readCpmProjectZip(data)).rejects.toThrow('Некорректный config.json в файле проекта')
+    }
+  })
+
+  it('throws a clear error when elements contain non-object entries', async () => {
+    const data = await buildZip({
+      'config.json': JSON.stringify({ skinSize: { x: 64, y: 64 }, elements: [null, 5, 'head'] }),
       'skin.png': skinBytes,
     })
 

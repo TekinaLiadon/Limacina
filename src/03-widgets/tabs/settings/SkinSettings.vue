@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { Button, Preloader } from '@/06-shared'
 import { useSkinSettings } from '@/04-features'
 import SkinViewer from './SkinViewer.vue'
@@ -13,6 +12,7 @@ const {
   isMutating,
   isSkinLoading,
   isOffline,
+  hasSkin,
   uploadedSkins,
   isListLoading,
   listError,
@@ -26,8 +26,6 @@ const {
   handleCopyUrl,
   resetSkin,
 } = useSkinSettings()
-
-const hasSkin = computed((): boolean => skinUrl.value !== '')
 
 const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   { value: 'classic', label: 'Классик' },

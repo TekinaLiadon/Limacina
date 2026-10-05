@@ -86,6 +86,7 @@ export interface StepProgressItem {
   label: string
   status: StepStatus
   skipped: boolean
+  untracked: boolean
   current: number
   total: number
   detail: string

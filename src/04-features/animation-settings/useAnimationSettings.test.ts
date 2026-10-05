@@ -54,6 +54,29 @@ describe('useAnimationSettings', () => {
     expect(document.documentElement.dataset.animations).toBe('on')
   })
 
+  it('ignores repeated clicks while the save is in flight', async () => {
+    let release: (error: Error) => void = () => {}
+    vi.mocked(saveAnimationsEnabled).mockImplementationOnce(
+      () =>
+        new Promise<never>((_, reject) => {
+          release = reject
+        }),
+    )
+    const animations = useAnimationSettings()
+
+    const first = animations.setAnimationsEnabled(false)
+    await animations.setAnimationsEnabled(true)
+
+    expect(saveAnimationsEnabled).toHaveBeenCalledTimes(1)
+    expect(animations.animationsEnabled.value).toBe(false)
+
+    release(new Error('disk full'))
+    await first
+
+    expect(animations.animationsEnabled.value).toBe(true)
+    expect(document.documentElement.dataset.animations).toBe('on')
+  })
+
   it('stores the config returned by the command in the core store', async () => {
     const config = { animationsEnabled: false } as never
     vi.mocked(saveAnimationsEnabled).mockResolvedValue(config)

@@ -1,4 +1,4 @@
-import { computed, type ComputedRef } from 'vue'
+import { computed, ref, type ComputedRef } from 'vue'
 
 import { useCoreStore, useNotificationStore, useSettingsStore, type LauncherConfig } from '@/05-entities'
 import { getErrorMessage, saveAnimationsEnabled } from '@/06-shared/api'
@@ -13,9 +13,13 @@ export function useAnimationSettings(): {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
 
+  const isSavingAnimations = ref<boolean>(false)
+
   const animationsEnabled = computed((): boolean => settingsStore.animationsEnabled)
 
   const setAnimationsEnabled = async (value: boolean): Promise<void> => {
+    if (isSavingAnimations.value) return
+    isSavingAnimations.value = true
     const previous = settingsStore.animationsEnabled
     settingsStore.setAnimationsEnabled(value)
     try {
@@ -25,6 +29,8 @@ export function useAnimationSettings(): {
       settingsStore.setAnimationsEnabled(previous)
       reportError('Не удалось сохранить настройку анимаций', e)
       notification.show(getErrorMessage(e))
+    } finally {
+      isSavingAnimations.value = false
     }
   }
 

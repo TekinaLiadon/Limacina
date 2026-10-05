@@ -98,6 +98,33 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
+  it('keeps unrelated edits dirty when the mount autostart sync lands late', async () => {
+    let releaseAutostart: (enabled: boolean) => void = () => {}
+    vi.mocked(isAutostartEnabled).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseAutostart = resolve
+        }),
+    )
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+
+    settings.debugMode.value = true
+    expect(settings.isDirty.value).toBe(true)
+
+    releaseAutostart(true)
+    await flushPromises()
+
+    expect(settings.startWithSystem.value).toBe(true)
+    expect(settings.isDirty.value).toBe(true)
+
+    settings.debugMode.value = false
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
   it('keeps the user choice when the toggle happens before the autostart sync', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     useCoreStore().launcherConfig = makeLauncherConfig(false)
@@ -134,25 +161,63 @@ describe('useLauncherSettings', () => {
 
   it('parses only whole-number speed limits', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const savedLimit = async (raw: string): Promise<number | null> => {
+      vi.mocked(saveLauncherSettings).mockClear()
+      settings.downloadSpeedLimitInput.value = raw
+      await settings.handleSave()
+      const { calls } = vi.mocked(saveLauncherSettings).mock
+      const lastCall = calls[calls.length - 1]
+      return lastCall === undefined ? null : lastCall[0].downloadSpeedLimit
+    }
+
+    expect(await savedLimit('12abc')).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(settings.downloadSpeedLimitError.value).not.toBe('')
+
+    expect(await savedLimit('12')).toBe(12)
+    expect(settings.downloadSpeedLimitError.value).toBe('')
+
+    expect(await savedLimit('12.5')).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(settings.downloadSpeedLimitError.value).not.toBe('')
+
+    expect(await savedLimit(' 7 ')).toBe(7)
+    expect(settings.downloadSpeedLimitError.value).toBe('')
+
+    expect(await savedLimit('')).toBeNull()
+    expect(settings.downloadSpeedLimitError.value).toBe('')
+
+    expect(await savedLimit('0')).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(settings.downloadSpeedLimitError.value).not.toBe('')
+
+    unmount()
+  })
+
+  it('blocks the save while the speed limit input is invalid', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
     useCoreStore().launcherConfig = makeLauncherConfig(false)
 
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
     settings.downloadSpeedLimitInput.value = '12abc'
-    expect(settings.settings.value.downloadSpeedLimit).toBeNull()
+    await settings.handleSave()
+
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe(settings.downloadSpeedLimitError.value)
 
     settings.downloadSpeedLimitInput.value = '12'
-    expect(settings.settings.value.downloadSpeedLimit).toBe(12)
+    await settings.handleSave()
 
-    settings.downloadSpeedLimitInput.value = '12.5'
-    expect(settings.settings.value.downloadSpeedLimit).toBeNull()
-
-    settings.downloadSpeedLimitInput.value = ' 7 '
-    expect(settings.settings.value.downloadSpeedLimit).toBe(7)
-
-    settings.downloadSpeedLimitInput.value = ''
-    expect(settings.settings.value.downloadSpeedLimit).toBeNull()
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
 
     unmount()
   })

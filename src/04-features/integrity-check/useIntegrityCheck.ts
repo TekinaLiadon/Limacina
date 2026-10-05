@@ -26,10 +26,14 @@ export function useIntegrityCheck(): {
   steps: Ref<StepProgressItem[]>
   progress: ComputedRef<number>
   isChecking: Ref<boolean>
+  isCheckingNow: ComputedRef<boolean>
   isPopupHidden: Ref<boolean>
   report: Ref<IntegrityReport | null>
   errorMessage: Ref<string>
   hasResult: ComputedRef<boolean>
+  hasErrors: ComputedRef<boolean>
+  isClean: ComputedRef<boolean>
+  resultText: ComputedRef<string>
   handleCheck: () => Promise<void>
   closeResult: () => void
 } {
@@ -47,6 +51,24 @@ export function useIntegrityCheck(): {
 
   const hasResult = computed((): boolean => report.value !== null || errorMessage.value !== '')
 
+  const isCheckingNow = computed((): boolean =>
+    isChecking.value || steps.value.some((step) => step.status === 'active'),
+  )
+
+  const hasErrors = computed((): boolean => report.value !== null && report.value.failed.length > 0)
+
+  const isClean = computed((): boolean => report.value !== null && report.value.failed.length === 0)
+
+  const resultText = computed((): string => {
+    const { value } = report
+    if (value === null) return ''
+    const parts: string[] = [`проверено: ${value.total}`]
+    if (value.broken > 0) parts.push(`повреждено: ${value.broken}`)
+    if (value.missing > 0) parts.push(`отсутствовало: ${value.missing}`)
+    if (value.repaired > 0) parts.push(`восстановлено: ${value.repaired}`)
+    return parts.join(', ')
+  })
+
   let unlisten: UnlistenFn | null = null
   let isUnmounted = false
 
@@ -61,7 +83,7 @@ export function useIntegrityCheck(): {
   }
 
   const prefillSteps = (): void => {
-    const online = coreStore.projectConfig?.online !== false
+    const online = coreStore.projectConfig?.online === true
     const plan = online ? [...INTEGRITY_STEPS, ...SERVER_INTEGRITY_STEPS] : INTEGRITY_STEPS
     steps.value = plan.map((item) => ({
       ...createStepItem(item.key, item.label, 0),
@@ -129,10 +151,14 @@ export function useIntegrityCheck(): {
     steps,
     progress,
     isChecking,
+    isCheckingNow,
     isPopupHidden,
     report,
     errorMessage,
     hasResult,
+    hasErrors,
+    isClean,
+    resultText,
     handleCheck,
     closeResult,
   }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/06-shared'
 import { useGameOptions } from '@/04-features'
-import LoadErrorRow from '../../common/LoadErrorRow.vue'
+import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 import SettingsSection from './SettingsSection.vue'
 import SettingsSaveBar from './SettingsSaveBar.vue'
 import GraphicsOptions from './game/GraphicsOptions.vue'
