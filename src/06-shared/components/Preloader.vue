@@ -10,7 +10,7 @@ const props = withDefaults(defineProps<{
 
 <template>
   <div class="preloader" :class="{ 'preloader--local': props.local }">
-    <img src="./preloader.svg" alt="" />
+    <img src="./svg/preloader.svg" alt="" />
     <div class="preloader__text">{{ props.text }}</div>
   </div>
 </template>

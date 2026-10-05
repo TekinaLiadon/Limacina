@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
 import Check from '@/06-shared/components/svg/Check.vue'
+import Cross from '@/06-shared/components/svg/Cross.vue'
 import SelectBase from './SelectBase.vue'
 
 const props = withDefaults(defineProps<{
@@ -69,10 +70,7 @@ function clear(): void {
         aria-label="Очистить"
         @click.stop="clear"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+        <Cross />
       </button>
     </template>
     <template #option-leading="{ option }">

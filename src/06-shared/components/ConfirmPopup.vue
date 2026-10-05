@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import Button from './Button.vue'
 import { useFocusTrap } from '@/06-shared/utils/useFocusTrap'
 
@@ -22,14 +22,9 @@ function handleKeydown(e: KeyboardEvent): void {
 }
 
 watch((): boolean => props.visible, (visible) => {
-  if (!visible) {
-    window.removeEventListener('keydown', handleKeydown)
-    return
-  }
-  window.addEventListener('keydown', handleKeydown)
-  void nextTick((): void => {
-    popupRef.value?.querySelector<HTMLButtonElement>('.confirm-popup__btn--cancel')?.focus()
-  })
+  if (visible) {
+    window.addEventListener('keydown', handleKeydown)
+  } else window.removeEventListener('keydown', handleKeydown)
 }, { immediate: true })
 
 onUnmounted((): void => {
@@ -48,6 +43,7 @@ onUnmounted((): void => {
               Да
             </Button>
             <Button
+              v-focus
               class="btn-quiet confirm-popup__btn confirm-popup__btn--cancel"
               @click="emit('cancel')"
             >

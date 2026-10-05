@@ -80,19 +80,28 @@ watch(filteredList, (): void => {
   activeSuggest.value = 0
 })
 
+const moveActive = (delta: number): void => {
+  const count = filteredList.value.length
+  activeSuggest.value = (activeSuggest.value + delta + count) % count
+}
+
+const confirmActive = (): void => {
+  const item = filteredList.value[activeSuggest.value]
+  if (item !== undefined) selectItem(item)
+}
+
+const suggestActions: Record<string, () => void> = {
+  ArrowDown: (): void => moveActive(1),
+  ArrowUp: (): void => moveActive(-1),
+  Enter: confirmActive,
+}
+
 const handleInputKeydown = (event: KeyboardEvent): void => {
   if (!showDropdown.value || filteredList.value.length === 0) return
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    activeSuggest.value = (activeSuggest.value + 1) % filteredList.value.length
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    activeSuggest.value = (activeSuggest.value - 1 + filteredList.value.length) % filteredList.value.length
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    const item = filteredList.value[activeSuggest.value]
-    if (item !== undefined) selectItem(item)
-  }
+  const action = suggestActions[event.key]
+  if (!action) return
+  event.preventDefault()
+  action()
 }
 </script>
 

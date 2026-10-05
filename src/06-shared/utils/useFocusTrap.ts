@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, watch, type Ref } from 'vue'
+import { onBeforeUnmount, watch, type Ref } from 'vue'
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -47,19 +47,10 @@ export function useFocusTrap(
     }
   }
 
-  const focusFirst = async (): Promise<void> => {
-    await nextTick()
-    const container = containerRef.value
-    if (!container) return
-    const [target] = findFocusable(container)
-    if (target instanceof HTMLElement) target.focus()
-  }
-
   watch(isActive, (active) => {
     if (active) {
       restoreTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null
       document.addEventListener('keydown', handleKeydown, true)
-      void focusFirst()
       return
     }
     document.removeEventListener('keydown', handleKeydown, true)

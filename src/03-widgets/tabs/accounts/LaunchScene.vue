@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Button, Identicon, ProgressBar, Skeleton, useDropdownPanel } from '@/06-shared'
+import { Button, ProgressBar, Skeleton, useDropdownPanel } from '@/06-shared'
 import AuthTabsWidget from './AuthTabsWidget.vue'
+import Identicon from './Identicon.vue'
 import StepProgress from '@/03-widgets/tabs/login/StepProgress.vue'
 import type { AuthSubTab, StepProgressItem } from '@/05-entities'
 

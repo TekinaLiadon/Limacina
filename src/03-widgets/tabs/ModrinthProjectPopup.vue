@@ -179,7 +179,7 @@ async function handleLink(url: string): Promise<void> {
               Скачать
             </Button>
             <span v-else class="modrinth-popup__installed-badge">Установлен</span>
-            <Button class="btn-quiet modrinth-popup__close" @click="emit('close')">
+            <Button v-focus class="btn-quiet modrinth-popup__close" @click="emit('close')">
               Закрыть
             </Button>
           </div>

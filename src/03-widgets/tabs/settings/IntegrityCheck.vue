@@ -90,7 +90,7 @@ onBeforeUnmount((): void => {
               >
                 Проверить снова
               </Button>
-              <Button class="btn-quiet integrity-popup__btn" @click="emit('close')">
+              <Button v-focus class="btn-quiet integrity-popup__btn" @click="emit('close')">
                 Закрыть
               </Button>
             </div>
