@@ -1,72 +1,62 @@
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AuthSubTab, LoginForm, RegisterForm } from '../core/types'
 import { AUTH_LOGIN_TAB } from '../core/authPolicy'
 
-export interface AccountsState {
-  isLoading: boolean
-  errorMessage: string
-  logins: string[]
-  loginsError: string
-  isLoginsLoading: boolean
-  selectedUsername: string
+export const useAccountsStore = defineStore('accounts', () => {
+  const isLoading = ref<boolean>(false)
+  const errorMessage = ref<string>('')
+  const logins = ref<string[]>([])
+  const loginsError = ref<string>('')
+  const isLoginsLoading = ref<boolean>(false)
+  const selectedUsername = ref<string>('')
 
-  authLoading: boolean
-  authError: string
-  loginFormData: LoginForm
-  registerFormData: RegisterForm
+  const authLoading = ref<boolean>(false)
+  const authError = ref<string>('')
+  const loginFormData = ref<LoginForm>({ username: '', password: '', rememberMe: false })
+  const registerFormData = ref<RegisterForm>({ login: '', password: '', confirmPassword: '' })
 
-  showAuthForm: boolean
-  activeSubTab: AuthSubTab
-  isSwitching: boolean
-}
+  const showAuthForm = ref<boolean>(false)
+  const activeSubTab = ref<AuthSubTab>(AUTH_LOGIN_TAB)
+  const isSwitching = ref<boolean>(false)
 
-export const useAccountsStore = defineStore('accounts', {
-  state: (): AccountsState => ({
-    isLoading: false,
-    errorMessage: '',
-    logins: [],
-    loginsError: '',
-    isLoginsLoading: false,
-    selectedUsername: '',
+  function closeAuthForm(): void {
+    showAuthForm.value = false
+    loginFormData.value.password = ''
+    registerFormData.value.password = ''
+    registerFormData.value.confirmPassword = ''
+  }
 
-    authLoading: false,
-    authError: '',
-    loginFormData: {
-      username: '',
-      password: '',
-      rememberMe: false,
-    },
-    registerFormData: {
-      login: '',
-      password: '',
-      confirmPassword: '',
-    },
+  function reset(): void {
+    isLoading.value = false
+    errorMessage.value = ''
+    logins.value = []
+    loginsError.value = ''
+    isLoginsLoading.value = false
+    selectedUsername.value = ''
+    authLoading.value = false
+    authError.value = ''
+    loginFormData.value = { username: '', password: '', rememberMe: false }
+    registerFormData.value = { login: '', password: '', confirmPassword: '' }
+    closeAuthForm()
+    activeSubTab.value = AUTH_LOGIN_TAB
+  }
 
-    showAuthForm: false,
-    activeSubTab: AUTH_LOGIN_TAB,
-    isSwitching: false,
-  }),
-  actions: {
-    closeAuthForm(): void {
-      this.showAuthForm = false
-      this.loginFormData.password = ''
-      this.registerFormData.password = ''
-      this.registerFormData.confirmPassword = ''
-    },
-
-    reset(): void {
-      this.isLoading = false
-      this.errorMessage = ''
-      this.logins = []
-      this.loginsError = ''
-      this.isLoginsLoading = false
-      this.selectedUsername = ''
-      this.authLoading = false
-      this.authError = ''
-      this.loginFormData = { username: '', password: '', rememberMe: false }
-      this.registerFormData = { login: '', password: '', confirmPassword: '' }
-      this.closeAuthForm()
-      this.activeSubTab = AUTH_LOGIN_TAB
-    },
-  },
+  return {
+    isLoading,
+    errorMessage,
+    logins,
+    loginsError,
+    isLoginsLoading,
+    selectedUsername,
+    authLoading,
+    authError,
+    loginFormData,
+    registerFormData,
+    showAuthForm,
+    activeSubTab,
+    isSwitching,
+    closeAuthForm,
+    reset,
+  }
 })

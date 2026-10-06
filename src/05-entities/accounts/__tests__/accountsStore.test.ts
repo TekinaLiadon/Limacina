@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useAccountsStore } from './accountsStore'
+import { useAccountsStore } from '../accountsStore'
 
 describe('useAccountsStore', () => {
   it('starts with an empty login form and no saved logins', () => {

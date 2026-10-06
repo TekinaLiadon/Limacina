@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildThemeId, DEFAULT_THEME, normalizeTheme, parseThemeId, THEME_FAMILIES } from './themes'
+import { buildThemeId, DEFAULT_THEME, normalizeTheme, parseThemeId, THEME_FAMILIES } from '../themes'
 
 const MODES = ['dark', 'light'] as const
 

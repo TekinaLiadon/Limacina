@@ -1,12 +1,7 @@
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { ThemeMode } from './types'
 import { buildThemeId, normalizeTheme, parseThemeId } from './themes'
-
-export interface SettingsState {
-  animationsEnabled: boolean
-  theme: string
-  lastHydratedTheme: string | null
-}
 
 const THEME_CACHE_KEY = 'limacina-theme'
 const ANIMATIONS_CACHE_KEY = 'limacina-animations'
@@ -30,56 +25,57 @@ function loadCachedAnimationsEnabled(): boolean {
   return true
 }
 
-export const useSettingsStore = defineStore('settings', {
-  state: (): SettingsState => ({
-    animationsEnabled: loadCachedAnimationsEnabled(),
-    theme: loadCachedTheme(),
-    lastHydratedTheme: null,
-  }),
+export const useSettingsStore = defineStore('settings', () => {
+  const animationsEnabled = ref<boolean>(loadCachedAnimationsEnabled())
+  const theme = ref<string>(loadCachedTheme())
+  const lastHydratedTheme = ref<string | null>(null)
 
-  getters: {
-    isDark(): boolean {
-      return this.themeMode === 'dark'
-    },
+  const themeMode = computed<ThemeMode>(() => parseThemeId(theme.value).mode)
+  const themeFamily = computed<string>(() => parseThemeId(theme.value).family)
+  const isDark = computed<boolean>(() => themeMode.value === 'dark')
 
-    themeMode(): ThemeMode {
-      return parseThemeId(this.theme).mode
-    },
+  function toggleAnimations(): void {
+    setAnimationsEnabled(!animationsEnabled.value)
+  }
 
-    themeFamily(): string {
-      return parseThemeId(this.theme).family
-    },
-  },
+  function setAnimationsEnabled(value: boolean): void {
+    animationsEnabled.value = value
+    applyAnimationsPreference(value)
+    localStorage.setItem(ANIMATIONS_CACHE_KEY, value ? 'on' : 'off')
+  }
 
-  actions: {
-    toggleAnimations(): void {
-      this.setAnimationsEnabled(!this.animationsEnabled)
-    },
+  function setTheme(nextTheme: string): void {
+    theme.value = normalizeTheme(nextTheme)
+    localStorage.setItem(THEME_CACHE_KEY, theme.value)
+  }
 
-    setAnimationsEnabled(value: boolean): void {
-      this.animationsEnabled = value
-      applyAnimationsPreference(value)
-      localStorage.setItem(ANIMATIONS_CACHE_KEY, value ? 'on' : 'off')
-    },
+  function setThemeFamily(family: string): void {
+    lastHydratedTheme.value = null
+    setTheme(buildThemeId(family, themeMode.value))
+  }
 
-    setTheme(theme: string): void {
-      this.theme = normalizeTheme(theme)
-      localStorage.setItem(THEME_CACHE_KEY, this.theme)
-    },
+  function setThemeMode(mode: ThemeMode): void {
+    lastHydratedTheme.value = null
+    setTheme(buildThemeId(themeFamily.value, mode))
+  }
 
-    setThemeFamily(family: string): void {
-      this.lastHydratedTheme = null
-      this.setTheme(buildThemeId(family, this.themeMode))
-    },
+  function markThemeHydration(hydratedTheme: string): void {
+    const normalized = normalizeTheme(hydratedTheme)
+    lastHydratedTheme.value = normalized === theme.value ? null : normalized
+  }
 
-    setThemeMode(mode: ThemeMode): void {
-      this.lastHydratedTheme = null
-      this.setTheme(buildThemeId(this.themeFamily, mode))
-    },
-
-    markThemeHydration(theme: string): void {
-      const normalized = normalizeTheme(theme)
-      this.lastHydratedTheme = normalized === this.theme ? null : normalized
-    },
-  },
+  return {
+    animationsEnabled,
+    theme,
+    lastHydratedTheme,
+    themeMode,
+    themeFamily,
+    isDark,
+    toggleAnimations,
+    setAnimationsEnabled,
+    setTheme,
+    setThemeFamily,
+    setThemeMode,
+    markThemeHydration,
+  }
 })

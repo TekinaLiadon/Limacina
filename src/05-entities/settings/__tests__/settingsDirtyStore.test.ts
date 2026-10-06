@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useSettingsDirtyStore } from './settingsDirtyStore'
+import { useSettingsDirtyStore } from '../settingsDirtyStore'
 
 describe('useSettingsDirtyStore', () => {
   it('starts with no dirty tabs', () => {

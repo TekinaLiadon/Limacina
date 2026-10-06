@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage } from './authPolicy'
+import { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage } from '../authPolicy'
 
 describe('minLengthMessage', () => {
   it('builds the requirement from the actual minimums', () => {

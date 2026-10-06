@@ -1,134 +1,146 @@
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { StepEvent, StepProgressItem } from '../core/types'
 import { applyStepEvent, computeStepProgress, createStepItem, type StepPlanItem } from '@/06-shared'
 
-export interface LaunchState {
-  isLaunching: boolean
-  launchInterrupted: boolean
-  isCancelPending: boolean
-  launchGeneration: number
-  launchSteps: StepProgressItem[]
-  activeProgress: number
-  loginError: string
-}
+export const useLaunchStore = defineStore('launch', () => {
+  const isLaunching = ref<boolean>(false)
+  const launchInterrupted = ref<boolean>(false)
+  const isCancelPending = ref<boolean>(false)
+  const launchGeneration = ref<number>(0)
+  const launchSteps = ref<StepProgressItem[]>([])
+  const activeProgress = ref<number>(0)
+  const loginError = ref<string>('')
 
-export const useLaunchStore = defineStore('launch', {
-  state: (): LaunchState => ({
-    isLaunching: false,
-    launchInterrupted: false,
-    isCancelPending: false,
-    launchGeneration: 0,
-    launchSteps: [],
-    activeProgress: 0,
-    loginError: '',
-  }),
+  function beginLaunch(): number {
+    isCancelPending.value = false
+    launchGeneration.value += 1
+    isLaunching.value = true
+    return launchGeneration.value
+  }
 
-  actions: {
-    beginLaunch(): number {
-      this.isCancelPending = false
-      this.launchGeneration += 1
-      this.isLaunching = true
-      return this.launchGeneration
-    },
+  function invalidateGeneration(): void {
+    launchGeneration.value += 1
+  }
 
-    invalidateGeneration(): void {
-      this.launchGeneration += 1
-    },
+  function isCurrent(generation: number): boolean {
+    return launchGeneration.value === generation
+  }
 
-    isCurrent(generation: number): boolean {
-      return this.launchGeneration === generation
-    },
+  function reportFailure(generation: number, message: string): void {
+    if (!isCurrent(generation)) return
+    loginError.value = message
+    isLaunching.value = false
+  }
 
-    reportFailure(generation: number, message: string): void {
-      if (!this.isCurrent(generation)) return
-      this.loginError = message
-      this.isLaunching = false
-    },
+  function failActive(message: string): void {
+    loginError.value = message
+    isLaunching.value = false
+    launchInterrupted.value = false
+  }
 
-    failActive(message: string): void {
-      this.loginError = message
-      this.isLaunching = false
-      this.launchInterrupted = false
-    },
+  function failActiveStep(message: string): void {
+    const step = launchSteps.value.find((item) => item.status === 'active')
+    if (step) {
+      step.status = 'error'
+      step.error = message
+    } else {
+      activeProgress.value = 0
+    }
+    failActive(message)
+  }
 
-    failActiveStep(message: string): void {
-      const step = this.launchSteps.find((item) => item.status === 'active')
-      if (step) {
-        step.status = 'error'
-        step.error = message
-      } else {
-        this.activeProgress = 0
+  function finishLaunch(): void {
+    isLaunching.value = false
+  }
+
+  function cancelLaunch(): void {
+    isCancelPending.value = false
+    isLaunching.value = false
+    loginError.value = ''
+  }
+
+  function setCancelPending(value: boolean): void {
+    isCancelPending.value = value
+  }
+
+  function markInterrupted(): void {
+    isLaunching.value = true
+    launchInterrupted.value = true
+    launchSteps.value = []
+    activeProgress.value = 0
+  }
+
+  function prefillSteps(plan: StepPlanItem[]): void {
+    launchSteps.value = plan.map((item) => ({
+      ...createStepItem(item.key, item.label, 0),
+      status: 'pending' as const,
+    }))
+    activeProgress.value = 0
+    launchInterrupted.value = false
+  }
+
+  function applyStreamEvent(event: StepEvent): void {
+    applyStepEvent(launchSteps.value, event)
+  }
+
+  function markStepsSkipped(keys: ReadonlySet<string>): void {
+    for (const item of launchSteps.value) {
+      if (keys.has(item.key)) {
+        item.status = 'done'
+        item.skipped = true
       }
-      this.loginError = message
-      this.isLaunching = false
-      this.launchInterrupted = false
-    },
+    }
+    activeProgress.value = computeStepProgress(launchSteps.value)
+  }
 
-    finishLaunch(): void {
-      this.isLaunching = false
-    },
+  function recomputeProgress(): void {
+    activeProgress.value = computeStepProgress(launchSteps.value)
+  }
 
-    cancelLaunch(): void {
-      this.isCancelPending = false
-      this.isLaunching = false
-      this.loginError = ''
-    },
+  function resetSteps(): void {
+    launchSteps.value = []
+    activeProgress.value = 0
+    launchInterrupted.value = false
+  }
 
-    setCancelPending(value: boolean): void {
-      this.isCancelPending = value
-    },
+  function clearLoginError(): void {
+    loginError.value = ''
+  }
 
-    markInterrupted(): void {
-      this.isLaunching = true
-      this.launchInterrupted = true
-      this.launchSteps = []
-      this.activeProgress = 0
-    },
+  function reset(): void {
+    isLaunching.value = false
+    launchInterrupted.value = false
+    isCancelPending.value = false
+    launchSteps.value = []
+    activeProgress.value = 0
+    loginError.value = ''
+  }
 
-    prefillSteps(plan: StepPlanItem[]): void {
-      this.launchSteps = plan.map((item) => ({
-        ...createStepItem(item.key, item.label, 0),
-        status: 'pending' as const,
-      }))
-      this.activeProgress = 0
-      this.launchInterrupted = false
-    },
-
-    applyStreamEvent(event: StepEvent): void {
-      applyStepEvent(this.launchSteps, event)
-    },
-
-    markStepsSkipped(keys: ReadonlySet<string>): void {
-      for (const item of this.launchSteps) {
-        if (keys.has(item.key)) {
-          item.status = 'done'
-          item.skipped = true
-        }
-      }
-      this.activeProgress = computeStepProgress(this.launchSteps)
-    },
-
-    recomputeProgress(): void {
-      this.activeProgress = computeStepProgress(this.launchSteps)
-    },
-
-    resetSteps(): void {
-      this.launchSteps = []
-      this.activeProgress = 0
-      this.launchInterrupted = false
-    },
-
-    clearLoginError(): void {
-      this.loginError = ''
-    },
-
-    reset(): void {
-      this.isLaunching = false
-      this.launchInterrupted = false
-      this.isCancelPending = false
-      this.launchSteps = []
-      this.activeProgress = 0
-      this.loginError = ''
-    },
-  },
+  return {
+    isLaunching,
+    launchInterrupted,
+    isCancelPending,
+    launchGeneration,
+    launchSteps,
+    activeProgress,
+    loginError,
+    beginLaunch,
+    invalidateGeneration,
+    isCurrent,
+    reportFailure,
+    failActive,
+    failActiveStep,
+    finishLaunch,
+    cancelLaunch,
+    setCancelPending,
+    markInterrupted,
+    prefillSteps,
+    applyStreamEvent,
+    markStepsSkipped,
+    recomputeProgress,
+    resetSteps,
+    clearLoginError,
+    reset,
+  }
 })

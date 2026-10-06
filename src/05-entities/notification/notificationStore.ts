@@ -1,65 +1,67 @@
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
-interface NotificationState {
-  message: string
-  visible: boolean
-  timer: ReturnType<typeof setTimeout> | null
-  popupMessage: string
-  popupVisible: boolean
-  popupResolve: ((value: boolean) => void) | null
-}
+export const useNotificationStore = defineStore('notification', () => {
+  const message = ref<string>('')
+  const visible = ref<boolean>(false)
+  const timer = ref<ReturnType<typeof setTimeout> | null>(null)
+  const popupMessage = ref<string>('')
+  const popupVisible = ref<boolean>(false)
+  const popupResolve = ref<((value: boolean) => void) | null>(null)
 
-export const useNotificationStore = defineStore('notification', {
-  state: (): NotificationState => ({
-    message: '',
-    visible: false,
-    timer: null,
-    popupMessage: '',
-    popupVisible: false,
-    popupResolve: null,
-  }),
+  function show(text: string, duration: number = 3000): void {
+    hide()
+    message.value = text
+    visible.value = true
 
-  actions: {
-    show(message: string, duration: number = 3000): void {
-      this.hide()
-      this.message = message
-      this.visible = true
+    timer.value = setTimeout(() => {
+      timer.value = null
+      visible.value = false
+    }, duration)
+  }
 
-      this.timer = setTimeout(() => {
-        this.timer = null
-        this.visible = false
-      }, duration)
-    },
+  function hide(): void {
+    if (timer.value) {
+      clearTimeout(timer.value)
+      timer.value = null
+    }
+    visible.value = false
+  }
 
-    hide(): void {
-      if (this.timer) {
-        clearTimeout(this.timer)
-        this.timer = null
-      }
-      this.visible = false
-    },
+  function confirm(text: string): Promise<boolean> {
+    if (popupResolve.value) popupResolve.value(false)
+    return new Promise((resolve) => {
+      popupMessage.value = text
+      popupVisible.value = true
+      popupResolve.value = resolve
+    })
+  }
 
-    confirm(message: string): Promise<boolean> {
-      if (this.popupResolve) this.popupResolve(false)
-      return new Promise((resolve) => {
-        this.popupMessage = message
-        this.popupVisible = true
-        this.popupResolve = resolve
-      })
-    },
+  async function runConfirmed(text: string, action: () => Promise<void> | void): Promise<void> {
+    const confirmed = await confirm(text)
+    if (!confirmed) return
+    await action()
+  }
 
-    async runConfirmed(message: string, action: () => Promise<void> | void): Promise<void> {
-      const confirmed = await this.confirm(message)
-      if (!confirmed) return
-      await action()
-    },
+  function resolvePopup(result: boolean): void {
+    if (popupResolve.value) popupResolve.value(result)
 
-    resolvePopup(result: boolean): void {
-      if (this.popupResolve) this.popupResolve(result)
+    popupVisible.value = false
+    popupMessage.value = ''
+    popupResolve.value = null
+  }
 
-      this.popupVisible = false
-      this.popupMessage = ''
-      this.popupResolve = null
-    },
-  },
+  return {
+    message,
+    visible,
+    timer,
+    popupMessage,
+    popupVisible,
+    popupResolve,
+    show,
+    hide,
+    confirm,
+    runConfirmed,
+    resolvePopup,
+  }
 })

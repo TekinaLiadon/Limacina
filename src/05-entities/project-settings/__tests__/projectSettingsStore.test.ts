@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { ProjectConfig } from '../core/types'
-import { projectSettingsFormFromConfig, useProjectSettingsStore, type ProjectSettingsForm } from './projectSettingsStore'
+import type { ProjectConfig } from '../../core/types'
+import { projectSettingsFormFromConfig, useProjectSettingsStore, type ProjectSettingsForm } from '../projectSettingsStore'
 
 const makeForm = (overrides: Partial<ProjectSettingsForm> = {}): ProjectSettingsForm => ({
   projectName: 'Alpha',

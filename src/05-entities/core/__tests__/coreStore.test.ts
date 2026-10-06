@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useCoreStore } from './coreStore'
-import type { LauncherConfig, ProjectConfig } from './types'
+import { useCoreStore } from '../coreStore'
+import type { LauncherConfig, ProjectConfig } from '../types'
 
 const makeConfig = (projectNames: string[], currentProject: string | null): LauncherConfig => ({
   launcherPath: '/launcher',

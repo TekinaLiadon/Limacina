@@ -94,26 +94,6 @@ export interface StepProgressItem {
   shownAt: number
 }
 
-export interface CoreState {
-  isLoading: boolean
-  launcherName: string
-  defaultParentPath: string
-  launcherConfig: LauncherConfig | null
-  version: string
-  offlineBuild: boolean
-  envProjectName: string
-  currentProject: string
-  projects: string[]
-  totalMemoryMb: number
-  isLoggedIn: boolean
-  session: SessionInfo | null
-  projectConfig: ProjectConfig | null
-  serverStatus: ServerStatus | null
-  gameUsername: string | null
-  isServerReachable: boolean | null
-  pendingCpmProjectPath: string | null
-}
-
 export interface ProjectConfig {
   projectName: string
   mcVersion: string

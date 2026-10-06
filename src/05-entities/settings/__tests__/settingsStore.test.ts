@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useSettingsStore } from './settingsStore'
-import { buildThemeId, THEME_FAMILIES } from './themes'
+import { useSettingsStore } from '../settingsStore'
+import { buildThemeId, THEME_FAMILIES } from '../themes'
 
 const THEME_KEY = 'limacina-theme'
 const ANIMATIONS_KEY = 'limacina-animations'

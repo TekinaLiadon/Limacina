@@ -1,3 +1,4 @@
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { ModLoaderKind, ProjectConfig } from '../core/types'
 import { captureDirtyBaseline, hasDirtyFields, isFieldDirtyAgainst, type DirtyBaseline } from '@/06-shared'
@@ -25,16 +26,6 @@ export interface ProjectSettingsForm {
   initialized: boolean
   serverUrl: string | null
   autoJoinServer: boolean
-}
-
-export interface ProjectSettingsState {
-  config: ProjectSettingsForm
-  isLoaded: boolean
-  isSaving: boolean
-  loadError: string
-  loadedProject: string
-  loadingProject: string
-  baseline: ProjectDirtyBaseline | null
 }
 
 function defaultForm(): ProjectSettingsForm {
@@ -85,87 +76,101 @@ export function projectSettingsFormFromConfig(config: ProjectConfig): ProjectSet
   }
 }
 
-function pickDirtyFields(config: ProjectSettingsForm): ProjectDirtySnapshot {
+function pickDirtyFields(form: ProjectSettingsForm): ProjectDirtySnapshot {
   return {
-    loaderVersion: config.loaderVersion,
-    javaPath: config.javaPath,
-    jvmArgs: config.jvmArgs,
-    memoryRange: config.memoryRange,
-    autoJoinServer: config.autoJoinServer,
+    loaderVersion: form.loaderVersion,
+    javaPath: form.javaPath,
+    jvmArgs: form.jvmArgs,
+    memoryRange: form.memoryRange,
+    autoJoinServer: form.autoJoinServer,
   }
 }
 
-export const useProjectSettingsStore = defineStore('projectSettings', {
-  state: (): ProjectSettingsState => ({
-    config: defaultForm(),
-    isLoaded: false,
-    isSaving: false,
-    loadError: '',
-    loadedProject: '',
-    loadingProject: '',
-    baseline: null,
-  }),
+export const useProjectSettingsStore = defineStore('projectSettings', () => {
+  const config = ref<ProjectSettingsForm>(defaultForm())
+  const isLoaded = ref<boolean>(false)
+  const isSaving = ref<boolean>(false)
+  const loadError = ref<string>('')
+  const loadedProject = ref<string>('')
+  const loadingProject = ref<string>('')
+  const baseline = ref<ProjectDirtyBaseline | null>(null)
 
-  getters: {
-    isDirty(state): boolean {
-      if (!state.isLoaded || state.baseline === null) return false
-      return hasDirtyFields(state.baseline, pickDirtyFields(state.config))
-    },
-  },
+  const isDirty = computed<boolean>(() => {
+    if (!isLoaded.value || baseline.value === null) return false
+    return hasDirtyFields(baseline.value, pickDirtyFields(config.value))
+  })
 
-  actions: {
-    captureBaseline(): void {
-      this.baseline = captureDirtyBaseline(pickDirtyFields(this.config))
-    },
+  function captureBaseline(): void {
+    baseline.value = captureDirtyBaseline(pickDirtyFields(config.value))
+  }
 
-    isFieldDirty(key: ProjectDirtyField): boolean {
-      if (this.baseline === null) return false
-      return isFieldDirtyAgainst(this.baseline, pickDirtyFields(this.config), key)
-    },
+  function isFieldDirty(key: ProjectDirtyField): boolean {
+    if (baseline.value === null) return false
+    return isFieldDirtyAgainst(baseline.value, pickDirtyFields(config.value), key)
+  }
 
-    startLoading(project: string): void {
-      this.loadingProject = project
-      this.config = defaultForm()
-      this.loadError = ''
-      this.isLoaded = false
-      this.baseline = null
-    },
+  function startLoading(project: string): void {
+    loadingProject.value = project
+    config.value = defaultForm()
+    loadError.value = ''
+    isLoaded.value = false
+    baseline.value = null
+  }
 
-    applyLoaded(project: string, config: ProjectSettingsForm): void {
-      if (this.loadingProject !== project) return
-      this.adoptLoaded(project, config)
-    },
+  function applyLoaded(project: string, form: ProjectSettingsForm): void {
+    if (loadingProject.value !== project) return
+    adoptLoaded(project, form)
+  }
 
-    adoptLoaded(project: string, config: ProjectSettingsForm): void {
-      this.config = config
-      this.loadedProject = project
-      this.isLoaded = true
-      this.loadError = ''
-      this.loadingProject = ''
-      this.captureBaseline()
-    },
+  function adoptLoaded(project: string, form: ProjectSettingsForm): void {
+    config.value = form
+    loadedProject.value = project
+    isLoaded.value = true
+    loadError.value = ''
+    loadingProject.value = ''
+    captureBaseline()
+  }
 
-    applyError(project: string, message: string): void {
-      if (this.loadingProject !== project) return
-      this.config = defaultForm()
-      this.loadedProject = ''
-      this.isLoaded = false
-      this.loadError = message
-      this.loadingProject = ''
-      this.baseline = null
-    },
+  function applyError(project: string, message: string): void {
+    if (loadingProject.value !== project) return
+    config.value = defaultForm()
+    loadedProject.value = ''
+    isLoaded.value = false
+    loadError.value = message
+    loadingProject.value = ''
+    baseline.value = null
+  }
 
-    finishLoading(project: string): void {
-      if (this.loadingProject !== project) return
-      this.loadingProject = ''
-    },
+  function finishLoading(project: string): void {
+    if (loadingProject.value !== project) return
+    loadingProject.value = ''
+  }
 
-    startSaving(): void {
-      this.isSaving = true
-    },
+  function startSaving(): void {
+    isSaving.value = true
+  }
 
-    finishSaving(): void {
-      this.isSaving = false
-    },
-  },
+  function finishSaving(): void {
+    isSaving.value = false
+  }
+
+  return {
+    config,
+    isLoaded,
+    isSaving,
+    loadError,
+    loadedProject,
+    loadingProject,
+    baseline,
+    isDirty,
+    captureBaseline,
+    isFieldDirty,
+    startLoading,
+    applyLoaded,
+    adoptLoaded,
+    applyError,
+    finishLoading,
+    startSaving,
+    finishSaving,
+  }
 })
