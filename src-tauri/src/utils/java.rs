@@ -69,9 +69,18 @@ pub fn repair_java_path(path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::repair_java_path;
+    use super::{find_java, repair_java_path};
     use crate::test_support::LauncherDirGuard;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn find_java_prefers_explicit_path() {
+        assert_eq!(
+            find_java(Some("/opt/jdk/bin/java".to_string())).expect("явный путь"),
+            PathBuf::from("/opt/jdk/bin/java"),
+            "явный путь используется как есть, без проверок существования"
+        );
+    }
 
     #[tokio::test]
     async fn repair_java_path_replaces_stale_launcher_root() {

@@ -43,7 +43,7 @@ pub fn auto_join_args(address: &str, mc_version: &str) -> Vec<String> {
     let (host, port) = split_server_address(trimmed);
     let base_version = mc_version.split('-').next().unwrap_or(mc_version);
 
-    if compare_versions(base_version, "1.20") != Ordering::Less {
+    if compare_versions(base_version, "1.20.3") != Ordering::Less {
         match port {
             Some(port) if host.contains(':') => vec![
                 "--quickPlayMultiplayer".to_string(),
@@ -152,7 +152,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            auto_join_args("play.example.com:25577", "1.20"),
+            auto_join_args("play.example.com:25577", "1.20.3"),
             vec![
                 "--quickPlayMultiplayer".to_string(),
                 "play.example.com:25577".to_string()
@@ -173,6 +173,46 @@ mod tests {
                 "play.example.com".to_string(),
                 "--port".to_string(),
                 "25577".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn quick_play_boundary_is_1_20_3() {
+        assert_eq!(
+            auto_join_args("play.example.com:25565", "1.20.2"),
+            vec![
+                "--server".to_string(),
+                "play.example.com".to_string(),
+                "--port".to_string(),
+                "25565".to_string()
+            ],
+            "quick play появился только в 1.20.3 (снапшот 23w41a)"
+        );
+        assert_eq!(
+            auto_join_args("play.example.com", "1.20"),
+            vec!["--server".to_string(), "play.example.com".to_string()]
+        );
+        assert_eq!(
+            auto_join_args("play.example.com", "1.20.3"),
+            vec![
+                "--quickPlayMultiplayer".to_string(),
+                "play.example.com".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn suffixed_versions_use_base_version_for_boundary() {
+        assert_eq!(
+            auto_join_args("play.example.com", "1.20.1-forge"),
+            vec!["--server".to_string(), "play.example.com".to_string()]
+        );
+        assert_eq!(
+            auto_join_args("play.example.com", "1.21.1-fabric0.16.9"),
+            vec![
+                "--quickPlayMultiplayer".to_string(),
+                "play.example.com".to_string()
             ]
         );
     }

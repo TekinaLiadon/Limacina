@@ -67,3 +67,57 @@ mod version_validation_tests {
         assert!(get_manifest_version("..\\evil", vec![]).await.is_err());
     }
 }
+
+#[cfg(test)]
+mod manifest_index_tests {
+    use super::get_manifest_index;
+    use crate::minecraft::structs::Versions;
+    use crate::test_support::LauncherDirGuard;
+    use mockito::Server;
+
+    #[tokio::test]
+    async fn get_manifest_index_downloads_once_then_reads_from_cache() {
+        let _guard = LauncherDirGuard::acquire("manifest_index_cache").await;
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/versions")
+            .with_status(200)
+            .with_body(r#"[{"url": "https://example.com/1.20.1.json", "id": "1.20.1"}]"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let first: Vec<Versions> =
+            get_manifest_index("vanilla", &format!("{}/versions", server.url()), "index")
+                .await
+                .expect("первая загрузка индекса");
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].id, "1.20.1");
+
+        let second: Vec<Versions> =
+            get_manifest_index("vanilla", &format!("{}/versions", server.url()), "index")
+                .await
+                .expect("повторное чтение идёт из кэша");
+        assert_eq!(second[0].id, first[0].id);
+        assert_eq!(second[0].url, first[0].url);
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_manifest_index_errors_on_invalid_json() {
+        let _guard = LauncherDirGuard::acquire("manifest_index_bad").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/versions")
+            .with_status(200)
+            .with_body("not json")
+            .create_async()
+            .await;
+
+        let result: anyhow::Result<Vec<Versions>> =
+            get_manifest_index("fabric", &format!("{}/versions", server.url()), "broken").await;
+
+        assert!(result.is_err());
+    }
+}

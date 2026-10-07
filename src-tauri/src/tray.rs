@@ -51,8 +51,7 @@ pub fn set_minimize_to_tray<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
 }
 
 pub fn set_game_state<R: Runtime>(app: &AppHandle<R>, running: bool, username: &str) {
-    GAME_RUNNING.store(running, Ordering::Relaxed);
-    *GAME_USER.lock().unwrap_or_else(|e| e.into_inner()) = username.trim().to_string();
+    store_game_state(running, username);
 
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let visible = running || minimize_to_tray_enabled();
@@ -92,6 +91,11 @@ pub fn set_game_state<R: Runtime>(app: &AppHandle<R>, running: bool, username: &
     } else {
         log_info!("Игра завершена, состояние трея обновлено");
     }
+}
+
+fn store_game_state(running: bool, username: &str) {
+    GAME_RUNNING.store(running, Ordering::Relaxed);
+    *GAME_USER.lock().unwrap_or_else(|e| e.into_inner()) = username.trim().to_string();
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>> {
@@ -162,4 +166,28 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 
     log_info!("Иконка трея инициализирована");
     Ok(())
+}
+
+#[cfg(test)]
+mod game_state_tests {
+    use super::{game_username, store_game_state};
+
+    #[test]
+    fn game_username_reflects_running_state() {
+        store_game_state(false, "Steve");
+        assert_eq!(game_username(), None);
+
+        store_game_state(true, "  Steve  ");
+        assert_eq!(game_username(), Some("Steve".to_string()));
+
+        store_game_state(true, "   ");
+        assert_eq!(
+            game_username(),
+            None,
+            "пустое имя не считается запущенной игрой"
+        );
+
+        store_game_state(false, "Steve");
+        assert_eq!(game_username(), None);
+    }
 }

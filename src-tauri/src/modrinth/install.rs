@@ -909,4 +909,382 @@ mod tests {
             "2.0.0"
         );
     }
+
+    fn manifest_entry(
+        project: &str,
+        sha1: &str,
+        version_id: &str,
+        version_number: &str,
+    ) -> ManifestEntry {
+        ManifestEntry {
+            project_id: project.to_string(),
+            slug: None,
+            title: format!("Mod {project}"),
+            icon_url: None,
+            filename: format!("{project}.jar"),
+            sha1: sha1.to_string(),
+            version_id: version_id.to_string(),
+            version_number: version_number.to_string(),
+        }
+    }
+
+    async fn seed_mod_manifest(ctx: &InstallContext, entries: Vec<(&str, ManifestEntry)>) {
+        if let Some(parent) = ctx.manifest_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .expect("создание каталога проекта");
+        }
+        let manifest = ModrinthManifest {
+            mods: entries
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect(),
+        };
+        save_manifest(&ctx.manifest_path, &manifest)
+            .await
+            .expect("запись стартового манифеста");
+    }
+
+    #[tokio::test]
+    async fn check_updates_reports_newer_ignores_same_and_swallows_api_errors() {
+        let mut env = ModrinthEnv::acquire("modrinth_check_updates").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![
+                ("A", manifest_entry("A", "hash-a", "verA1", "1.0.0")),
+                ("B", manifest_entry("B", "hash-b", "verB1", "2.0.0")),
+                ("C", manifest_entry("C", "hash-c", "verC1", "3.0.0")),
+            ],
+        )
+        .await;
+
+        env.server
+            .mock("GET", "/v2/version_file/hash-a/update")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(
+                json!({"id": "verA2", "project_id": "A", "version_number": "1.1.0", "version_type": "release", "dependencies": [], "files": []})
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/version_file/hash-b/update")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(
+                json!({"id": "verB1", "project_id": "B", "version_number": "2.0.0", "version_type": "release", "dependencies": [], "files": []})
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/version_file/hash-c/update")
+            .match_query(Matcher::Any)
+            .with_status(500)
+            .create_async()
+            .await;
+
+        let updates = check_updates(&ctx).await.expect("проверка обновлений");
+
+        let by_project: HashMap<String, Option<String>> = updates
+            .into_iter()
+            .map(|update| (update.project_id, update.available_version))
+            .collect();
+        assert_eq!(by_project.len(), 3, "каждый мод должен попасть в отчёт");
+        assert_eq!(
+            by_project.get("A").and_then(|v| v.as_deref()),
+            Some("1.1.0"),
+            "новая версия на сервере — обновление доступно"
+        );
+        assert_eq!(
+            by_project.get("B"),
+            Some(&None),
+            "та же версия не должна считаться обновлением"
+        );
+        assert_eq!(
+            by_project.get("C"),
+            Some(&None),
+            "сбой API по одному моду не должен ронять всю проверку"
+        );
+    }
+
+    #[tokio::test]
+    async fn check_updates_with_empty_manifest_queries_nothing() {
+        let env = ModrinthEnv::acquire("modrinth_check_updates_empty").await;
+        let ctx = env.install_ctx();
+
+        let updates = check_updates(&ctx).await.expect("пустой манифест");
+
+        assert!(updates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sync_installed_drops_missing_files_and_adopts_foreign_mods() {
+        let mut env = ModrinthEnv::acquire("modrinth_sync_adopt").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![
+                ("A", manifest_entry("A", "hash-a", "verA1", "1.0.0")),
+                ("B", manifest_entry("B", "hash-b", "verB1", "2.0.0")),
+            ],
+        )
+        .await;
+
+        env.server
+            .mock("POST", "/v2/version_files")
+            .with_status(200)
+            .with_body(
+                json!({"hash-f": {"id": "verF1", "project_id": "F", "name": "Foreign", "version_number": "0.5.0", "version_type": "release", "dependencies": [], "files": []}})
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/projects")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(
+                json!([{"id": "F", "project_type": "mod", "title": "Foreign Mod"}]).to_string(),
+            )
+            .create_async()
+            .await;
+
+        let local_hashes: HashMap<String, String> = HashMap::from([
+            ("A.jar".to_string(), "hash-a".to_string()),
+            ("Foreign.jar".to_string(), "hash-f".to_string()),
+        ]);
+
+        let manifest = sync_installed_from_hashes(&ctx, local_hashes)
+            .await
+            .expect("синхронизация манифеста по хешам");
+
+        assert!(manifest.mods.contains_key("A"));
+        assert!(
+            !manifest.mods.contains_key("B"),
+            "запись без файла в mods должна удаляться из манифеста"
+        );
+        let foreign = manifest.mods.get("F").expect("foreign-мод усыновляется");
+        assert_eq!(foreign.filename, "Foreign.jar");
+        assert_eq!(foreign.title, "Foreign Mod");
+        assert_eq!(foreign.sha1, "hash-f");
+        assert_eq!(foreign.version_number, "0.5.0");
+
+        let saved = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение сохранённого манифеста");
+        assert_eq!(
+            saved.mods.len(),
+            2,
+            "результат синхронизации должен сохраняться на диск"
+        );
+        assert!(saved.mods.contains_key("F"));
+    }
+
+    #[tokio::test]
+    async fn sync_installed_falls_back_to_version_name_when_projects_fail() {
+        let mut env = ModrinthEnv::acquire("modrinth_sync_fallback").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(&ctx, vec![]).await;
+
+        env.server
+            .mock("POST", "/v2/version_files")
+            .with_status(200)
+            .with_body(
+                json!({"hash-f": {"id": "verF1", "project_id": "F", "name": "Foreign jar", "version_number": "0.5.0", "version_type": "release", "dependencies": [], "files": []}})
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/projects")
+            .match_query(Matcher::Any)
+            .with_status(500)
+            .create_async()
+            .await;
+
+        let manifest = sync_installed_from_hashes(
+            &ctx,
+            HashMap::from([("Foreign.jar".to_string(), "hash-f".to_string())]),
+        )
+        .await
+        .expect("синхронизация");
+
+        let foreign = manifest.mods.get("F").expect("мод усыновляется");
+        assert_eq!(
+            foreign.title, "Foreign jar",
+            "без данных проекта используется имя версии"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_installed_keeps_manifest_when_hash_lookup_fails() {
+        let mut env = ModrinthEnv::acquire("modrinth_sync_lookup_fail").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![("A", manifest_entry("A", "hash-a", "verA1", "1.0.0"))],
+        )
+        .await;
+
+        env.server
+            .mock("POST", "/v2/version_files")
+            .with_status(500)
+            .create_async()
+            .await;
+
+        let manifest = sync_installed_from_hashes(
+            &ctx,
+            HashMap::from([
+                ("A.jar".to_string(), "hash-a".to_string()),
+                ("Foreign.jar".to_string(), "hash-f".to_string()),
+            ]),
+        )
+        .await
+        .expect("сбой определения foreign-модов не должен ронять синхронизацию");
+
+        assert!(
+            manifest.mods.contains_key("A"),
+            "существующая запись остаётся"
+        );
+        assert!(
+            !manifest.mods.contains_key("F"),
+            "неопознанный foreign-мод не усыновляется"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_installed_skips_foreign_mod_with_known_project() {
+        let mut env = ModrinthEnv::acquire("modrinth_sync_known_project").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![("A", manifest_entry("A", "hash-a", "verA1", "1.0.0"))],
+        )
+        .await;
+
+        env.server
+            .mock("POST", "/v2/version_files")
+            .with_status(200)
+            .with_body(
+                json!({"hash-f": {"id": "verF1", "project_id": "A", "name": "Dup", "version_number": "9.9.9", "version_type": "release", "dependencies": [], "files": []}})
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let manifest = sync_installed_from_hashes(
+            &ctx,
+            HashMap::from([
+                ("A.jar".to_string(), "hash-a".to_string()),
+                ("Other.jar".to_string(), "hash-f".to_string()),
+            ]),
+        )
+        .await
+        .expect("синхронизация");
+
+        assert_eq!(manifest.mods.len(), 1, "проект A уже в манифесте");
+        let entry = manifest.mods.get("A").expect("запись A");
+        assert_eq!(entry.version_number, "1.0.0");
+        assert_eq!(
+            entry.filename, "A.jar",
+            "существующая запись не должна перетираться foreign-версией"
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstall_project_removes_file_and_manifest_entry() {
+        let env = ModrinthEnv::acquire("modrinth_uninstall").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![
+                ("A", manifest_entry("A", "hash-a", "verA1", "1.0.0")),
+                ("B", manifest_entry("B", "hash-b", "verB1", "2.0.0")),
+            ],
+        )
+        .await;
+        tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
+        tokio::fs::write(ctx.mods_dir.join("A.jar"), b"a")
+            .await
+            .unwrap();
+        tokio::fs::write(ctx.mods_dir.join("B.jar"), b"b")
+            .await
+            .unwrap();
+
+        uninstall_project(&ctx, "A").await.expect("удаление мода");
+
+        assert!(
+            !ctx.mods_dir.join("A.jar").exists(),
+            "файл удалённого мода должен быть убран"
+        );
+        assert!(ctx.mods_dir.join("B.jar").exists());
+
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert!(!manifest.mods.contains_key("A"));
+        assert!(manifest.mods.contains_key("B"));
+    }
+
+    #[tokio::test]
+    async fn uninstall_project_errors_for_unknown_project() {
+        let env = ModrinthEnv::acquire("modrinth_uninstall_unknown").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![("A", manifest_entry("A", "hash-a", "verA1", "1.0.0"))],
+        )
+        .await;
+
+        let error = uninstall_project(&ctx, "Unknown")
+            .await
+            .expect_err("неустановленный мод не удаляется");
+        assert!(
+            error.to_string().contains("не установлен"),
+            "ошибка должна объяснять, что мод не установлен: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstall_project_rejects_unsafe_filename() {
+        let env = ModrinthEnv::acquire("modrinth_unsafe_uninstall").await;
+        let ctx = env.install_ctx();
+        let mut unsafe_entry = manifest_entry("A", "hash-a", "verA1", "1.0.0");
+        unsafe_entry.filename = "../evil.jar".to_string();
+        seed_mod_manifest(&ctx, vec![("A", unsafe_entry)]).await;
+
+        let result = uninstall_project(&ctx, "A").await;
+        assert!(result.is_err(), "traversal-имя файла должно отклоняться");
+        assert!(
+            !ctx.mods_dir
+                .parent()
+                .expect("каталог проекта")
+                .join("evil.jar")
+                .exists(),
+            "удаление не должно выходить за пределы mods"
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstall_project_tolerates_missing_file() {
+        let env = ModrinthEnv::acquire("modrinth_uninstall_no_file").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![("A", manifest_entry("A", "hash-a", "verA1", "1.0.0"))],
+        )
+        .await;
+
+        uninstall_project(&ctx, "A")
+            .await
+            .expect("отсутствующий файл не должен ломать удаление");
+
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert!(manifest.mods.is_empty(), "запись из манифеста убирается");
+    }
 }

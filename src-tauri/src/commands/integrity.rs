@@ -86,3 +86,57 @@ fn collect_launcher_server_targets(
     }
     Ok(targets)
 }
+
+#[cfg(test)]
+mod collect_targets_tests {
+    use super::collect_launcher_server_targets;
+    use crate::utils::errors::LauncherError;
+    use crate::utils::integrity::{HashKind, TargetDownload};
+    use std::collections::HashMap;
+
+    #[test]
+    fn targets_are_built_from_safe_keys() {
+        let list: HashMap<String, String> = HashMap::from([
+            ("config/file.json".to_string(), "hash-1".to_string()),
+            ("mods/simple.jar".to_string(), "hash-2".to_string()),
+        ]);
+
+        let targets = collect_launcher_server_targets(&list).expect("безопасные ключи");
+
+        assert_eq!(targets.len(), 2);
+        for target in &targets {
+            let key = target.rel_path.to_string_lossy().into_owned();
+            assert_eq!(
+                list.get(&key).map(String::as_str),
+                Some(target.hash.as_str()),
+                "хеш ключа {key:?} должен сохраниться"
+            );
+            assert!(matches!(target.hash_kind, HashKind::Sha1));
+            assert!(matches!(
+                &target.download,
+                TargetDownload::LauncherServer { key: download_key }
+                    if *download_key == key
+            ));
+        }
+    }
+
+    #[test]
+    fn traversal_keys_are_rejected() {
+        for key in ["../evil.txt", "/abs/path", "a/../../b", "C:/windows/evil"] {
+            let list: HashMap<String, String> =
+                HashMap::from([(key.to_string(), "hash".to_string())]);
+
+            let error = match collect_launcher_server_targets(&list) {
+                Ok(_) => panic!("traversal-ключ {key:?} должен отклоняться"),
+                Err(error) => error,
+            };
+            assert!(
+                matches!(
+                    error.downcast_ref::<LauncherError>(),
+                    Some(LauncherError::InvalidModFilename(_))
+                ),
+                "ключ {key:?} должен давать InvalidModFilename: {error}"
+            );
+        }
+    }
+}

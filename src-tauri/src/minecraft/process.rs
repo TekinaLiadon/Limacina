@@ -640,3 +640,187 @@ mod spawn_output_reader_tests {
         assert_eq!(lines.last().map(String::as_str), Some("OpenAL initialized"));
     }
 }
+
+#[cfg(test)]
+mod process_helpers_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn process_with_output(lines: &[&str]) -> GameProcess {
+        GameProcess {
+            window_opened: Arc::new(AtomicBool::new(false)),
+            exited: Arc::new(AtomicBool::new(false)),
+            exit_status: Arc::new(StdMutex::new(None)),
+            last_output: Arc::new(StdMutex::new(
+                lines
+                    .iter()
+                    .map(|line| line.to_string())
+                    .collect::<VecDeque<String>>(),
+            )),
+        }
+    }
+
+    #[test]
+    fn finalize_jvm_args_puts_agent_first_and_attach_flag_last() {
+        let args = finalize_jvm_args(
+            vec!["-Xmx1G".to_string()],
+            Some("-javaagent:authlib-injector.jar=https://server".to_string()),
+            false,
+        )
+        .expect("валидные аргументы");
+        assert_eq!(
+            args,
+            vec![
+                "-javaagent:authlib-injector.jar=https://server".to_string(),
+                "-Xmx1G".to_string()
+            ]
+        );
+
+        let args =
+            finalize_jvm_args(vec!["-Xmx1G".to_string()], None, true).expect("валидные аргументы");
+        assert_eq!(
+            args,
+            vec![
+                "-Xmx1G".to_string(),
+                "-XX:+DisableAttachMechanism".to_string()
+            ],
+            "disable-attach добавляется последним"
+        );
+    }
+
+    #[test]
+    fn finalize_jvm_args_rejects_forbidden_user_agent() {
+        let error = finalize_jvm_args(
+            vec!["-Xmx1G".to_string(), "-javaagent:evil.jar".to_string()],
+            None,
+            true,
+        )
+        .expect_err("пользовательский агент должен отклоняться");
+        assert!(
+            error.to_string().contains("-javaagent:evil.jar"),
+            "ошибка должна называть аргумент: {error}"
+        );
+    }
+
+    #[test]
+    fn exit_reason_detects_out_of_memory_only() {
+        let process = process_with_output(&[
+            "Starting game",
+            "java.lang.OutOfMemoryError: Java heap space",
+        ]);
+        let reason = exit_reason(&process.last_output);
+        assert!(reason.is_some_and(|text| text.contains(OUT_OF_MEMORY_MARKER)));
+
+        let clean = process_with_output(&["Starting game", "Sound engine started"]);
+        assert!(exit_reason(&clean.last_output).is_none());
+    }
+
+    #[test]
+    fn track_output_keeps_tail_limit_and_truncates_long_lines() {
+        let log = Arc::new(StdMutex::new(VecDeque::new()));
+        for i in 0..25 {
+            track_output(&log, &format!("line {i}"));
+        }
+        track_output(&log, &"x".repeat(400));
+
+        let log = log.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(log.len(), OUTPUT_TAIL_LIMIT, "буфер ограничен хвостом");
+        assert_eq!(
+            log.front().map(String::as_str),
+            Some("line 6"),
+            "самые старые строки вытесняются"
+        );
+        assert_eq!(
+            log.back().map(String::as_str),
+            Some("x".repeat(300).as_str()),
+            "длинные строки обрезаются до 300 символов"
+        );
+    }
+
+    #[test]
+    fn output_tail_returns_last_five_lines() {
+        let process = process_with_output(&["1", "2", "3", "4", "5", "6", "7"]);
+
+        let tail = process.output_tail();
+
+        assert_eq!(tail, "3\n4\n5\n6\n7");
+    }
+
+    #[test]
+    fn window_markers_and_flags_reflect_game_state() {
+        assert!(is_window_open_marker("LWJGL Version: 3.3.1"));
+        assert!(is_window_open_marker("Sound engine started"));
+        assert!(!is_window_open_marker("Random game log line"));
+
+        let process = process_with_output(&[]);
+        assert!(!process.has_exited());
+        assert!(!process.window_opened());
+    }
+
+    #[tokio::test]
+    async fn wait_for_window_ok_when_window_opens_and_err_when_game_dies() {
+        let opened = process_with_output(&[]);
+        opened.window_opened.store(true, AtomicOrdering::Relaxed);
+        opened
+            .wait_for_window(Duration::from_millis(100))
+            .await
+            .expect("открытое окно — успех");
+
+        let dead = process_with_output(&["last log line before crash"]);
+        dead.exited.store(true, AtomicOrdering::Relaxed);
+        *dead.exit_status.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some("exit code 1".to_string());
+
+        let error = dead
+            .wait_for_window(Duration::from_secs(2))
+            .await
+            .expect_err("выход до окна должен дать ошибку");
+        let text = error.to_string();
+        assert!(
+            text.contains("Игра завершилась до открытия окна (exit code 1)"),
+            "ошибка должна содержать статус: {text}"
+        );
+        assert!(
+            text.contains("last log line before crash"),
+            "ошибка должна содержать хвост лога: {text}"
+        );
+    }
+
+    #[test]
+    fn output_reader_tracks_lines_and_detects_window() {
+        let last_output = Arc::new(StdMutex::new(VecDeque::new()));
+        let window_opened = Arc::new(AtomicBool::new(false));
+
+        let handle = spawn_output_reader(
+            Cursor::new(b"LWJGL Version: 3.3\nplain line\n\xff\xfe binary\n".to_vec()),
+            Arc::clone(&last_output),
+            Arc::clone(&window_opened),
+            false,
+        );
+        handle.join().expect("ридер не должен паниковать");
+
+        assert!(
+            window_opened.load(AtomicOrdering::Relaxed),
+            "маркер окна открывает флаг"
+        );
+        let log = last_output.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            log.len(),
+            3,
+            "все строки, включая не-UTF-8 (lossy), попадают в буфер"
+        );
+    }
+
+    #[tokio::test]
+    async fn find_authlib_jar_detects_fixed_name() {
+        let guard = crate::test_support::TempDir::new("authlib_jar");
+
+        assert!(find_authlib_jar(&guard.0).is_none(), "без jar — None");
+
+        std::fs::write(guard.0.join("authlib-injector.jar"), b"jar").unwrap();
+        assert_eq!(
+            find_authlib_jar(&guard.0),
+            Some(guard.0.join("authlib-injector.jar"))
+        );
+    }
+}

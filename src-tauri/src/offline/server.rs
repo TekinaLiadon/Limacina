@@ -505,4 +505,63 @@ mod tests {
 
         server.stop();
     }
+
+    fn send_raw(port: u16, payload: &[u8]) -> Vec<u8> {
+        let mut stream = TcpStream::connect(("127.0.0.1", port))
+            .expect("шим должен принимать соединения на 127.0.0.1");
+        stream
+            .write_all(payload)
+            .expect("запрос должен отправиться");
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        let mut response = Vec::new();
+        stream
+            .read_to_end(&mut response)
+            .expect("ответ должен дочитаться");
+        response
+    }
+
+    #[test]
+    fn skin_server_closes_without_response_for_non_get() {
+        let server = SkinServer::start(
+            None,
+            "069a79f444e94726a5befca90e38abaf".to_string(),
+            "Steve".to_string(),
+        )
+        .expect("шим должен стартовать");
+        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+
+        let response = send_raw(
+            port,
+            b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n",
+        );
+
+        assert!(
+            response.is_empty(),
+            "не-GET запрос должен закрываться без ответа: {}",
+            String::from_utf8_lossy(&response)
+        );
+
+        server.stop();
+    }
+
+    #[test]
+    fn skin_server_closes_without_response_for_garbage_request() {
+        let server = SkinServer::start(
+            None,
+            "069a79f444e94726a5befca90e38abaf".to_string(),
+            "Steve".to_string(),
+        )
+        .expect("шим должен стартовать");
+        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+
+        let response = send_raw(port, b"\xff\xfe\x00\x01binary-garbage");
+
+        assert!(
+            response.is_empty(),
+            "мусорный запрос должен закрываться без ответа: {}",
+            String::from_utf8_lossy(&response)
+        );
+
+        server.stop();
+    }
 }

@@ -376,3 +376,75 @@ mod tests {
         assert!(!part_path(&dest).exists(), "part-файл должен быть удалён");
     }
 }
+
+#[cfg(test)]
+mod download_json_tests {
+    use super::download_json;
+    use crate::test_support::TempDir;
+    use mockito::Server;
+    use serde_json::Value;
+
+    #[tokio::test]
+    async fn download_json_refetches_once_after_corrupt_cache() {
+        let dir = TempDir::new("json_refetch");
+        let dest = dir.0.join("manifest.json");
+        std::fs::write(&dest, "{ not json").expect("битый кэш манифеста");
+
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/manifest.json")
+            .with_status(200)
+            .with_body(r#"{"version":1}"#)
+            .create_async()
+            .await;
+
+        let parsed: Value = download_json(Some(&format!("{}/manifest.json", server.url())), &dest)
+            .await
+            .expect("битый кэш должен перекачаться один раз");
+
+        assert_eq!(parsed["version"], 1);
+        assert_eq!(
+            std::fs::read_to_string(&dest).expect("кэш перезаписан"),
+            r#"{"version":1}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn download_json_errors_after_single_refetch_still_corrupt() {
+        let dir = TempDir::new("json_refetch_fail");
+        let dest = dir.0.join("manifest.json");
+
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/manifest.json")
+            .with_status(200)
+            .with_body("still not json")
+            .expect(2)
+            .create_async()
+            .await;
+
+        let result: Result<Value, anyhow::Error> =
+            download_json(Some(&format!("{}/manifest.json", server.url())), &dest).await;
+
+        assert!(
+            result.is_err(),
+            "после одного refetch ошибка должна вернуться"
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn download_json_without_url_reports_corrupt_cache_without_refetch() {
+        let dir = TempDir::new("json_no_url");
+        let dest = dir.0.join("manifest.json");
+        std::fs::write(&dest, "{ not json").expect("битый кэш манифеста");
+
+        let result: Result<Value, anyhow::Error> = download_json(None, &dest).await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(&dest).expect("файл без url не должен удаляться"),
+            "{ not json"
+        );
+    }
+}

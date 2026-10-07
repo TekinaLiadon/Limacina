@@ -18,7 +18,7 @@ use crate::{
         structs::{GameConfig, ModLoader, VersionMod},
     },
     state::dto::ProjectConfig,
-    utils::compare_versions,
+    utils::{compare_versions, env_info::ensure_safe_relative_path},
 };
 
 const MOD_LOADER_NAME: &str = "fabric";
@@ -28,6 +28,7 @@ pub struct Fabric;
 impl ModLoader for Fabric {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
         let version = &state.mc_version;
+        ensure_safe_relative_path(version, "версии игры")?;
         let url_manifest = format!("https://meta.fabricmc.net/v2/versions/loader/{}", version);
         let manifest_fabric =
             get_manifest_index::<Vec<FabricManifest>>(MOD_LOADER_NAME, &url_manifest, version)
@@ -224,5 +225,20 @@ mod config_tests {
             error.to_string().contains("-javaagent:evil.jar"),
             "ошибка должна называть аргумент: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn fabric_versions_reject_unsafe_mc_version() {
+        for version in ["../../evil", "/abs", "..\\evil"] {
+            let state = ProjectConfig {
+                project_name: "FabUnsafe".to_string(),
+                mc_version: version.to_string(),
+                ..ProjectConfig::default()
+            };
+            assert!(
+                Fabric.versions(&state).await.is_err(),
+                "версия игры {version:?} должна отклоняться до запроса и кэша"
+            );
+        }
     }
 }

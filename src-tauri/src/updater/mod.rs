@@ -27,9 +27,24 @@ pub fn updater_pubkey(app: &AppHandle) -> Option<String> {
 }
 
 fn valid_version(version: &str) -> bool {
-    version
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
+    !version.is_empty()
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
+}
+
+fn update_endpoint(server_url: &str, version: Option<&str>) -> Result<url::Url> {
+    let endpoint = match version {
+        Some(v) if valid_version(v) => format!("{server_url}/v1/launcher/update/{v}/latest.json"),
+        Some(v) => {
+            return Err(LauncherError::Update(format!("Некорректная версия: {v}")).into());
+        }
+        None => format!("{server_url}/v1/launcher/update/latest.json"),
+    };
+    let parsed: url::Url = endpoint.parse().map_err(|e| {
+        LauncherError::Update(format!("Не удалось разобрать адрес обновлений: {e:#}"))
+    })?;
+    Ok(parsed)
 }
 
 pub fn updater_builder(
@@ -44,16 +59,7 @@ pub fn updater_builder(
     }
     let server_url =
         crate::utils::env_info::default_server_url().ok_or(LauncherError::UpdateServerMissing)?;
-    let endpoint = match version {
-        Some(v) if valid_version(v) => format!("{server_url}/v1/launcher/update/{v}/latest.json"),
-        Some(v) => {
-            return Err(LauncherError::Update(format!("Некорректная версия: {v}")).into());
-        }
-        None => format!("{server_url}/v1/launcher/update/latest.json"),
-    };
-    let endpoint: url::Url = endpoint.parse().map_err(|e| {
-        LauncherError::Update(format!("Не удалось разобрать адрес обновлений: {e:#}"))
-    })?;
+    let endpoint = update_endpoint(&server_url, version)?;
 
     let builder = app
         .updater_builder()
@@ -137,6 +143,50 @@ fn old_bundle_path(current_exe: &std::path::Path) -> Option<std::path::PathBuf> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn valid_version_accepts_release_charset_only() {
+        for version in ["1.2.3", "1.0.0", "1.0.0-beta1", "2.0.0+build.5"] {
+            assert!(
+                valid_version(version),
+                "версия {version:?} должна проходить чарсет-гейт"
+            );
+        }
+        for version in ["", "../evil", "a b", "1.2.3/evil", "версия", "%31"] {
+            assert!(
+                !valid_version(version),
+                "версия {version:?} должна отклоняться"
+            );
+        }
+    }
+
+    #[test]
+    fn update_endpoint_builds_auto_and_per_version_urls() {
+        let auto = update_endpoint("https://mc.example.com", None).expect("auto-адрес");
+        assert_eq!(
+            auto.as_str(),
+            "https://mc.example.com/v1/launcher/update/latest.json"
+        );
+
+        let per_version =
+            update_endpoint("https://mc.example.com", Some("1.2.3")).expect("адрес версии");
+        assert_eq!(
+            per_version.as_str(),
+            "https://mc.example.com/v1/launcher/update/1.2.3/latest.json"
+        );
+    }
+
+    #[test]
+    fn update_endpoint_rejects_version_with_invalid_charset() {
+        let error = update_endpoint("https://mc.example.com", Some("../evil"))
+            .expect_err("обход пути в версии должен отклоняться");
+        assert!(
+            error.to_string().contains("Некорректная версия"),
+            "ошибка должна называть причину: {error}"
+        );
+        assert!(update_endpoint("https://mc.example.com", Some("a b")).is_err());
+        assert!(update_endpoint("https://mc.example.com", Some("")).is_err());
+    }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(name);

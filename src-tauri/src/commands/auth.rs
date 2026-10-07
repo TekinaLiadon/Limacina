@@ -348,7 +348,7 @@ pub async fn auth_logins(
 }
 
 async fn change_password_flow(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     project_name: &str,
     old_password: &str,
     new_password: &str,
@@ -430,7 +430,7 @@ pub async fn change_password(
     old_password: String,
     new_password: String,
 ) -> CommandResult<()> {
-    change_password_flow(&state, &project_name, &old_password, &new_password).await?;
+    change_password_flow(state.inner(), &project_name, &old_password, &new_password).await?;
     Ok(())
 }
 
@@ -482,14 +482,15 @@ async fn delete_account_flow(
 #[cfg(test)]
 mod account_flow_tests {
     use super::{
-        auth_refresh_flow, change_password_session, delete_account_flow, login_account,
-        restore_and_persist_session, wipe_project_credentials,
+        auth_refresh_flow, change_password_flow, change_password_session, delete_account_flow,
+        login_account, restore_and_persist_session, wipe_project_credentials,
     };
     use crate::auth::generate_offline_uuid;
     use crate::auth::storage;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
     use crate::state::launcher_config::{set_config_file_path_for_tests, LauncherConfig};
     use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
     use mockito::{Matcher, Server};
     use serde_json::json;
     use std::path::Path;
@@ -821,6 +822,73 @@ mod account_flow_tests {
         wipe_project_credentials(project, &[username.to_string()])
             .await
             .expect("очистка хранилища после теста");
+    }
+
+    #[tokio::test]
+    async fn change_password_rejects_short_and_unchanged_passwords_without_server() {
+        let _guard = LauncherDirGuard::acquire("auth_flow_password_guards").await;
+        let state = state_with_session("Steve", "TestProj");
+
+        let short = change_password_flow(&state, "TestProj", "old-pass", "12345")
+            .await
+            .expect_err("короткий пароль должен отклоняться");
+        assert!(
+            matches!(
+                short.downcast_ref::<LauncherError>(),
+                Some(LauncherError::PasswordTooShort)
+            ),
+            "ожидается PasswordTooShort: {short}"
+        );
+
+        let same = change_password_flow(&state, "TestProj", "same-pass", "same-pass")
+            .await
+            .expect_err("совпадающий пароль должен отклоняться");
+        assert!(
+            matches!(
+                same.downcast_ref::<LauncherError>(),
+                Some(LauncherError::PasswordUnchanged)
+            ),
+            "ожидается PasswordUnchanged: {same}"
+        );
+    }
+
+    #[tokio::test]
+    async fn change_password_requires_session_and_rejects_offline_and_project_mismatch() {
+        let _guard = LauncherDirGuard::acquire("auth_flow_password_session_guards").await;
+
+        let no_session = Mutex::new(GlobalState::default());
+        let error = change_password_flow(&no_session, "TestProj", "old-pass", "new-pass")
+            .await
+            .expect_err("без сессии смена пароля невозможна");
+        assert!(matches!(
+            error.downcast_ref::<LauncherError>(),
+            Some(LauncherError::NoSession)
+        ));
+
+        let offline_state = state_with_session("Steve", "TestProj");
+        offline_state
+            .lock()
+            .await
+            .session
+            .as_mut()
+            .expect("сессия")
+            .access_token = crate::auth::OFFLINE_ACCESS_TOKEN.to_string();
+        let error = change_password_flow(&offline_state, "TestProj", "old-pass", "new-pass")
+            .await
+            .expect_err("офлайн-профиль не умеет менять пароль");
+        assert!(matches!(
+            error.downcast_ref::<LauncherError>(),
+            Some(LauncherError::OfflineProfile(_))
+        ));
+
+        let state = state_with_session("Steve", "TestProj");
+        let error = change_password_flow(&state, "OtherProject", "old-pass", "new-pass")
+            .await
+            .expect_err("чужой проект должен отклоняться");
+        assert!(matches!(
+            error.downcast_ref::<LauncherError>(),
+            Some(LauncherError::ProjectNotSelected)
+        ));
     }
 
     #[tokio::test]

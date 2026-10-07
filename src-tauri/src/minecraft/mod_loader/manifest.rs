@@ -473,7 +473,7 @@ pub(crate) static NEOFORGE: LoaderDef = LoaderDef {
 mod latest_version_tests {
     use super::*;
 
-    fn version_mod(id: &str) -> VersionMod {
+    pub(super) fn version_mod(id: &str) -> VersionMod {
         VersionMod {
             url: String::new(),
             id: id.to_string(),
@@ -700,5 +700,164 @@ mod neoforge_index_tests {
         assert!(path
             .to_string_lossy()
             .ends_with("manifest/forge_47.2.0.json"));
+    }
+}
+
+#[cfg(test)]
+mod loader_manifest_apply_tests {
+    use super::latest_version_tests::version_mod;
+    use super::*;
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::LauncherDirGuard;
+
+    fn forge_metadata(versions: &[&str]) -> Metadata {
+        let latest = versions
+            .last()
+            .map(|v| (*v).to_string())
+            .unwrap_or_default();
+        Metadata {
+            versioning: Versioning {
+                latest: latest.clone(),
+                release: latest,
+                versions: VersionList {
+                    version_list: versions.iter().map(|v| (*v).to_string()).collect(),
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn group_forge_versions_groups_by_mc_and_skips_unsuffixed() {
+        let index = group_forge_versions(forge_metadata(&[
+            "1.20.1-47.2.0",
+            "1.20.1-47.1.3",
+            "1.19.4-45.0.0",
+            "bogus",
+        ]));
+
+        assert_eq!(
+            index.get("1.20.1").map(Vec::as_slice),
+            Some(&["47.2.0".to_string(), "47.1.3".to_string()][..])
+        );
+        assert_eq!(
+            index.get("1.19.4").map(Vec::as_slice),
+            Some(&["45.0.0".to_string()][..])
+        );
+        assert_eq!(index.len(), 2, "версия без суффикса mc пропускается");
+    }
+
+    async fn seed_loader_manifest(version: &str, main_class: &str) {
+        let path = loader_manifest_path(FORGE_MANIFEST_PREFIX, version).expect("путь манифеста");
+        let json = serde_json::json!({
+            "id": format!("1.20.1-forge-{version}"),
+            "time": "2023-01-01T00:00:00Z",
+            "releaseTime": "2023-01-01T00:00:00Z",
+            "type": "release",
+            "mainClass": main_class,
+            "inheritsFrom": "1.20.1",
+            "libraries": []
+        });
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await.unwrap();
+        }
+        tokio::fs::write(&path, json.to_string())
+            .await
+            .expect("запись манифеста лоадера");
+    }
+
+    fn forge_state(loader_version: Option<&str>) -> ProjectConfig {
+        ProjectConfig {
+            mc_version: "1.20.1".to_string(),
+            loader_version: loader_version.map(str::to_string),
+            ..ProjectConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn modify_loader_manifest_updates_only_matching_entry() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_modify").await;
+        seed_loader_manifest("47.2.0", "cpw.mods.bootstraplauncher.BootstrapLauncher").await;
+
+        let mut manifest = vec![version_mod("1.20.1-47.2.0"), version_mod("1.20.1-47.1.3")];
+        modify_loader_manifest(
+            FORGE_MANIFEST_PREFIX,
+            "47.2.0",
+            FORGE_MAVEN_BASE,
+            &mut manifest,
+        )
+        .await
+        .expect("применение манифеста лоадера");
+
+        assert_eq!(
+            manifest[0].main_class, "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "совпадающая запись получает main_class из манифеста"
+        );
+        assert!(
+            manifest[1].main_class.is_empty(),
+            "чужая запись не должна затрагиваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn modify_loader_manifest_silently_skips_missing_target_entry() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_skip").await;
+        seed_loader_manifest("47.2.0", "cpw.mods.bootstraplauncher.BootstrapLauncher").await;
+
+        let mut manifest = vec![version_mod("1.20.1-47.1.3")];
+        modify_loader_manifest(
+            FORGE_MANIFEST_PREFIX,
+            "47.2.0",
+            FORGE_MAVEN_BASE,
+            &mut manifest,
+        )
+        .await
+        .expect("отсутствие целевой записи не должно быть ошибкой");
+
+        assert!(
+            manifest[0].main_class.is_empty(),
+            "silent-skip: манифест остаётся без изменений"
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_installed_manifest_requires_cached_manifest_file() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_apply").await;
+
+        let mut untouched = vec![version_mod("1.20.1-47.2.0")];
+        apply_installed_manifest(
+            &forge_state(None),
+            FORGE_MANIFEST_PREFIX,
+            FORGE_MAVEN_BASE,
+            &mut untouched,
+        )
+        .await
+        .expect("без выбранной версии лоадера — no-op");
+        assert!(untouched[0].main_class.is_empty());
+
+        let mut missing = vec![version_mod("1.20.1-47.2.0")];
+        apply_installed_manifest(
+            &forge_state(Some("99.0.0")),
+            FORGE_MANIFEST_PREFIX,
+            FORGE_MAVEN_BASE,
+            &mut missing,
+        )
+        .await
+        .expect("незакэшированный манифест — тихий пропуск");
+        assert!(missing[0].main_class.is_empty());
+
+        seed_loader_manifest("47.2.0", "cpw.mods.bootstraplauncher.BootstrapLauncher").await;
+        let mut present = vec![version_mod("1.20.1-47.2.0")];
+        apply_installed_manifest(
+            &forge_state(Some("47.2.0")),
+            FORGE_MANIFEST_PREFIX,
+            FORGE_MAVEN_BASE,
+            &mut present,
+        )
+        .await
+        .expect("закэшированный манифест применяется");
+        assert_eq!(
+            present[0].main_class,
+            "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        );
     }
 }
