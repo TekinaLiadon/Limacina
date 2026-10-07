@@ -304,6 +304,42 @@ pub(crate) async fn install_loader_files(
     Ok(())
 }
 
+pub(crate) fn find_loader_version<'a>(
+    manifest: &'a [VersionMod],
+    target_id: &str,
+) -> Result<&'a VersionMod> {
+    manifest
+        .iter()
+        .find(|v| v.id == target_id)
+        .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()).into())
+}
+
+pub(crate) async fn install_version_files(
+    state: &ProjectConfig,
+    version_info: &VersionMod,
+    library: &[LibraryMod],
+    label: String,
+    skipped: bool,
+) -> Result<()> {
+    let step = StepHandle::start("loader", label);
+    let base = launcher_path(Some(&state.project_name)).map_err(|e| {
+        LauncherError::LoaderSetup(format!(
+            "Не удалось определить путь к файлам проекта: {e:#}"
+        ))
+    })?;
+    install_loader_files(
+        step.clone(),
+        &base,
+        &state.project_name,
+        &version_info.id,
+        library,
+        &version_info.url,
+    )
+    .await?;
+    step.finish(skipped);
+    Ok(())
+}
+
 pub async fn setup_loader(
     loader_name: &str,
     manifest_prefix: &str,
@@ -314,13 +350,8 @@ pub async fn setup_loader(
     let base_url = launcher_path(Some(&state.project_name))?;
     let loader_version = loader_version_or_err(state)?;
     let target_version = format!("{}-{}", &state.mc_version, loader_version);
-    let version_info = manifest
-        .iter()
-        .find(|v| v.id == target_version)
-        .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()))?;
-
-    let step = StepHandle::start("loader", format!("Установка {}", loader_name));
-
+    let version_info = find_loader_version(manifest, &target_version)?;
+    let label = format!("Установка {loader_name}");
     let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
 
     if tokio::fs::try_exists(&loader_manifest_file)
@@ -329,19 +360,12 @@ pub async fn setup_loader(
     {
         let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         let library = loader_libraries(version_manifest.libraries, maven_base)?;
-        install_loader_files(
-            step.clone(),
-            &base_url,
-            &state.project_name,
-            &target_version,
-            &library,
-            &version_info.url,
-        )
-        .await?;
+        install_version_files(state, version_info, &library, label.clone(), true).await?;
         log_info!("{} уже установлен, проверка файлов завершена", loader_name);
-        step.finish(true);
         return Ok(());
     }
+
+    let step = StepHandle::start("loader", label);
 
     step.detail("Скачивание инсталлера");
     step.set_total(1);

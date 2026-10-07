@@ -1,23 +1,13 @@
-use crate::utils::errors::LauncherError;
 use crate::{
-    log_info,
     minecraft::{
         mod_loader::{
-            config::{
-                loader_args_map, loader_game_args, loader_jvm_args, merge_classpath,
-                merge_game_args,
-            },
+            config::{build_loader_config, LoaderConfigOptions, LoaderMainClass, VanillaClientJar},
             installer::setup_loader,
-            manifest::{
-                latest_list_version, loader_manifest_path, loader_version_or_err,
-                versions_with_installed, Manifest, FORGE,
-            },
+            manifest::{latest_list_version, versions_with_installed, FORGE},
         },
         structs::{GameConfig, ModLoader, VersionMod},
-        vanilla::config::filter_classpath,
     },
     state::dto::ProjectConfig,
-    utils::download_file::download_json,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -51,45 +41,17 @@ impl ModLoader for Forge {
         vanilla_config: GameConfig,
         version: &VersionMod,
     ) -> Result<GameConfig> {
-        log_info!("Соединение classpath");
-        let target_version = loader_version_or_err(state)?;
-        let classpath = merge_classpath(
-            &state.project_name,
-            &version.id,
-            &version.library,
-            &vanilla_config.classpath,
+        build_loader_config(
+            &FORGE,
+            state,
+            vanilla_config,
+            version,
+            LoaderConfigOptions {
+                main_class: LoaderMainClass::FromVersion,
+                vanilla_client_jar: VanillaClientJar::Keep,
+            },
         )
         .await
-        .map_err(|e| {
-            LauncherError::LoaderSetup(format!("Не удалось собрать classpath Forge: {e:#}"))
-        })?;
-        let clean_classpath = filter_classpath(classpath);
-
-        let forge_manifest =
-            loader_manifest_path(FORGE.manifest_prefix, target_version).map_err(|e| {
-                LauncherError::LoaderSetup(format!(
-                    "Не удалось определить путь к файлам лаунчера: {e:#}"
-                ))
-            })?;
-        let manifest = download_json::<Manifest>(None, &forge_manifest)
-            .await
-            .map_err(|e| {
-                LauncherError::LoaderSetup(format!("Не удалось скачать манифест Forge: {e:#}"))
-            })?;
-        let args_map = loader_args_map(state)?;
-        let game_args = merge_game_args(
-            vanilla_config.game_args.clone(),
-            loader_game_args(&args_map, &manifest),
-        );
-        let jvm_args = [
-            &vanilla_config.jvm_args[..],
-            &loader_jvm_args(&args_map, &manifest)[..],
-        ]
-        .concat();
-
-        Ok(vanilla_config
-            .with_args(jvm_args, game_args)
-            .with_loader(clean_classpath, version.main_class.clone()))
     }
 }
 
@@ -195,6 +157,85 @@ mod config_tests {
         assert!(config.game_args.contains(&"Cordelia".to_string()));
         assert!(config.game_args.contains(&"--fml.forgeVersion".to_string()));
         assert_eq!(config.main_class, "LoaderMain");
+    }
+
+    #[tokio::test]
+    async fn forge_config_falls_back_to_manifest_libraries() {
+        let dir = LauncherDirGuard::acquire("forge_config_fallback").await;
+
+        let manifest_json = json!({
+            "id": "1.20.1-forge-0.16.9",
+            "time": "2023-01-01T00:00:00+00:00",
+            "releaseTime": "2023-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
+            "inheritsFrom": "1.20.1",
+            "arguments": {
+                "game": ["--fml.forgeVersion", "0.16.9"],
+                "jvm": ["-cp", "${classpath}"]
+            },
+            "libraries": [
+                {
+                    "name": "net.fabricmc:fabric-loader:0.16.9",
+                    "downloads": { "artifact": { "path": "", "url": "", "sha1": sha1_hex(b"loader lib bytes"), "size": 16 } }
+                }
+            ]
+        });
+        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "ForgeFallback".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("0.16.9".to_string()),
+            ..ProjectConfig::default()
+        };
+
+        let game_root = dir.project_dir("ForgeFallback");
+        let lib_path = game_root
+            .join("libraries")
+            .join("net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar");
+        fs::create_dir_all(lib_path.parent().unwrap()).unwrap();
+        fs::write(&lib_path, b"loader lib bytes").unwrap();
+
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.1-0.16.9".to_string(),
+            main_class: "LoaderMain".to_string(),
+            library: Vec::new(),
+        };
+
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xms512M".to_string()],
+            vec![],
+            vec!["/game/libraries/vanilla.jar".to_string()],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root.clone(),
+        );
+
+        let config = Forge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг Forge");
+
+        assert!(
+            config
+                .classpath
+                .contains(&lib_path.to_string_lossy().into_owned()),
+            "библиотеки из манифеста должны попасть в classpath при пустом version.library: {:?}",
+            config.classpath
+        );
+        assert!(config
+            .classpath
+            .contains(&"/game/libraries/vanilla.jar".to_string()));
+        assert!(config.classpath.contains(
+            &game_root
+                .join("1.20.1-0.16.9.jar")
+                .to_string_lossy()
+                .into_owned()
+        ));
     }
 
     #[tokio::test]

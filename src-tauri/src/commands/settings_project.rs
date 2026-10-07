@@ -150,6 +150,30 @@ async fn clear_minecraft_config_inner(
     let config_dir = game_dir.join("config");
 
     if !config_dir.exists() {
+        let staging_dir = game_dir.join("old_config.part");
+        if staging_dir.exists() {
+            if keep_old_configs {
+                let old_dir = game_dir.join("old_config");
+                if old_dir.exists() {
+                    tokio::fs::remove_dir_all(&old_dir).await.with_context(|| {
+                        format!("Не удалось удалить старую папку {:?}", old_dir)
+                    })?;
+                }
+                tokio::fs::rename(&staging_dir, &old_dir)
+                    .await
+                    .with_context(|| format!("Не удалось переименовать папку {:?}", staging_dir))?;
+                log_info!(
+                    "Дописан прерванный перенос конфигов проекта {} в old_config",
+                    project_name
+                );
+                return Ok("Конфиги перемещены в резервную копию".to_string());
+            }
+            tokio::fs::remove_dir_all(&staging_dir)
+                .await
+                .with_context(|| format!("Не удалось удалить папку {:?}", staging_dir))?;
+            log_info!("Удалена прерванная копия конфигов проекта {}", project_name);
+            return Ok("Папка конфигов удалена".to_string());
+        }
         return Ok("Папка конфигов отсутствует".to_string());
     }
 
@@ -180,12 +204,64 @@ async fn clear_minecraft_config_inner(
 
 #[cfg(test)]
 mod save_settings_tests {
-    use super::{extract_java_major, load_settings_project_inner, save_project_settings};
+    use super::{
+        clear_minecraft_config_inner, extract_java_major, load_settings_project_inner,
+        save_project_settings,
+    };
     use crate::state::config::{load_config, update_project_config};
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::LauncherDirGuard;
     use std::time::Duration;
     use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn clear_finalizes_interrupted_old_config_rename() {
+        let dir = LauncherDirGuard::acquire("clear_minecraft_staging").await;
+        let game_dir = dir.project_dir("Cordelia");
+        let staging = game_dir.join("old_config.part");
+        std::fs::create_dir_all(staging.join("options.txt").parent().unwrap()).unwrap();
+        std::fs::write(staging.join("options.txt"), b"mouse_sensitive=1").unwrap();
+
+        let message = clear_minecraft_config_inner("Cordelia", true)
+            .await
+            .expect("прерванный перенос должен финализироваться");
+
+        assert!(
+            message.contains("резервную копию"),
+            "ожидается сообщение о переносе: {message}"
+        );
+        assert!(
+            game_dir.join("old_config").join("options.txt").exists(),
+            "конфиги должны оказаться в old_config"
+        );
+        assert!(!staging.exists(), "staging-папка должна исчезнуть");
+    }
+
+    #[tokio::test]
+    async fn clear_without_keep_removes_interrupted_staging() {
+        let dir = LauncherDirGuard::acquire("clear_minecraft_staging_delete").await;
+        let game_dir = dir.project_dir("Cordelia");
+        let staging = game_dir.join("old_config.part");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("options.txt"), b"x").unwrap();
+
+        let message = clear_minecraft_config_inner("Cordelia", false)
+            .await
+            .expect("удаление без резервной копии");
+
+        assert!(
+            message.contains("удалены") || message.contains("удалена"),
+            "ожидается сообщение об удалении: {message}"
+        );
+        assert!(
+            !staging.exists(),
+            "staging должен быть удалён без финализации"
+        );
+        assert!(
+            !game_dir.join("old_config").exists(),
+            "old_config не должен создаваться без keep_old_configs"
+        );
+    }
 
     #[tokio::test]
     async fn settings_save_survives_parallel_config_update() {

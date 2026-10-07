@@ -5,6 +5,7 @@ use tokio::fs;
 use tokio::sync::Mutex;
 
 use crate::commands::launcher_config::update_launcher_config;
+use crate::log_err;
 use crate::log_info;
 use crate::minecraft::manifest::VERSION_MANIFEST_URL;
 use crate::minecraft::mod_loader::fabric::Fabric;
@@ -302,6 +303,33 @@ pub async fn save_current_project(
 }
 
 async fn delete_project_files(project_name: &str) -> Result<()> {
+    let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
+    if config_path.exists() {
+        fs::remove_file(&config_path)
+            .await
+            .with_context(|| format!("Не удалось удалить конфиг проекта {:?}", config_path))?;
+    }
+
+    let aux_paths = [
+        (
+            launcher_path(Some("config"))?.join(format!("{}.models.json", project_name)),
+            "манифест моделей",
+        ),
+        (
+            launcher_path(None)?
+                .join("manifest")
+                .join(format!("installed_{}.json", project_name)),
+            "install-манифест",
+        ),
+    ];
+    for (path, label) in aux_paths {
+        if let Err(e) = fs::remove_file(&path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log_err!("Не удалось удалить {label} проекта {project_name} ({path:?}): {e}");
+            }
+        }
+    }
+
     let project_dir = launcher_path(Some(project_name))?;
     if project_dir.exists() {
         LauncherError::classify(
@@ -312,18 +340,6 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
         )?;
     }
 
-    let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
-    let _ = fs::remove_file(&config_path).await;
-
-    let models_manifest_path =
-        launcher_path(Some("config"))?.join(format!("{}.models.json", project_name));
-    let _ = fs::remove_file(&models_manifest_path).await;
-
-    let manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("installed_{}.json", project_name));
-    let _ = fs::remove_file(&manifest_path).await;
-
     Ok(())
 }
 
@@ -331,7 +347,7 @@ async fn delete_project_credentials(project_name: &str, logins: Vec<String>) -> 
     crate::commands::auth::wipe_project_credentials(project_name, &logins).await
 }
 
-async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result<LauncherConfig> {
+async fn delete_current_project(state: &Mutex<GlobalState>) -> Result<LauncherConfig> {
     let project_name = {
         let guard = state.lock().await;
         guard.project_config.project_name.clone()
@@ -360,12 +376,12 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
     };
     delete_project_credentials(&project_name, saved_logins).await?;
 
-    delete_project_files(&project_name).await?;
-
     let config = update_launcher_config(state, |config| {
         config.remove_project(&project_name);
     })
     .await?;
+
+    delete_project_files(&project_name).await?;
 
     let next_project = config.current_project.clone();
     let next_config = match next_project.as_deref() {
@@ -384,7 +400,7 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
 
 #[tauri::command]
 pub async fn delete_project(state: State<'_, Mutex<GlobalState>>) -> CommandResult<LauncherConfig> {
-    Ok(delete_current_project(&state).await?)
+    Ok(delete_current_project(state.inner()).await?)
 }
 
 #[tauri::command]
@@ -452,9 +468,71 @@ pub async fn refresh_manifests() -> CommandResult<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::LauncherDirGuard;
+    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::state::launcher_config::LauncherConfig;
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use tokio::sync::Mutex;
 
-    use super::delete_project_files;
+    use super::{delete_current_project, delete_project_files};
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_current_project_aborts_when_toml_removal_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let guard = LauncherDirGuard::acquire("delete_toml_locked").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let project_dir = guard.root().join("project").join("Cordelia");
+        std::fs::create_dir_all(project_dir.join("mods")).expect("создание папки проекта");
+        std::fs::write(project_dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+        let config_dir = guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("создание папки конфигов");
+        std::fs::write(config_dir.join("Cordelia.toml"), b"toml").expect("создание TOML");
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                ..ProjectConfig::default()
+            },
+            session: None,
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        });
+        state
+            .lock()
+            .await
+            .launcher_config
+            .as_mut()
+            .expect("конфиг лаунчера")
+            .add_project("Cordelia");
+
+        std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o555))
+            .expect("запрет записи в папку конфигов");
+        let result = delete_current_project(&state).await;
+        std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o755))
+            .expect("возврат прав");
+
+        result.expect_err("сбой удаления TOML должен останавливать удаление проекта");
+
+        assert!(
+            !state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .has_project("Cordelia"),
+            "реестр должен обновляться до удаления файлов"
+        );
+        assert!(
+            project_dir.exists(),
+            "файлы проекта не должны удаляться при сбое удаления TOML"
+        );
+        assert!(
+            config_dir.join("Cordelia.toml").exists(),
+            "TOML должен остаться на месте при сбое"
+        );
+    }
 
     #[tokio::test]
     async fn delete_project_files_removes_dir_toml_and_manifest() {

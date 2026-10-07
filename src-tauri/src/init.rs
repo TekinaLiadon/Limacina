@@ -89,9 +89,31 @@ pub async fn init_project_config(
         validate_project_name(project_name)?;
         let toml_path = config_dir.join(format!("{}.toml", project_name));
         if toml_path.exists() {
-            let content = fs::read_to_string(&toml_path).await?;
-            let config: ProjectConfig = toml::from_str(&content)?;
-            return Ok(config);
+            let parsed = fs::read_to_string(&toml_path)
+                .await
+                .map_err(|e| {
+                    anyhow::Error::new(e).context(format!("Не удалось прочитать {toml_path:?}"))
+                })
+                .and_then(|content| {
+                    toml::from_str::<ProjectConfig>(&content).map_err(|e| {
+                        anyhow::Error::new(e).context(format!("Не удалось разобрать {toml_path:?}"))
+                    })
+                });
+            match parsed {
+                Ok(config) => return Ok(config),
+                Err(e) => {
+                    log_err!(
+                        "Конфиг проекта {project_name} повреждён: {e:#} — пересоздаём с сервера"
+                    );
+                    let broken_path = config_dir.join(format!("{project_name}.toml.broken"));
+                    let _ = fs::remove_file(&broken_path).await;
+                    if let Err(rename_err) = fs::rename(&toml_path, &broken_path).await {
+                        log_err!(
+                            "Не удалось сохранить битый конфиг в {broken_path:?}: {rename_err:#}"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -155,9 +177,49 @@ mod tests {
     use crate::state::dto::GlobalState;
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use mockito::Server;
+    use std::fs;
     use tokio::sync::Mutex;
 
     use super::{init_launcher, init_project_config, InitPaths};
+
+    #[tokio::test]
+    async fn init_project_config_recreates_broken_toml_from_server() {
+        let guard = LauncherDirGuard::acquire("init_broken_toml").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(
+                r#"{"projectName":"BrokenInit","mcVersion":"1.20.1","modLoader":"vanilla",
+                    "loaderVersion":null,"javaPath":null,"jvmArgs":[],
+                    "minMemory":"-Xms512M","maxMemory":"-Xmx4G"}"#,
+            )
+            .create_async()
+            .await;
+
+        let base = guard.root().to_string_lossy().to_string();
+        let config_dir = guard.root().join("project").join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("BrokenInit.toml"), "{ это битый toml").unwrap();
+
+        let config = init_project_config(&base, "BrokenInit", Some(&server.url()))
+            .await
+            .expect("битый toml должен пересоздаваться с сервера");
+
+        assert_eq!(config.project_name, "BrokenInit");
+        assert_eq!(config.mc_version, "1.20.1");
+        assert_eq!(config.min_memory, "-Xms512M");
+        let restored = fs::read_to_string(config_dir.join("BrokenInit.toml")).unwrap();
+        assert!(
+            restored.contains("mcVersion"),
+            "на диске должен быть свежий конфиг с сервера: {restored}"
+        );
+        assert!(
+            config_dir.join("BrokenInit.toml.broken").exists(),
+            "битый toml должен сохраняться рядом для диагностики"
+        );
+    }
 
     #[tokio::test]
     async fn init_rejects_traversal_name_before_write() {

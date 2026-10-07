@@ -12,7 +12,7 @@ use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 
 async fn store_session(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     data: &AuthData,
     fallback_username: &str,
     project_name: &str,
@@ -245,26 +245,34 @@ pub async fn auth_login(
     password: String,
     remember_me: bool,
 ) -> CommandResult<()> {
-    login_account(&state, &project_name, &username, &password, remember_me).await?;
+    login_account(
+        state.inner(),
+        &project_name,
+        &username,
+        &password,
+        remember_me,
+    )
+    .await?;
     Ok(())
 }
 
 async fn login_account(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     project_name: &str,
     username: &str,
     password: &str,
     remember_me: bool,
 ) -> Result<()> {
+    let username = username.trim();
     let project = load_config_or_default(project_name).await?;
 
     if !project.online {
-        if username.trim().is_empty() {
+        if username.is_empty() {
             bail!(LauncherError::UsernameEmpty);
         }
         let data = auth::offline(username);
         store_session(state, &data, username, project_name).await;
-        remember_login(state, project_name, username, true).await?;
+        remember_login(state, project_name, username, remember_me).await?;
         return Ok(());
     }
 
@@ -298,16 +306,29 @@ pub async fn auth_refresh(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
-    let project = load_config_or_default(&project_name).await?;
+    auth_refresh_flow(state.inner(), &project_name, &username).await?;
+    Ok(())
+}
+
+async fn auth_refresh_flow(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+    username: &str,
+) -> Result<()> {
+    let username = username.trim();
+    if username.is_empty() {
+        bail!(LauncherError::UsernameEmpty);
+    }
+    let project = load_config_or_default(project_name).await?;
 
     if !project.online {
-        let data = auth::offline(&username);
-        store_session(&state, &data, &username, &project_name).await;
+        let data = auth::offline(username);
+        store_session(state, &data, username, project_name).await;
         return Ok(());
     }
 
-    let auth_data = restore_and_persist_session(&project_name, &username, None).await?;
-    store_session(&state, &auth_data, &username, &project_name).await;
+    let auth_data = restore_and_persist_session(project_name, username, None).await?;
+    store_session(state, &auth_data, username, project_name).await;
 
     Ok(())
 }
@@ -461,16 +482,16 @@ async fn delete_account_flow(
 #[cfg(test)]
 mod account_flow_tests {
     use super::{
-        change_password_session, delete_account_flow, restore_and_persist_session,
-        wipe_project_credentials,
+        auth_refresh_flow, change_password_session, delete_account_flow, login_account,
+        restore_and_persist_session, wipe_project_credentials,
     };
+    use crate::auth::generate_offline_uuid;
     use crate::auth::storage;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
     use crate::state::launcher_config::{set_config_file_path_for_tests, LauncherConfig};
     use crate::test_support::LauncherDirGuard;
     use mockito::{Matcher, Server};
     use serde_json::json;
-    use std::io::Write;
     use std::path::Path;
     use tokio::sync::Mutex;
 
@@ -527,6 +548,153 @@ mod account_flow_tests {
             launcher_config: Some(LauncherConfig::default()),
             app_version: String::new(),
         })
+    }
+
+    async fn seed_offline_project(project_name: &str) {
+        let config = ProjectConfig {
+            project_name: project_name.to_string(),
+            mc_version: "1.20.1".to_string(),
+            online: false,
+            ..ProjectConfig::default()
+        };
+        config
+            .save_config()
+            .await
+            .expect("сохранение конфига проекта");
+    }
+
+    fn offline_state(project_name: &str) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: project_name.to_string(),
+                online: false,
+                ..ProjectConfig::default()
+            },
+            session: None,
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn offline_login_trims_username_and_respects_remember_me() {
+        let dir = LauncherDirGuard::acquire("auth_offline_trim").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let state = offline_state("OffProj");
+
+        login_account(&state, "OffProj", "  Steve  ", "ignored", true)
+            .await
+            .expect("офлайн-вход");
+
+        let guard = state.lock().await;
+        let session = guard.session.as_ref().expect("сессия");
+        assert_eq!(session.username, "Steve", "ник должен тримиться");
+        assert_eq!(
+            session.uuid,
+            generate_offline_uuid("Steve"),
+            "uuid должен считаться от тримнутого ника"
+        );
+        assert_eq!(
+            guard
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .get_logins("OffProj"),
+            vec!["Steve".to_string()],
+            "логин должен сохраняться при remember_me"
+        );
+    }
+
+    #[tokio::test]
+    async fn offline_login_without_remember_me_drops_saved_login() {
+        let dir = LauncherDirGuard::acquire("auth_offline_no_remember").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let state = offline_state("OffProj");
+
+        login_account(&state, "OffProj", "Steve", "ignored", false)
+            .await
+            .expect("офлайн-вход");
+
+        let guard = state.lock().await;
+        assert_eq!(
+            guard.session.as_ref().expect("сессия").username,
+            "Steve",
+            "вход без remember_me всё равно выполняется"
+        );
+        assert!(
+            guard
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .get_logins("OffProj")
+                .is_empty(),
+            "логин не должен сохраняться без remember_me"
+        );
+    }
+
+    #[tokio::test]
+    async fn offline_login_rejects_blank_username() {
+        let dir = LauncherDirGuard::acquire("auth_offline_blank").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let state = offline_state("OffProj");
+
+        let error = login_account(&state, "OffProj", "   ", "ignored", true)
+            .await
+            .expect_err("пустой ник должен отклоняться");
+
+        assert!(
+            error.to_string().contains("Введите ник"),
+            "ожидается UsernameEmpty: {error}"
+        );
+        assert!(
+            state.lock().await.session.is_none(),
+            "сессия не должна создаваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_refresh_rejects_blank_username_offline() {
+        let dir = LauncherDirGuard::acquire("auth_refresh_blank").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let state = offline_state("OffProj");
+
+        let error = auth_refresh_flow(&state, "OffProj", "   ")
+            .await
+            .expect_err("пустой ник должен отклоняться");
+
+        assert!(
+            error.to_string().contains("Введите ник"),
+            "ожидается UsernameEmpty: {error}"
+        );
+        assert!(
+            state.lock().await.session.is_none(),
+            "сессия с uuid от пустого ника не должна создаваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_refresh_trims_username_offline() {
+        let dir = LauncherDirGuard::acquire("auth_refresh_trim").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let state = offline_state("OffProj");
+
+        auth_refresh_flow(&state, "OffProj", "  Steve  ")
+            .await
+            .expect("офлайн-refresh");
+
+        let guard = state.lock().await;
+        let session = guard.session.as_ref().expect("сессия");
+        assert_eq!(session.username, "Steve", "ник должен тримиться");
+        assert_eq!(
+            session.uuid,
+            generate_offline_uuid("Steve"),
+            "uuid должен считаться от тримнутого ника"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -984,7 +1152,9 @@ mod restore_session_tests {
         first_rotation.assert_async().await;
         second_rotation.assert_async().await;
 
-        wipe_project_credentials(project, &[username.to_string()]).await;
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища после теста");
         assert!(
             storage::get_credential(project, username, "refresh_token")
                 .await

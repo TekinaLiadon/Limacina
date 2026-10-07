@@ -4,6 +4,7 @@ use sysinfo::System;
 use tauri::State;
 use tokio::sync::Mutex;
 
+use crate::log_err;
 use crate::state::dto::GlobalState;
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::blocking;
@@ -94,10 +95,15 @@ async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<A
     let (config, version) = {
         let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
 
-        let mut config = blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
-            .await?
-            .ok()
-            .flatten();
+        let mut config = match blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
+            .await
+        {
+            Ok(Ok(config)) => config,
+            Ok(Err(e)) | Err(e) => {
+                log_err!("Не удалось прочитать конфиг лаунчера при инициализации: {e:#}");
+                None
+            }
+        };
 
         if let Some(ref mut cfg) = config {
             let mut changed = cfg.apply_default_project();
@@ -112,11 +118,17 @@ async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<A
             }
             if changed {
                 let cfg_clone = cfg.clone();
-                let _ = blocking(
+                match blocking(
                     "Не удалось выполнить запись конфига",
                     move || cfg_clone.save(),
                 )
-                .await;
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) | Err(e) => {
+                        log_err!("Не удалось сохранить конфиг лаунчера при инициализации: {e:#}")
+                    }
+                }
             }
         }
 
@@ -430,6 +442,24 @@ mod update_flow_tests {
         assert!(
             in_memory.install_id.is_some(),
             "in-memory конфиг должен содержать свежий install_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn init_data_survives_config_read_error() {
+        let dir = LauncherDirGuard::acquire("init_data_read_error").await;
+        let blocked = dir.root().join("config_dir");
+        std::fs::create_dir_all(&blocked).expect("каталог вместо файла конфига");
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config_dir");
+        let state = Mutex::new(GlobalState::default());
+
+        let data = get_app_init_data_inner(&state)
+            .await
+            .expect("сбой чтения конфига не должен валить инициализацию");
+
+        assert!(
+            data.launcher_config.is_none(),
+            "при нечитаемом конфиге инициализация продолжает работу без него"
         );
     }
 }
