@@ -93,16 +93,16 @@ pub async fn download_server_file(
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
     let _guard = crate::state::launch_state::acquire_launch_step();
+    let project_config = state.lock().await.project_config.clone();
+    let (java_path, java_version) =
+        LauncherError::classify(install_java(&project_config).await, LauncherError::Java)?;
     update_project_config(&state, async |project_config: &mut ProjectConfig| {
-        let (java_path, java_version) =
-            LauncherError::classify(install_java(project_config).await, LauncherError::Java)?;
         project_config.java_path = Some(java_path.to_string_lossy().into_owned());
         project_config.java_version = Some(parse_java_major(&java_version)?);
         Ok(())
     })
-    .await
-    .map(|_| ())
-    .map_err(Into::into)
+    .await?;
+    Ok(())
 }
 
 #[tauri::command]

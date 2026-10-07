@@ -14,7 +14,9 @@ use crate::minecraft::structs::{
     ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
 };
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
-use crate::state::config::{load_config, load_config_or_default, validate_project_name};
+use crate::state::config::{
+    load_config, load_config_or_default, set_project_config, validate_project_name,
+};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::compare_versions;
@@ -73,9 +75,8 @@ async fn persist_new_project(config: &ProjectConfig) -> Result<()> {
     LauncherError::classify(result, LauncherError::DiskIo)
 }
 
-async fn activate_project(state: &State<'_, Mutex<GlobalState>>, config: &ProjectConfig) {
-    let mut guard = state.lock().await;
-    guard.project_config = config.clone();
+async fn activate_project(state: &Mutex<GlobalState>, config: &ProjectConfig) -> Result<()> {
+    set_project_config(state, config.clone()).await
 }
 
 async fn add_server_profile(
@@ -130,7 +131,7 @@ async fn add_server_profile(
 
     persist_new_project(&config).await?;
     register_project(state, &config.project_name).await?;
-    activate_project(state, &config).await;
+    activate_project(state.inner(), &config).await?;
 
     log_info!("[profile] Профиль сервера создан: {}", config.project_name);
     Ok(config)
@@ -173,7 +174,7 @@ async fn add_offline_profile(
         .with_context(|| format!("Не удалось создать папку модов {:?}", mods_dir))?;
 
     register_project(state, &config.project_name).await?;
-    activate_project(state, &config).await;
+    activate_project(state.inner(), &config).await?;
 
     log_info!(
         "[profile] Одиночный профиль создан: {}",
@@ -391,8 +392,8 @@ async fn delete_current_project(state: &Mutex<GlobalState>) -> Result<LauncherCo
     {
         let mut guard = state.lock().await;
         guard.session = None;
-        guard.project_config = next_config;
     }
+    set_project_config(state, next_config).await?;
 
     log_info!("[profile] Проект {} удалён", project_name);
     Ok(config)
@@ -468,12 +469,105 @@ pub async fn refresh_manifests() -> CommandResult<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use crate::state::config::update_project_config;
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
     use tokio::sync::Mutex;
 
-    use super::{delete_current_project, delete_project_files};
+    use super::{activate_project, delete_current_project, delete_project_files};
+
+    fn state_with_current(project_name: &str) -> GlobalState {
+        GlobalState {
+            project_config: ProjectConfig {
+                project_name: project_name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+            session: None,
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn activate_project_survives_parallel_settings_save() {
+        let _guard = LauncherDirGuard::acquire("activate_race").await;
+        let activated = ProjectConfig {
+            project_name: "NewActive".to_string(),
+            mc_version: "1.21.1".to_string(),
+            ..ProjectConfig::default()
+        };
+        activated
+            .save_config()
+            .await
+            .expect("сохранение конфига нового профиля");
+        let state = Mutex::new(state_with_current("Starter"));
+
+        let (save_result, activate_result) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                config.java_path = Some("java-path".to_string());
+                Ok(())
+            }),
+            activate_project(&state, &activated),
+        );
+        save_result.expect("параллельное сохранение настроек");
+        activate_result.expect("активация профиля");
+
+        let current = state.lock().await.project_config.clone();
+        assert_eq!(
+            current.project_name, "NewActive",
+            "параллельное сохранение настроек не должно откатывать активацию профиля"
+        );
+        assert_eq!(current.mc_version, "1.21.1");
+    }
+
+    #[tokio::test]
+    async fn delete_switch_survives_parallel_settings_save() {
+        let guard = LauncherDirGuard::acquire("delete_switch_race").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        for name in ["Old", "Next"] {
+            ProjectConfig {
+                project_name: name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            }
+            .save_config()
+            .await
+            .expect("сохранение конфига проекта");
+        }
+        let project_dir = guard.root().join("project").join("Old");
+        std::fs::create_dir_all(&project_dir).expect("создание папки проекта");
+
+        let mut state = state_with_current("Old");
+        if let Some(config) = state.launcher_config.as_mut() {
+            config.add_project("Old");
+            config.add_project("Next");
+            config.current_project = Some("Next".to_string());
+        }
+        let state = Mutex::new(state);
+
+        let (save_result, delete_result) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                config.java_path = Some("java-path".to_string());
+                Ok(())
+            }),
+            delete_current_project(&state),
+        );
+        save_result.expect("параллельное сохранение настроек");
+        delete_result.expect("удаление проекта");
+
+        let current = state.lock().await;
+        assert_eq!(
+            current.project_config.project_name, "Next",
+            "параллельное сохранение настроек не должно откатывать переключение после удаления"
+        );
+        assert!(current.session.is_none());
+    }
 
     #[cfg(unix)]
     #[tokio::test]

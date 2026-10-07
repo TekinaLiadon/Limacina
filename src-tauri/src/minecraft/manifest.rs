@@ -40,14 +40,24 @@ pub async fn get_manifest_version(
         .map(|v| v.url.clone())
         .ok_or_else(|| LauncherError::ManifestParse(format!("Версия не найдена: {version}")))?;
 
-    let manifest: VersionDetailsManifest =
+    let version_manifest: VersionDetailsManifest =
         download_json(Some(&version_url), json_path.as_path()).await?;
-    Ok(manifest)
+    if version_manifest.id != version {
+        return Err(LauncherError::ManifestParse(format!(
+            "Манифест версии {version} содержит чужой id {}",
+            version_manifest.id
+        ))
+        .into());
+    }
+    Ok(version_manifest)
 }
 
 #[cfg(test)]
 mod version_validation_tests {
     use super::get_manifest_version;
+    use crate::minecraft::structs::Versions;
+    use crate::test_support::LauncherDirGuard;
+    use mockito::Server;
 
     #[tokio::test]
     async fn traversal_version_is_rejected_before_lookup() {
@@ -65,6 +75,80 @@ mod version_validation_tests {
     #[tokio::test]
     async fn windows_style_traversal_version_is_rejected() {
         assert!(get_manifest_version("..\\evil", vec![]).await.is_err());
+    }
+
+    fn manifest_json(id: &str) -> String {
+        serde_json::json!({
+            "id": id,
+            "downloads": {
+                "client": {
+                    "sha1": "2e9a3e3107cca00d6bc9c97bf7d149cae163ef21",
+                    "size": 1,
+                    "url": "https://piston-data.example/client.jar"
+                }
+            },
+            "libraries": [],
+            "assetIndex": {
+                "id": "1.18",
+                "sha1": "d31a2e85ae149dd1b1a7070b22cb8887892fda6c",
+                "size": 1,
+                "url": "https://piston-meta.example/1.18.json",
+                "totalSize": 1
+            },
+            "assets": "1.18",
+            "mainClass": "net.minecraft.client.main.Main"
+        })
+        .to_string()
+    }
+
+    async fn mock_version_server() -> (LauncherDirGuard, mockito::ServerGuard) {
+        let guard = LauncherDirGuard::acquire("manifest_id_check").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/1.20.1.json")
+            .with_status(200)
+            .with_body(manifest_json("1.20.2"))
+            .create_async()
+            .await;
+        (guard, server)
+    }
+
+    #[tokio::test]
+    async fn manifest_with_foreign_id_is_rejected() {
+        let (_guard, server) = mock_version_server().await;
+        let versions = vec![Versions {
+            id: "1.20.1".to_string(),
+            url: format!("{}/1.20.1.json", server.url()),
+        }];
+        let error = get_manifest_version("1.20.1", versions)
+            .await
+            .expect_err("расхождение manifest.id и запрошенной версии должно быть ошибкой");
+
+        assert!(
+            error.to_string().contains("чужой id"),
+            "ошибка должна называть расхождение id: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn manifest_with_matching_id_is_accepted() {
+        let _guard = LauncherDirGuard::acquire("manifest_id_match").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/1.20.1.json")
+            .with_status(200)
+            .with_body(manifest_json("1.20.1"))
+            .create_async()
+            .await;
+
+        let versions = vec![Versions {
+            id: "1.20.1".to_string(),
+            url: format!("{}/1.20.1.json", server.url()),
+        }];
+        let manifest = get_manifest_version("1.20.1", versions)
+            .await
+            .expect("манифест с совпадающим id");
+        assert_eq!(manifest.id, "1.20.1");
     }
 }
 

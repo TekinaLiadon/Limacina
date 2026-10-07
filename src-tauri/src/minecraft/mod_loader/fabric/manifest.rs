@@ -15,7 +15,13 @@ pub fn transform_fabric_manifest(manifest_fabric: Vec<FabricManifest>) -> Result
         let mut library: Vec<LibraryMod> = Vec::new();
         let url = "https://maven.fabricmc.net";
         for common in version.launcher_meta.libraries.common {
-            let url_maven = maven_to_url(&common.name, url).map_err(|e| {
+            let maven_base = common
+                .url
+                .as_deref()
+                .map(|base| base.trim_end_matches('/'))
+                .filter(|base| !base.is_empty())
+                .unwrap_or(url);
+            let url_maven = maven_to_url(&common.name, maven_base).map_err(|e| {
                 LauncherError::LoaderSetup(format!(
                     "Не удалось определить URL библиотеки Fabric: {e:#}"
                 ))
@@ -143,6 +149,29 @@ mod transform_tests {
         assert_eq!(
             versions[0].main_class, "cpw.mods.ClientMain",
             "объектная форма mainClass берёт client"
+        );
+    }
+
+    #[test]
+    fn transform_uses_library_url_from_launcher_meta_with_fallback() {
+        let mut value =
+            fabric_manifest_json(json!("net.fabricmc.loader.impl.launch.knot.KnotClient"));
+        value["launcherMeta"]["libraries"]["common"][0]["url"] =
+            json!("https://maven.other.example/libraries/");
+        value["launcherMeta"]["libraries"]["common"][1]["url"] = json!(null);
+        let manifest: FabricManifest = serde_json::from_value(value).expect("парсинг");
+
+        let versions = transform_fabric_manifest(vec![manifest]).expect("трансформация");
+
+        assert_eq!(
+            versions[0].library[0].url,
+            "https://maven.other.example/libraries/org/ow2/asm/asm/9.6/asm-9.6.jar",
+            "чужой хост из launcherMeta должен использоваться, иначе библиотека получит 404"
+        );
+        assert_eq!(
+            versions[0].library[1].url,
+            "https://maven.fabricmc.net/net/fabricmc/tiny-remapper/0.8.2/tiny-remapper-0.8.2.jar",
+            "пустой url падает на константу maven.fabricmc.net"
         );
     }
 }

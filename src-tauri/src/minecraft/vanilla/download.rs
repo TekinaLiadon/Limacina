@@ -13,10 +13,20 @@ use crate::{
     minecraft::vanilla::rules::is_rule_allowed,
     minecraft::vanilla::structs::{Artifact, AssetIndexContent, Library, VersionDetailsManifest},
     utils::{
-        env_info::{get_arch, get_current_os},
+        env_info::{ensure_safe_relative_path, get_arch, get_current_os},
         integrity::{HashKind, IntegrityTarget, TargetDownload},
     },
 };
+
+fn ensure_valid_sha1(hash: &str) -> Result<()> {
+    if hash.len() == 40 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(());
+    }
+    Err(
+        LauncherError::ManifestParse(format!("Некорректный SHA1 хеш ассета в манифесте: {hash}"))
+            .into(),
+    )
+}
 
 pub struct VanillaPhaseInfo {
     pub id: &'static str,
@@ -56,12 +66,12 @@ pub struct VanillaTargetSet {
     pub asset_index: IntegrityTarget,
 }
 
-pub fn collect_install_targets(manifest: &VersionDetailsManifest) -> VanillaTargetSet {
-    VanillaTargetSet {
-        client: collect_client_jar_target(manifest),
-        libraries: collect_library_targets(manifest),
-        asset_index: collect_asset_index_target(manifest),
-    }
+pub fn collect_install_targets(manifest: &VersionDetailsManifest) -> Result<VanillaTargetSet> {
+    Ok(VanillaTargetSet {
+        client: collect_client_jar_target(manifest)?,
+        libraries: collect_library_targets(manifest)?,
+        asset_index: collect_asset_index_target(manifest)?,
+    })
 }
 
 fn native_artifact_for_os<'a>(lib: &'a Library, current_os: &str) -> Option<&'a Artifact> {
@@ -86,9 +96,10 @@ pub async fn read_asset_index(path: &Path) -> Result<AssetIndexContent> {
 
 pub fn collect_natives_to_extract(
     manifest: &VersionDetailsManifest,
-) -> Vec<(PathBuf, Option<Vec<String>>)> {
+) -> Result<Vec<(PathBuf, Option<Vec<String>>)>> {
     let current_os = get_current_os();
     let mut natives_to_extract: Vec<(PathBuf, Option<Vec<String>>)> = Vec::new();
+    let mut queued: HashSet<PathBuf> = HashSet::new();
 
     for lib in &manifest.libraries {
         if !is_rule_allowed(lib.rules.as_deref()) {
@@ -101,11 +112,15 @@ pub fn collect_natives_to_extract(
 
         if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
-                if !artifact.url.is_empty() {
-                    natives_to_extract.push((
-                        PathBuf::from("libraries").join(&artifact.path),
-                        lib.extract.as_ref().and_then(|e| e.exclude.clone()),
-                    ));
+                if !artifact.url.is_empty() && (lib.natives.is_some() || is_native_jar(&lib.name)) {
+                    ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
+                    let rel_path = PathBuf::from("libraries").join(&artifact.path);
+                    if queued.insert(rel_path.clone()) {
+                        natives_to_extract.push((
+                            rel_path,
+                            lib.extract.as_ref().and_then(|e| e.exclude.clone()),
+                        ));
+                    }
                 }
             }
         }
@@ -114,14 +129,18 @@ pub fn collect_natives_to_extract(
         }
 
         if let Some(native_artifact) = native_artifact_for_os(lib, current_os) {
-            natives_to_extract.push((
-                PathBuf::from("libraries").join(&native_artifact.path),
-                lib.extract.as_ref().and_then(|e| e.exclude.clone()),
-            ));
+            ensure_safe_relative_path(&native_artifact.path, "пути библиотеки в манифесте")?;
+            let rel_path = PathBuf::from("libraries").join(&native_artifact.path);
+            if queued.insert(rel_path.clone()) {
+                natives_to_extract.push((
+                    rel_path,
+                    lib.extract.as_ref().and_then(|e| e.exclude.clone()),
+                ));
+            }
         }
     }
 
-    natives_to_extract
+    Ok(natives_to_extract)
 }
 
 pub const NATIVES_VERSION_MARKER: &str = ".mc-version";
@@ -355,16 +374,17 @@ fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool 
     false
 }
 
-pub fn collect_client_jar_target(manifest: &VersionDetailsManifest) -> IntegrityTarget {
-    IntegrityTarget {
+pub fn collect_client_jar_target(manifest: &VersionDetailsManifest) -> Result<IntegrityTarget> {
+    ensure_safe_relative_path(&manifest.id, "id версии в манифесте")?;
+    Ok(IntegrityTarget {
         rel_path: PathBuf::from(format!("{}.jar", manifest.id)),
         hash: manifest.downloads.client.sha1.clone(),
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(manifest.downloads.client.url.clone()),
-    }
+    })
 }
 
-pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Vec<IntegrityTarget> {
+pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Result<Vec<IntegrityTarget>> {
     let current_os = get_current_os();
     let mut targets = Vec::new();
     let mut queued: HashSet<PathBuf> = HashSet::new();
@@ -382,6 +402,7 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Vec<Integri
                     && should_download_library(&lib.name)
                     && queued.insert(rel_path.clone())
                 {
+                    ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
                     targets.push(IntegrityTarget {
                         rel_path,
                         hash: artifact.sha1.clone(),
@@ -396,6 +417,10 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Vec<Integri
             if !native_artifact.sha1.is_empty() {
                 let rel_path = PathBuf::from(format!("libraries/{}", native_artifact.path));
                 if queued.insert(rel_path.clone()) {
+                    ensure_safe_relative_path(
+                        &native_artifact.path,
+                        "пути библиотеки в манифесте",
+                    )?;
                     targets.push(IntegrityTarget {
                         rel_path,
                         hash: native_artifact.sha1.clone(),
@@ -407,27 +432,24 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Vec<Integri
         }
     }
 
-    targets
+    Ok(targets)
 }
 
-pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> IntegrityTarget {
-    IntegrityTarget {
+pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> Result<IntegrityTarget> {
+    ensure_safe_relative_path(&manifest.asset_index.id, "id индекса ресурсов в манифесте")?;
+    Ok(IntegrityTarget {
         rel_path: PathBuf::from(format!("assets/indexes/{}.json", manifest.asset_index.id)),
         hash: manifest.asset_index.sha1.clone(),
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(manifest.asset_index.url.clone()),
-    }
+    })
 }
 
 pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<IntegrityTarget>> {
     let mut targets = Vec::new();
     for asset in asset_index.objects.values() {
-        let hash_prefix = asset.hash.get(..2).ok_or_else(|| {
-            LauncherError::ManifestParse(format!(
-                "Некорректный хеш ассета в индексе: {}",
-                asset.hash
-            ))
-        })?;
+        ensure_valid_sha1(&asset.hash)?;
+        let hash_prefix = &asset.hash[..2];
         targets.push(IntegrityTarget {
             rel_path: PathBuf::from(format!("assets/objects/{hash_prefix}/{}", asset.hash)),
             hash: asset.hash.clone(),
@@ -444,7 +466,8 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<Inte
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_asset_targets, collect_library_targets, extract_natives, get_current_os,
+        collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
+        collect_library_targets, collect_natives_to_extract, extract_natives, get_current_os,
         natives_match_version, AssetIndexContent,
     };
     #[test]
@@ -459,6 +482,21 @@ mod tests {
         assert!(
             result.is_err(),
             "хеш короче двух символов не должен паниковать, а давать ошибку"
+        );
+    }
+
+    #[test]
+    fn asset_targets_reject_non_hex_hashes() {
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "size": 1 } }
+        }))
+        .unwrap();
+
+        let result = collect_asset_targets(&index);
+
+        assert!(
+            result.is_err(),
+            "не-hex хеш ассета должен давать русскую ошибку, а не путь с мусором"
         );
     }
 
@@ -483,6 +521,8 @@ mod tests {
         gson_library, jopt_simple_library, logging_library, write_test_zip, LauncherDirGuard,
     };
     use crate::utils::integrity::{HashKind, TargetDownload};
+    use serde_json::json;
+    use std::collections::HashSet;
     use std::fs as std_fs;
     use std::path::PathBuf;
 
@@ -597,7 +637,7 @@ mod tests {
     #[test]
     fn collect_library_targets_includes_regular_libraries() {
         let manifest: VersionDetailsManifest = serde_json::from_value(manifest_1_18_2()).unwrap();
-        let targets = collect_library_targets(&manifest);
+        let targets = collect_library_targets(&manifest).expect("таргеты библиотек");
         let rel_paths: Vec<String> = targets
             .iter()
             .map(|t| t.rel_path.to_string_lossy().into_owned())
@@ -659,6 +699,133 @@ mod tests {
                 assert_eq!(rel_paths.len(), 7);
             }
         }
+    }
+
+    #[test]
+    fn library_targets_reject_traversal_artifact_path() {
+        let mut value = manifest_1_18_2();
+        value["libraries"][5]["downloads"]["artifact"]["path"] = json!("../evil/text2speech.jar");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let error = collect_library_targets(&manifest)
+            .expect_err("путь библиотеки с обходом каталога должен отклоняться");
+
+        assert!(
+            error.to_string().contains("пути библиотеки"),
+            "ошибка должна называть проблему пути: {error}"
+        );
+    }
+
+    #[test]
+    fn client_jar_target_rejects_traversal_manifest_id() {
+        let mut value = manifest_1_18_2();
+        value["id"] = json!("../../evil");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let error = collect_client_jar_target(&manifest)
+            .expect_err("id версии с обходом пути должен отклоняться");
+
+        assert!(
+            error.to_string().contains("id версии"),
+            "ошибка должна называть проблему id: {error}"
+        );
+    }
+
+    #[test]
+    fn asset_index_target_rejects_traversal_id() {
+        let mut value = manifest_1_18_2();
+        value["assetIndex"]["id"] = json!("../../../evil");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let error = collect_asset_index_target(&manifest)
+            .expect_err("id индекса ресурсов с обходом пути должен отклоняться");
+
+        assert!(
+            error.to_string().contains("индекса ресурсов"),
+            "ошибка должна называть проблему id индекса: {error}"
+        );
+    }
+
+    #[test]
+    fn natives_to_extract_includes_only_native_jars_without_duplicates() {
+        let manifest: VersionDetailsManifest = serde_json::from_value(manifest_1_18_2()).unwrap();
+
+        let natives = collect_natives_to_extract(&manifest).expect("список natives");
+
+        let rel_paths: Vec<String> = natives
+            .iter()
+            .map(|(rel, _)| rel.to_string_lossy().into_owned())
+            .collect();
+        let unique: HashSet<&String> = rel_paths.iter().collect();
+        assert_eq!(
+            unique.len(),
+            rel_paths.len(),
+            "дубликаты путей недопустимы: {rel_paths:?}"
+        );
+
+        if get_current_os() == "osx" {
+            assert_eq!(
+                rel_paths,
+                vec!["libraries/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar".to_string()],
+                "на osx остаётся только main-артефакт text2speech (natives map), без обычных jar"
+            );
+            return;
+        }
+
+        let suffix = if get_current_os() == "windows" {
+            "natives-windows"
+        } else {
+            "natives-linux"
+        };
+        let natives_classifier =
+            format!("libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-{suffix}.jar");
+        let text2speech_classifier =
+            format!("libraries/com/mojang/text2speech/1.12.4/text2speech-1.12.4-{suffix}.jar");
+
+        assert!(
+            rel_paths.contains(&natives_classifier),
+            "natives-классификатор lwjgl должен распаковываться: {rel_paths:?}"
+        );
+        assert!(
+            rel_paths.contains(&text2speech_classifier),
+            "natives-классификатор text2speech должен распаковываться: {rel_paths:?}"
+        );
+        for plain in [
+            "libraries/com/mojang/logging/1.0.0/logging-1.0.0.jar",
+            "libraries/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
+            "libraries/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
+        ] {
+            assert!(
+                !rel_paths.contains(&plain.to_string()),
+                "обычный jar не должен уходить на распаковку: {plain}"
+            );
+        }
+        assert_eq!(
+            rel_paths
+                .iter()
+                .filter(|p| p.as_str() == natives_classifier)
+                .count(),
+            1,
+            "пара lwjgl-записей с одинаковым путём распаковывается один раз"
+        );
+    }
+
+    #[test]
+    fn natives_to_extract_rejects_traversal_path() {
+        let os = get_current_os();
+        let mut value = manifest_1_18_2();
+        value["libraries"][5]["natives"][os] = json!(format!("natives-{os}"));
+        value["libraries"][5]["downloads"]["classifiers"][format!("natives-{os}")]["path"] =
+            json!("../evil/natives.jar");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let error = collect_natives_to_extract(&manifest)
+            .expect_err("natives-путь с обходом каталога должен отклоняться");
+
+        assert!(
+            error.to_string().contains("пути библиотеки"),
+            "ошибка должна называть проблему пути: {error}"
+        );
     }
 
     #[tokio::test]

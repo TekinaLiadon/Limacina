@@ -63,6 +63,16 @@ pub(crate) async fn update_project_config(
     Ok(project_config)
 }
 
+pub(crate) async fn set_project_config(
+    state: &Mutex<GlobalState>,
+    config: ProjectConfig,
+) -> Result<()> {
+    let _write_guard = PROJECT_CONFIG_WRITE_LOCK.lock().await;
+    let mut guard = state.lock().await;
+    guard.project_config = config;
+    Ok(())
+}
+
 pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
     let path = config_file_path(project_name)?;
     let content = read_to_string(&path).await?;

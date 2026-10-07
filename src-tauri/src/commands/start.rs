@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
@@ -8,8 +10,8 @@ use tokio::sync::Mutex;
 use crate::commands::dto::create_mod_loader;
 use crate::discord;
 use crate::minecraft::autojoin::{auto_join_args, first_server_address};
-use crate::minecraft::process::spawn_game_process;
-use crate::minecraft::structs::{new_launch_config, MinecraftLoader};
+use crate::minecraft::process::{spawn_game_process, GameProcess};
+use crate::minecraft::structs::{new_launch_config, GameConfig, MinecraftLoader};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::utils::blocking;
 use crate::utils::download_file::write_atomic;
@@ -30,16 +32,70 @@ pub async fn start_minecraft(
     start_minecraft_inner(app, state).await
 }
 
+struct LaunchContext {
+    username: String,
+    uuid: String,
+    access_token: String,
+    project: String,
+    mc_version: String,
+    discord_enabled: bool,
+}
+
 async fn start_minecraft_inner(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
     let config_step = StepHandle::start("launch.config", "Подготовка конфигурации");
+    let (ctx, mut project_config) = read_launch_context(&state, config_step.clone()).await?;
+    project_config = repair_stale_java_path(&state, project_config).await;
 
+    let (mut skin_server, authlib_server_url) =
+        start_offline_skin_server_if_needed(&project_config, &ctx.username, &ctx.uuid).await;
+    if project_config.online {
+        if let Err(e) = crate::commands::cpm_models::sync_player_models(&state).await {
+            log_err!("Не удалось синхронизировать модели CPM: {}", e);
+        }
+    }
+
+    let mut game_config = assemble_game_config(&project_config, &ctx, config_step.clone()).await?;
+    apply_auto_join(&project_config, &mut game_config, config_step.clone()).await?;
+    config_step.finish(false);
+
+    if let Err(e) = force_narrator_off(&game_config.game_dir).await {
+        log_err!("[start] Не удалось выключить нарратор: {}", e);
+    }
+
+    let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
+    let process = step_try!(
+        process_step,
+        spawn_game_step(
+            &app,
+            game_config,
+            authlib_server_url.as_deref(),
+            &ctx,
+            &mut skin_server
+        )
+    );
+    process_step.finish(false);
+    let _ = app.emit("game-started", ctx.username.clone());
+
+    if let Some(server) = skin_server.take() {
+        spawn_skin_server_stop_monitor(server, process.exited_flag());
+    }
+
+    wait_for_game_window(&process, &ctx.project).await?;
+    notify_game_activity(&process, &ctx);
+    Ok(())
+}
+
+async fn read_launch_context(
+    state: &tauri::State<'_, Mutex<GlobalState>>,
+    step: StepHandle,
+) -> CommandResult<(LaunchContext, ProjectConfig)> {
     let (username, uuid, access_token, project, mc_version, project_config, discord_enabled) = {
         let state = state.lock().await;
         let session = step_try!(
-            config_step,
+            step,
             state
                 .session
                 .as_ref()
@@ -48,7 +104,7 @@ async fn start_minecraft_inner(
 
         let project = state.project_config.project_name.clone();
         step_try!(
-            config_step,
+            step,
             if session.project_name != project {
                 Err(anyhow!(LauncherError::SessionMismatch(
                     session.project_name.clone(),
@@ -87,180 +143,201 @@ async fn start_minecraft_inner(
         )
     };
 
-    let project_config = repair_stale_java_path(&state, project_config).await;
+    Ok((
+        LaunchContext {
+            username,
+            uuid,
+            access_token,
+            project,
+            mc_version,
+            discord_enabled,
+        },
+        project_config,
+    ))
+}
 
-    let mut offline_skin_server: Option<offline::SkinServer> = None;
-    let authlib_server_url = if project_config.online {
-        project_config.resolved_server_url()
-    } else {
-        match offline::start_offline_skin_server(&project, &username, &uuid).await {
-            Ok(Some(server)) => {
-                let url = server.url().to_string();
-                offline_skin_server = Some(server);
-                Some(url)
-            }
-            Ok(None) => None,
-            Err(e) => {
-                log_err!(
-                    "[start] Офлайн-скин недоступен, запуск без скина ({}): {}",
-                    project,
-                    e
-                );
-                None
-            }
-        }
-    };
-
+async fn start_offline_skin_server_if_needed(
+    project_config: &ProjectConfig,
+    username: &str,
+    uuid: &str,
+) -> (Option<offline::SkinServer>, Option<String>) {
     if project_config.online {
-        if let Err(e) = crate::commands::cpm_models::sync_player_models(&state).await {
-            log_err!("Не удалось синхронизировать модели CPM: {}", e);
+        return (None, project_config.resolved_server_url());
+    }
+    match offline::start_offline_skin_server(&project_config.project_name, username, uuid).await {
+        Ok(Some(server)) => {
+            let url = server.url().to_string();
+            (Some(server), Some(url))
+        }
+        Ok(None) => (None, None),
+        Err(e) => {
+            log_err!(
+                "[start] Офлайн-скин недоступен, запуск без скина ({}): {}",
+                project_config.project_name,
+                e
+            );
+            (None, None)
         }
     }
+}
 
+async fn assemble_game_config(
+    project_config: &ProjectConfig,
+    ctx: &LaunchContext,
+    step: StepHandle,
+) -> CommandResult<GameConfig> {
     let config = step_try!(
-        config_step,
+        step,
         LauncherError::classify(
-            new_launch_config(&username, &uuid, &access_token, &project_config)
-                .await
+            new_launch_config(&ctx.username, &ctx.uuid, &ctx.access_token, project_config)
                 .with_context(|| format!(
                     "Не удалось создать конфиг запуска (проект: {})",
-                    project
+                    ctx.project
                 )),
             LauncherError::ManifestParse
         )
     );
     let vanilla_config = step_try!(
-        config_step,
+        step,
         LauncherError::classify(
             Vanilla
-                .config(&project_config, &config)
+                .config(project_config, &config)
                 .await
                 .with_context(|| format!(
                     "Не удалось получить Vanilla конфиг (проект: {})",
-                    project
+                    ctx.project
                 )),
             LauncherError::ManifestParse
         )
     );
 
-    let mut game_config = if matches!(project_config.mod_loader, ModLoader::Vanilla) {
-        vanilla_config
-    } else {
-        let loader = step_try!(config_step, create_mod_loader(&project_config.mod_loader));
-        let versions = step_try!(
-            config_step,
-            LauncherError::classify(
-                loader
-                    .versions(&project_config)
-                    .await
-                    .with_context(|| format!(
-                        "Не удалось получить список версий лоадера (проект: {})",
-                        project
-                    )),
-                LauncherError::ManifestParse
-            )
-        );
-        let version = step_try!(
-            config_step,
-            LauncherError::classify(
-                loader
-                    .version_current(&project_config, &versions)
-                    .await
-                    .with_context(|| format!(
-                        "Не удалось получить текущую версию лоадера (проект: {})",
-                        project
-                    )),
-                LauncherError::ManifestParse
-            )
-        );
-        step_try!(
-            config_step,
-            LauncherError::classify(
-                loader
-                    .config(&project_config, vanilla_config, &version)
-                    .await
-                    .with_context(|| format!(
-                        "Не удалось собрать конфиг игры (проект: {})",
-                        project
-                    )),
-                LauncherError::LoaderSetup
-            )
-        )
-    };
-
-    if project_config.auto_join_server {
-        let game_dir = game_config.game_dir.clone();
-        let address = step_try!(
-            config_step,
-            LauncherError::classify(
-                blocking(
-                    "Не удалось прочитать servers.dat",
-                    move || { first_server_address(&game_dir) }
-                )
+    if matches!(project_config.mod_loader, ModLoader::Vanilla) {
+        return Ok(vanilla_config);
+    }
+    let loader = step_try!(step, create_mod_loader(&project_config.mod_loader));
+    let versions = step_try!(
+        step,
+        LauncherError::classify(
+            loader
+                .versions(project_config)
                 .await
-                .and_then(|inner| inner)
-                .with_context(|| format!("Не удалось прочитать servers.dat (проект: {})", project)),
-                LauncherError::DiskIo
+                .with_context(|| format!(
+                    "Не удалось получить список версий лоадера (проект: {})",
+                    ctx.project
+                )),
+            LauncherError::ManifestParse
+        )
+    );
+    let version = step_try!(
+        step,
+        LauncherError::classify(
+            loader
+                .version_current(project_config, &versions)
+                .await
+                .with_context(|| format!(
+                    "Не удалось получить текущую версию лоадера (проект: {})",
+                    ctx.project
+                )),
+            LauncherError::ManifestParse
+        )
+    );
+    Ok(step_try!(
+        step,
+        LauncherError::classify(
+            loader
+                .config(project_config, vanilla_config, &version)
+                .await
+                .with_context(|| format!(
+                    "Не удалось собрать конфиг игры (проект: {})",
+                    ctx.project
+                )),
+            LauncherError::LoaderSetup
+        )
+    ))
+}
+
+async fn apply_auto_join(
+    project_config: &ProjectConfig,
+    game_config: &mut GameConfig,
+    step: StepHandle,
+) -> CommandResult<()> {
+    if !project_config.auto_join_server {
+        return Ok(());
+    }
+    let game_dir = game_config.game_dir.clone();
+    let address = step_try!(
+        step,
+        LauncherError::classify(
+            blocking(
+                "Не удалось прочитать servers.dat",
+                move || { first_server_address(&game_dir) }
             )
-            .and_then(|address| {
-                address.ok_or_else(|| {
-                    anyhow!(LauncherError::InvalidInput(format!(
-                        "Автозаход включён, но в servers.dat нет серверов (проект: {})",
-                        project
-                    )))
-                })
+            .await
+            .and_then(|inner| inner)
+            .with_context(|| format!(
+                "Не удалось прочитать servers.dat (проект: {})",
+                project_config.project_name
+            )),
+            LauncherError::DiskIo
+        )
+        .and_then(|address| {
+            address.ok_or_else(|| {
+                anyhow!(LauncherError::InvalidInput(format!(
+                    "Автозаход включён, но в servers.dat нет серверов (проект: {})",
+                    project_config.project_name
+                )))
             })
-        );
-        let join_args = auto_join_args(&address, &project_config.mc_version);
-        if !join_args.is_empty() {
-            log_info!("[start] Автозаход на сервер: {}", address);
-            game_config.game_args.extend(join_args);
-        }
+        })
+    );
+    let join_args = auto_join_args(&address, &project_config.mc_version);
+    if !join_args.is_empty() {
+        log_info!("[start] Автозаход на сервер: {}", address);
+        game_config.game_args.extend(join_args);
     }
+    Ok(())
+}
 
-    config_step.finish(false);
-
-    if let Err(e) = force_narrator_off(&game_config.game_dir).await {
-        log_err!("[start] Не удалось выключить нарратор: {}", e);
-    }
-
-    let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
-    crate::tray::set_game_state(&app, true, &username);
+fn spawn_game_step(
+    app: &AppHandle,
+    game_config: GameConfig,
+    authlib_server_url: Option<&str>,
+    ctx: &LaunchContext,
+    skin_server: &mut Option<offline::SkinServer>,
+) -> anyhow::Result<GameProcess> {
+    crate::tray::set_game_state(app, true, &ctx.username);
     let spawn_result = LauncherError::classify(
-        spawn_game_process(app.clone(), game_config, authlib_server_url.as_deref())
-            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", project)),
+        spawn_game_process(app.clone(), game_config, authlib_server_url)
+            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
         LauncherError::GameProcess,
     );
-    let process = match spawn_result {
-        Ok(process) => process,
+    match spawn_result {
+        Ok(process) => Ok(process),
         Err(e) => {
-            crate::tray::set_game_state(&app, false, "");
-            if let Some(server) = offline_skin_server.take() {
+            crate::tray::set_game_state(app, false, "");
+            if let Some(server) = skin_server.take() {
                 server.stop();
             }
-            process_step.fail(e.to_string());
-            return Err(e.into());
+            Err(e)
         }
-    };
-    process_step.finish(false);
-    let _ = app.emit("game-started", username.clone());
-
-    if let Some(server) = offline_skin_server.take() {
-        let exited = process.exited_flag();
-        tauri::async_runtime::spawn_blocking(move || {
-            loop {
-                if exited.load(std::sync::atomic::Ordering::Relaxed) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            server.stop();
-        });
     }
+}
 
+fn spawn_skin_server_stop_monitor(server: offline::SkinServer, exited: Arc<AtomicBool>) {
+    tauri::async_runtime::spawn_blocking(move || {
+        loop {
+            if exited.load(Ordering::Relaxed) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        server.stop();
+    });
+}
+
+async fn wait_for_game_window(process: &GameProcess, project: &str) -> CommandResult<()> {
     let window_step = StepHandle::start("launch.window", "Ожидание окна игры");
     step_try!(
-        window_step,
+        window_step.clone(),
         LauncherError::classify(
             process
                 .wait_for_window(GAME_WINDOW_TIMEOUT)
@@ -273,15 +350,20 @@ async fn start_minecraft_inner(
         window_step.detail("Окно игры не обнаружено за 120 сек — оно может открыться позже");
     }
     window_step.finish(false);
-
-    if !process.has_exited() {
-        let exited = process.exited_flag();
-        tauri::async_runtime::spawn_blocking(move || {
-            discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited));
-        });
-    }
-
     Ok(())
+}
+
+fn notify_game_activity(process: &GameProcess, ctx: &LaunchContext) {
+    if process.has_exited() {
+        return;
+    }
+    let exited = process.exited_flag();
+    let mc_version = ctx.mc_version.clone();
+    let project = ctx.project.clone();
+    let discord_enabled = ctx.discord_enabled;
+    tauri::async_runtime::spawn_blocking(move || {
+        discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited));
+    });
 }
 
 enum ExitBehavior {
@@ -467,5 +549,142 @@ mod narrator_tests {
 
         let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
         assert_eq!(patched, "narrator:0\n");
+    }
+}
+
+#[cfg(test)]
+mod auto_join_tests {
+    use super::apply_auto_join;
+    use crate::minecraft::structs::GameConfig;
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::{write_servers_dat, ServersDatContainer, TempDir};
+    use crate::utils::step_events::StepHandle;
+    use std::path::Path;
+
+    fn game_config(game_dir: &Path) -> GameConfig {
+        GameConfig::new(
+            game_dir.join("java"),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "net.minecraft.client.main.Main".to_string(),
+            game_dir.to_path_buf(),
+        )
+    }
+
+    fn project_config(mc_version: &str, auto_join: bool) -> ProjectConfig {
+        ProjectConfig {
+            auto_join_server: auto_join,
+            mc_version: mc_version.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn appends_quick_play_args_for_modern_version() {
+        let dir = TempDir::new("autojoin_quickplay");
+        write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
+        let mut game = game_config(&dir.0);
+
+        apply_auto_join(
+            &project_config("1.20.4", true),
+            &mut game,
+            StepHandle::start("test.autojoin", "Тест автозахода"),
+        )
+        .await
+        .expect("автозаход должен примениться");
+
+        assert!(game
+            .game_args
+            .contains(&"--quickPlayMultiplayer".to_string()));
+        assert!(
+            game.game_args
+                .windows(2)
+                .any(|pair| pair[0] == "--quickPlayMultiplayer"
+                    && pair[1] == "play.example.com:25565")
+        );
+    }
+
+    #[tokio::test]
+    async fn appends_legacy_server_args_for_old_version() {
+        let dir = TempDir::new("autojoin_legacy");
+        write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
+        let mut game = game_config(&dir.0);
+
+        apply_auto_join(
+            &project_config("1.16.5", true),
+            &mut game,
+            StepHandle::start("test.autojoin", "Тест автозахода"),
+        )
+        .await
+        .expect("автозаход должен примениться");
+
+        assert!(game
+            .game_args
+            .windows(2)
+            .any(|pair| pair[0] == "--server" && pair[1] == "play.example.com"));
+        assert!(game
+            .game_args
+            .windows(2)
+            .any(|pair| pair[0] == "--port" && pair[1] == "25565"));
+    }
+
+    #[tokio::test]
+    async fn disabled_flag_leaves_args_untouched() {
+        let dir = TempDir::new("autojoin_disabled");
+        write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
+        let mut game = game_config(&dir.0);
+
+        apply_auto_join(
+            &project_config("1.20.4", false),
+            &mut game,
+            StepHandle::start("test.autojoin", "Тест автозахода"),
+        )
+        .await
+        .expect("выключенный автозаход не должен давать ошибку");
+
+        assert!(game.game_args.is_empty(), "аргументы не должны добавляться");
+    }
+
+    #[tokio::test]
+    async fn missing_servers_dat_is_input_error() {
+        let dir = TempDir::new("autojoin_missing");
+        let mut game = game_config(&dir.0);
+
+        let error = apply_auto_join(
+            &project_config("1.20.4", true),
+            &mut game,
+            StepHandle::start("test.autojoin", "Тест автозахода"),
+        )
+        .await
+        .expect_err("запуск без servers.dat должен дать ошибку");
+
+        assert!(
+            error.message.contains("в servers.dat нет серверов"),
+            "ошибка должна называть причину: {}",
+            error.message
+        );
+    }
+
+    #[tokio::test]
+    async fn garbage_servers_dat_keeps_manifest_parse_error() {
+        let dir = TempDir::new("autojoin_garbage");
+        std::fs::write(dir.0.join("servers.dat"), b"PK\x03\x04fake zip").expect("запись мусора");
+        let mut game = game_config(&dir.0);
+
+        let error = apply_auto_join(
+            &project_config("1.20.4", true),
+            &mut game,
+            StepHandle::start("test.autojoin", "Тест автозахода"),
+        )
+        .await
+        .expect_err("битый servers.dat должен дать ошибку");
+
+        assert_eq!(error.code, "manifest_parse");
+        assert!(
+            error.message.contains("Не удалось обработать манифест"),
+            "типизированная ошибка должна сохраниться: {}",
+            error.message
+        );
     }
 }

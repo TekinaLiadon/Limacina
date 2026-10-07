@@ -13,24 +13,24 @@ use crate::utils::install_manifest::{
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::{StepChannel, StepHandle};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HashKind {
     Sha1,
 }
 
 impl HashKind {
     pub async fn matches(&self, path: &Path, expected: &str) -> Result<bool> {
-        Ok(file_sha1(path).await? == expected)
+        Ok(file_sha1(path).await?.eq_ignore_ascii_case(expected))
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TargetDownload {
     Url(String),
     LauncherServer { key: String },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IntegrityTarget {
     pub rel_path: PathBuf,
     pub hash: String,
@@ -198,7 +198,7 @@ async fn settle_results(
                 } else {
                     match file_sha1(&file_path).await {
                         Ok(hash) => {
-                            if !target.hash.is_empty() && hash != target.hash {
+                            if !target.hash.is_empty() && !hash.eq_ignore_ascii_case(&target.hash) {
                                 let _ = tokio::fs::remove_file(&file_path).await;
                                 log_err!(
                                     "Скачанный файл не соответствует хешу {:?}: ожидается {}, получен {}",
@@ -422,6 +422,34 @@ pub async fn record_installed_hash(
             ))
         })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod hash_kind_tests {
+    use super::HashKind::Sha1;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+
+    #[tokio::test]
+    async fn matches_is_case_insensitive() {
+        let dir = LauncherDirGuard::acquire("hash_kind_case").await;
+        let path = dir.project_dir("Cordelia").join("a.txt");
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, b"content").await.unwrap();
+
+        let uppercase = sha1_hex(b"content").to_uppercase();
+        assert!(
+            Sha1.matches(&path, &uppercase)
+                .await
+                .expect("проверка хеша"),
+            "uppercase-хеш из сети не должен вызывать вечную перекачку"
+        );
+        assert!(!Sha1
+            .matches(&path, "0000000000000000000000000000000000000000")
+            .await
+            .expect("проверка несовпадающего хеша"));
+    }
 }
 
 #[cfg(test)]

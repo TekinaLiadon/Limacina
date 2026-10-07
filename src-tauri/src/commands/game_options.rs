@@ -438,7 +438,12 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
         LauncherError::DiskIo,
     )? {
         let path = entry.path();
-        if path.is_file() {
+        let is_pack = if path.is_file() {
+            true
+        } else {
+            path.is_dir() && path.join("pack.mcmeta").is_file()
+        };
+        if is_pack {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 packs.push(name.to_string());
             }
@@ -818,5 +823,25 @@ mod tests {
 
         assert!(!data.file_exists);
         assert!(data.available_resource_packs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resource_packs_include_directories_with_pack_mcmeta() {
+        let guard = LauncherDirGuard::acquire("game_options_pack_dirs").await;
+        let packs_dir = guard.project_dir("Cordelia").join("resourcepacks");
+        std::fs::create_dir_all(packs_dir.join("folder-pack")).unwrap();
+        std::fs::write(packs_dir.join("folder-pack/pack.mcmeta"), b"{}").unwrap();
+        std::fs::create_dir_all(packs_dir.join("empty-dir")).unwrap();
+        std::fs::write(packs_dir.join("zipped.zip"), b"PK").unwrap();
+
+        let data = get_game_options_inner("Cordelia")
+            .await
+            .expect("список ресурс-паков");
+
+        assert_eq!(
+            data.available_resource_packs,
+            vec!["folder-pack".to_string(), "zipped.zip".to_string()],
+            "папочный ресурспак с pack.mcmeta попадает в список, папка без него — нет"
+        );
     }
 }

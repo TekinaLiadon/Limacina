@@ -258,7 +258,17 @@ pub fn spawn_game_process(
     };
     let jvm_args = finalize_jvm_args(jvm_args, authlib_agent, !cfg!(debug_assertions))?;
 
-    log_info!("{}", classpath);
+    let classpath_preview = config
+        .classpath
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(separator);
+    log_info!(
+        "Classpath: {} записей, первые: {classpath_preview}",
+        config.classpath.len()
+    );
     log_info!("{}", jvm_args.join(" "));
     command
         .args(jvm_args)
@@ -311,7 +321,7 @@ pub fn spawn_game_process(
     let exit_status = Arc::clone(&process.exit_status);
     let last_output = Arc::clone(&process.last_output);
     thread::spawn(move || {
-        let result = match child.wait() {
+        let (result, payload) = match child.wait() {
             Ok(status) => {
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
@@ -321,31 +331,28 @@ pub fn spawn_game_process(
                 } else {
                     exit_reason(&last_output)
                 };
-                let _ = app.emit(
-                    "game-exit",
-                    GameExitPayload {
-                        success: status.success(),
-                        code: status.code(),
-                        reason,
-                    },
-                );
-                Some(status.to_string())
+                let payload = GameExitPayload {
+                    success: status.success(),
+                    code: status.code(),
+                    reason,
+                };
+                (Some(status.to_string()), payload)
             }
             Err(e) => {
                 log_err!("Ошибка ожидания процесса: {}", e);
-                let _ = app.emit(
-                    "game-exit",
+                (
+                    Some(format!("ошибка ожидания: {}", e)),
                     GameExitPayload {
                         success: false,
                         code: None,
                         reason: None,
                     },
-                );
-                Some(format!("ошибка ожидания: {}", e))
+                )
             }
         };
         *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
         exited.store(true, AtomicOrdering::Relaxed);
+        let _ = app.emit("game-exit", payload);
         crate::tray::set_game_state(&app, false, "");
         crate::discord::on_game_exit();
     });

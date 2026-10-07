@@ -188,26 +188,31 @@ where
     let expected = expected_sha1.filter(|hash| !hash.is_empty());
 
     if precheck && dest.exists() {
-        if let Some(expected) = expected {
-            let hash = file_sha1(dest).await.unwrap_or_default();
-            if hash == expected {
-                return Ok(false);
-            }
-            log_info!("[download] Файл {dest:?} отличается от ожидаемого — перекачивается");
+        let intact = match expected {
+            Some(expected) => file_sha1(dest)
+                .await
+                .map(|hash| hash.eq_ignore_ascii_case(expected))
+                .unwrap_or(false),
+            None => false,
+        };
+        if intact {
+            return Ok(false);
         }
-        let _ = tokio::fs::remove_file(dest).await;
+        log_info!("[download] Файл {dest:?} отличается от ожидаемого — перекачивается");
     }
 
-    fetch(dest.to_path_buf()).await?;
+    let staging = part_path(dest);
+    let _ = tokio::fs::remove_file(&staging).await;
+    fetch(staging.clone()).await?;
 
     if let Some(expected) = expected {
-        let actual = file_sha1(dest).await.map_err(|e| {
+        let actual = file_sha1(&staging).await.map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось вычислить хеш скачанного файла {dest:?}: {e:#}"
             ))
         })?;
-        if actual != expected {
-            let _ = tokio::fs::remove_file(dest).await;
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = tokio::fs::remove_file(&staging).await;
             return Err(LauncherError::HashMismatch(format!(
                 "{dest:?} (ожидается {expected}, получен {actual})"
             ))
@@ -215,6 +220,16 @@ where
         }
     }
 
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            LauncherError::DiskIo(format!("Не удалось создать директорию для {dest:?}: {e:#}"))
+        })?;
+    }
+    tokio::fs::rename(&staging, dest).await.map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось переместить {staging:?} в {dest:?}: {e:#}"
+        ))
+    })?;
     Ok(true)
 }
 
@@ -242,6 +257,132 @@ pub async fn file_sha1(path: &Path) -> Result<String> {
     tokio::task::spawn_blocking(move || hash_file_blocking::<Sha1>(&path))
         .await
         .map_err(|e| LauncherError::Download(format!("Ошибка при вычислении SHA1: {e:#}")))?
+}
+
+#[cfg(test)]
+mod download_and_verify_tests {
+    use anyhow::Result;
+
+    use super::{download_and_verify_with, part_path};
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+
+    #[tokio::test]
+    async fn failed_fetch_keeps_existing_file_with_precheck() {
+        let dir = LauncherDirGuard::acquire("verify_fetch_fail").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        let good = b"working jar";
+        tokio::fs::write(&dest, good).await.unwrap();
+
+        let result: Result<bool> = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(b"new jar")),
+            true,
+            |path| async move {
+                let _ = path;
+                Err(anyhow::anyhow!("сеть оборвалась"))
+            },
+        )
+        .await;
+
+        assert!(result.is_err(), "сбой сети должен возвращать ошибку");
+        assert_eq!(
+            tokio::fs::read(&dest).await.unwrap(),
+            good,
+            "прежний рабочий файл должен остаться на месте при оборванной загрузке"
+        );
+        assert!(!part_path(&dest).exists(), "staging-файл должен быть убран");
+    }
+
+    #[tokio::test]
+    async fn failed_verify_keeps_existing_file_and_removes_staging() {
+        let dir = LauncherDirGuard::acquire("verify_hash_fail").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&dest, b"working jar").await.unwrap();
+
+        let result: Result<bool> = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(b"expected content")),
+            true,
+            |path| async move {
+                tokio::fs::write(&path, b"corrupted content").await?;
+                Ok(())
+            },
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "несовпадение хеша должно возвращать ошибку"
+        );
+        assert_eq!(
+            tokio::fs::read(&dest).await.unwrap(),
+            b"working jar",
+            "хеш-мисматч не должен трогать существующий файл"
+        );
+        assert!(!part_path(&dest).exists());
+    }
+
+    #[tokio::test]
+    async fn uppercase_expected_hash_skips_download_on_precheck() {
+        let dir = LauncherDirGuard::acquire("verify_uppercase").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        let content = b"stable content";
+        tokio::fs::write(&dest, content).await.unwrap();
+
+        let uppercase = sha1_hex(content).to_uppercase();
+        let downloaded =
+            download_and_verify_with(&dest, Some(&uppercase), true, |path| async move {
+                tokio::fs::write(&path, b"should not be written").await?;
+                Ok(())
+            })
+            .await
+            .expect("uppercase-хеш должен совпадать без учёта регистра");
+
+        assert!(
+            !downloaded,
+            "файл с совпадающим uppercase-хешем не перекачивается"
+        );
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), content);
+    }
+
+    #[tokio::test]
+    async fn successful_update_replaces_content_through_staging() {
+        let dir = LauncherDirGuard::acquire("verify_update_ok").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&dest, b"old jar").await.unwrap();
+
+        let new_content = b"new jar";
+        let downloaded = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(new_content)),
+            true,
+            |path| async move {
+                tokio::fs::write(&path, new_content).await?;
+                Ok(())
+            },
+        )
+        .await
+        .expect("обновление");
+
+        assert!(downloaded);
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), new_content);
+        assert!(
+            !part_path(&dest).exists(),
+            "staging переименовывается в dest"
+        );
+    }
 }
 
 #[cfg(test)]

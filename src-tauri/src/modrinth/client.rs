@@ -209,30 +209,8 @@ pub async fn get_versions(version_ids: &[String]) -> Result<Vec<ModrinthVersion>
     get_json("/versions", &[("ids", json_param(version_ids))]).await
 }
 
-pub async fn get_version_from_hash(
-    sha1: &str,
-    loaders: &[String],
-    game_versions: &[String],
-) -> Result<Option<ModrinthVersion>> {
-    let query = loaders_game_versions_query(loaders, game_versions);
-    let url = format!("{}/version_file/{}/update", api_base(), sha1);
-    let client = modrinth_client()?;
-    let response = client.get(&url).query(&query).send().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
-    })?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let response = response
-        .error_for_status()
-        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
-    let version = response.json().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
-    })?;
-    Ok(Some(version))
-}
-
-pub async fn get_versions_from_hashes(
+async fn post_version_files(
+    path: &str,
     hashes: &[String],
     loaders: &[String],
     game_versions: &[String],
@@ -253,12 +231,28 @@ pub async fn get_versions_from_hashes(
         loaders: loaders.to_vec(),
         game_versions: game_versions.to_vec(),
     };
-    let url = format!("{}/version_files", api_base());
+    let url = format!("{}{}", api_base(), path);
     let client = modrinth_client()?;
     let response = send_and_check(client.post(&url).json(&body), &url).await?;
     response.json().await.map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}")).into()
     })
+}
+
+pub async fn get_versions_from_hashes(
+    hashes: &[String],
+    loaders: &[String],
+    game_versions: &[String],
+) -> Result<HashMap<String, ModrinthVersion>> {
+    post_version_files("/version_files", hashes, loaders, game_versions).await
+}
+
+pub async fn get_version_updates_from_hashes(
+    hashes: &[String],
+    loaders: &[String],
+    game_versions: &[String],
+) -> Result<HashMap<String, ModrinthVersion>> {
+    post_version_files("/version_files/update", hashes, loaders, game_versions).await
 }
 
 #[cfg(test)]

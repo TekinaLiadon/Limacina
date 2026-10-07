@@ -25,6 +25,7 @@ use crate::{
     minecraft::structs::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     step_try,
     utils::{
+        blocking,
         env_info::launcher_path,
         errors::LauncherError,
         integrity::{ensure_files, IntegrityTarget},
@@ -166,8 +167,14 @@ impl MinecraftLoader for Vanilla {
         let game_args = get_game_args(&manifest_version, &args_map);
 
         log_info!("Поиск java");
-        let java_path =
-            LauncherError::classify(find_java(state.java_path.clone()), LauncherError::Java)?;
+        let java_config = state.java_path.clone();
+        let java_path = LauncherError::classify(
+            blocking("Поиск Java в системе", move || {
+                find_java(java_config)
+            })
+            .await?,
+            LauncherError::Java,
+        )?;
 
         Ok(GameConfig::new(
             java_path,

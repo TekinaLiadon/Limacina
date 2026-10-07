@@ -278,113 +278,54 @@ mod tests {
 #[cfg(test)]
 mod servers_dat_tests {
     use super::first_server_address;
-    use std::io::Write;
-    use std::path::Path;
-
-    enum Container {
-        Raw,
-        Gzip,
-        Zlib,
-    }
-
-    fn write_servers_dat(dir: &Path, ip: &str, container: Container) {
-        let mut nbt = Vec::new();
-        nbt.push(0x0A);
-        nbt.extend_from_slice(&0u16.to_be_bytes());
-        nbt.push(0x09);
-        nbt.extend_from_slice(&7u16.to_be_bytes());
-        nbt.extend_from_slice(b"servers");
-        nbt.push(0x0A);
-        nbt.extend_from_slice(&1u32.to_be_bytes());
-        nbt.push(0x08);
-        nbt.extend_from_slice(&2u16.to_be_bytes());
-        nbt.extend_from_slice(b"ip");
-        nbt.extend_from_slice(&(ip.len() as u16).to_be_bytes());
-        nbt.extend_from_slice(ip.as_bytes());
-        nbt.push(0x00);
-        nbt.push(0x00);
-
-        let bytes = match container {
-            Container::Raw => nbt,
-            Container::Gzip => {
-                let mut encoder =
-                    flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-                encoder.write_all(&nbt).expect("gzip сжатие");
-                encoder.finish().expect("завершение gzip")
-            }
-            Container::Zlib => {
-                let mut encoder =
-                    flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-                encoder.write_all(&nbt).expect("zlib сжатие");
-                encoder.finish().expect("завершение zlib")
-            }
-        };
-        std::fs::write(dir.join("servers.dat"), bytes).expect("запись servers.dat");
-    }
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(name);
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("создание временной папки");
-        dir
-    }
+    use crate::test_support::{write_servers_dat, ServersDatContainer, TempDir};
 
     #[test]
     fn reads_first_server_ip() {
-        let dir = temp_dir("limacina_servers_dat_ok");
-        write_servers_dat(&dir, "play.example.com:25565", Container::Raw);
+        let dir = TempDir::new("servers_dat_ok");
+        write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
 
         assert_eq!(
-            first_server_address(&dir).expect("чтение servers.dat"),
+            first_server_address(&dir.0).expect("чтение servers.dat"),
             Some("play.example.com:25565".to_string())
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn reads_first_server_ip_from_gzip() {
-        let dir = temp_dir("limacina_servers_dat_gzip");
-        write_servers_dat(&dir, "play.example.com:25565", Container::Gzip);
+        let dir = TempDir::new("servers_dat_gzip");
+        write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Gzip);
 
         assert_eq!(
-            first_server_address(&dir).expect("чтение servers.dat"),
+            first_server_address(&dir.0).expect("чтение servers.dat"),
             Some("play.example.com:25565".to_string())
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn reads_first_server_ip_from_zlib() {
-        let dir = temp_dir("limacina_servers_dat_zlib");
-        write_servers_dat(&dir, "play.example.com:25565", Container::Zlib);
+        let dir = TempDir::new("servers_dat_zlib");
+        write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Zlib);
 
         assert_eq!(
-            first_server_address(&dir).expect("чтение servers.dat"),
+            first_server_address(&dir.0).expect("чтение servers.dat"),
             Some("play.example.com:25565".to_string())
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn garbage_file_is_error() {
-        let dir = temp_dir("limacina_servers_dat_garbage");
-        std::fs::write(dir.join("servers.dat"), b"PK\x03\x04fake zip").expect("запись мусора");
+        let dir = TempDir::new("servers_dat_garbage");
+        std::fs::write(dir.0.join("servers.dat"), b"PK\x03\x04fake zip").expect("запись мусора");
 
-        let err = first_server_address(&dir).expect_err("мусор должен дать ошибку");
+        let err = first_server_address(&dir.0).expect_err("мусор должен дать ошибку");
         assert!(err.to_string().contains("Неизвестный формат"));
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn missing_servers_dat_is_none() {
-        let dir = temp_dir("limacina_servers_dat_missing");
+        let dir = TempDir::new("servers_dat_missing");
 
-        assert_eq!(first_server_address(&dir).expect("нет файла"), None);
-
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(first_server_address(&dir.0).expect("нет файла"), None);
     }
 }

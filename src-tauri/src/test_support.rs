@@ -174,6 +174,47 @@ pub fn gson_library_no_url() -> serde_json::Value {
     )
 }
 
+pub enum ServersDatContainer {
+    Raw,
+    Gzip,
+    Zlib,
+}
+
+pub fn write_servers_dat(dir: &Path, ip: &str, container: ServersDatContainer) {
+    let mut nbt = Vec::new();
+    nbt.push(0x0A);
+    nbt.extend_from_slice(&0u16.to_be_bytes());
+    nbt.push(0x09);
+    nbt.extend_from_slice(&7u16.to_be_bytes());
+    nbt.extend_from_slice(b"servers");
+    nbt.push(0x0A);
+    nbt.extend_from_slice(&1u32.to_be_bytes());
+    nbt.push(0x08);
+    nbt.extend_from_slice(&2u16.to_be_bytes());
+    nbt.extend_from_slice(b"ip");
+    nbt.extend_from_slice(&(ip.len() as u16).to_be_bytes());
+    nbt.extend_from_slice(ip.as_bytes());
+    nbt.push(0x00);
+    nbt.push(0x00);
+
+    let bytes = match container {
+        ServersDatContainer::Raw => nbt,
+        ServersDatContainer::Gzip => {
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&nbt).expect("gzip сжатие");
+            encoder.finish().expect("завершение gzip")
+        }
+        ServersDatContainer::Zlib => {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&nbt).expect("zlib сжатие");
+            encoder.finish().expect("завершение zlib")
+        }
+    };
+    std::fs::write(dir.join("servers.dat"), bytes).expect("запись servers.dat");
+}
+
 pub fn write_test_zip(path: &Path, entries: &[(&str, &[u8])]) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("создание родительской директории архива");

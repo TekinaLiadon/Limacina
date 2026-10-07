@@ -27,7 +27,11 @@ async fn save_project_settings(
 ) -> Result<ProjectConfig> {
     let saved = update_project_config(state, async |stored: &mut ProjectConfig| {
         let mut incoming = config;
-        incoming.java_version = resolve_saved_java_version(&incoming).await;
+        incoming.java_version = if stored.java_path == incoming.java_path {
+            stored.java_version
+        } else {
+            None
+        };
         *stored = incoming;
         Ok(())
     })
@@ -76,14 +80,6 @@ pub async fn probe_java_version(path: String) -> CommandResult<Option<u32>> {
     let major = extract_java_major(&text)
         .ok_or_else(|| anyhow::anyhow!("Не удалось определить версию Java в выбранной папке"))?;
     Ok(Some(major))
-}
-
-async fn resolve_saved_java_version(config: &ProjectConfig) -> Option<u32> {
-    let stored = load_config(&config.project_name).await.ok()?;
-    if stored.java_path == config.java_path {
-        return stored.java_version;
-    }
-    None
 }
 
 #[tauri::command]
@@ -357,5 +353,53 @@ mod save_settings_tests {
         );
         assert_eq!(extract_java_major(r#"java version "1.8.0_392""#), Some(8));
         assert_eq!(extract_java_major("no version here"), None);
+    }
+
+    #[tokio::test]
+    async fn settings_save_keeps_java_version_only_while_path_unchanged() {
+        let _guard = LauncherDirGuard::acquire("settings_java_version").await;
+        let base = ProjectConfig {
+            project_name: "JavaVer".to_string(),
+            mc_version: "1.20.1".to_string(),
+            java_path: Some("/old/java".to_string()),
+            java_version: Some(17),
+            ..ProjectConfig::default()
+        };
+        base.save_config()
+            .await
+            .expect("сохранение базового конфига");
+        let state = Mutex::new(GlobalState {
+            project_config: base,
+            ..Default::default()
+        });
+
+        let same_path = ProjectConfig {
+            project_name: "JavaVer".to_string(),
+            mc_version: "1.20.1".to_string(),
+            java_path: Some("/old/java".to_string()),
+            ..ProjectConfig::default()
+        };
+        let saved = save_project_settings(&state, same_path)
+            .await
+            .expect("сохранение с тем же java_path");
+        assert_eq!(
+            saved.java_version,
+            Some(17),
+            "неизменный java_path сохраняет известную версию из stored-конфига"
+        );
+
+        let new_path = ProjectConfig {
+            project_name: "JavaVer".to_string(),
+            mc_version: "1.20.1".to_string(),
+            java_path: Some("/new/java".to_string()),
+            ..ProjectConfig::default()
+        };
+        let saved = save_project_settings(&state, new_path)
+            .await
+            .expect("сохранение с новым java_path");
+        assert_eq!(
+            saved.java_version, None,
+            "смена java_path сбрасывает версию до нового прогона"
+        );
     }
 }

@@ -190,6 +190,11 @@ pub async fn modify_loader_manifest(
     if let Some(mod_item) = manifest.iter_mut().find(|m| m.id == target_id) {
         mod_item.main_class = main_class;
         mod_item.library = library;
+    } else {
+        return Err(LauncherError::LoaderSetup(format!(
+            "В списке версий лоадера нет записи {target_id}, манифест {prefix}_{version} не применён"
+        ))
+        .into());
     }
     Ok(())
 }
@@ -423,7 +428,7 @@ pub(crate) static FORGE: LoaderDef = LoaderDef {
 const NEOFORGE_METADATA_URL: &str =
     "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
 const NEOFORGE_CACHE_FILE: &str = "neoforge_index.json";
-pub(crate) const NEOFORGE_MAVEN_BASE: &str = "https://maven.neoforged.net";
+pub(crate) const NEOFORGE_MAVEN_BASE: &str = "https://maven.neoforged.net/releases";
 pub(crate) const NEOFORGE_MANIFEST_PREFIX: &str = "neoforge";
 
 fn group_neoforge_versions(metadata: Metadata) -> LoaderIndex {
@@ -456,7 +461,7 @@ fn neoforge_mc_version(major: u32, minor: u32) -> String {
 }
 
 fn neoforge_installer_url(_mc_version: &str, v: &str) -> String {
-    format!("{NEOFORGE_MAVEN_BASE}/releases/net/neoforged/neoforge/{v}/neoforge-{v}-installer.jar")
+    format!("{NEOFORGE_MAVEN_BASE}/net/neoforged/neoforge/{v}/neoforge-{v}-installer.jar")
 }
 
 pub(crate) static NEOFORGE: LoaderDef = LoaderDef {
@@ -534,7 +539,7 @@ mod latest_version_tests {
 
 #[cfg(test)]
 mod loader_libraries_tests {
-    use super::{loader_libraries, Artifact, Downloads, Library};
+    use super::{loader_libraries, Artifact, Downloads, Library, NEOFORGE_MAVEN_BASE};
 
     fn library(name: &str, path: &str, url: &str) -> Library {
         Library {
@@ -558,7 +563,7 @@ mod loader_libraries_tests {
                 "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar",
                 "",
             )],
-            "https://maven.neoforged.net/release",
+            NEOFORGE_MAVEN_BASE,
         )
         .expect("библиотеки лоадера");
 
@@ -571,13 +576,14 @@ mod loader_libraries_tests {
     fn libraries_build_classifier_aware_fallback_url() {
         let mods = loader_libraries(
             vec![library("net.neoforged:mergetool:2.0.3:api@jar", "", "")],
-            "https://maven.neoforged.net/release",
+            NEOFORGE_MAVEN_BASE,
         )
         .expect("библиотеки лоадера");
 
         assert_eq!(
             mods[0].url,
-            "https://maven.neoforged.net/release/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"
+            "https://maven.neoforged.net/releases/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
+            "fallback-URL строится от продовой базы с /releases, иначе maven отдаёт 404"
         );
     }
 }
@@ -799,23 +805,27 @@ mod loader_manifest_apply_tests {
     }
 
     #[tokio::test]
-    async fn modify_loader_manifest_silently_skips_missing_target_entry() {
+    async fn modify_loader_manifest_errors_on_missing_target_entry() {
         let _guard = LauncherDirGuard::acquire("loader_manifest_skip").await;
         seed_loader_manifest("47.2.0", "cpw.mods.bootstraplauncher.BootstrapLauncher").await;
 
         let mut manifest = vec![version_mod("1.20.1-47.1.3")];
-        modify_loader_manifest(
+        let error = modify_loader_manifest(
             FORGE_MANIFEST_PREFIX,
             "47.2.0",
             FORGE_MAVEN_BASE,
             &mut manifest,
         )
         .await
-        .expect("отсутствие целевой записи не должно быть ошибкой");
+        .expect_err("ненайденный target_id должен давать явную ошибку, а не silent-skip");
 
         assert!(
+            error.to_string().contains("нет записи 1.20.1-47.2.0"),
+            "ошибка должна называть отсутствующую запись: {error}"
+        );
+        assert!(
             manifest[0].main_class.is_empty(),
-            "silent-skip: манифест остаётся без изменений"
+            "чужая запись не должна затрагиваться"
         );
     }
 

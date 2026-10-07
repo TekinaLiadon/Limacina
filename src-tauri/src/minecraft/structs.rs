@@ -70,7 +70,7 @@ impl GameConfig {
     }
 }
 
-pub async fn new_launch_config(
+pub fn new_launch_config(
     username: &str,
     uuid: &str,
     access_token: &str,
@@ -186,9 +186,8 @@ mod launch_config_tests {
         let guard = LauncherDirGuard::acquire("launch_config_dirs").await;
         let state = project();
 
-        let config = new_launch_config("Steve", "uuid-1", "token-1", &state)
-            .await
-            .expect("конфиг запуска");
+        let config =
+            new_launch_config("Steve", "uuid-1", "token-1", &state).expect("конфиг запуска");
 
         let base = guard.project_dir("Cordelia");
         assert_eq!(config.username, "Steve");
