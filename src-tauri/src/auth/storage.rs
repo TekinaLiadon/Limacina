@@ -293,24 +293,49 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
     let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    let keyring_result = (|| -> Result<()> {
+    let keyring_delete = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
         match entry.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(anyhow::Error::new(e)
                 .context(format!("Не удалось удалить {} из keyring", key_suffix))),
         }
     })();
 
-    if let Err(e) = &keyring_result {
+    if let Err(e) = &keyring_delete {
         log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e);
     }
 
-    let _ = delete_fallback(project, username, key_suffix);
+    let keyring_unavailable = matches!(
+        &keyring_delete,
+        Err(e) if e.chain().any(|cause| {
+            cause
+                .downcast_ref::<keyring::Error>()
+                .is_some_and(|err| matches!(
+                    err,
+                    keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)
+                ))
+        })
+    );
 
-    Ok(())
+    let fallback_result = delete_fallback(project, username, key_suffix);
+
+    if keyring_unavailable {
+        return fallback_result;
+    }
+
+    let keyring_err = match keyring_delete {
+        Ok(()) => return fallback_result,
+        Err(e) => e,
+    };
+
+    match fallback_result {
+        Ok(()) => Err(keyring_err),
+        Err(fallback_err) => Err(keyring_err.context(format!(
+            "также не удалось очистить fallback-хранилище: {fallback_err}"
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -484,6 +509,20 @@ mod tests {
         assert_eq!(
             load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
             "token"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_credential_propagates_fallback_failure() {
+        let _dir = LauncherDirGuard::acquire("credentials_delete_failure").await;
+        std::fs::create_dir(super::fallback_path().expect("путь хранилища"))
+            .expect("заглушка недоступного хранилища");
+
+        assert!(
+            super::delete_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .is_err(),
+            "ошибка удаления из fallback-хранилища не должна проглатываться"
         );
     }
 

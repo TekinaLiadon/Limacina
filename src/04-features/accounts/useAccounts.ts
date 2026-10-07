@@ -18,10 +18,9 @@ export function useAccounts() {
     try {
       const session = await getSessionInfo()
       if (coreStore.currentProject !== projectName) return
-      if (session) {
-        coreStore.applySession(session)
-        store.selectedUsername = session.username
-      }
+      if (!session) return
+      coreStore.applySession(session)
+      store.selectedUsername = session.username
     } catch (e: unknown) {
       reportError('Не удалось проверить сессию', e)
     }

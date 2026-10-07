@@ -68,6 +68,21 @@ impl Drop for LauncherDirGuard {
     }
 }
 
+pub struct ConfigFileGuard;
+
+impl ConfigFileGuard {
+    pub fn acquire(root: &Path, name: &str) -> Self {
+        crate::state::launcher_config::set_config_file_path_for_tests(Some(root.join(name)));
+        Self
+    }
+}
+
+impl Drop for ConfigFileGuard {
+    fn drop(&mut self) {
+        crate::state::launcher_config::set_config_file_path_for_tests(None);
+    }
+}
+
 pub struct TempDir(pub PathBuf);
 
 impl TempDir {

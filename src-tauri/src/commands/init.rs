@@ -2,6 +2,7 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::init;
+use crate::state::config::update_project_config;
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::tauri_err::CommandResult;
@@ -11,18 +12,7 @@ pub async fn initialize_launcher(
     state: State<'_, Mutex<GlobalState>>,
     parent_path: String,
 ) -> CommandResult<LauncherConfig> {
-    let config = crate::utils::blocking(
-        "Не удалось выполнить инициализацию лаунчера",
-        move || init::init_launcher(&parent_path),
-    )
-    .await??;
-
-    {
-        let mut state = state.lock().await;
-        state.launcher_config = Some(config.clone());
-    }
-
-    Ok(config)
+    Ok(init::init_launcher(&state, &parent_path).await?)
 }
 
 #[tauri::command]
@@ -44,17 +34,18 @@ async fn initialize_project_inner(
 
     let config = init::init_project_config(&launcher_path, &project_name, None).await?;
 
-    {
-        let mut state = state.lock().await;
-        state.project_config = config.clone();
-    }
+    let stored = update_project_config(&state, async |stored: &mut ProjectConfig| {
+        *stored = config;
+        Ok(())
+    })
+    .await?;
 
-    Ok(config)
+    Ok(stored)
 }
 
 #[tauri::command]
 pub async fn set_initialized(state: State<'_, Mutex<GlobalState>>) -> CommandResult<ProjectConfig> {
-    crate::state::config::update_project_config(&state, async |config: &mut ProjectConfig| {
+    update_project_config(&state, async |config: &mut ProjectConfig| {
         config.initialized = true;
         Ok(())
     })

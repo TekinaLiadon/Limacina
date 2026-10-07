@@ -53,14 +53,14 @@ fn extract_java_major(output: &str) -> Option<u32> {
 pub async fn probe_java_version(path: String) -> CommandResult<Option<u32>> {
     let dir = PathBuf::from(&path);
     if !dir.is_dir() {
-        return Err(LauncherError::Java(format!(
-            "Папка {path} не существует или недоступна"
-        ))
-        .into());
+        return Err(
+            LauncherError::Java(format!("Папка {path} не существует или недоступна")).into(),
+        );
     }
-    let executable = blocking("Поиск Java в выбранной папке", move || {
-        find_java_executable(&dir)
-    })
+    let executable = blocking(
+        "Поиск Java в выбранной папке",
+        move || find_java_executable(&dir),
+    )
     .await?
     .context("В выбранной папке не найден исполняемый файл Java (bin/java)")?;
     let output = tokio::process::Command::new(&executable)
@@ -91,21 +91,30 @@ pub async fn load_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    if let Ok(config) = load_config(&project_name).await {
-        let mut state = state.lock().await;
-        state.project_config = config.clone();
-        return Ok(config);
-    }
+    Ok(load_settings_project_inner(&state, &project_name).await?)
+}
 
-    let launcher_path = crate::state::launcher_config::LauncherConfig::resolved_launcher_path()
-        .to_string_lossy()
-        .to_string();
+async fn load_settings_project_inner(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+) -> Result<ProjectConfig> {
+    let config = match load_config(project_name).await {
+        Ok(config) => config,
+        Err(_) => {
+            let launcher_path =
+                crate::state::launcher_config::LauncherConfig::resolved_launcher_path()
+                    .to_string_lossy()
+                    .to_string();
 
-    let config = init_project_config(&launcher_path, &project_name, None).await?;
+            init_project_config(&launcher_path, project_name, None).await?
+        }
+    };
 
-    let mut state = state.lock().await;
-    state.project_config = config.clone();
-    Ok(config)
+    update_project_config(state, async |stored: &mut ProjectConfig| {
+        *stored = config;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -171,8 +180,8 @@ async fn clear_minecraft_config_inner(
 
 #[cfg(test)]
 mod save_settings_tests {
-    use super::{extract_java_major, save_project_settings};
-    use crate::state::config::update_project_config;
+    use super::{extract_java_major, load_settings_project_inner, save_project_settings};
+    use crate::state::config::{load_config, update_project_config};
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::LauncherDirGuard;
     use std::time::Duration;
@@ -217,16 +226,60 @@ mod save_settings_tests {
         );
     }
 
+    #[tokio::test]
+    async fn project_switch_survives_parallel_settings_save() {
+        let _guard = LauncherDirGuard::acquire("project_switch_race").await;
+        for name in ["SwitchFrom", "SwitchTo"] {
+            ProjectConfig {
+                project_name: name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            }
+            .save_config()
+            .await
+            .expect("сохранение конфига проекта");
+        }
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "SwitchFrom".to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+            ..Default::default()
+        });
+
+        let (save_result, switch_result) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                config.java_path = Some("java-path".to_string());
+                Ok(())
+            }),
+            load_settings_project_inner(&state, "SwitchTo"),
+        );
+        save_result.expect("сохранение настроек");
+        switch_result.expect("переключение проекта");
+
+        let saved = load_config("SwitchFrom").await.expect("чтение конфига");
+        assert_eq!(
+            saved.java_path.as_deref(),
+            Some("java-path"),
+            "параллельное сохранение настроек не должно теряться при переключении проекта"
+        );
+
+        let current = state.lock().await.project_config.clone();
+        assert_eq!(
+            current.project_name, "SwitchTo",
+            "переключение проекта не должно откатываться параллельным сохранением"
+        );
+    }
+
     #[test]
     fn extracts_major_from_java_version_output() {
         assert_eq!(
             extract_java_major(r#"openjdk version "21.0.3" 2024-04-16"#),
             Some(21)
         );
-        assert_eq!(
-            extract_java_major(r#"java version "1.8.0_392""#),
-            Some(8)
-        );
+        assert_eq!(extract_java_major(r#"java version "1.8.0_392""#), Some(8));
         assert_eq!(extract_java_major("no version here"), None);
     }
 }

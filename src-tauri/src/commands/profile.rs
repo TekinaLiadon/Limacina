@@ -327,8 +327,8 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
     Ok(())
 }
 
-async fn delete_project_credentials(project_name: &str, logins: Vec<String>) {
-    crate::commands::auth::wipe_project_credentials(project_name, &logins).await;
+async fn delete_project_credentials(project_name: &str, logins: Vec<String>) -> Result<()> {
+    crate::commands::auth::wipe_project_credentials(project_name, &logins).await
 }
 
 async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result<LauncherConfig> {
@@ -358,7 +358,7 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
             .map(|c| c.get_logins(&project_name))
             .unwrap_or_default()
     };
-    delete_project_credentials(&project_name, saved_logins).await;
+    delete_project_credentials(&project_name, saved_logins).await?;
 
     delete_project_files(&project_name).await?;
 

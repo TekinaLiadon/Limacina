@@ -1,11 +1,14 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 use tokio::fs;
+use tokio::sync::Mutex;
 
+use crate::commands::launcher_config::update_launcher_config;
 use crate::log_err;
 use crate::state::config::validate_project_name;
-use crate::state::dto::ProjectConfig;
+use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
+use crate::utils::blocking;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
 use crate::utils::errors::LauncherError;
@@ -51,16 +54,26 @@ impl InitPaths {
     }
 }
 
-pub fn init_launcher(parent_path: &str) -> Result<LauncherConfig> {
-    let paths = InitPaths::new(parent_path)?;
-    paths.create_dirs()?;
+pub async fn init_launcher(
+    state: &Mutex<GlobalState>,
+    parent_path: &str,
+) -> Result<LauncherConfig> {
+    let parent = parent_path.to_string();
+    let launcher_path = blocking(
+        "Не удалось выполнить инициализацию лаунчера",
+        move || -> Result<String> {
+            let paths = InitPaths::new(&parent)?;
+            paths.create_dirs()?;
+            Ok(paths.base.to_string_lossy().to_string())
+        },
+    )
+    .await??;
 
-    let mut config = LauncherConfig::load().ok().flatten().unwrap_or_default();
-    config.apply_default_project();
-    config.launcher_path = paths.base.to_string_lossy().to_string();
-    config.save()?;
-
-    Ok(config)
+    update_launcher_config(state, |config| {
+        config.apply_default_project();
+        config.launcher_path = launcher_path;
+    })
+    .await
 }
 
 pub async fn init_project_config(
@@ -138,9 +151,13 @@ pub async fn init_project_config(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::LauncherDirGuard;
+    use crate::commands::launcher_config::update_launcher_config;
+    use crate::state::dto::GlobalState;
+    use crate::state::launcher_config::LauncherConfig;
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use tokio::sync::Mutex;
 
-    use super::init_project_config;
+    use super::{init_launcher, init_project_config, InitPaths};
 
     #[tokio::test]
     async fn init_rejects_traversal_name_before_write() {
@@ -157,5 +174,49 @@ mod tests {
             .map(|entries| entries.count())
             .unwrap_or(0);
         assert_eq!(written, 0, "в config не должно быть записей");
+    }
+
+    #[tokio::test]
+    async fn init_launcher_keeps_parallel_theme_mutation() {
+        let guard = LauncherDirGuard::acquire("init_launcher_race").await;
+        let _path_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let seeded = LauncherConfig {
+            theme: "seed".to_string(),
+            ..Default::default()
+        };
+        seeded.save().expect("сохранение стартового конфига");
+
+        let state = Mutex::new(GlobalState::default());
+        let parent = guard.root().to_string_lossy().to_string();
+        let expected_path = InitPaths::new(&parent)
+            .expect("пути инициализации")
+            .base
+            .to_string_lossy()
+            .to_string();
+
+        let (init_result, theme_result) = tokio::join!(
+            init_launcher(&state, &parent),
+            update_launcher_config(&state, |config| config.theme = "race-theme".to_string()),
+        );
+        init_result.expect("инициализация лаунчера");
+        theme_result.expect("смена темы");
+
+        let saved = LauncherConfig::load()
+            .expect("чтение сохранённого конфига")
+            .expect("конфиг должен быть записан");
+        assert_eq!(saved.launcher_path, expected_path);
+        assert_eq!(
+            saved.theme, "race-theme",
+            "параллельная смена темы не должна теряться на диске"
+        );
+
+        let in_memory = state
+            .lock()
+            .await
+            .launcher_config
+            .clone()
+            .expect("in-memory конфиг");
+        assert_eq!(in_memory.launcher_path, expected_path);
+        assert_eq!(in_memory.theme, "race-theme");
     }
 }

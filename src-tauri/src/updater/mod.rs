@@ -95,38 +95,160 @@ fn cleanup_path(path: &std::path::Path, description: &str, is_dir: bool) {
 
 pub fn cleanup_old_binaries() {
     if let Ok(current_exe) = std::env::current_exe() {
-        let old_path = old_binary_path(&current_exe);
-        cleanup_path(&old_path, "старый бинарник", false);
-
-        let staged_path = current_exe.with_file_name(format!(
-            "{}.new",
-            current_exe
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-        ));
-        cleanup_path(&staged_path, "незавершённый бинарник обновления", false);
-
-        let old_dir = current_exe.with_file_name(format!(
-            "{}.app.old",
-            current_exe
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.file_name())
-                .unwrap_or_default()
-                .to_string_lossy()
-                .trim_end_matches(".app")
-        ));
-        cleanup_path(&old_dir, "старый бандл", true);
+        cleanup_old_binaries_at(&current_exe);
     }
 }
 
-fn old_binary_path(current_exe: &std::path::Path) -> std::path::PathBuf {
+fn cleanup_old_binaries_at(current_exe: &std::path::Path) {
+    cleanup_path(
+        &binary_with_suffix(current_exe, "old"),
+        "старый бинарник",
+        false,
+    );
+    cleanup_path(
+        &binary_with_suffix(current_exe, "new"),
+        "незавершённый бинарник обновления",
+        false,
+    );
+    if let Some(old_bundle) = old_bundle_path(current_exe) {
+        cleanup_path(&old_bundle, "старый бандл", true);
+    }
+}
+
+fn binary_with_suffix(current_exe: &std::path::Path, suffix: &str) -> std::path::PathBuf {
     current_exe.with_file_name(format!(
-        "{}.old",
+        "{}.{suffix}",
         current_exe
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
     ))
+}
+
+fn old_bundle_path(current_exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let bundle_dir = current_exe.parent()?.parent()?.parent()?;
+    let bundle_name = bundle_dir.file_name()?.to_string_lossy();
+    if !bundle_name.ends_with(".app") {
+        return None;
+    }
+    Some(bundle_dir.with_file_name(format!("{}.app.old", bundle_name.trim_end_matches(".app"))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("создание временной папки");
+        dir
+    }
+
+    #[test]
+    fn bundle_backup_is_sibling_of_bundle_on_macos_layout() {
+        let exe = std::path::Path::new("/Applications/Limacina.app/Contents/MacOS/limacina");
+
+        assert_eq!(
+            old_bundle_path(exe),
+            Some(std::path::PathBuf::from("/Applications/Limacina.app.old"))
+        );
+        assert_eq!(
+            binary_with_suffix(exe, "old"),
+            std::path::PathBuf::from("/Applications/Limacina.app/Contents/MacOS/limacina.old")
+        );
+        assert_eq!(
+            binary_with_suffix(exe, "new"),
+            std::path::PathBuf::from("/Applications/Limacina.app/Contents/MacOS/limacina.new")
+        );
+    }
+
+    #[test]
+    fn bundle_backup_is_none_on_windows_layout() {
+        let exe =
+            std::path::Path::new("C:/Users/user/AppData/Local/Programs/Limacina/limacina.exe");
+
+        assert_eq!(old_bundle_path(exe), None);
+        assert_eq!(
+            binary_with_suffix(exe, "old"),
+            std::path::PathBuf::from(
+                "C:/Users/user/AppData/Local/Programs/Limacina/limacina.exe.old"
+            )
+        );
+        assert_eq!(
+            binary_with_suffix(exe, "new"),
+            std::path::PathBuf::from(
+                "C:/Users/user/AppData/Local/Programs/Limacina/limacina.exe.new"
+            )
+        );
+    }
+
+    #[test]
+    fn bundle_backup_is_none_on_linux_layout() {
+        let exe = std::path::Path::new("/home/user/.local/share/Limacina/limacina");
+
+        assert_eq!(old_bundle_path(exe), None);
+        assert_eq!(
+            binary_with_suffix(exe, "old"),
+            std::path::PathBuf::from("/home/user/.local/share/Limacina/limacina.old")
+        );
+        assert_eq!(
+            binary_with_suffix(exe, "new"),
+            std::path::PathBuf::from("/home/user/.local/share/Limacina/limacina.new")
+        );
+    }
+
+    #[test]
+    fn bundle_backup_is_none_when_chain_is_short_or_not_a_bundle() {
+        assert_eq!(
+            old_bundle_path(std::path::Path::new("/Applications/Limacina.app/limacina")),
+            None
+        );
+        assert_eq!(
+            old_bundle_path(std::path::Path::new(
+                "/Applications/Limacina/Contents/MacOS/limacina"
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn removes_app_old_bundle_on_macos_layout() {
+        let root = temp_dir("limacina_cleanup_macos_bundle");
+        let app = root.join("Limacina.app");
+        let exe = app.join("Contents").join("MacOS").join("limacina");
+        std::fs::create_dir_all(exe.parent().expect("папка бинарника")).expect("создание бандла");
+        std::fs::write(&exe, b"current").expect("запись бинарника");
+        let old_bundle = root.join("Limacina.app.old");
+        std::fs::create_dir_all(old_bundle.join("Contents").join("MacOS"))
+            .expect("создание бэкап-бандла");
+
+        cleanup_old_binaries_at(&exe);
+
+        assert!(!old_bundle.exists());
+        assert!(app.exists());
+        assert!(exe.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn removes_old_and_new_binaries_on_flat_layout() {
+        let root = temp_dir("limacina_cleanup_flat_binaries");
+        let exe = root.join("limacina.exe");
+        std::fs::write(&exe, b"current").expect("запись бинарника");
+        std::fs::write(root.join("limacina.exe.old"), b"old").expect("запись .old");
+        std::fs::write(root.join("limacina.exe.new"), b"new").expect("запись .new");
+        let foreign_dir = root.join("Programs.app.old");
+        std::fs::create_dir_all(&foreign_dir).expect("создание посторонней папки");
+
+        cleanup_old_binaries_at(&exe);
+
+        assert!(!root.join("limacina.exe.old").exists());
+        assert!(!root.join("limacina.exe.new").exists());
+        assert!(exe.exists());
+        assert!(foreign_dir.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

@@ -32,7 +32,7 @@ async fn store_session(
 }
 
 async fn remember_login(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     project_name: &str,
     username: &str,
     remember: bool,
@@ -102,12 +102,25 @@ async fn project_server_url(project_name: &str, offline_reason: &str) -> Result<
         .ok_or(LauncherError::ServerUrlMissing.into())
 }
 
-pub(crate) async fn wipe_project_credentials(project_name: &str, usernames: &[String]) {
+pub(crate) async fn wipe_project_credentials(
+    project_name: &str,
+    usernames: &[String],
+) -> Result<()> {
+    let mut failures: Vec<String> = Vec::new();
     for username in usernames {
         for kind in ["password", "refresh_token", "uuid"] {
-            let _ = storage::delete_credential(project_name, username, kind).await;
+            if let Err(e) = storage::delete_credential(project_name, username, kind).await {
+                failures.push(format!("{username}/{kind}: {e}"));
+            }
         }
     }
+    if failures.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "Не удалось удалить сохранённые учётные данные: {}",
+        failures.join("; ")
+    );
 }
 
 pub(crate) async fn restore_session(
@@ -274,7 +287,7 @@ async fn login_online_session(
     if remember_me {
         persist_session_credentials(project_name, username, &data).await?;
     } else {
-        wipe_project_credentials(project_name, &[username.to_string()]).await;
+        wipe_project_credentials(project_name, &[username.to_string()]).await?;
     }
     Ok(data)
 }
@@ -340,11 +353,14 @@ async fn change_password_flow(
         (session.username.clone(), session.access_token.clone())
     };
 
-    let server_url = project_server_url(project_name, "смена пароля недоступна").await?;
-
-    let data = auth::change_password(&server_url, &access_token, old_password, new_password)
-        .await
-        .context("Не удалось сменить пароль")?;
+    let data = change_password_session(
+        project_name,
+        &username,
+        &access_token,
+        old_password,
+        new_password,
+    )
+    .await?;
 
     {
         let mut state = state.lock().await;
@@ -356,17 +372,34 @@ async fn change_password_flow(
         });
     }
 
+    log_info!("Пароль изменён: {}", username);
+
+    Ok(())
+}
+
+async fn change_password_session(
+    project_name: &str,
+    username: &str,
+    access_token: &str,
+    old_password: &str,
+    new_password: &str,
+) -> Result<AuthData> {
+    let server_url = project_server_url(project_name, "смена пароля недоступна").await?;
+
+    let _guard = SESSION_RESTORE_LOCK.lock().await;
+    let data = auth::change_password(&server_url, access_token, old_password, new_password)
+        .await
+        .context("Не удалось сменить пароль")?;
+
     storage::save_credential(
         project_name,
-        &username,
+        username,
         "refresh_token",
         &data.tokens.refresh_token,
     )
     .await?;
 
-    log_info!("Пароль изменён: {}", username);
-
-    Ok(())
+    Ok(data)
 }
 
 #[tauri::command]
@@ -386,12 +419,23 @@ pub async fn delete_account(
     project_name: String,
     username: String,
 ) -> CommandResult<()> {
+    delete_account_flow(state.inner(), &project_name, &username).await?;
+    Ok(())
+}
+
+async fn delete_account_flow(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+    username: &str,
+) -> Result<()> {
+    let _guard = SESSION_RESTORE_LOCK.lock().await;
+
     if let Ok(refresh_token) =
-        storage::get_credential(&project_name, &username, "refresh_token").await
+        storage::get_credential(project_name, username, "refresh_token").await
     {
         if !refresh_token.is_empty() {
             if let Ok(server_url) =
-                project_server_url(&project_name, "удаление аккаунта недоступно").await
+                project_server_url(project_name, "удаление аккаунта недоступно").await
             {
                 if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
                     log_err!("Не удалось инвалидировать токен на сервере: {}", e);
@@ -400,11 +444,326 @@ pub async fn delete_account(
         }
     }
 
-    wipe_project_credentials(&project_name, &[username.to_string()]).await;
+    wipe_project_credentials(project_name, &[username.to_string()]).await?;
 
-    remember_login(&state, &project_name, &username, false).await?;
+    {
+        let mut guard = state.lock().await;
+        if guard.session.as_ref().is_some_and(|session| {
+            session.project_name == project_name && session.username == username
+        }) {
+            guard.session = None;
+        }
+    }
 
-    Ok(())
+    remember_login(state, project_name, username, false).await
+}
+
+#[cfg(test)]
+mod account_flow_tests {
+    use super::{
+        change_password_session, delete_account_flow, restore_and_persist_session,
+        wipe_project_credentials,
+    };
+    use crate::auth::storage;
+    use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
+    use crate::state::launcher_config::{set_config_file_path_for_tests, LauncherConfig};
+    use crate::test_support::LauncherDirGuard;
+    use mockito::{Matcher, Server};
+    use serde_json::json;
+    use std::io::Write;
+    use std::path::Path;
+    use tokio::sync::Mutex;
+
+    struct ConfigFileGuard;
+
+    impl ConfigFileGuard {
+        fn acquire(root: &Path, name: &str) -> Self {
+            set_config_file_path_for_tests(Some(root.join(name)));
+            Self
+        }
+    }
+
+    impl Drop for ConfigFileGuard {
+        fn drop(&mut self) {
+            set_config_file_path_for_tests(None);
+        }
+    }
+
+    fn rotation_payload(access: &str, refresh: &str) -> String {
+        json!({
+            "tokens": { "access_token": access, "refresh_token": refresh },
+            "profile": { "uuid": "uuid-1", "username": "Steve" }
+        })
+        .to_string()
+    }
+
+    async fn seed_online_project(project_name: &str, server_url: &str) {
+        let config = ProjectConfig {
+            project_name: project_name.to_string(),
+            mc_version: "1.20.1".to_string(),
+            server_url: Some(server_url.to_string()),
+            online: true,
+            ..ProjectConfig::default()
+        };
+        config
+            .save_config()
+            .await
+            .expect("сохранение конфига проекта");
+    }
+
+    fn state_with_session(username: &str, project_name: &str) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: project_name.to_string(),
+                online: true,
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "access-1".to_string(),
+                uuid: "uuid-1".to_string(),
+                username: username.to_string(),
+                project_name: project_name.to_string(),
+            }),
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_change_password_and_refresh_keep_valid_token() {
+        let _guard = LauncherDirGuard::acquire("auth_flow_concurrent_password").await;
+        let mut server = Server::new_async().await;
+        let project = "FlowProj";
+        let username = "Steve";
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища перед тестом");
+
+        let payload = rotation_payload("access-mid", "tok-mid");
+        let (first_part, second_part) = payload.split_at(payload.len() / 2);
+        let (first_part, second_part) = (first_part.to_string(), second_part.to_string());
+        let slow_refresh = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-old"}).to_string(),
+            ))
+            .with_status(200)
+            .with_chunked_body(move |writer| {
+                writer.write_all(first_part.as_bytes())?;
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                writer.write_all(second_part.as_bytes())?;
+                Ok(())
+            })
+            .create_async()
+            .await;
+        let password_change = server
+            .mock("PATCH", "/v1/common/auth/password")
+            .with_status(200)
+            .with_body(rotation_payload("access-new", "tok-new"))
+            .create_async()
+            .await;
+
+        seed_online_project(project, &server.url()).await;
+        storage::save_fallback(project, username, "refresh_token", "tok-old")
+            .expect("сохранение токена");
+
+        let mut refresh_task = {
+            let project = project.to_string();
+            let username = username.to_string();
+            tokio::spawn(
+                async move { restore_and_persist_session(&project, &username, None).await },
+            )
+        };
+        let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !slow_refresh.matched() {
+            if std::time::Instant::now() >= wait_deadline {
+                let refresh_result = (&mut refresh_task).await;
+                panic!(
+                    "задача refresh не дошла до сервера: {:?}",
+                    refresh_result.map(|inner| inner.map(|_| ()).map_err(|e| format!("{e:#}")))
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let password_task = {
+            let project = project.to_string();
+            let username = username.to_string();
+            tokio::spawn(async move {
+                change_password_session(&project, &username, "access-1", "old-pass", "new-pass")
+                    .await
+            })
+        };
+
+        refresh_task
+            .await
+            .expect("задача refresh")
+            .expect("refresh должен пройти");
+        password_task
+            .await
+            .expect("задача change_password")
+            .expect("смена пароля должна пройти");
+
+        password_change.assert_async().await;
+        let token = storage::get_credential(project, username, "refresh_token")
+            .await
+            .expect("токен должен остаться на диске");
+        assert_eq!(
+            token, "tok-new",
+            "на диске должен остаться токен ротации смены пароля"
+        );
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища после теста");
+    }
+
+    #[tokio::test]
+    async fn change_password_persists_rotated_token() {
+        let _guard = LauncherDirGuard::acquire("auth_flow_password_persist").await;
+        let mut server = Server::new_async().await;
+        let project = "PwdProj";
+        let username = "Steve";
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища перед тестом");
+        let password_change = server
+            .mock("PATCH", "/v1/common/auth/password")
+            .with_status(200)
+            .with_body(rotation_payload("access-new", "tok-new"))
+            .create_async()
+            .await;
+
+        seed_online_project(project, &server.url()).await;
+
+        let data = change_password_session(project, username, "access-1", "old-pass", "new-pass")
+            .await
+            .expect("смена пароля");
+
+        password_change.assert_async().await;
+        assert_eq!(data.tokens.access_token, "access-new");
+        assert_eq!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .expect("ротированный токен должен сохраниться"),
+            "tok-new"
+        );
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища после теста");
+    }
+
+    #[tokio::test]
+    async fn delete_account_resets_session_and_saved_login_for_current_user() {
+        let dir = LauncherDirGuard::acquire("auth_flow_delete_current").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let mut server = Server::new_async().await;
+        let invalidate = server
+            .mock("POST", "/v1/common/auth/invalidate")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-del")
+            .expect("сохранение токена");
+
+        let state = state_with_session("Steve", "TestProj");
+        {
+            let mut guard = state.lock().await;
+            guard
+                .launcher_config
+                .as_mut()
+                .expect("конфиг лаунчера")
+                .add_login("TestProj", "Steve");
+        }
+
+        delete_account_flow(&state, "TestProj", "Steve")
+            .await
+            .expect("удаление аккаунта");
+
+        invalidate.assert_async().await;
+        let guard = state.lock().await;
+        assert!(
+            guard.session.is_none(),
+            "сессия удалённого текущего пользователя должна сбрасываться"
+        );
+        assert!(
+            guard
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .get_logins("TestProj")
+                .is_empty(),
+            "сохранённый логин удалённого аккаунта должен убираться"
+        );
+        drop(guard);
+        assert!(
+            storage::get_credential("TestProj", "Steve", "refresh_token")
+                .await
+                .is_err(),
+            "креденшелы удалённого аккаунта должны быть стёрты"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_account_keeps_session_for_other_user() {
+        let dir = LauncherDirGuard::acquire("auth_flow_delete_other").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let mut server = Server::new_async().await;
+        let invalidate = server
+            .mock("POST", "/v1/common/auth/invalidate")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Alex", "refresh_token", "tok-alex")
+            .expect("сохранение токена");
+
+        let state = state_with_session("Steve", "TestProj");
+
+        delete_account_flow(&state, "TestProj", "Alex")
+            .await
+            .expect("удаление аккаунта");
+
+        invalidate.assert_async().await;
+        assert!(
+            state.lock().await.session.is_some(),
+            "сессия другого пользователя не должна сбрасываться"
+        );
+        assert!(
+            storage::get_credential("TestProj", "Alex", "refresh_token")
+                .await
+                .is_err(),
+            "креденшелы удалённого пользователя должны быть стёрты"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_account_reports_wipe_failure() {
+        let dir = LauncherDirGuard::acquire("auth_flow_delete_wipe_fail").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        std::fs::create_dir(dir.root().join("credentials.json"))
+            .expect("заглушка недоступного хранилища");
+
+        let state = state_with_session("Steve", "TestProj");
+
+        let error = delete_account_flow(&state, "TestProj", "Steve")
+            .await
+            .expect_err("ошибка удаления креденшелов не должна проглатываться");
+
+        assert!(
+            error.to_string().contains("Не удалось удалить"),
+            "неожиданная ошибка: {error}"
+        );
+        assert!(
+            state.lock().await.session.is_some(),
+            "при неудавшемся удалении сессия не сбрасывается"
+        );
+    }
 }
 
 #[cfg(test)]

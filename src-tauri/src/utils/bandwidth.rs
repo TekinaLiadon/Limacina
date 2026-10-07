@@ -65,7 +65,10 @@ pub async fn acquire(bytes: u64) {
                 bucket.last_refill = now;
             }
 
-            if bucket.tokens >= bytes as f64 {
+            if bytes > bucket.rate_bytes_per_sec {
+                bucket.tokens = 0.0;
+                0.0
+            } else if bucket.tokens >= bytes as f64 {
                 bucket.tokens -= bytes as f64;
                 0.0
             } else {
@@ -113,6 +116,36 @@ mod tests {
         set_limit(Some(8192));
 
         acquire(8192 * BYTES_PER_KB).await;
+
+        let start = Instant::now();
+        acquire(1024 * BYTES_PER_KB).await;
+        assert!(start.elapsed() >= Duration::from_millis(100));
+
+        set_limit(None);
+    }
+
+    #[tokio::test]
+    async fn oversized_acquire_does_not_hang() {
+        let _guard = lock_tests().await;
+        set_limit(Some(32));
+
+        let start = Instant::now();
+        tokio::time::timeout(Duration::from_secs(5), acquire(64 * BYTES_PER_KB))
+            .await
+            .expect("acquire превысил таймаут");
+        assert!(start.elapsed() < Duration::from_secs(1));
+
+        set_limit(None);
+    }
+
+    #[tokio::test]
+    async fn oversized_acquire_drains_bucket_for_next_acquire() {
+        let _guard = lock_tests().await;
+        set_limit(Some(8192));
+
+        tokio::time::timeout(Duration::from_secs(5), acquire(16_384 * BYTES_PER_KB))
+            .await
+            .expect("acquire превысил таймаут");
 
         let start = Instant::now();
         acquire(1024 * BYTES_PER_KB).await;
