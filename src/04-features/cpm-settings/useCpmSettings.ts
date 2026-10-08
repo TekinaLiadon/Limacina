@@ -22,18 +22,17 @@ export interface CpmLayer {
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
-function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolean, result: CpmLayer[]): void {
+function collectLayers(children: CPMChild[] | undefined, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
-    const isHidden = inheritedHidden || child.hidden === true
     const empty = child.size !== undefined && isZeroVec(child.size)
     result.push(reactive({
       storeId: child.storeID ?? null,
       name: child.name,
-      visible: !empty && !isHidden,
+      visible: !empty,
       empty,
     }))
-    collectLayers(child.children, isHidden, result)
+    collectLayers(child.children, result)
   }
 }
 
@@ -61,7 +60,7 @@ export function useCpmSettings() {
 
     const layers: CpmLayer[] = []
     cpmData.value.config.elements.forEach((element) => {
-      collectLayers(element.children, false, layers)
+      collectLayers(element.children, layers)
     })
     return layers
   })

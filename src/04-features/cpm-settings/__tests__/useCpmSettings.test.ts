@@ -225,7 +225,7 @@ describe('useCpmSettings', () => {
     expect(cpm.cpmData.value).toBeNull()
   })
 
-  it('collects the layers skipping empty and hidden parts', async () => {
+  it('collects the layers skipping only empty parts', async () => {
     const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue({
@@ -249,10 +249,57 @@ describe('useCpmSettings', () => {
     await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
 
     expect(cpm.displayLayers.value.map((layer) => layer.name)).toEqual(['Body', 'Hidden'])
-    expect(cpm.activeLayerIds.value).toEqual([5])
+    expect(cpm.activeLayerIds.value).toEqual([5, 7])
 
     cpm.showEmptyLayers.value = true
     expect(cpm.displayLayers.value).toHaveLength(3)
+  })
+
+  it('keeps hidden expression layers active so animation show tracks can reveal them', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    const hiddenExpression = makeChild({ name: 'Expression Happy', hidden: true, storeID: 11 })
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [
+          makeElement([
+            makeChild({ name: 'Body', storeID: 5 }),
+            hiddenExpression,
+          ]),
+        ],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [
+        {
+          id: 'happy',
+          name: 'happy',
+          kind: 'gesture',
+          duration: 1000,
+          priority: 0,
+          loop: false,
+          additive: true,
+          interpolator: 'poly_loop',
+          hidden: false,
+          frames: [
+            {
+              components: [
+                { storeID: 5, pos: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: false },
+                { storeID: 11, pos: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 }, show: true },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    expect(cpm.activeLayerIds.value).toContain(11)
+    expect(cpm.displayLayers.value.map((layer) => layer.name)).toContain('Expression Happy')
   })
 
   it('uploads the model as a link and registers it in the game', async () => {

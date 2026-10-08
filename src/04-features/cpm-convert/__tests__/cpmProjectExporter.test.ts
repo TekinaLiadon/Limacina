@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import JSZip from 'jszip'
 import type { CPMChild, CPMConfig, CPMElement } from '@/05-entities'
-import { cpmConfigToBytes, cpmConfigToLinkBytes } from '../cpmProjectExporter'
+import { bytesToBase64 } from '../cpmBinaryWriter'
+import {
+  cpmConfigToBytes,
+  cpmConfigToLinkBytes,
+  cpmProjectToBytes,
+  cpmProjectToLinkBase64,
+} from '../cpmProjectExporter'
 
 const makeElement = (children: CPMChild[]): CPMElement => ({
   id: 'head',
@@ -207,5 +214,257 @@ describe('cpmConfigToBytes skin block', () => {
     expect(() => cpmConfigToBytes(makeConfig([]), makePng(64, 64).slice(0, 20))).toThrow(
       'Некорректный skin.png в файле проекта',
     )
+  })
+})
+
+const makeRoot = (id: string): CPMElement => ({
+  id,
+  name: id,
+  pos: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  children: [],
+})
+
+const rootsConfig = (elements: CPMElement[]): CPMConfig => ({
+  skinSize: { x: 64, y: 64 },
+  elements,
+})
+
+const bytesOfChild = (overrides: Partial<CPMChild>): Uint8Array =>
+  cpmConfigToLinkBytes(makeConfig([makeChild(overrides)]))
+
+describe('definition structure from the mod sources', () => {
+  it('wires nested cubes to their parent cube id starting from 10', () => {
+    const inner = makeChild({
+      textureSize: 64,
+      size: { x: 4, y: 4, z: 4 },
+      pos: { x: 2, y: 0, z: 0 },
+      u: 24,
+      v: 8,
+    })
+    const outer = makeChild({ textureSize: 64, u: 16, v: 16, children: [inner] })
+    const bytes = cpmConfigToLinkBytes(makeConfig([outer]))
+
+    expect([...bytes]).toEqual([
+      83, 2,
+      80, 80, 80,
+      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0,
+      0, 64, 16, 16,
+      40, 40, 40,
+      5, 84, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0,
+      10, 64, 24, 8,
+      1, 1, 1,
+      8, 2, 8, 0,
+      0, 0,
+      2, 162,
+    ])
+    expect(bytes[24]).toBe(64)
+    expect(bytes[48]).toBe(10)
+  })
+
+  it('clears the PLAYER keep bit for a hidden root part', () => {
+    const bytes = cpmConfigToLinkBytes(rootsConfig([{ ...makeRoot('head'), show: false }]))
+
+    expect([...bytes]).toEqual([83, 0, 1, 1, 0, 8, 2, 8, 0, 0, 0, 0, 20])
+  })
+
+  it('sets one PLAYER keep bit per visible root part', () => {
+    const bytes = cpmConfigToLinkBytes(rootsConfig([makeRoot('head'), makeRoot('body')]))
+
+    expect([...bytes]).toEqual([83, 0, 1, 1, 3, 8, 2, 8, 0, 0, 0, 0, 23])
+  })
+
+  it('emits PLAYER_PARTPOS above the 0.1 epsilon like Exporter.prepareDefinition', () => {
+    const bytes = cpmConfigToLinkBytes(
+      rootsConfig([{ ...makeRoot('head'), pos: { x: 0.2, y: 0, z: 0 } }]),
+    )
+
+    expect([...bytes]).toEqual([
+      83, 0, 1, 1, 1,
+      7, 13, 0, 0, 136, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      8, 2, 8, 0,
+      0, 0,
+      0, 177,
+    ])
+  })
+
+  it('skips PLAYER_PARTPOS inside the epsilon window', () => {
+    const bytes = cpmConfigToLinkBytes(
+      rootsConfig([{ ...makeRoot('head'), pos: { x: 0.05, y: 0, z: 0 } }]),
+    )
+
+    expect([...bytes]).toEqual([83, 0, 1, 1, 1, 8, 2, 8, 0, 0, 0, 0, 21])
+  })
+
+  it('emits PLAYER_PARTPOS for rotation-only offsets with the angle short', () => {
+    const bytes = cpmConfigToLinkBytes(
+      rootsConfig([{ ...makeRoot('head'), rotation: { x: 0, y: 0, z: 90 } }]),
+    )
+
+    expect(containsSequence(bytes, [7, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0])).toBe(true)
+  })
+
+  it('emits a pivot cube under the custom part slot for customPart roots', () => {
+    const bytes = cpmConfigToLinkBytes(
+      rootsConfig([{ ...makeRoot('custom_part'), customPart: true, children: [makeChild()] }]),
+    )
+
+    expect(containsSequence(bytes, [6, 0, 0, 0, 0, 80, 80, 80])).toBe(true)
+    expect(containsSequence(bytes, [0, 0, 0, 0, 0, 0, 10, 1, 0, 0])).toBe(true)
+    expect(containsSequence(bytes, [1, 1, 0])).toBe(true)
+    expect(containsSequence(bytes, [12, 2, 10, 0])).toBe(true)
+    expect(containsSequence(bytes, [14, 2, 10, 0])).toBe(false)
+  })
+
+  it('emits DUP_ROOT with a pivot cube for duplicated roots', () => {
+    const bytes = cpmConfigToLinkBytes(rootsConfig([{ ...makeRoot('head'), dup: true }]))
+
+    expect(containsSequence(bytes, [6, 0, 0, 0, 0])).toBe(true)
+    expect(containsSequence(bytes, [14, 2, 10, 0])).toBe(true)
+    expect(containsSequence(bytes, [8, 2, 2, 10])).toBe(false)
+
+    const hidden = cpmConfigToLinkBytes(rootsConfig([{ ...makeRoot('head'), dup: true, show: false }]))
+    expect(containsSequence(hidden, [8, 2, 2, 10])).toBe(true)
+  })
+
+  it('emits MODEL_ROOT with the RootModelType ordinal for vanilla root models', () => {
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([makeRoot('cape')])), [12, 2, 10, 0])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([makeRoot('elytra_left')])), [12, 2, 10, 1])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([makeRoot('armor_helmet')])), [12, 2, 10, 3])).toBe(true)
+
+    const hidden = cpmConfigToLinkBytes(rootsConfig([{ ...makeRoot('armor_body'), show: false }]))
+    expect(containsSequence(hidden, [8, 2, 2, 10])).toBe(true)
+    expect(containsSequence(hidden, [12, 2, 10, 4])).toBe(true)
+  })
+
+  it('keeps unknown roots as plain pivot cubes without root blocks', () => {
+    const bytes = cpmConfigToLinkBytes(rootsConfig([makeRoot('weird_root')]))
+
+    expect(containsSequence(bytes, [6, 0, 0, 0, 0])).toBe(true)
+    expect(containsSequence(bytes, [12, 2, 10])).toBe(false)
+    expect(containsSequence(bytes, [14, 2, 10])).toBe(false)
+  })
+
+  it('emits DISABLE_VANILLA for roots that opt out of vanilla animation', () => {
+    const bytes = cpmConfigToLinkBytes(rootsConfig([{ ...makeRoot('head'), disableVanillaAnim: true }]))
+
+    expect(containsSequence(bytes, [8, 2, 16, 0])).toBe(true)
+  })
+})
+
+describe('render effects from the mod sources', () => {
+  it('emits the render effect payloads exactly like the mod exporter', () => {
+    expect(containsSequence(bytesOfChild({ glow: true }), [8, 2, 0, 10])).toBe(true)
+    expect(
+      containsSequence(bytesOfChild({ mcScale: 0.5 }), [8, 10, 1, 10, 1, 85, 2, 170, 2, 170, 2, 170]),
+    ).toBe(true)
+    expect(
+      containsSequence(bytesOfChild({ scale: { x: 1.5, y: 1, z: 1 } }), [
+        8, 10, 1, 10, 0, 0, 3, 255, 2, 170, 2, 170,
+      ]),
+    ).toBe(true)
+    expect(containsSequence(bytesOfChild({ hidden: true }), [8, 2, 2, 10])).toBe(true)
+    expect(containsSequence(bytesOfChild({ recolor: true, color: 'FF0000' }), [8, 5, 3, 10, 255, 0, 0])).toBe(true)
+    expect(containsSequence(bytesOfChild({ singleTex: true }), [8, 2, 4, 10])).toBe(true)
+    expect(containsSequence(bytesOfChild({ extrude: true }), [8, 2, 10, 10])).toBe(true)
+    expect(containsSequence(bytesOfChild({ u: 300, v: 2 }), [8, 5, 6, 10, 172, 2, 2])).toBe(true)
+  })
+
+  it('writes per-face uv as a direction bitmask with rot ordinals', () => {
+    const bytes = bytesOfChild({
+      faceUV: {
+        up: { sx: 0, sy: 0, ex: 8, ey: 8, rot: '0', autoUV: false },
+        west: { sx: 0, sy: 0, ex: 8, ey: 8, rot: '270', autoUV: false },
+      },
+    })
+
+    expect(containsSequence(bytes, [8, 13, 5, 10, 33, 0, 0, 8, 8, 0, 0, 0, 8, 8, 3])).toBe(true)
+  })
+
+  it('emits effects per cube in the mod export order', () => {
+    const bytes = bytesOfChild({
+      glow: true,
+      hidden: true,
+      recolor: true,
+      color: 'FF0000',
+      singleTex: true,
+      extrude: true,
+    })
+
+    expect(
+      containsSequence(bytes, [
+        8, 2, 0, 10,
+        8, 2, 2, 10,
+        8, 5, 3, 10, 255, 0, 0,
+        8, 2, 4, 10,
+        8, 2, 10, 10,
+      ]),
+    ).toBe(true)
+  })
+
+  it('emits SCALING as the ENTITY scaling option', () => {
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), scaling: 1.5 }), [8, 4, 13, 0, 3, 255])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), scaling: 1 }), [8, 4, 13])).toBe(false)
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), scaling: 0 }), [8, 4, 13])).toBe(false)
+  })
+
+  it('omits HIDE_SKULL only when hideHeadIfSkull is on', () => {
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([])), [8, 2, 8, 0])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), hideHeadIfSkull: true }), [8, 2, 8, 0])).toBe(false)
+  })
+
+  it('emits optional config effects', () => {
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), removeArmorOffset: true }), [8, 2, 9, 1])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), removeBedOffset: true }), [8, 1, 17])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes({ ...rootsConfig([]), enableInvisGlow: true }), [8, 1, 18])).toBe(true)
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([])), [8, 2, 9, 1])).toBe(false)
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([])), [8, 1, 17])).toBe(false)
+    expect(containsSequence(cpmConfigToLinkBytes(rootsConfig([])), [8, 1, 18])).toBe(false)
+  })
+})
+
+describe('checksum from ChecksumOutputStream', () => {
+  it('appends the mod checksum as a big-endian short over all bytes after the header', () => {
+    const bytes = cpmConfigToLinkBytes(rootsConfig([makeRoot('head')]))
+    const sum = bytes.slice(1, bytes.length - 2).reduce((acc, b) => (acc + b) & 0xFFFF, 0)
+
+    expect(((bytes[bytes.length - 2] ?? 0) << 8) | (bytes[bytes.length - 1] ?? 0)).toBe(sum)
+  })
+
+  it('wraps the checksum at 16 bits like the Java short accumulator', () => {
+    const cubes = Array.from({ length: 300 }, (_, i) =>
+      makeChild({ name: `Cube ${i}`, textureSize: 64, u: 16, v: 16 }),
+    )
+    const bytes = cpmConfigToLinkBytes(makeConfig(cubes))
+    const raw = bytes.slice(1, bytes.length - 2).reduce((acc, b) => acc + b, 0)
+
+    expect(raw).toBeGreaterThan(65535)
+    expect(((bytes[bytes.length - 2] ?? 0) << 8) | (bytes[bytes.length - 1] ?? 0)).toBe(raw & 0xFFFF)
+  })
+})
+
+describe('cpmProjectToBytes', () => {
+  it('converts a project zip into the full byte format', async () => {
+    const config = makeConfig([makeChild({ textureSize: 64 })])
+    const skin = makePng(64, 64)
+    const zip = new JSZip()
+    zip.file('config.json', JSON.stringify(config))
+    zip.file('skin.png', skin)
+    const data = await zip.generateAsync({ type: 'uint8array' })
+
+    expect([...(await cpmProjectToBytes(data))]).toEqual([...cpmConfigToBytes(config, skin)])
+  })
+
+  it('encodes the link format as base64', async () => {
+    const config = makeConfig([makeChild({ textureSize: 64 })])
+    const zip = new JSZip()
+    zip.file('config.json', JSON.stringify(config))
+    const data = await zip.generateAsync({ type: 'uint8array' })
+
+    expect(await cpmProjectToLinkBase64(data)).toBe(bytesToBase64(cpmConfigToLinkBytes(config)))
   })
 })
