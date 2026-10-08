@@ -13,6 +13,7 @@ export interface ViewerModelOptions {
   build: (texture: THREE.Texture, scene: THREE.Scene) => THREE.Group
   onModelShown: (group: THREE.Group, texture: THREE.Texture, api: ViewerModelApi) => void
   onModelCleared?: () => void
+  onTextureError?: (url: string) => void
 }
 
 export function useViewerModel(
@@ -68,6 +69,8 @@ export function useViewerModel(
     currentUrl = url
     textureLoader.load(url, (texture) => {
       showModel(texture)
+    }, (failedUrl) => {
+      options.onTextureError?.(failedUrl)
     })
   }
 

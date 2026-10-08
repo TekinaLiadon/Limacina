@@ -206,6 +206,107 @@ describe('useLaunchStepsStream', () => {
     expect(store.launchSteps[0]).toMatchObject({ status: 'done' })
   })
 
+  it('paces a rapid event burst at exact 500ms display intervals', async () => {
+    const stream = await startStream()
+    const store = useLaunchStore()
+    stream.prefillLaunchSteps(PLAN)
+
+    emit?.(startedEvent(STEP_IDS.javaCheck))
+    emit?.(finishedEvent(STEP_IDS.javaCheck))
+    emit?.(startedEvent(STEP_IDS.javaDownload))
+    emit?.(finishedEvent(STEP_IDS.javaDownload))
+    emit?.(startedEvent(STEP_IDS.javaExtract))
+
+    expect(store.launchSteps[0]).toMatchObject({ status: 'active' })
+    expect(store.launchSteps[1]).toMatchObject({ status: 'pending' })
+    expect(store.launchSteps[2]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(499)
+    expect(store.launchSteps[0]).toMatchObject({ status: 'active' })
+    expect(store.launchSteps[1]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(store.launchSteps[0]).toMatchObject({ status: 'done' })
+    expect(store.launchSteps[1]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(499)
+    expect(store.launchSteps[1]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(store.launchSteps[0]).toMatchObject({ status: 'done' })
+    expect(store.launchSteps[1]).toMatchObject({ status: 'active' })
+    expect(store.launchSteps[2]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(499)
+    expect(store.launchSteps[1]).toMatchObject({ status: 'active' })
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(store.launchSteps[1]).toMatchObject({ status: 'done' })
+    expect(store.launchSteps[2]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(499)
+    expect(store.launchSteps[2]).toMatchObject({ status: 'pending' })
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(store.launchSteps[2]).toMatchObject({ status: 'active' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('drops queued events when the launch generation changes', async () => {
+    const stream = await startStream()
+    const store = useLaunchStore()
+    stream.prefillLaunchSteps(PLAN)
+
+    emit?.(startedEvent(STEP_IDS.javaCheck))
+    emit?.(finishedEvent(STEP_IDS.javaCheck))
+    expect(store.launchSteps[0]).toMatchObject({ status: 'active' })
+
+    store.launchGeneration += 1
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(store.launchSteps[0]).toMatchObject({ status: 'active' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('prefill cancels the pending hold timer and discards held events', async () => {
+    const stream = await startStream()
+    const store = useLaunchStore()
+    stream.prefillLaunchSteps(PLAN)
+
+    emit?.(startedEvent(STEP_IDS.javaCheck))
+    emit?.(finishedEvent(STEP_IDS.javaCheck))
+    expect(store.launchSteps[0]).toMatchObject({ status: 'active' })
+
+    store.launchGeneration += 1
+    stream.prefillLaunchSteps(PLAN)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(store.launchSteps.map((step) => step.status)).toEqual(['pending', 'pending', 'pending'])
+    expect(vi.getTimerCount()).toBe(0)
+
+    emit?.(startedEvent(STEP_IDS.javaDownload))
+    expect(store.launchSteps[1]).toMatchObject({ status: 'active' })
+  })
+
+  it('resetLaunchSteps cancels a pending hold timer', async () => {
+    const stream = await startStream()
+    const store = useLaunchStore()
+    stream.prefillLaunchSteps(PLAN)
+
+    emit?.(startedEvent(STEP_IDS.javaCheck))
+    emit?.(finishedEvent(STEP_IDS.javaCheck))
+    expect(store.launchSteps[0]).toMatchObject({ status: 'active' })
+
+    stream.resetLaunchSteps()
+    expect(vi.getTimerCount()).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(store.launchSteps).toEqual([])
+
+    emit?.(startedEvent(STEP_IDS.javaDownload))
+    expect(store.launchSteps).toEqual([])
+  })
+
   it('flushes held events immediately on demand', async () => {
     const stream = await startStream()
     const store = useLaunchStore()

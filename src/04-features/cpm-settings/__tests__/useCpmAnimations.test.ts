@@ -16,6 +16,12 @@ const makeAnimation = (id: string, hidden = false): CPMAnimation => ({
   frames: [],
 })
 
+const makeGestureSet = (mainLoop = false): CPMAnimation[] => [
+  { ...makeAnimation('groundzero-main'), name: '[GEST] Ground', kind: 'layer', duration: 1000, loop: mainLoop },
+  { ...makeAnimation('groundzero-pre'), name: 'g:[GEST] Ground', kind: 'setup', duration: 500 },
+  { ...makeAnimation('groundzero-post'), name: 'g:[GEST] Ground', kind: 'finish', duration: 400 },
+]
+
 const makeData = (animations: CPMAnimation[]): CPMData => ({
   config: { skinSize: { x: 64, y: 64 }, elements: [] },
   textureUrl: 'blob:mock',
@@ -45,7 +51,67 @@ describe('useCpmAnimations', () => {
     animations.toggleAnimationPlayback()
     expect(animations.isAnimationPlaying.value).toBe(false)
 
-    expect(animations.activeAnimations.value.map((animation) => animation.id)).toEqual(['wave'])
+    expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual(['wave'])
+  })
+
+  it('hides linked service animations from the options', () => {
+    const data = ref<CPMData | null>(makeData(makeGestureSet()))
+    const animations = useCpmAnimations(data)
+
+    expect(animations.animationOptions.value.map((option) => option.value)).toEqual(['groundzero-main'])
+  })
+
+  it('keeps unlinked service animations selectable', () => {
+    const orphan = { ...makeAnimation('orphan-pre'), name: 'g:[GEST] Missing', kind: 'setup' as const, duration: 300 }
+    const data = ref<CPMData | null>(makeData([...makeGestureSet(), orphan]))
+    const animations = useCpmAnimations(data)
+
+    expect(animations.animationOptions.value.map((option) => option.value)).toEqual([
+      'groundzero-main',
+      'orphan-pre',
+    ])
+
+    animations.selectedAnimationIds.value = ['orphan-pre']
+    expect(animations.activeAnimations.value).toEqual([
+      { animation: orphan, startDelayMs: 0 },
+    ])
+  })
+
+  it('composes a selected gesture from setup, main and finish with start delays', () => {
+    const data = ref<CPMData | null>(makeData(makeGestureSet()))
+    const animations = useCpmAnimations(data)
+
+    animations.selectedAnimationIds.value = ['groundzero-main']
+
+    expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual([
+      'groundzero-pre',
+      'groundzero-main',
+      'groundzero-post',
+    ])
+    expect(animations.activeAnimations.value.map((entry) => entry.startDelayMs)).toEqual([0, 500, 1500])
+  })
+
+  it('drops the finish from a looping gesture composition', () => {
+    const data = ref<CPMData | null>(makeData(makeGestureSet(true)))
+    const animations = useCpmAnimations(data)
+
+    animations.selectedAnimationIds.value = ['groundzero-main']
+
+    expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual([
+      'groundzero-pre',
+      'groundzero-main',
+    ])
+    expect(animations.activeAnimations.value.map((entry) => entry.startDelayMs)).toEqual([0, 500])
+  })
+
+  it('clears the whole composition when the selection is removed', () => {
+    const data = ref<CPMData | null>(makeData(makeGestureSet()))
+    const animations = useCpmAnimations(data)
+    animations.selectedAnimationIds.value = ['groundzero-main']
+    expect(animations.activeAnimations.value).toHaveLength(3)
+
+    animations.selectedAnimationIds.value = []
+    expect(animations.activeAnimations.value).toEqual([])
   })
 
   it('prunes selections that disappear from the model', async () => {

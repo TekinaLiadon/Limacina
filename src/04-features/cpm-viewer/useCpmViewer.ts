@@ -3,8 +3,8 @@ import * as THREE from 'three'
 import { parseHexColor, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
-import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement, CPMAnimation } from '@/05-entities'
-import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type SharedClock } from './cpmAnimationPlayer'
+import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
+import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type SharedClock } from './cpmAnimationPlayer'
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -276,6 +276,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
         ? PLAYER_PART_IDS[element.id]
         : element.storeID
       group.userData.isRoot = true
+      group.userData.isVanillaPart = isVanillaRoot
     } else {
       const child = node as CPMChild
       group.userData.storeID = child.storeID
@@ -391,6 +392,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
 export interface CpmViewerOptions {
   onPlayingChanged?: (playing: boolean) => void
   onAnimationFinished?: () => void
+  onTextureError?: (url: string) => void
 }
 
 export function useCpmViewer(
@@ -398,7 +400,7 @@ export function useCpmViewer(
     cpmData: Ref<CPMData | null>,
     activeLayerIds: Ref<number[]>,
     controls: ViewerControls,
-    activeAnimations: Ref<CPMAnimation[]>,
+    activeAnimations: Ref<ActiveCpmAnimation[]>,
     isAnimationPlaying: Ref<boolean>,
     animationSpeed: Ref<number>,
     isAnimationLooped: Ref<boolean>,
@@ -442,6 +444,9 @@ export function useCpmViewer(
         player?.dispose()
         player = null
       },
+      onTextureError: (url: string): void => {
+        options.onTextureError?.(url)
+      },
     },
   )
 
@@ -452,11 +457,8 @@ export function useCpmViewer(
       if (object instanceof THREE.Mesh) {
         const layerId = object.userData.layerId as number | undefined
         const animVisible = object.userData.animVisible !== false
-        if (layerId !== undefined) {
-          object.visible = activeLayerIds.value.includes(layerId) && animVisible
-        } else {
-          object.visible = animVisible && object.userData.defaultVisible !== false
-        }
+        const layerVisible = layerId === undefined || activeLayerIds.value.includes(layerId)
+        object.visible = layerVisible && animVisible && object.userData.defaultVisible !== false
       }
     })
 

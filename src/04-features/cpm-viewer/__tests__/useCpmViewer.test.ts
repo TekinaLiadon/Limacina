@@ -3,7 +3,11 @@ import { nextTick, ref, type Ref, type ShallowRef } from 'vue'
 import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
 import { useCpmViewer, type CpmViewerOptions } from '../useCpmViewer'
+import type { ActiveCpmAnimation } from '../cpmAnimationPlayer'
 import type { CPMAnimation, CPMConfig, CPMData } from '@/05-entities'
+
+const seq = (...animations: CPMAnimation[]): ActiveCpmAnimation[] =>
+  animations.map((animation) => ({ animation, startDelayMs: 0 }))
 import type { ViewerControls } from '@/06-shared'
 
 const textureLoads = vi.hoisted(() => [] as Array<{
@@ -150,6 +154,41 @@ function makeConfig(): CPMConfig {
   }
 }
 
+function makeConfigWithHiddenChild(): CPMConfig {
+  return {
+    skinSize: { x: 64, y: 64 },
+    elements: [
+      {
+        id: 'head',
+        name: 'head',
+        pos: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        children: [
+          {
+            name: 'skull',
+            size: { x: 8, y: 8, z: 8 },
+            offset: { x: 0, y: 0, z: 0 },
+            pos: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            storeID: 1,
+          },
+          {
+            name: 'eyelids',
+            size: { x: 8, y: 2, z: 8 },
+            offset: { x: 0, y: 0, z: 0 },
+            pos: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            storeID: 2,
+            hidden: true,
+          },
+        ],
+      },
+    ],
+  }
+}
+
 function makeAnimation(id: string): CPMAnimation {
   return {
     id,
@@ -200,7 +239,7 @@ async function resolveLastLoad(texture: THREE.Texture): Promise<void> {
 
 interface ViewerHarness {
   cpmData: Ref<CPMData | null>
-  activeAnimations: Ref<CPMAnimation[]>
+  activeAnimations: Ref<ActiveCpmAnimation[]>
   isAnimationPlaying: Ref<boolean>
   unmount: () => void
 }
@@ -208,7 +247,7 @@ interface ViewerHarness {
 async function mountViewer(options: CpmViewerOptions = {}): Promise<ViewerHarness> {
   const container = ref<HTMLDivElement | null>(document.createElement('div'))
   const cpmData = ref<CPMData | null>(null)
-  const activeAnimations = ref<CPMAnimation[]>([])
+  const activeAnimations = ref<ActiveCpmAnimation[]>([])
   const isAnimationPlaying = ref(false)
   const { unmount } = withSetup(() => useCpmViewer(
     container,
@@ -251,6 +290,79 @@ describe('useCpmViewer', () => {
     expect(modelGroups()).toHaveLength(1)
     expect(firstModelMesh().userData.layerId).toBe(1)
     harness.unmount()
+  })
+
+  it('marks vanilla part roots for show-track exemption', async () => {
+    const harness = await mountViewer()
+    await loadModel(harness, 'model.png')
+
+    const rootGroup = firstModelMesh().parent?.parent
+    expect(rootGroup?.userData.isVanillaPart).toBe(true)
+    harness.unmount()
+  })
+
+  it('loads the model when cpm data arrives before the scene is created', async () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const cpmData = ref<CPMData | null>({ config: makeConfig(), textureUrl: 'model.png' })
+    const { unmount } = withSetup(() => useCpmViewer(
+      container,
+      cpmData,
+      ref<number[]>([]),
+      createControls(),
+      ref<ActiveCpmAnimation[]>([]),
+      ref(false),
+      ref(1),
+      ref(false),
+    ))
+
+    await nextTick()
+    expect(textureLoads.length).toBeGreaterThan(0)
+
+    await resolveLastLoad(new THREE.Texture())
+    expect(modelGroups()).toHaveLength(1)
+    unmount()
+  })
+
+  it('reports texture load failures through onTextureError', async () => {
+    const onTextureError = vi.fn()
+    const harness = await mountViewer({ onTextureError })
+
+    harness.cpmData.value = { config: makeConfig(), textureUrl: 'broken.png' }
+    await nextTick()
+    const load = textureLoads[textureLoads.length - 1]
+    if (!load) throw new Error('no pending texture load')
+    load.fail(new Error('decode failed'))
+    await nextTick()
+
+    expect(onTextureError).toHaveBeenCalledWith('broken.png')
+    harness.unmount()
+  })
+
+  it('keeps hidden cubes invisible at rest even when their layer is active', async () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const cpmData = ref<CPMData | null>(null)
+    const activeLayers = ref<number[]>([1, 2])
+    const { unmount } = withSetup(() => useCpmViewer(
+      container,
+      cpmData,
+      activeLayers,
+      createControls(),
+      ref<ActiveCpmAnimation[]>([]),
+      ref(false),
+      ref(1),
+      ref(false),
+    ))
+
+    cpmData.value = { config: makeConfigWithHiddenChild(), textureUrl: 'model.png' }
+    await nextTick()
+    await resolveLastLoad(new THREE.Texture())
+
+    const meshes: THREE.Mesh[] = []
+    mountedScene.current?.value?.traverse((object) => {
+      if (object instanceof THREE.Mesh) meshes.push(object)
+    })
+    expect(meshes.map((mesh) => mesh.visible)).toEqual([true, false])
+    unmount()
   })
 
   it('disposes the previous model when new cpm data arrives', async () => {
@@ -312,12 +424,12 @@ describe('useCpmViewer', () => {
     await loadModel(harness, 'model.png')
 
     harness.isAnimationPlaying.value = false
-    harness.activeAnimations.value = [makeAnimation('wave')]
+    harness.activeAnimations.value = seq(makeAnimation('wave'))
     await nextTick()
     expect(onPlayingChanged).toHaveBeenLastCalledWith(false)
 
     harness.isAnimationPlaying.value = true
-    harness.activeAnimations.value = [makeAnimation('wave'), makeAnimation('idle')]
+    harness.activeAnimations.value = seq(makeAnimation('wave'), makeAnimation('idle'))
     await nextTick()
     expect(onPlayingChanged).toHaveBeenLastCalledWith(true)
 
@@ -331,7 +443,7 @@ describe('useCpmViewer', () => {
     const harness = await mountViewer({ onPlayingChanged })
 
     harness.isAnimationPlaying.value = true
-    harness.activeAnimations.value = [makeAnimation('wave')]
+    harness.activeAnimations.value = seq(makeAnimation('wave'))
     await nextTick()
     expect(onPlayingChanged).toHaveBeenCalledWith(true)
     expect(playerState.instances).toHaveLength(0)
