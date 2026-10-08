@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { authLogin, authLogins, authRegister, getSessionInfo } from '@/06-shared/api'
 import { useAuth } from '../useAuth'
+import { useAccounts } from '../useAccounts'
 import { withSetup } from '@/test-support/withSetup'
 import {
   useAccountsStore,
@@ -233,6 +234,7 @@ describe('useAuth', () => {
     expect(auth.isLoading.value).toBe(false)
     expect(useCoreStore().isLoggedIn).toBe(false)
     expect(useAccountsStore().showAuthForm).toBe(true)
+    expect(console.error).toHaveBeenCalledWith('Ошибка авторизации', expect.anything())
     unmount()
   })
 
@@ -350,7 +352,44 @@ describe('useAuth', () => {
     expect(auth.errorMessage.value).toBe('login taken')
     expect(store.registerFormData.login).toBe('user')
     expect(store.showAuthForm).toBe(true)
+    expect(console.error).toHaveBeenCalledWith('Ошибка авторизации', expect.anything())
     unmount()
+  })
+
+  it('completes the login when the session read fails after the auth command', async () => {
+    fillLoginForm()
+    useAccountsStore().showAuthForm = true
+    vi.mocked(authLogin).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockRejectedValue(new Error('session read down'))
+    vi.mocked(authLogins).mockResolvedValue(['user'])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(auth.errorMessage.value).toBe('')
+    expect(useAccountsStore().showAuthForm).toBe(false)
+    expect(useNotificationStore().message).toBe('Авторизация прошла успешно')
+    expect(console.error).toHaveBeenCalledWith('Не удалось обновить сессию после входа', expect.anything())
+    unmount()
+  })
+
+  it('rehydrates the backend session on the accounts page after a failed session read', async () => {
+    fillLoginForm()
+    vi.mocked(authLogin).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockRejectedValueOnce(new Error('session read down'))
+    vi.mocked(getSessionInfo).mockResolvedValue({ uuid: 'u-1', username: 'user' })
+    vi.mocked(authLogins).mockResolvedValue(['user'])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(auth.errorMessage.value).toBe('')
+    expect(useCoreStore().session).toBeNull()
+    unmount()
+
+    const accounts = withSetup(() => useAccounts())
+    await vi.waitFor(() => expect(useCoreStore().session).toEqual({ uuid: 'u-1', username: 'user' }))
+    accounts.unmount()
   })
 
   it('wipes the registration passwords when the form is closed after a failed registration', async () => {

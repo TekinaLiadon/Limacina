@@ -63,6 +63,11 @@ export function useAuth() {
     errorMessage.value = ''
   }
 
+  const reportAuthError = (e: unknown): void => {
+    reportError('Ошибка авторизации', e)
+    errorMessage.value = getErrorMessage(e)
+  }
+
   const handleLogin = async (): Promise<void> => {
     if (!isLoginValid.value || isLoading.value) return
 
@@ -79,8 +84,12 @@ export function useAuth() {
       )
       if (coreStore.currentProject !== projectName) return
 
-      const session = await getSessionInfo()
-      if (session) coreStore.applySession(session)
+      try {
+        const session = await getSessionInfo()
+        if (session) coreStore.applySession(session)
+      } catch (e: unknown) {
+        reportError('Не удалось обновить сессию после входа', e)
+      }
 
       await loadAccounts()
       if (coreStore.currentProject !== projectName) return
@@ -88,8 +97,7 @@ export function useAuth() {
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
       if (coreStore.currentProject !== projectName) return
-      reportError('Ошибка авторизации', e)
-      errorMessage.value = getErrorMessage(e)
+      reportAuthError(e)
     } finally {
       isLoading.value = false
     }
@@ -122,7 +130,7 @@ export function useAuth() {
       store.activeSubTab = AUTH_LOGIN_TAB
     } catch (e: unknown) {
       if (coreStore.currentProject !== projectName) return
-      errorMessage.value = getErrorMessage(e)
+      reportAuthError(e)
     } finally {
       isLoading.value = false
     }
