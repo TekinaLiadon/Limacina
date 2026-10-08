@@ -78,4 +78,22 @@ describe('useDirtySnapshot', () => {
     second.value = 'b'
     expect(state.isDirty.value).toBe(false)
   })
+
+  it('clears the baseline so the state reports clean and without a baseline', () => {
+    const value = ref('a')
+    const state = useDirtySnapshot(() => ({ value: value.value }))
+    state.captureBaseline()
+
+    value.value = 'b'
+    expect(state.isDirty.value).toBe(true)
+
+    state.clearBaseline()
+
+    expect(state.hasBaseline.value).toBe(false)
+    expect(state.isDirty.value).toBe(false)
+    expect(state.isFieldDirty('value')).toBe(false)
+
+    state.captureBaseline()
+    expect(state.isDirty.value).toBe(false)
+  })
 })

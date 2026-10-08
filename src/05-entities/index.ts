@@ -48,7 +48,7 @@ export type {
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'
-export { useSettingsDirtyStore } from './settings/settingsDirtyStore'
+export { useSettingsDirtyStore, bindSettingsDirtyTab } from './settings/settingsDirtyStore'
 export type { SettingsDirtyTab } from './settings/settingsDirtyStore'
 export { THEME_FAMILIES, parseThemeId, normalizeTheme } from './settings/themes'
 export type { ThemeFamily, ThemeMode, ThemePreview } from './settings/types'

@@ -1,5 +1,5 @@
-import { computed, onMounted, onScopeDispose, ref, watchEffect, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type LauncherSettingsPayload } from '@/05-entities'
+import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+import { useCoreStore, useNotificationStore, bindSettingsDirtyTab, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import {
   joinPath,
@@ -10,6 +10,7 @@ import {
   enableAutostart,
   disableAutostart,
   useDirtySnapshot,
+  useAsyncAction,
 } from '@/06-shared'
 
 export function useLauncherSettings(): {
@@ -83,13 +84,7 @@ export function useLauncherSettings(): {
   }))
   const { isDirty } = dirtyState
 
-  const settingsDirtyStore = useSettingsDirtyStore()
-  watchEffect((): void => {
-    settingsDirtyStore.setTabDirty('launcher', isDirty.value)
-  })
-  onScopeDispose((): void => {
-    settingsDirtyStore.setTabDirty('launcher', false)
-  })
+  bindSettingsDirtyTab('launcher', isDirty)
 
   const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
     try {
@@ -156,14 +151,18 @@ export function useLauncherSettings(): {
     }
   }
 
+  const saveAction = useAsyncAction(async (e: unknown): Promise<void> => {
+    await resyncLauncherConfig()
+    notification.show(getErrorMessage(e))
+  }, isSaving)
+
   const handleSave = async (): Promise<void> => {
     if (isSaving.value) return
     if (downloadSpeedLimitError.value) {
       notification.show(downloadSpeedLimitError.value)
       return
     }
-    isSaving.value = true
-    try {
+    await saveAction.run(async () => {
       const savedSettings = await saveLauncherSettings(settings.value)
       coreStore.launcherConfig = savedSettings
 
@@ -177,12 +176,7 @@ export function useLauncherSettings(): {
 
       if (!(await applyStartWithSystem(startWithSystem.value))) return
       notification.show('Настройки сохранены')
-    } catch (e: unknown) {
-      await resyncLauncherConfig()
-      notification.show(getErrorMessage(e))
-    } finally {
-      isSaving.value = false
-    }
+    })
   }
 
   return {

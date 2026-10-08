@@ -1,7 +1,7 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, AUTH_LOGIN_TAB } from '@/05-entities'
 import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { reportError, storeBinding } from '@/06-shared'
+import { captureProjectScope, reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAuth() {
@@ -73,16 +73,16 @@ export function useAuth() {
 
     isLoading.value = true
     errorMessage.value = ''
-    const projectName = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
 
     try {
       await authLogin(
-        projectName,
+        scope.project,
         store.loginFormData.username,
         store.loginFormData.password,
         store.loginFormData.rememberMe
       )
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
 
       try {
         const session = await getSessionInfo()
@@ -92,11 +92,11 @@ export function useAuth() {
       }
 
       await loadAccounts()
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       store.closeAuthForm()
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       reportAuthError(e)
     } finally {
       isLoading.value = false
@@ -108,28 +108,28 @@ export function useAuth() {
 
     isLoading.value = true
     errorMessage.value = ''
-    const projectName = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
 
     const {login} = store.registerFormData
     const {password} = store.registerFormData
 
     try {
       await authRegister(
-        projectName,
+        scope.project,
         login,
         password
       )
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
 
       notification.show('Аккаунт успешно создан. Ожидайте одобрения администратора.')
       await loadAccounts()
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
       store.closeAuthForm()
       store.activeSubTab = AUTH_LOGIN_TAB
     } catch (e: unknown) {
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       reportAuthError(e)
     } finally {
       isLoading.value = false

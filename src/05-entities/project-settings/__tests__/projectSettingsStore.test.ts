@@ -34,7 +34,6 @@ describe('useProjectSettingsStore', () => {
     expect(store.loadError).toBe('')
     expect(store.loadedProject).toBe('')
     expect(store.loadingProject).toBe('')
-    expect(store.baseline).toBeNull()
     expect(store.isDirty).toBe(false)
   })
 
@@ -75,10 +74,8 @@ describe('useProjectSettingsStore', () => {
 
     store.startLoading('Beta')
     expect(store.isDirty).toBe(false)
-    expect(store.baseline).toBeNull()
 
     store.applyError('Beta', 'Не удалось загрузить')
-    expect(store.baseline).toBeNull()
     expect(store.isDirty).toBe(false)
   })
 

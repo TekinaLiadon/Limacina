@@ -3,7 +3,7 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { getErrorMessage, initializeLauncher } from '@/06-shared/api'
-import { joinPath, prefersReducedMotion, selectDirectory } from '@/06-shared'
+import { joinPath, prefersReducedMotion, selectDirectory, useAsyncAction } from '@/06-shared'
 import { useAnimationSettings } from '@/04-features/animation-settings/useAnimationSettings'
 
 export function useSetup(): {
@@ -53,10 +53,12 @@ export function useSetup(): {
     if (selected) selectedPath.value = selected
   }
 
+  const saveAction = useAsyncAction((e: unknown): void => {
+    notificationStore.show(getErrorMessage(e))
+  }, isLoading)
+
   const save = async (): Promise<void> => {
-    if (isLoading.value) return
-    isLoading.value = true
-    try {
+    await saveAction.run(async () => {
       const config = await initializeLauncher(selectedPath.value)
       coreStore.applyLauncherConfig(config)
       if (prefersReducedMotion()) {
@@ -67,11 +69,7 @@ export function useSetup(): {
         return
       }
       router.push('/')
-    } catch (e: unknown) {
-      notificationStore.show(getErrorMessage(e))
-    } finally {
-      isLoading.value = false
-    }
+    })
   }
 
   return {

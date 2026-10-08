@@ -1,7 +1,7 @@
 import { onMounted } from 'vue'
 import { useCoreStore, useAccountsStore } from '@/05-entities'
 import { authRefresh, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { reportError, storeBinding } from '@/06-shared'
+import { captureProjectScope, reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAccounts() {
@@ -14,10 +14,10 @@ export function useAccounts() {
   const selectedUsername = storeBinding(store, 'selectedUsername')
 
   const checkSession = async (): Promise<void> => {
-    const projectName = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     try {
       const session = await getSessionInfo()
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       if (!session) return
       coreStore.applySession(session)
       store.selectedUsername = session.username
@@ -30,21 +30,21 @@ export function useAccounts() {
     if (isLoading.value) return
     isLoading.value = true
     errorMessage.value = ''
-    const projectName = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     const previousUsername = selectedUsername.value
     selectedUsername.value = username
 
     try {
-      await authRefresh(projectName, username)
+      await authRefresh(scope.project, username)
       const session = await getSessionInfo()
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       if (session) coreStore.applySession(session)
     } catch (e: unknown) {
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       selectedUsername.value = previousUsername
       errorMessage.value = getErrorMessage(e)
     } finally {
-      if (coreStore.currentProject === projectName) isLoading.value = false
+      if (scope.isCurrent()) isLoading.value = false
     }
   }
 

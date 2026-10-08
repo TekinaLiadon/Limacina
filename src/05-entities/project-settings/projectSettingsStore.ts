@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { ModLoaderKind, ProjectConfig } from '../core/types'
-import { captureDirtyBaseline, hasDirtyFields, isFieldDirtyAgainst, type DirtyBaseline } from '@/06-shared'
+import { useDirtySnapshot } from '@/06-shared'
 
 export type ProjectDirtyField =
   | 'loaderVersion'
@@ -11,7 +11,6 @@ export type ProjectDirtyField =
   | 'autoJoinServer'
 
 type ProjectDirtySnapshot = Pick<ProjectSettingsForm, ProjectDirtyField>
-type ProjectDirtyBaseline = DirtyBaseline<ProjectDirtySnapshot>
 
 export interface ProjectSettingsForm {
   projectName: string
@@ -93,20 +92,19 @@ export const useProjectSettingsStore = defineStore('projectSettings', () => {
   const loadError = ref<string>('')
   const loadedProject = ref<string>('')
   const loadingProject = ref<string>('')
-  const baseline = ref<ProjectDirtyBaseline | null>(null)
 
-  const isDirty = computed<boolean>(() => {
-    if (!isLoaded.value || baseline.value === null) return false
-    return hasDirtyFields(baseline.value, pickDirtyFields(config.value))
-  })
+  const dirtyState = useDirtySnapshot<ProjectDirtySnapshot>(
+    (): ProjectDirtySnapshot => pickDirtyFields(config.value),
+  )
+
+  const isDirty = computed<boolean>(() => isLoaded.value && dirtyState.isDirty.value)
 
   function captureBaseline(): void {
-    baseline.value = captureDirtyBaseline(pickDirtyFields(config.value))
+    dirtyState.captureBaseline()
   }
 
   function isFieldDirty(key: ProjectDirtyField): boolean {
-    if (baseline.value === null) return false
-    return isFieldDirtyAgainst(baseline.value, pickDirtyFields(config.value), key)
+    return dirtyState.isFieldDirty(key)
   }
 
   function startLoading(project: string): void {
@@ -114,7 +112,7 @@ export const useProjectSettingsStore = defineStore('projectSettings', () => {
     config.value = defaultForm()
     loadError.value = ''
     isLoaded.value = false
-    baseline.value = null
+    dirtyState.clearBaseline()
   }
 
   function applyLoaded(project: string, form: ProjectSettingsForm): void {
@@ -138,7 +136,7 @@ export const useProjectSettingsStore = defineStore('projectSettings', () => {
     isLoaded.value = false
     loadError.value = message
     loadingProject.value = ''
-    baseline.value = null
+    dirtyState.clearBaseline()
   }
 
   function finishLoading(project: string): void {
@@ -161,7 +159,6 @@ export const useProjectSettingsStore = defineStore('projectSettings', () => {
     loadError,
     loadedProject,
     loadingProject,
-    baseline,
     isDirty,
     captureBaseline,
     isFieldDirty,

@@ -5,7 +5,7 @@ import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
-import { reportError, storeBinding } from '@/06-shared'
+import { reportError, storeBinding, useAsyncAction } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
 
 export function useAccountsPage() {
@@ -121,11 +121,15 @@ export function useAccountsPage() {
     return logins.value[0] ?? ''
   })
 
+  const deleteAccountAction = useAsyncAction((e: unknown): void => {
+    notificationStore.show(getErrorMessage(e))
+  })
+
   const handleDeleteAccount = async (username: string): Promise<void> => {
     const confirmed = await notificationStore.confirm(`Вы хотите удалить аккаунт ${username}?`)
     if (!confirmed) return
 
-    try {
+    await deleteAccountAction.run(async () => {
       await deleteAccount(coreStore.currentProject, username)
       if (coreStore.session?.username === username) {
         await finalizeSession()
@@ -133,9 +137,7 @@ export function useAccountsPage() {
       }
       await loadAccounts()
       notificationStore.show('Аккаунт удалён')
-    } catch (e: unknown) {
-      notificationStore.show(getErrorMessage(e))
-    }
+    })
   }
 
   return {

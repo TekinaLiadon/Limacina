@@ -10,7 +10,7 @@ import {
   type ProjectConfig,
 } from '@/05-entities'
 import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJavaVersion, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { copyToClipboard, selectDirectory } from '@/06-shared'
+import { copyToClipboard, selectDirectory, useAsyncAction } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { loadProjectConfig } from './loadProjectConfig'
 import { splitJvmArgs, validateJvmArgs } from './jvmPresets'
@@ -80,6 +80,10 @@ export function useProjectSettings(): {
   const serverConnectUrl = ref<string>('')
   const isLoadingConnectUrl = ref<boolean>(false)
 
+  const notifyError = (e: unknown): void => notification.show(getErrorMessage(e))
+
+  const connectUrlAction = useAsyncAction(notifyError, isLoadingConnectUrl)
+
   watch(() => coreStore.currentProject, (project: string) => {
     serverConnectUrl.value = ''
     void loadProjectConfig(project)
@@ -119,31 +123,24 @@ export function useProjectSettings(): {
     }
   }
 
-  const isRefreshingManifests = ref<boolean>(false)
-
   const handleGetConnectUrl = async (): Promise<void> => {
-    if (isLoadingConnectUrl.value) return
-    isLoadingConnectUrl.value = true
-    try {
+    await connectUrlAction.run(async () => {
       serverConnectUrl.value = await getServerConnectUrl()
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isLoadingConnectUrl.value = false
-    }
+    })
   }
+
+  const copyConnectUrlAction = useAsyncAction(notifyError)
 
   const handleCopyConnectUrl = async (): Promise<void> => {
     if (!serverConnectUrl.value) return
-    try {
+    await copyConnectUrlAction.run(async () => {
       await copyToClipboard(serverConnectUrl.value)
       notification.show('Ссылка скопирована')
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    }
+    })
   }
 
   const isClearingConfig = ref<boolean>(false)
+  const clearConfigAction = useAsyncAction(notifyError, isClearingConfig)
 
   const handleClearMinecraftConfig = async (): Promise<void> => {
     const confirmed = await notification.confirm(
@@ -151,31 +148,24 @@ export function useProjectSettings(): {
     )
     if (!confirmed) return
 
-    isClearingConfig.value = true
-    try {
+    await clearConfigAction.run(async () => {
       const message = await clearMinecraftConfig()
       notification.show(message)
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isClearingConfig.value = false
-    }
+    })
   }
 
+  const isRefreshingManifests = ref<boolean>(false)
+  const manifestsAction = useAsyncAction(notifyError, isRefreshingManifests)
+
   const handleRefreshManifests = async (): Promise<void> => {
-    if (isRefreshingManifests.value) return
-    isRefreshingManifests.value = true
-    try {
+    await manifestsAction.run(async () => {
       const message = await refreshManifests()
       notification.show(message)
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isRefreshingManifests.value = false
-    }
+    })
   }
 
   const isDeleting = ref<boolean>(false)
+  const deleteAction = useAsyncAction(notifyError, isDeleting)
 
   const canDeleteProject = computed((): boolean =>
     coreStore.envProjectName === '' || coreStore.currentProject !== coreStore.envProjectName
@@ -199,8 +189,7 @@ export function useProjectSettings(): {
     )
     if (!confirmed) return
 
-    isDeleting.value = true
-    try {
+    await deleteAction.run(async () => {
       const launcherConfig = await deleteProject()
       coreStore.launcherConfig = launcherConfig
       coreStore.projects = [...launcherConfig.projectNames]
@@ -222,11 +211,7 @@ export function useProjectSettings(): {
         coreStore.projectConfig = null
         notification.show(getErrorMessage(e))
       }
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isDeleting.value = false
-    }
+    })
   }
 
   return {

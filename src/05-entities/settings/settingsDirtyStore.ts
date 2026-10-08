@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref, watchEffect, type ComputedRef, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 
 export type SettingsDirtyTab = 'launcher' | 'game'
@@ -19,3 +19,16 @@ export const useSettingsDirtyStore = defineStore('settingsDirty', () => {
 
   return { dirtyTabs, hasDirtyTabs, setTabDirty }
 })
+
+export function bindSettingsDirtyTab(
+  tab: SettingsDirtyTab,
+  isDirty: Ref<boolean> | ComputedRef<boolean>,
+): void {
+  const store = useSettingsDirtyStore()
+  watchEffect((): void => {
+    store.setTabDirty(tab, isDirty.value)
+  })
+  onScopeDispose((): void => {
+    store.setTabDirty(tab, false)
+  })
+}
