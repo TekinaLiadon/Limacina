@@ -54,16 +54,7 @@
         ],
         "compression": "lzma"
       }
-    },
-    "fileAssociations": [
-      {
-        "ext": [
-          "cpmproject"
-        ],
-        "name": "CPM Project",
-        "role": "Editor"
-      }
-    ]
+    }
   },
   "plugins": {
     "updater": {

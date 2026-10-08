@@ -125,6 +125,8 @@ pub struct ModrinthFile {
 pub struct ModrinthManifest {
     #[serde(default)]
     pub mods: HashMap<String, ManifestEntry>,
+    #[serde(default)]
+    pub known_hashes: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

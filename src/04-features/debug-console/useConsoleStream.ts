@@ -1,6 +1,6 @@
 import { computed, ref, type ComputedRef } from 'vue'
 import { getErrorMessage, getStartupLogs, listenGameConsole } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { createSingletonListeners, reportError } from '@/06-shared'
 import type { ConsoleLog } from '@/05-entities'
 
 const logs = ref<ConsoleLog[]>([])
@@ -23,8 +23,8 @@ const cleanLog = (log: ConsoleLog): ConsoleLog => ({
 
 const isConsoleActive = ref<boolean>(false)
 const rawBacklog: ConsoleLog[] = []
+const consoleStreamListeners = createSingletonListeners()
 
-let streamingStarted = false
 let buffer: ConsoleLog[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -74,23 +74,21 @@ export function useConsoleStream(): {
   setConsoleActive: (active: boolean) => void
 } {
   const startConsoleStream = async (): Promise<void> => {
-    if (streamingStarted) return
-    streamingStarted = true
+    if (consoleStreamListeners.isStarted()) return
     streamError.value = ''
 
-    let unlisten: (() => void) | null = null
     try {
-      unlisten = await listenGameConsole(ingest)
+      await consoleStreamListeners.start(async (track): Promise<void> => {
+        track(await listenGameConsole(ingest))
 
-      if (logs.value.length === 0) {
-        const startupLogs: ConsoleLog[] = await getStartupLogs()
-        for (const log of startupLogs) {
-          ingest(log)
+        if (logs.value.length === 0) {
+          const startupLogs: ConsoleLog[] = await getStartupLogs()
+          for (const log of startupLogs) {
+            ingest(log)
+          }
         }
-      }
+      })
     } catch (e: unknown) {
-      unlisten?.()
-      streamingStarted = false
       streamError.value = getErrorMessage(e)
       reportError('Не удалось запустить стриминг консоли', e)
     }

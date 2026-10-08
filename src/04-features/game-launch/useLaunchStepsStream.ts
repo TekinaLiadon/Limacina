@@ -1,13 +1,13 @@
 import { useLaunchStore, useCoreStore, type StepEvent } from '@/05-entities'
 import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
-import { reportError, type StepPlanItem } from '@/06-shared'
+import { createSingletonListeners, reportError, type StepPlanItem } from '@/06-shared'
 import { syncGameSession } from '../game-session/useGameSession'
 
 const MIN_DISPLAY_MS = 500
 const FLUSH_TIMEOUT_MS = 5000
 const FLUSH_POLL_MS = 50
 
-let streamStarted = false
+const launchStepsListeners = createSingletonListeners()
 let eventQueue: StepEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let lastFinishedAt = 0
@@ -144,20 +144,17 @@ export function useLaunchStepsStream(): {
   }
 
   const startLaunchStepsStream = async (): Promise<void> => {
-    if (streamStarted) return
-    streamStarted = true
-
     try {
-      await listenLaunchSteps((event: StepEvent) => {
-        eventQueue.push(event)
-        processQueue()
+      await launchStepsListeners.start(async (track): Promise<void> => {
+        track(await listenLaunchSteps((event: StepEvent): void => {
+          eventQueue.push(event)
+          processQueue()
+        }))
+        await hydrateLaunchState()
       })
     } catch (e: unknown) {
-      streamStarted = false
       reportError('Не удалось запустить поток шагов запуска', e)
-      return
     }
-    await hydrateLaunchState()
   }
 
   return {

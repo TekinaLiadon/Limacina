@@ -13,6 +13,8 @@ use crate::utils::errors::LauncherError;
 pub struct Versions {
     pub url: String,
     pub id: String,
+    #[serde(default)]
+    pub version_type: String,
 }
 
 #[derive(Debug, Clone)]

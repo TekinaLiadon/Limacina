@@ -13,7 +13,7 @@ use crate::{
     minecraft::vanilla::rules::is_rule_allowed,
     minecraft::vanilla::structs::{Artifact, AssetIndexContent, Library, VersionDetailsManifest},
     utils::{
-        env_info::{ensure_safe_relative_path, get_arch, get_current_os},
+        env_info::{ensure_safe_relative_path, get_current_os},
         integrity::{HashKind, IntegrityTarget, TargetDownload},
     },
 };
@@ -77,7 +77,11 @@ pub fn collect_install_targets(manifest: &VersionDetailsManifest) -> Result<Vani
 fn native_artifact_for_os<'a>(lib: &'a Library, current_os: &str) -> Option<&'a Artifact> {
     let natives_map = lib.natives.as_ref()?;
     let classifier_template = natives_map.get(current_os)?;
-    let arch = if get_arch() == "x86" { "32" } else { "64" };
+    let arch = if cfg!(target_pointer_width = "64") {
+        "64"
+    } else {
+        "32"
+    };
     let classifier = classifier_template.replace("${arch}", arch);
     let classifiers = &lib.downloads.as_ref()?.classifiers.as_ref()?;
     classifiers.get(&classifier)

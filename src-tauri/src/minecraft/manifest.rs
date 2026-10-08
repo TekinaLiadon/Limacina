@@ -119,6 +119,7 @@ mod version_validation_tests {
         let versions = vec![Versions {
             id: "1.20.1".to_string(),
             url: format!("{}/1.20.1.json", server.url()),
+            version_type: String::new(),
         }];
         let error = get_manifest_version("1.20.1", versions)
             .await
@@ -144,6 +145,7 @@ mod version_validation_tests {
         let versions = vec![Versions {
             id: "1.20.1".to_string(),
             url: format!("{}/1.20.1.json", server.url()),
+            version_type: String::new(),
         }];
         let manifest = get_manifest_version("1.20.1", versions)
             .await

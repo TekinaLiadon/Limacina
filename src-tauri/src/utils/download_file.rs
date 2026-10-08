@@ -7,6 +7,7 @@ use std::future::Future;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tokio::fs;
+use walkdir::WalkDir;
 
 use super::bandwidth;
 use super::hex;
@@ -18,6 +19,24 @@ fn part_path(dest: &Path) -> PathBuf {
     let mut name = dest.as_os_str().to_os_string();
     name.push(".part");
     PathBuf::from(name)
+}
+
+pub fn cleanup_part_files(root: &Path) -> u64 {
+    let mut removed = 0u64;
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        let is_part = entry.file_type().is_file()
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("part"));
+        if is_part && std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 async fn fetch_response(url: &str) -> Result<reqwest::Response> {
@@ -95,6 +114,11 @@ pub(crate) async fn write_stream_to_atomic(
                     LauncherError::DiskIo(format!("Ошибка записи в файл {tmp:?}: {e:#}"))
                 })?;
         }
+        file.sync_all().await.map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось синхронизировать {tmp:?} с диском: {e:#}"
+            ))
+        })?;
         drop(file);
         Ok::<u64, anyhow::Error>(total_bytes)
     }
@@ -515,6 +539,39 @@ mod tests {
         );
         assert!(!dest.exists(), "файл назначения не должен появиться");
         assert!(!part_path(&dest).exists(), "part-файл должен быть удалён");
+    }
+}
+
+#[cfg(test)]
+mod part_cleanup_tests {
+    use super::{cleanup_part_files, part_path};
+    use crate::test_support::TempDir;
+
+    #[test]
+    fn cleanup_removes_only_part_files_recursively() {
+        let dir = TempDir::new("part_cleanup");
+        std::fs::create_dir_all(dir.0.join("mods")).unwrap();
+        std::fs::create_dir_all(dir.0.join("libraries/com")).unwrap();
+        std::fs::write(dir.0.join("mods/a.jar.part"), b"partial").unwrap();
+        std::fs::write(dir.0.join("libraries/com/b.part"), b"partial").unwrap();
+        std::fs::write(dir.0.join("mods/keep.jar"), b"jar").unwrap();
+        std::fs::write(dir.0.join("root.txt"), b"txt").unwrap();
+
+        let removed = cleanup_part_files(&dir.0);
+
+        assert_eq!(removed, 2, "удаляются оба .part-файла на любой глубине");
+        assert!(!part_path(&dir.0.join("mods/a.jar")).exists());
+        assert!(!dir.0.join("libraries/com/b.part").exists());
+        assert!(dir.0.join("mods/keep.jar").exists());
+        assert!(dir.0.join("root.txt").exists());
+    }
+
+    #[test]
+    fn cleanup_on_missing_root_is_noop() {
+        assert_eq!(
+            cleanup_part_files(&std::env::temp_dir().join("limacina-missing-part-root")),
+            0
+        );
     }
 }
 

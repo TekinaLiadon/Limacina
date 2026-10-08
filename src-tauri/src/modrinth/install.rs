@@ -294,6 +294,7 @@ pub async fn uninstall_project(ctx: &InstallContext, project_id: &str) -> Result
     let entry = manifest.mods.remove(project_id).ok_or_else(|| {
         LauncherError::Modrinth(format!("Мод {} не установлен через Modrinth", project_id))
     })?;
+    manifest.known_hashes.clear();
 
     if !is_safe_relative_path(&entry.filename) {
         return Err(LauncherError::InvalidModFilename(entry.filename.clone()).into());
@@ -367,6 +368,7 @@ pub async fn sync_installed_from_hashes(
     let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
     let mut manifest = load_manifest(&ctx.manifest_path).await?;
     let mut changed = false;
+    let mut dropped_entries = false;
 
     manifest.mods.retain(|_, entry| {
         let present = local_hashes.values().any(|h| *h == entry.sha1);
@@ -377,13 +379,18 @@ pub async fn sync_installed_from_hashes(
                 entry.version_number
             );
             changed = true;
+            dropped_entries = true;
         }
         present
     });
+    if dropped_entries {
+        manifest.known_hashes.clear();
+    }
 
     let foreign_hashes: Vec<String> = local_hashes
         .values()
         .filter(|h| !manifest.mods.values().any(|e| &e.sha1 == *h))
+        .filter(|h| !manifest.known_hashes.iter().any(|known| known == *h))
         .cloned()
         .collect();
 
@@ -425,6 +432,10 @@ pub async fn sync_installed_from_hashes(
                     };
                     let project_id = version.project_id.clone();
                     if manifest.mods.contains_key(&project_id) {
+                        if !manifest.known_hashes.iter().any(|known| known == hash) {
+                            manifest.known_hashes.push(hash.clone());
+                            changed = true;
+                        }
                         continue;
                     }
                     let (title, icon_url) = projects
@@ -1037,6 +1048,7 @@ mod tests {
                 .into_iter()
                 .map(|(key, value)| (key.to_string(), value))
                 .collect(),
+            known_hashes: Vec::new(),
         };
         save_manifest(&ctx.manifest_path, &manifest)
             .await
@@ -1141,6 +1153,55 @@ mod tests {
         let updates = check_updates(&ctx).await.expect("пустой манифест");
 
         assert!(updates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sync_does_not_requery_known_duplicate_hashes() {
+        let mut env = ModrinthEnv::acquire("modrinth_sync_dup_no_requery").await;
+        let ctx = env.install_ctx();
+        seed_mod_manifest(
+            &ctx,
+            vec![("A", manifest_entry("A", "hash-a", "verA1", "1.0.0"))],
+        )
+        .await;
+
+        let batch_mock = env
+            .server
+            .mock("POST", "/v2/version_files")
+            .with_status(200)
+            .with_body(
+                json!({"hash-f": {"id": "verF1", "project_id": "A", "name": "Dup", "version_number": "9.9.9", "version_type": "release", "dependencies": [], "files": []}})
+                    .to_string(),
+            )
+            .expect(1)
+            .create_async()
+            .await;
+
+        let local_hashes: HashMap<String, String> = HashMap::from([
+            ("A.jar".to_string(), "hash-a".to_string()),
+            ("Other.jar".to_string(), "hash-f".to_string()),
+        ]);
+
+        let manifest = sync_installed_from_hashes(&ctx, local_hashes.clone())
+            .await
+            .expect("первая синхронизация");
+        assert_eq!(
+            manifest.mods.len(),
+            1,
+            "дубликат по проекту не усыновляется, но запоминается"
+        );
+
+        let manifest = sync_installed_from_hashes(&ctx, local_hashes)
+            .await
+            .expect("повторная синхронизация");
+        assert_eq!(manifest.mods.len(), 1);
+        assert!(
+            manifest.known_hashes.contains(&"hash-f".to_string()),
+            "хеш дубликата фиксируется в манифесте: {:?}",
+            manifest.known_hashes
+        );
+
+        batch_mock.assert_async().await;
     }
 
     #[tokio::test]

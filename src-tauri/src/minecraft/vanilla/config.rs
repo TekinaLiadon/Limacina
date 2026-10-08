@@ -26,7 +26,7 @@ pub struct ArgumentsMap {
 }
 
 impl ArgumentsMap {
-    pub fn new(config: &LaunchConfig, assets_index: &str) -> Self {
+    pub fn new(config: &LaunchConfig, assets_index: &str, version_type: &str) -> Self {
         let map = [
             ("${auth_player_name}", config.username.clone()),
             ("${version_name}", config.mc_version.clone()),
@@ -42,7 +42,7 @@ impl ArgumentsMap {
             ("${auth_uuid}", config.uuid.clone()),
             ("${auth_access_token}", config.access_token.clone()),
             ("${user_type}", "mojang".to_string()),
-            ("${version_type}", "release".to_string()),
+            ("${version_type}", version_type.to_string()),
             (
                 "${natives_directory}",
                 config.natives_dir.to_string_lossy().to_string(),
@@ -737,7 +737,7 @@ mod args_pipeline_tests {
     #[test]
     fn jvm_args_expand_placeholders_and_strip_classpath() {
         let config = launch_config();
-        let args_map = ArgumentsMap::new(&config, "5");
+        let args_map = ArgumentsMap::new(&config, "5", "release");
         let manifest = modern_manifest();
 
         let jvm_args = get_jvm_args(&manifest, &config, &args_map);
@@ -753,7 +753,7 @@ mod args_pipeline_tests {
     #[test]
     fn game_args_expand_user_placeholders() {
         let config = launch_config();
-        let args_map = ArgumentsMap::new(&config, "5");
+        let args_map = ArgumentsMap::new(&config, "5", "release");
         let manifest = modern_manifest();
 
         let game_args = get_game_args(&manifest, &args_map);
@@ -781,7 +781,7 @@ mod args_pipeline_tests {
         )
         .unwrap();
         let config = launch_config();
-        let args_map = ArgumentsMap::new(&config, "1.8");
+        let args_map = ArgumentsMap::new(&config, "1.8", "release");
 
         let jvm_args = get_jvm_args(&manifest, &config, &args_map);
         assert_eq!(
@@ -802,7 +802,7 @@ mod args_pipeline_tests {
     fn placeholder_value_is_not_rescanned() {
         let mut config = launch_config();
         config.username = "${auth_access_token}".to_string();
-        let args_map = ArgumentsMap::new(&config, "5");
+        let args_map = ArgumentsMap::new(&config, "5", "release");
 
         let value = args_map.get_value_by_key("${auth_player_name}");
 
@@ -812,7 +812,7 @@ mod args_pipeline_tests {
     #[test]
     fn unknown_placeholder_is_left_as_is() {
         let config = launch_config();
-        let args_map = ArgumentsMap::new(&config, "5");
+        let args_map = ArgumentsMap::new(&config, "5", "release");
 
         assert_eq!(
             args_map.get_value_by_key("--unknown${nope} --after"),
@@ -821,9 +821,17 @@ mod args_pipeline_tests {
     }
 
     #[test]
+    fn version_type_flows_from_manifest_index() {
+        let config = launch_config();
+        let args_map = ArgumentsMap::new(&config, "5", "snapshot");
+
+        assert_eq!(args_map.get_value_by_key("${version_type}"), "snapshot");
+    }
+
+    #[test]
     fn launcher_version_uses_cargo_package_version() {
         let config = launch_config();
-        let args_map = ArgumentsMap::new(&config, "5");
+        let args_map = ArgumentsMap::new(&config, "5", "release");
 
         assert_eq!(
             args_map.get_value_by_key("${launcher_version}"),
@@ -851,7 +859,7 @@ mod args_pipeline_tests {
     fn user_debug_arg_reaches_jvm_args_and_is_caught_by_spawn_validator() {
         let mut config = launch_config();
         config.jvm_sub_arg.push("-javaagent:evil.jar".to_string());
-        let args_map = ArgumentsMap::new(&config, "5");
+        let args_map = ArgumentsMap::new(&config, "5", "release");
         let manifest = modern_manifest();
 
         let jvm_args = get_jvm_args(&manifest, &config, &args_map);

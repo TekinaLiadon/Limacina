@@ -55,6 +55,7 @@ pub struct InstallResult {
     pub skipped: Vec<String>,
 }
 
+#[derive(Debug)]
 struct ProfileContext {
     project_name: String,
     loaders: Vec<String>,
@@ -75,6 +76,12 @@ async fn profile_context(state: &Mutex<GlobalState>) -> Result<ProfileContext> {
     if config.online {
         return Err(anyhow!(LauncherError::OfflineProfile(
             "моды Modrinth доступны только в одиночных профилях".to_string()
+        )));
+    }
+    if config.mod_loader == ModLoader::Vanilla {
+        return Err(anyhow!(LauncherError::InvalidInput(
+            "моды Modrinth требуют мод-лоадер: выберите Fabric, Forge или NeoForge для профиля"
+                .to_string()
         )));
     }
     let loaders = loader_key(&config.mod_loader).into_iter().collect();
@@ -320,6 +327,54 @@ pub async fn modrinth_uninstall(
         LauncherError::Modrinth,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod profile_context_tests {
+    use super::profile_context;
+    use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+    use tokio::sync::Mutex;
+
+    fn state_with_loader(loader: ModLoader) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "VanillaCheck".to_string(),
+                mc_version: "1.21.1".to_string(),
+                mod_loader: loader,
+                online: false,
+                ..ProjectConfig::default()
+            },
+            ..GlobalState::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn vanilla_profile_is_blocked_with_explicit_message() {
+        let state = state_with_loader(ModLoader::Vanilla);
+
+        let error = profile_context(&state)
+            .await
+            .expect_err("профиль без лоадера не должен искать и ставить моды");
+        assert!(
+            error.to_string().contains("мод-лоадер"),
+            "ошибка должна объяснять причину: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_profile_passes_with_loader_filter() {
+        for loader in [ModLoader::Fabric, ModLoader::Forge, ModLoader::NeoForge] {
+            let state = state_with_loader(loader.clone());
+            let profile = profile_context(&state)
+                .await
+                .unwrap_or_else(|e| panic!("профиль с лоадером должен проходить: {e:#}"));
+            assert!(
+                profile.loaders.len() == 1,
+                "для {:?} должен передаваться ровно один лоадер-фильтр",
+                loader
+            );
+        }
+    }
 }
 
 #[cfg(all(test, unix))]

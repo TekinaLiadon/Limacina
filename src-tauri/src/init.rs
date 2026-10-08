@@ -83,7 +83,9 @@ pub async fn init_project_config(
 ) -> Result<ProjectConfig> {
     let normalized = launcher_path.replace('/', std::path::MAIN_SEPARATOR_STR);
     let config_dir = PathBuf::from(&normalized).join("project").join("config");
-    fs::create_dir_all(&config_dir).await?;
+    fs::create_dir_all(&config_dir)
+        .await
+        .context("Не удалось создать папку конфигурации проекта")?;
 
     if !project_name.is_empty() {
         validate_project_name(project_name)?;
@@ -166,8 +168,11 @@ pub async fn init_project_config(
     config.server_url = server_url.map(normalize_server_url);
 
     let toml_path = config_dir.join(format!("{}.toml", config.project_name));
-    let toml_string = toml::to_string_pretty(&config)?;
-    write_atomic(&toml_path, toml_string.as_bytes()).await?;
+    let toml_string =
+        toml::to_string_pretty(&config).context("Не удалось сериализовать конфиг проекта")?;
+    write_atomic(&toml_path, toml_string.as_bytes())
+        .await
+        .context("Не удалось сохранить конфиг проекта на диск")?;
     Ok(config)
 }
 

@@ -64,7 +64,8 @@ fn format_exec_line(appimage: &Path) -> String {
     let escaped = appimage
         .to_string_lossy()
         .replace('\\', "\\\\")
-        .replace('"', "\\\"");
+        .replace('"', "\\\"")
+        .replace('%', "%%");
     format!("\"{escaped}\"")
 }
 
@@ -192,6 +193,14 @@ mod tests {
     #[test]
     fn exec_line_escapes_quotes() {
         assert_eq!(format_exec_line(Path::new("/a\"b\\c")), "\"/a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn exec_line_doubles_percent_signs() {
+        assert_eq!(
+            format_exec_line(Path::new("/opt/100% Limacina%20.AppImage")),
+            "\"/opt/100%% Limacina%%20.AppImage\""
+        );
     }
 
     #[test]

@@ -23,6 +23,10 @@ pub fn minimize_to_tray_enabled() -> bool {
     MINIMIZE_TO_TRAY.load(Ordering::Relaxed)
 }
 
+pub fn is_available<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.tray_by_id(TRAY_ID).is_some()
+}
+
 pub fn game_username() -> Option<String> {
     if !GAME_RUNNING.load(Ordering::Relaxed) {
         return None;
