@@ -206,6 +206,27 @@ describe('useAccountsPage', () => {
     expect(useLaunchStore().isLaunching).toBe(false)
   })
 
+  it('ignores a parallel second launch while the session check is pending', async () => {
+    let releaseSessionCheck: () => void = () => {}
+    vi.mocked(getGameState).mockImplementationOnce(
+      () =>
+        new Promise<string | null>((resolve) => {
+          releaseSessionCheck = () => resolve(null)
+        }),
+    )
+    const page = setupPage()
+
+    const first = page.handleLaunch()
+    const second = page.handleLaunch()
+    expect(useLaunchStore().isLaunching).toBe(true)
+    releaseSessionCheck()
+    await Promise.all([first, second])
+
+    expect(getGameState).toHaveBeenCalledTimes(1)
+    expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
+    expect(useLaunchStore().isLaunching).toBe(false)
+  })
+
   it('ignores a repeated launch while one is running', async () => {
     let releaseSteps: () => void = () => {}
     stubs.executeSteps.mockImplementationOnce(

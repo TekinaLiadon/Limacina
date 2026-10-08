@@ -49,20 +49,20 @@ export function useAccountsPage() {
       notificationStore.show('Идёт проверка целостности, запуск невозможен')
       return
     }
-    try {
-      const username = await getGameState()
-      if (username !== null) {
-        coreStore.gameUsername = username
-        notificationStore.show('Игра уже запущена')
-        return
-      }
-    } catch (e: unknown) {
-      reportError('Не удалось проверить состояние игровой сессии', e)
-      notificationStore.show('Не удалось проверить состояние игры, запуск заблокирован')
-      return
-    }
     const launchGeneration = launch.beginLaunch()
     try {
+      try {
+        const username = await getGameState()
+        if (username !== null) {
+          coreStore.gameUsername = username
+          notificationStore.show('Игра уже запущена')
+          return
+        }
+      } catch (e: unknown) {
+        reportError('Не удалось проверить состояние игровой сессии', e)
+        notificationStore.show('Не удалось проверить состояние игры, запуск заблокирован')
+        return
+      }
       await executeSteps(() => !launch.isCurrent(launchGeneration))
     } catch (e: unknown) {
       launch.reportFailure(launchGeneration, getErrorMessage(e))
