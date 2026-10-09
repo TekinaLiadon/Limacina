@@ -1,7 +1,8 @@
-import { watch, shallowRef, onBeforeUnmount, type Ref } from 'vue'
+import { watch, type Ref } from 'vue'
 import * as THREE from 'three'
-import { useThreeScene, removeGroupFromScene, createManagedTextureLoader, type ViewerControls } from '@/06-shared'
-import { useViewerCamera, fitFovRadians } from '@/04-features/viewer/useViewerCamera'
+import type { ViewerControls } from '@/06-shared'
+import { useViewerModel } from '@/04-features/viewer/useViewerModel'
+import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
 
 interface BodyPart {
   w: number
@@ -159,68 +160,29 @@ export function useSkinViewer(
     controls: ViewerControls,
     slim: Ref<boolean>,
 ) {
-  const { scene, camera, getOrbitControls } = useThreeScene(container, { autoRotate: false })
-  const playerGroup = shallowRef<THREE.Group | null>(null)
-  const textureLoader = createManagedTextureLoader(scene)
-  let currentTexture: THREE.Texture | null = null
+  const { rebuildModel, loadModel, clearModel } = useViewerModel(
+    container,
+    controls,
+    {
+      build: (texture: THREE.Texture): THREE.Group => buildPlayerModel(texture, slim.value),
+      onModelShown: (group, _texture, api): void => {
+        const perspectiveCamera = api.camera.value
+        if (!perspectiveCamera) return
 
-  const { setFitDistance } = useViewerCamera(
-      { camera, getOrbitControls },
-      playerGroup,
-      controls,
+        const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3())
+        const maxDim = Math.max(size.x, size.y, size.z)
+        api.setFitDistance((maxDim / 2) / Math.tan(fitFovRadians(perspectiveCamera) / 2) * 1.2)
+      },
+    },
   )
 
-  function fitSkinToView(): void {
-    const group = playerGroup.value
-    const perspectiveCamera = camera.value
-    if (!group || !perspectiveCamera) return
-
-    const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3())
-    const maxDim = Math.max(size.x, size.y, size.z)
-    const distance = (maxDim / 2) / Math.tan(fitFovRadians(perspectiveCamera) / 2) * 1.2
-
-    setFitDistance(distance)
-  }
-
-  function showModel(texture: THREE.Texture): void {
-    if (!scene.value) return
-
-    removeGroupFromScene(scene, playerGroup)
-    const player = buildPlayerModel(texture, slim.value)
-    scene.value.add(player)
-    playerGroup.value = player
-    fitSkinToView()
-  }
-
-  function rebuildModel(): void {
-    if (!currentTexture) return
-    showModel(currentTexture)
-  }
-
-  function loadSkin(url: string): void {
-    textureLoader.load(url, (texture) => {
-      currentTexture = texture
-      showModel(texture)
-    })
-  }
-
   watch(skinUrl, (url: string) => {
-    if (url) loadSkin(url)
-    else removeGroupFromScene(scene, playerGroup)
-  })
-
-  watch(scene, (s) => {
-    if (s && skinUrl.value) loadSkin(skinUrl.value)
-  })
+    if (url) loadModel(url)
+    else clearModel()
+  }, { immediate: true })
 
   watch(slim, () => {
     rebuildModel()
-  })
-
-  onBeforeUnmount(() => {
-    removeGroupFromScene(scene, playerGroup)
-    textureLoader.dispose()
-    currentTexture = null
   })
 
   return {}

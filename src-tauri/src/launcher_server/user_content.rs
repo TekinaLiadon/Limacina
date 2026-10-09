@@ -285,4 +285,125 @@ mod tests {
 
         assert!(result.is_err(), "не-2xx ответ должен вернуть ошибку");
     }
+
+    #[tokio::test]
+    async fn list_skins_and_models_parse_items() {
+        let mut server = Server::new_async().await;
+        let items = serde_json::json!([
+            {"id": 3, "url": "https://cdn.example.com/skin.png", "model": "slim", "active": true}
+        ])
+        .to_string();
+        let skins = server
+            .mock("GET", "/v1/common/content/skins/uuid-1")
+            .match_header("authorization", "Bearer token-1")
+            .with_status(200)
+            .with_body(items.clone())
+            .create_async()
+            .await;
+        let models = server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .match_header("authorization", "Bearer token-1")
+            .with_status(200)
+            .with_body(items)
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        let skins_list = list_skins(&state, "uuid-1".to_string())
+            .await
+            .expect("список скинов");
+        let models_list = list_models(&state, "uuid-1".to_string())
+            .await
+            .expect("список моделей");
+
+        assert_eq!(skins_list.len(), 1);
+        assert_eq!(skins_list[0].id, Some(3));
+        assert_eq!(skins_list[0].model.as_deref(), Some("slim"));
+        assert!(skins_list[0].active);
+        assert_eq!(models_list.len(), 1);
+
+        skins.assert_async().await;
+        models.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn list_errors_on_unparseable_body() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/common/content/skins/uuid-1")
+            .with_status(200)
+            .with_body("not json")
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        let result = list_skins(&state, "uuid-1".to_string()).await;
+
+        assert!(result.is_err(), "нечитаемый ответ должен вернуть ошибку");
+    }
+
+    #[tokio::test]
+    async fn set_active_skin_sends_patch_with_id() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("PATCH", "/v1/common/content/skins/active")
+            .match_header("authorization", "Bearer token-1")
+            .with_status(200)
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        set_active_skin(&state, 9)
+            .await
+            .expect("активация скина должна пройти");
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn upload_skin_sends_multipart_with_model_query() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/common/content/skins")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "model".to_string(),
+                "slim".to_string(),
+            ))
+            .with_status(200)
+            .with_body(
+                serde_json::json!({"id": 1, "url": "https://cdn.example.com/skin.png"}).to_string(),
+            )
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        let item = upload_skin(&state, b"png-bytes".to_vec(), Some("slim"))
+            .await
+            .expect("загрузка скина");
+
+        assert_eq!(item.id, Some(1));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn upload_model_sends_multipart_without_query() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/common/content/models")
+            .match_query(mockito::Matcher::Missing)
+            .with_status(200)
+            .with_body(
+                serde_json::json!({"id": 5, "url": "https://cdn.example.com/model"}).to_string(),
+            )
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        let item = upload_model(&state, "model content".to_string())
+            .await
+            .expect("загрузка модели");
+
+        assert_eq!(item.id, Some(5));
+        mock.assert_async().await;
+    }
 }

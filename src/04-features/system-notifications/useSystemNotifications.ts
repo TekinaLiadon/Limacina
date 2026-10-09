@@ -1,16 +1,18 @@
 import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
 import { isWindowMinimized, listenLaunchSteps, listenGameExit, listenGameStarted, getNotificationIcon } from '@/06-shared/api'
-import { reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
+import { createSingletonListeners, reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
 
 const GAME_START_TITLE = 'Игра запущена'
 const gameStartBody = (username: string): string => `Сессия ${username} запущена — лаунчер ждёт в трее`
 const GAME_EXIT_OK_TITLE = 'Игра завершена'
 const GAME_EXIT_OK_BODY = 'Игра закрыта — лаунчер ждёт в трее'
+const PENDING_START_TTL_MS = 60_000
 
-let notificationsStarted = false
+const systemNotificationsListeners = createSingletonListeners()
 let downloadRan = false
 let notificationIcon: string | null | undefined
 let pendingStartUsername: string | null = null
+let pendingStartAt = 0
 
 const resolveNotificationIcon = async (): Promise<string | null> => {
   if (notificationIcon === undefined) {
@@ -89,11 +91,13 @@ export function useSystemNotifications(): {
     const username = pendingStartUsername
     if (username === null) return
     pendingStartUsername = null
+    if (Date.now() - pendingStartAt > PENDING_START_TTL_MS) return
     await sendSystemNotification(GAME_START_TITLE, gameStartBody(username))
   }
 
   const handleGameStarted = async (username: string): Promise<void> => {
     pendingStartUsername = username
+    pendingStartAt = Date.now()
     if (!(await isWindowHidden())) return
     await sendStartNotification()
   }
@@ -125,23 +129,18 @@ export function useSystemNotifications(): {
   }
 
   const startSystemNotifications = async (): Promise<void> => {
-    if (notificationsStarted) return
-    notificationsStarted = true
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    let unlistenSteps: (() => void) | null = null
-    let unlistenStarted: (() => void) | null = null
-    let unlistenExit: (() => void) | null = null
+    if (systemNotificationsListeners.isStarted()) return
     try {
-      unlistenSteps = await listenLaunchSteps(handleStepEvent)
-      unlistenStarted = await listenGameStarted(handleGameStarted)
-      unlistenExit = await listenGameExit(handleGameExit)
+      await systemNotificationsListeners.start(async (track): Promise<void> => {
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        track((): void => {
+          document.removeEventListener('visibilitychange', handleVisibilityChange)
+        })
+        track(await listenLaunchSteps(handleStepEvent))
+        track(await listenGameStarted(handleGameStarted))
+        track(await listenGameExit(handleGameExit))
+      })
     } catch (e: unknown) {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      unlistenSteps?.()
-      unlistenStarted?.()
-      unlistenExit?.()
-      notificationsStarted = false
       reportError('Не удалось запустить поток системных уведомлений', e)
     }
   }

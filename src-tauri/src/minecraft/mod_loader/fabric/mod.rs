@@ -12,13 +12,13 @@ use crate::{
         mod_loader::{
             config::merge_classpath,
             fabric::{manifest::transform_fabric_manifest, structs::FabricManifest},
-            installer::install_loader_files,
+            installer::{find_loader_version, install_version_files},
             manifest::loader_version_or_err,
         },
         structs::{GameConfig, ModLoader, VersionMod},
     },
     state::dto::ProjectConfig,
-    utils::{compare_versions, env_info::launcher_path, step_events::StepHandle},
+    utils::{compare_versions, env_info::ensure_safe_relative_path},
 };
 
 const MOD_LOADER_NAME: &str = "fabric";
@@ -28,6 +28,7 @@ pub struct Fabric;
 impl ModLoader for Fabric {
     async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
         let version = &state.mc_version;
+        ensure_safe_relative_path(version, "версии игры")?;
         let url_manifest = format!("https://meta.fabricmc.net/v2/versions/loader/{}", version);
         let manifest_fabric =
             get_manifest_index::<Vec<FabricManifest>>(MOD_LOADER_NAME, &url_manifest, version)
@@ -73,28 +74,15 @@ impl ModLoader for Fabric {
     }
     async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
         let target_version = loader_version_or_err(state)?;
-        let version_info = manifest
-            .iter()
-            .find(|v| v.id == target_version)
-            .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()))?;
-
-        let step = StepHandle::start("loader", "Установка Fabric");
-        let base_path = launcher_path(Some(&state.project_name)).map_err(|e| {
-            LauncherError::LoaderSetup(format!(
-                "Не удалось определить путь к файлам проекта: {e:#}"
-            ))
-        })?;
-        install_loader_files(
-            step.clone(),
-            &base_path,
-            &state.project_name,
-            &version_info.id,
+        let version_info = find_loader_version(manifest, target_version)?;
+        install_version_files(
+            state,
+            version_info,
             &version_info.library,
-            &version_info.url,
+            "Установка Fabric".to_string(),
+            false,
         )
-        .await?;
-        step.finish(false);
-        Ok(())
+        .await
     }
     async fn config(
         &self,
@@ -119,10 +107,83 @@ impl ModLoader for Fabric {
 mod config_tests {
     use super::Fabric;
     use crate::minecraft::process::validate_jvm_args;
-    use crate::minecraft::structs::{GameConfig, ModLoader, VersionMod};
+    use crate::minecraft::structs::{GameConfig, LibraryMod, ModLoader, VersionMod};
     use crate::state::dto::ProjectConfig;
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use mockito::Server;
+    use std::fs;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn fabric_setup_installs_loader_and_libraries() {
+        let dir = LauncherDirGuard::acquire("fabric_setup").await;
+        let mut server = Server::new_async().await;
+
+        let loader_jar = b"fabric loader jar bytes".to_vec();
+        let intermediary_jar = b"intermediary jar bytes".to_vec();
+
+        server
+            .mock(
+                "GET",
+                "/loader/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
+            )
+            .with_status(200)
+            .with_body(loader_jar.clone())
+            .create_async()
+            .await;
+        server
+            .mock(
+                "GET",
+                "/maven/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar",
+            )
+            .with_status(200)
+            .with_body(intermediary_jar.clone())
+            .create_async()
+            .await;
+
+        let state = ProjectConfig {
+            project_name: "FabSetup".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("0.16.9".to_string()),
+            ..ProjectConfig::default()
+        };
+        let manifest = vec![VersionMod {
+            url: format!(
+                "{}/loader/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
+                server.url()
+            ),
+            id: "0.16.9".to_string(),
+            main_class: "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
+            library: vec![LibraryMod {
+                name: "net.fabricmc:intermediary:1.20.1".to_string(),
+                path: String::new(),
+                url: format!(
+                    "{}/maven/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar",
+                    server.url()
+                ),
+                hash: sha1_hex(&intermediary_jar),
+                size: intermediary_jar.len() as i64,
+            }],
+        }];
+
+        Fabric
+            .setup(&state, &manifest)
+            .await
+            .expect("установка Fabric");
+
+        let project = dir.project_dir("FabSetup");
+        assert_eq!(
+            fs::read(project.join("0.16.9.jar")).unwrap(),
+            b"fabric loader jar bytes"
+        );
+        assert_eq!(
+            fs::read(
+                project.join("libraries/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar")
+            )
+            .unwrap(),
+            b"intermediary jar bytes"
+        );
+    }
 
     #[tokio::test]
     async fn fabric_config_keeps_user_jvm_args_on_validated_spawn_path() {
@@ -164,5 +225,20 @@ mod config_tests {
             error.to_string().contains("-javaagent:evil.jar"),
             "ошибка должна называть аргумент: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn fabric_versions_reject_unsafe_mc_version() {
+        for version in ["../../evil", "/abs", "..\\evil"] {
+            let state = ProjectConfig {
+                project_name: "FabUnsafe".to_string(),
+                mc_version: version.to_string(),
+                ..ProjectConfig::default()
+            };
+            assert!(
+                Fabric.versions(&state).await.is_err(),
+                "версия игры {version:?} должна отклоняться до запроса и кэша"
+            );
+        }
     }
 }

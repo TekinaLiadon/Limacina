@@ -7,6 +7,7 @@ use std::future::Future;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tokio::fs;
+use walkdir::WalkDir;
 
 use super::bandwidth;
 use super::hex;
@@ -18,6 +19,24 @@ fn part_path(dest: &Path) -> PathBuf {
     let mut name = dest.as_os_str().to_os_string();
     name.push(".part");
     PathBuf::from(name)
+}
+
+pub fn cleanup_part_files(root: &Path) -> u64 {
+    let mut removed = 0u64;
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        let is_part = entry.file_type().is_file()
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("part"));
+        if is_part && std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 async fn fetch_response(url: &str) -> Result<reqwest::Response> {
@@ -95,6 +114,11 @@ pub(crate) async fn write_stream_to_atomic(
                     LauncherError::DiskIo(format!("Ошибка записи в файл {tmp:?}: {e:#}"))
                 })?;
         }
+        file.sync_all().await.map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось синхронизировать {tmp:?} с диском: {e:#}"
+            ))
+        })?;
         drop(file);
         Ok::<u64, anyhow::Error>(total_bytes)
     }
@@ -188,26 +212,31 @@ where
     let expected = expected_sha1.filter(|hash| !hash.is_empty());
 
     if precheck && dest.exists() {
-        if let Some(expected) = expected {
-            let hash = file_sha1(dest).await.unwrap_or_default();
-            if hash == expected {
-                return Ok(false);
-            }
-            log_info!("[download] Файл {dest:?} отличается от ожидаемого — перекачивается");
+        let intact = match expected {
+            Some(expected) => file_sha1(dest)
+                .await
+                .map(|hash| hash.eq_ignore_ascii_case(expected))
+                .unwrap_or(false),
+            None => false,
+        };
+        if intact {
+            return Ok(false);
         }
-        let _ = tokio::fs::remove_file(dest).await;
+        log_info!("[download] Файл {dest:?} отличается от ожидаемого — перекачивается");
     }
 
-    fetch(dest.to_path_buf()).await?;
+    let staging = part_path(dest);
+    let _ = tokio::fs::remove_file(&staging).await;
+    fetch(staging.clone()).await?;
 
     if let Some(expected) = expected {
-        let actual = file_sha1(dest).await.map_err(|e| {
+        let actual = file_sha1(&staging).await.map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось вычислить хеш скачанного файла {dest:?}: {e:#}"
             ))
         })?;
-        if actual != expected {
-            let _ = tokio::fs::remove_file(dest).await;
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = tokio::fs::remove_file(&staging).await;
             return Err(LauncherError::HashMismatch(format!(
                 "{dest:?} (ожидается {expected}, получен {actual})"
             ))
@@ -215,6 +244,16 @@ where
         }
     }
 
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            LauncherError::DiskIo(format!("Не удалось создать директорию для {dest:?}: {e:#}"))
+        })?;
+    }
+    tokio::fs::rename(&staging, dest).await.map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось переместить {staging:?} в {dest:?}: {e:#}"
+        ))
+    })?;
     Ok(true)
 }
 
@@ -242,6 +281,132 @@ pub async fn file_sha1(path: &Path) -> Result<String> {
     tokio::task::spawn_blocking(move || hash_file_blocking::<Sha1>(&path))
         .await
         .map_err(|e| LauncherError::Download(format!("Ошибка при вычислении SHA1: {e:#}")))?
+}
+
+#[cfg(test)]
+mod download_and_verify_tests {
+    use anyhow::Result;
+
+    use super::{download_and_verify_with, part_path};
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+
+    #[tokio::test]
+    async fn failed_fetch_keeps_existing_file_with_precheck() {
+        let dir = LauncherDirGuard::acquire("verify_fetch_fail").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        let good = b"working jar";
+        tokio::fs::write(&dest, good).await.unwrap();
+
+        let result: Result<bool> = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(b"new jar")),
+            true,
+            |path| async move {
+                let _ = path;
+                Err(anyhow::anyhow!("сеть оборвалась"))
+            },
+        )
+        .await;
+
+        assert!(result.is_err(), "сбой сети должен возвращать ошибку");
+        assert_eq!(
+            tokio::fs::read(&dest).await.unwrap(),
+            good,
+            "прежний рабочий файл должен остаться на месте при оборванной загрузке"
+        );
+        assert!(!part_path(&dest).exists(), "staging-файл должен быть убран");
+    }
+
+    #[tokio::test]
+    async fn failed_verify_keeps_existing_file_and_removes_staging() {
+        let dir = LauncherDirGuard::acquire("verify_hash_fail").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&dest, b"working jar").await.unwrap();
+
+        let result: Result<bool> = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(b"expected content")),
+            true,
+            |path| async move {
+                tokio::fs::write(&path, b"corrupted content").await?;
+                Ok(())
+            },
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "несовпадение хеша должно возвращать ошибку"
+        );
+        assert_eq!(
+            tokio::fs::read(&dest).await.unwrap(),
+            b"working jar",
+            "хеш-мисматч не должен трогать существующий файл"
+        );
+        assert!(!part_path(&dest).exists());
+    }
+
+    #[tokio::test]
+    async fn uppercase_expected_hash_skips_download_on_precheck() {
+        let dir = LauncherDirGuard::acquire("verify_uppercase").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        let content = b"stable content";
+        tokio::fs::write(&dest, content).await.unwrap();
+
+        let uppercase = sha1_hex(content).to_uppercase();
+        let downloaded =
+            download_and_verify_with(&dest, Some(&uppercase), true, |path| async move {
+                tokio::fs::write(&path, b"should not be written").await?;
+                Ok(())
+            })
+            .await
+            .expect("uppercase-хеш должен совпадать без учёта регистра");
+
+        assert!(
+            !downloaded,
+            "файл с совпадающим uppercase-хешем не перекачивается"
+        );
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), content);
+    }
+
+    #[tokio::test]
+    async fn successful_update_replaces_content_through_staging() {
+        let dir = LauncherDirGuard::acquire("verify_update_ok").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&dest, b"old jar").await.unwrap();
+
+        let new_content = b"new jar";
+        let downloaded = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(new_content)),
+            true,
+            |path| async move {
+                tokio::fs::write(&path, new_content).await?;
+                Ok(())
+            },
+        )
+        .await
+        .expect("обновление");
+
+        assert!(downloaded);
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), new_content);
+        assert!(
+            !part_path(&dest).exists(),
+            "staging переименовывается в dest"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -374,5 +539,110 @@ mod tests {
         );
         assert!(!dest.exists(), "файл назначения не должен появиться");
         assert!(!part_path(&dest).exists(), "part-файл должен быть удалён");
+    }
+}
+
+#[cfg(test)]
+mod part_cleanup_tests {
+    use super::{cleanup_part_files, part_path};
+    use crate::test_support::TempDir;
+
+    #[test]
+    fn cleanup_removes_only_part_files_recursively() {
+        let dir = TempDir::new("part_cleanup");
+        std::fs::create_dir_all(dir.0.join("mods")).unwrap();
+        std::fs::create_dir_all(dir.0.join("libraries/com")).unwrap();
+        std::fs::write(dir.0.join("mods/a.jar.part"), b"partial").unwrap();
+        std::fs::write(dir.0.join("libraries/com/b.part"), b"partial").unwrap();
+        std::fs::write(dir.0.join("mods/keep.jar"), b"jar").unwrap();
+        std::fs::write(dir.0.join("root.txt"), b"txt").unwrap();
+
+        let removed = cleanup_part_files(&dir.0);
+
+        assert_eq!(removed, 2, "удаляются оба .part-файла на любой глубине");
+        assert!(!part_path(&dir.0.join("mods/a.jar")).exists());
+        assert!(!dir.0.join("libraries/com/b.part").exists());
+        assert!(dir.0.join("mods/keep.jar").exists());
+        assert!(dir.0.join("root.txt").exists());
+    }
+
+    #[test]
+    fn cleanup_on_missing_root_is_noop() {
+        assert_eq!(
+            cleanup_part_files(&std::env::temp_dir().join("limacina-missing-part-root")),
+            0
+        );
+    }
+}
+
+#[cfg(test)]
+mod download_json_tests {
+    use super::download_json;
+    use crate::test_support::TempDir;
+    use mockito::Server;
+    use serde_json::Value;
+
+    #[tokio::test]
+    async fn download_json_refetches_once_after_corrupt_cache() {
+        let dir = TempDir::new("json_refetch");
+        let dest = dir.0.join("manifest.json");
+        std::fs::write(&dest, "{ not json").expect("битый кэш манифеста");
+
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/manifest.json")
+            .with_status(200)
+            .with_body(r#"{"version":1}"#)
+            .create_async()
+            .await;
+
+        let parsed: Value = download_json(Some(&format!("{}/manifest.json", server.url())), &dest)
+            .await
+            .expect("битый кэш должен перекачаться один раз");
+
+        assert_eq!(parsed["version"], 1);
+        assert_eq!(
+            std::fs::read_to_string(&dest).expect("кэш перезаписан"),
+            r#"{"version":1}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn download_json_errors_after_single_refetch_still_corrupt() {
+        let dir = TempDir::new("json_refetch_fail");
+        let dest = dir.0.join("manifest.json");
+
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/manifest.json")
+            .with_status(200)
+            .with_body("still not json")
+            .expect(2)
+            .create_async()
+            .await;
+
+        let result: Result<Value, anyhow::Error> =
+            download_json(Some(&format!("{}/manifest.json", server.url())), &dest).await;
+
+        assert!(
+            result.is_err(),
+            "после одного refetch ошибка должна вернуться"
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn download_json_without_url_reports_corrupt_cache_without_refetch() {
+        let dir = TempDir::new("json_no_url");
+        let dest = dir.0.join("manifest.json");
+        std::fs::write(&dest, "{ not json").expect("битый кэш манифеста");
+
+        let result: Result<Value, anyhow::Error> = download_json(None, &dest).await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(&dest).expect("файл без url не должен удаляться"),
+            "{ not json"
+        );
     }
 }

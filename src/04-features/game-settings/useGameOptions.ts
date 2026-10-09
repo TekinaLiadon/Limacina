@@ -1,5 +1,5 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type GameOptions } from '@/05-entities'
+import { useCoreStore, useNotificationStore, bindSettingsDirtyTab, type GameOptions } from '@/05-entities'
 import {
   getErrorMessage,
   getGameOptions,
@@ -7,7 +7,7 @@ import {
   saveGlobalGameOptions,
   importGlobalGameOptions,
 } from '@/06-shared/api'
-import { reportError, useDirtySnapshot } from '@/06-shared'
+import { captureProjectScope, reportError, useAsyncAction, useDirtySnapshot } from '@/06-shared'
 
 export const DEFAULT_GAME_OPTIONS: GameOptions = {
   fov: 70,
@@ -57,7 +57,6 @@ export function useGameOptions(): {
   isSavingGlobal: Ref<boolean>
   isDirty: ComputedRef<boolean>
   hasGlobal: Ref<boolean>
-  fileExists: Ref<boolean>
   availableResourcePacks: Ref<string[]>
   loadOptions: (project: string, force?: boolean) => Promise<void>
   retryLoad: () => Promise<void>
@@ -74,13 +73,16 @@ export function useGameOptions(): {
   const isSaving = ref<boolean>(false)
   const isSavingGlobal = ref<boolean>(false)
   const hasGlobal = ref<boolean>(false)
-  const fileExists = ref<boolean>(false)
   const availableResourcePacks = ref<string[]>([])
   const dirtyState = useDirtySnapshot((): GameOptions => options.value)
   let loadedProject = ''
   let loadGeneration = 0
 
   const isDirty = computed<boolean>((): boolean => dirtyState.isDirty.value)
+
+  bindSettingsDirtyTab('game', isDirty)
+
+  const notifyError = (e: unknown): void => notification.show(getErrorMessage(e))
 
   const loadOptions = async (project: string, force: boolean = false): Promise<void> => {
     if (!project) return
@@ -94,12 +96,15 @@ export function useGameOptions(): {
       if (generation !== loadGeneration) return
       options.value = { ...cloneDefaults(), ...data.options }
       hasGlobal.value = data.hasGlobal
-      fileExists.value = data.fileExists
       availableResourcePacks.value = data.availableResourcePacks
       loadedProject = project
       dirtyState.captureBaseline()
     } catch (e: unknown) {
       if (generation !== loadGeneration) return
+      options.value = cloneDefaults()
+      hasGlobal.value = false
+      availableResourcePacks.value = []
+      dirtyState.captureBaseline()
       loadError.value = getErrorMessage(e)
       reportError('Не удалось загрузить настройки игры', e)
     } finally {
@@ -116,8 +121,10 @@ export function useGameOptions(): {
 
   const handleImportGlobal = async (): Promise<void> => {
     if (isLoading.value) return
+    const generation = ++loadGeneration
     try {
       const global = await importGlobalGameOptions()
+      if (generation !== loadGeneration) return
       if (!global) {
         notification.show('Общие настройки не найдены')
         return
@@ -125,41 +132,35 @@ export function useGameOptions(): {
       options.value = { ...cloneDefaults(), ...global }
       notification.show('Общие настройки подставлены, не забудьте сохранить')
     } catch (e: unknown) {
+      if (generation !== loadGeneration) return
       notification.show(getErrorMessage(e))
     }
   }
+
+  const saveAction = useAsyncAction(notifyError, isSaving)
 
   const handleSave = async (): Promise<void> => {
-    const project = coreStore.currentProject
-    if (!project || isLoading.value || isSaving.value || loadError.value) return
+    const scope = captureProjectScope((): string => coreStore.currentProject)
+    if (!scope.project || isLoading.value || isSaving.value || loadError.value) return
 
-    isSaving.value = true
-    try {
-      await saveGameOptions(project, options.value)
-      if (coreStore.currentProject !== project) return
-      fileExists.value = true
+    await saveAction.run(async () => {
+      await saveGameOptions(scope.project, options.value)
+      if (!scope.isCurrent()) return
       dirtyState.captureBaseline()
       notification.show('Настройки игры сохранены')
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isSaving.value = false
-    }
+    })
   }
+
+  const saveGlobalAction = useAsyncAction(notifyError, isSavingGlobal)
 
   const handleSaveGlobal = async (): Promise<void> => {
     if (isLoading.value || isSavingGlobal.value || loadError.value) return
 
-    isSavingGlobal.value = true
-    try {
+    await saveGlobalAction.run(async () => {
       await saveGlobalGameOptions(options.value)
       hasGlobal.value = true
       notification.show('Настройки сохранены как общие')
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isSavingGlobal.value = false
-    }
+    })
   }
 
   return {
@@ -170,7 +171,6 @@ export function useGameOptions(): {
     isSavingGlobal,
     isDirty,
     hasGlobal,
-    fileExists,
     availableResourcePacks,
     loadOptions,
     retryLoad,

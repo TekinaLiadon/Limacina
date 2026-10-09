@@ -92,7 +92,10 @@ fn completed_from_journal(
     completed
 }
 
+static JOURNAL_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn record_step(project: &str, fingerprint: &str, key: &str) -> Result<()> {
+    let _guard = JOURNAL_WRITE_LOCK.lock().await;
     let fresh = InstallJournal {
         project: project.to_string(),
         fingerprint: fingerprint.to_string(),
@@ -157,6 +160,7 @@ pub async fn clear_install_journal(project: String) -> CommandResult<()> {
 }
 
 async fn clear_journal(project: &str) -> Result<()> {
+    let _guard = JOURNAL_WRITE_LOCK.lock().await;
     let path = journal_path(project)?;
     match tokio::fs::remove_file(&path).await {
         Ok(()) => {}
@@ -297,6 +301,33 @@ mod tests {
 
         assert!(read_journal("Cordelia").await.unwrap().is_none());
         clear_journal("Cordelia").await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_records_keep_all_steps() {
+        let _guard = LauncherDirGuard::acquire("install_journal_concurrent").await;
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                tokio::spawn(
+                    async move { record_step("Cordelia", "fp1", &format!("step.{i}")).await },
+                )
+            })
+            .collect();
+        for handle in handles {
+            handle
+                .await
+                .expect("задача записи шага")
+                .expect("запись шага");
+        }
+
+        let stored = read_journal("Cordelia").await.unwrap().unwrap();
+        assert_eq!(
+            stored.completed.len(),
+            8,
+            "конкурентные записи не должны терять шаги: {:?}",
+            stored.completed
+        );
     }
 
     #[test]

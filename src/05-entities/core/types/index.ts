@@ -86,31 +86,12 @@ export interface StepProgressItem {
   label: string
   status: StepStatus
   skipped: boolean
+  untracked: boolean
   current: number
   total: number
   detail: string
   error: string
   shownAt: number
-}
-
-export interface CoreState {
-  isLoading: boolean
-  launcherName: string
-  defaultParentPath: string
-  launcherConfig: LauncherConfig | null
-  version: string
-  offlineBuild: boolean
-  envProjectName: string
-  currentProject: string
-  projects: string[]
-  totalMemoryMb: number
-  isLoggedIn: boolean
-  session: SessionInfo | null
-  projectConfig: ProjectConfig | null
-  serverStatus: ServerStatus | null
-  gameUsername: string | null
-  isServerReachable: boolean | null
-  pendingCpmProjectPath: string | null
 }
 
 export interface ProjectConfig {

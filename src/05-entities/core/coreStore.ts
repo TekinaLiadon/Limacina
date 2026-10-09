@@ -1,60 +1,87 @@
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { CoreState, LauncherConfig, SessionInfo } from './types/index'
+import type { LauncherConfig, ProjectConfig, ServerStatus, SessionInfo } from './types/index'
 
-export const useCoreStore = defineStore('core', {
-  state: (): CoreState => ({
-    isLoading: true,
-    launcherName: '',
-    defaultParentPath: '',
-    launcherConfig: null,
-    version: '',
-    offlineBuild: false,
-    envProjectName: '',
-    currentProject: '',
-    projects: [],
-    totalMemoryMb: 0,
-    isLoggedIn: false,
-    session: null,
-    projectConfig: null,
-    serverStatus: null,
-    gameUsername: null,
-    isServerReachable: null,
-    pendingCpmProjectPath: null,
-  }),
+export const useCoreStore = defineStore('core', () => {
+  const isLoading = ref<boolean>(true)
+  const launcherName = ref<string>('')
+  const defaultParentPath = ref<string>('')
+  const launcherConfig = ref<LauncherConfig | null>(null)
+  const version = ref<string>('')
+  const offlineBuild = ref<boolean>(false)
+  const envProjectName = ref<string>('')
+  const currentProject = ref<string>('')
+  const projects = ref<string[]>([])
+  const totalMemoryMb = ref<number>(0)
+  const isLoggedIn = ref<boolean>(false)
+  const session = ref<SessionInfo | null>(null)
+  const projectConfig = ref<ProjectConfig | null>(null)
+  const serverStatus = ref<ServerStatus | null>(null)
+  const gameUsername = ref<string | null>(null)
+  const isServerReachable = ref<boolean | null>(null)
+  const pendingCpmProjectPath = ref<string | null>(null)
 
-  getters: {
-    needsOfflineSetup: (state): boolean => state.offlineBuild && state.projects.length === 0,
-    hasLauncherConfig: (state): boolean => state.launcherConfig !== null,
-    isOfflineProject: (state): boolean => state.projectConfig?.online === false,
-    isOnlineProject: (state): boolean => !state.offlineBuild && state.projectConfig?.online === true,
-  },
+  const needsOfflineSetup = computed<boolean>(
+    () => offlineBuild.value && projects.value.length === 0,
+  )
+  const hasLauncherConfig = computed<boolean>(() => launcherConfig.value !== null)
+  const isOfflineProject = computed<boolean>(() => projectConfig.value?.online === false)
+  const isOnlineProject = computed<boolean>(
+    () => !offlineBuild.value && projectConfig.value?.online === true,
+  )
 
-  actions: {
-    applyLauncherConfig(config: LauncherConfig): void {
-      this.launcherConfig = config
-      this.applyLauncherProjects(config)
-    },
+  function applyLauncherConfig(config: LauncherConfig): void {
+    launcherConfig.value = config
+    applyLauncherProjects(config)
+  }
 
-    applyLauncherProjects(config: LauncherConfig): void {
-      this.projects = [...config.projectNames]
-      const [first] = this.projects
-      if (first === undefined) {
-        this.currentProject = ''
-        return
-      }
+  function applyLauncherProjects(config: LauncherConfig): void {
+    projects.value = [...config.projectNames]
+    const [first] = projects.value
+    if (first === undefined) {
+      currentProject.value = ''
+      return
+    }
 
-      const saved = config.currentProject
-      this.currentProject = saved !== null && this.projects.includes(saved) ? saved : first
-    },
+    const saved = config.currentProject
+    currentProject.value = saved !== null && projects.value.includes(saved) ? saved : first
+  }
 
-    applySession(session: SessionInfo): void {
-      this.session = session
-      this.isLoggedIn = true
-    },
+  function applySession(nextSession: SessionInfo): void {
+    session.value = nextSession
+    isLoggedIn.value = true
+  }
 
-    clearSessionState(): void {
-      this.isLoggedIn = false
-      this.session = null
-    },
-  },
+  function clearSessionState(): void {
+    isLoggedIn.value = false
+    session.value = null
+  }
+
+  return {
+    isLoading,
+    launcherName,
+    defaultParentPath,
+    launcherConfig,
+    version,
+    offlineBuild,
+    envProjectName,
+    currentProject,
+    projects,
+    totalMemoryMb,
+    isLoggedIn,
+    session,
+    projectConfig,
+    serverStatus,
+    gameUsername,
+    isServerReachable,
+    pendingCpmProjectPath,
+    needsOfflineSetup,
+    hasLauncherConfig,
+    isOfflineProject,
+    isOnlineProject,
+    applyLauncherConfig,
+    applyLauncherProjects,
+    applySession,
+    clearSessionState,
+  }
 })

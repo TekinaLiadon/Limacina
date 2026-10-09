@@ -1,28 +1,29 @@
 <script setup lang="ts">
 import { ref, computed, toRef } from 'vue'
-import { useCpmViewer } from '@/04-features'
-import type { CPMData, CPMAnimation } from '@/05-entities'
+import { useCpmViewer, type ActiveCpmAnimation } from '@/04-features'
+import type { CPMData } from '@/05-entities'
 import { useViewerControls } from './viewerControls'
 
 const props = defineProps<{
   cpmData: CPMData | null
   activeLayers: number[]
-  activeAnimations?: CPMAnimation[]
+  activeAnimations?: ActiveCpmAnimation[]
   isAnimationPlaying?: boolean
   animationSpeed?: number
   isAnimationLooped?: boolean
 }>()
 
 const emit = defineEmits<{
-  'animations-changed': [playing: boolean]
+  'playing-changed': [playing: boolean]
   'animation-finished': []
+  'load-error': []
 }>()
 
 const container = ref<HTMLDivElement | null>(null)
 
 const cpmData = toRef(props, 'cpmData')
 const activeLayers = toRef(props, 'activeLayers')
-const activeAnimations = computed((): CPMAnimation[] => props.activeAnimations ?? [])
+const activeAnimations = computed((): ActiveCpmAnimation[] => props.activeAnimations ?? [])
 const isAnimationPlaying = computed((): boolean => props.isAnimationPlaying ?? false)
 const animationSpeed = computed((): number => props.animationSpeed ?? 1)
 const isAnimationLooped = computed((): boolean => props.isAnimationLooped ?? false)
@@ -37,8 +38,9 @@ useCpmViewer(
   animationSpeed,
   isAnimationLooped,
   {
-    onAnimationsChanged: (playing: boolean) => emit('animations-changed', playing),
+    onPlayingChanged: (playing: boolean) => emit('playing-changed', playing),
     onAnimationFinished: () => emit('animation-finished'),
+    onTextureError: () => emit('load-error'),
   },
 )
 </script>
@@ -48,16 +50,9 @@ useCpmViewer(
 </template>
 
 <style lang="scss">
-.cpm-viewer__canvas {
-  width: 100%;
-  height: var(--viewer-height);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  background: var(--viewer-bg);
-  box-shadow: var(--elevation-inset);
+@use '@/01-app/assets/mixins';
 
-  canvas {
-    display: block;
-  }
+.cpm-viewer__canvas {
+  @include mixins.viewer-canvas;
 }
 </style>

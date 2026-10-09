@@ -1,13 +1,13 @@
-import { useAccountsStore, useCoreStore, type StepEvent, type StepProgressItem } from '@/05-entities'
+import { useLaunchStore, useCoreStore, type StepEvent } from '@/05-entities'
 import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
-import { applyStepEvent, computeStepProgress, createStepItem, reportError, type StepPlanItem } from '@/06-shared'
+import { createSingletonListeners, reportError, type StepPlanItem } from '@/06-shared'
 import { syncGameSession } from '../game-session/useGameSession'
 
 const MIN_DISPLAY_MS = 500
 const FLUSH_TIMEOUT_MS = 5000
 const FLUSH_POLL_MS = 50
 
-let streamStarted = false
+const launchStepsListeners = createSingletonListeners()
 let eventQueue: StepEvent[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let lastFinishedAt = 0
@@ -23,24 +23,12 @@ export function useLaunchStepsStream(): {
   resetLaunchSteps: () => void
   flushLaunchSteps: () => Promise<void>
 } {
-  const store = useAccountsStore()
+  const launch = useLaunchStore()
   const coreStore = useCoreStore()
 
-  const findStep = (key: string): StepProgressItem | undefined =>
-    store.launchSteps.find((step) => step.key === key)
-
-  const recomputeProgress = (): void => {
-    store.activeProgress = computeStepProgress(store.launchSteps)
-  }
-
   const apply = (event: StepEvent): void => {
-    if (activeGeneration === null || store.launchGeneration !== activeGeneration) return
-    applyStepEvent(store.launchSteps, event)
-    if (event.type === 'failed') {
-      store.isLaunching = false
-      store.launchInterrupted = false
-      store.loginError = event.message
-    }
+    if (activeGeneration === null || launch.launchGeneration !== activeGeneration) return
+    launch.applyStreamEvent(event)
   }
 
   const holdForEvent = (event: StepEvent): number => {
@@ -50,7 +38,7 @@ export function useLaunchStepsStream(): {
       return elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
     }
     if (event.type === 'finished' || event.type === 'failed') {
-      const step = findStep(event.id)
+      const step = launch.launchSteps.find((item) => item.key === event.id)
       if (step === undefined) return 0
       const elapsed = Date.now() - step.shownAt
       return elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
@@ -95,7 +83,7 @@ export function useLaunchStepsStream(): {
       if (!drainNextEvent()) break
     }
 
-    recomputeProgress()
+    launch.recomputeProgress()
   }
 
   const clearQueueState = (): void => {
@@ -111,20 +99,13 @@ export function useLaunchStepsStream(): {
 
   const prefillLaunchSteps = (plan: StepPlanItem[]): void => {
     clearQueueState()
-    activeGeneration = store.launchGeneration
-    store.launchSteps = plan.map((item) => ({
-      ...createStepItem(item.key, item.label, 0),
-      status: 'pending',
-    }))
-    store.activeProgress = 0
-    store.launchInterrupted = false
+    activeGeneration = launch.launchGeneration
+    launch.prefillSteps(plan)
   }
 
   const resetLaunchSteps = (): void => {
     clearQueueState()
-    store.launchSteps = []
-    store.activeProgress = 0
-    store.launchInterrupted = false
+    launch.resetSteps()
   }
 
   const hydrateLaunchState = async (): Promise<void> => {
@@ -140,11 +121,8 @@ export function useLaunchStepsStream(): {
       reportError('Не удалось получить состояние запуска игры', e)
       return
     }
-    if (!inProgress || store.isLaunching || coreStore.gameUsername !== null) return
-    store.isLaunching = true
-    store.launchInterrupted = true
-    store.launchSteps = []
-    store.activeProgress = 0
+    if (!inProgress || launch.isLaunching || coreStore.gameUsername !== null) return
+    launch.markInterrupted()
   }
 
   const flushLaunchSteps = async (): Promise<void> => {
@@ -162,24 +140,21 @@ export function useLaunchStepsStream(): {
     while (eventQueue.length > 0) {
       if (!drainNextEvent()) break
     }
-    recomputeProgress()
+    launch.recomputeProgress()
   }
 
   const startLaunchStepsStream = async (): Promise<void> => {
-    if (streamStarted) return
-    streamStarted = true
-
     try {
-      await listenLaunchSteps((event: StepEvent) => {
-        eventQueue.push(event)
-        processQueue()
+      await launchStepsListeners.start(async (track): Promise<void> => {
+        track(await listenLaunchSteps((event: StepEvent): void => {
+          eventQueue.push(event)
+          processQueue()
+        }))
+        await hydrateLaunchState()
       })
     } catch (e: unknown) {
-      streamStarted = false
       reportError('Не удалось запустить поток шагов запуска', e)
-      return
     }
-    await hydrateLaunchState()
   }
 
   return {

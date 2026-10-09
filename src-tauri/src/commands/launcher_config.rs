@@ -4,6 +4,7 @@ use sysinfo::System;
 use tauri::State;
 use tokio::sync::Mutex;
 
+use crate::log_err;
 use crate::state::dto::GlobalState;
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::blocking;
@@ -87,51 +88,70 @@ async fn load_launcher_config() -> anyhow::Result<LauncherConfig> {
 
 #[tauri::command]
 pub async fn get_app_init_data(state: State<'_, Mutex<GlobalState>>) -> CommandResult<AppInitData> {
-    let mut config = blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
-        .await?
-        .ok()
-        .flatten();
+    Ok(get_app_init_data_inner(&state).await?)
+}
 
-    if let Some(ref mut cfg) = config {
-        let mut changed = cfg.apply_default_project();
-        if cfg.install_id.is_none() {
-            let id = blocking(
-                "Не удалось вычислить ID установки",
-                compute_install_id_blocking,
-            )
-            .await?;
-            cfg.install_id = Some(id);
-            changed = true;
-        }
-        if changed {
-            let cfg_clone = cfg.clone();
-            let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
-            let _ = blocking(
-                "Не удалось выполнить запись конфига",
-                move || cfg_clone.save(),
-            )
-            .await;
-        }
-    }
+async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<AppInitData> {
+    let (config, version) = {
+        let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
 
-    let install_id = match config.as_ref().and_then(|cfg| cfg.install_id.clone()) {
-        Some(id) => id,
-        None => {
-            blocking(
-                "Не удалось вычислить ID установки",
-                compute_install_id_blocking,
-            )
-            .await?
+        let mut config = match blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
+            .await
+        {
+            Ok(Ok(config)) => config,
+            Ok(Err(e)) | Err(e) => {
+                log_err!("Не удалось прочитать конфиг лаунчера при инициализации: {e:#}");
+                None
+            }
+        };
+
+        if let Some(ref mut cfg) = config {
+            let mut changed = cfg.apply_default_project();
+            if cfg.install_id.is_none() {
+                let id = blocking(
+                    "Не удалось вычислить ID установки",
+                    compute_install_id_blocking,
+                )
+                .await?;
+                cfg.install_id = Some(id);
+                changed = true;
+            }
+            if changed {
+                let cfg_clone = cfg.clone();
+                match blocking(
+                    "Не удалось выполнить запись конфига",
+                    move || cfg_clone.save(),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) | Err(e) => {
+                        log_err!("Не удалось сохранить конфиг лаунчера при инициализации: {e:#}")
+                    }
+                }
+            }
         }
+
+        let install_id = match config.as_ref().and_then(|cfg| cfg.install_id.clone()) {
+            Some(id) => id,
+            None => {
+                blocking(
+                    "Не удалось вычислить ID установки",
+                    compute_install_id_blocking,
+                )
+                .await?
+            }
+        };
+        set_install_id(&install_id);
+
+        let version;
+        {
+            let mut guard = state.lock().await;
+            guard.launcher_config = config.clone();
+            version = guard.app_version.clone();
+        }
+        (config, version)
     };
-    set_install_id(&install_id);
-
-    let version;
-    {
-        let mut state = state.lock().await;
-        state.launcher_config = config.clone();
-        version = state.app_version.clone();
-    }
 
     let default_parent_path = get_home_dir()
         .map(|p| p.to_string_lossy().to_string())
@@ -278,24 +298,7 @@ pub async fn save_animations_enabled(
 mod update_flow_tests {
     use super::*;
     use crate::state::dto::GlobalState;
-    use crate::state::launcher_config::set_config_file_path_for_tests;
-    use crate::test_support::LauncherDirGuard;
-    use std::path::Path;
-
-    struct ConfigFileGuard;
-
-    impl ConfigFileGuard {
-        fn acquire(root: &Path, name: &str) -> Self {
-            set_config_file_path_for_tests(Some(root.join(name)));
-            Self
-        }
-    }
-
-    impl Drop for ConfigFileGuard {
-        fn drop(&mut self) {
-            set_config_file_path_for_tests(None);
-        }
-    }
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
 
     fn state_with(config: LauncherConfig) -> Mutex<GlobalState> {
         Mutex::new(GlobalState {
@@ -390,6 +393,73 @@ mod update_flow_tests {
         assert!(
             state.lock().await.launcher_config.is_none(),
             "in-memory не должен заполняться дефолтом при ошибке чтения"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_init_seed_keeps_parallel_theme_mutation() {
+        let dir_guard = LauncherDirGuard::acquire("app_init_config_race").await;
+        let _path_guard = ConfigFileGuard::acquire(dir_guard.root(), "config.json");
+        let seeded = LauncherConfig {
+            theme: "seed".to_string(),
+            ..Default::default()
+        };
+        seeded
+            .save()
+            .expect("сохранение стартового конфига без install_id");
+
+        let state = Mutex::new(GlobalState::default());
+
+        let (init_result, theme_result) = tokio::join!(
+            get_app_init_data_inner(&state),
+            update_launcher_config(&state, |config| config.theme = "race-theme".to_string()),
+        );
+        init_result.expect("инициализация приложения");
+        theme_result.expect("смена темы");
+
+        let saved = LauncherConfig::load()
+            .expect("чтение сохранённого конфига")
+            .expect("конфиг должен быть записан");
+        assert_eq!(
+            saved.theme, "race-theme",
+            "параллельная смена темы не должна теряться на диске"
+        );
+        assert!(
+            saved.install_id.is_some(),
+            "сид install_id не должен теряться на диске"
+        );
+
+        let in_memory = state
+            .lock()
+            .await
+            .launcher_config
+            .clone()
+            .expect("in-memory конфиг");
+        assert_eq!(
+            in_memory.theme, "race-theme",
+            "параллельная смена темы не должна откатываться в памяти"
+        );
+        assert!(
+            in_memory.install_id.is_some(),
+            "in-memory конфиг должен содержать свежий install_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn init_data_survives_config_read_error() {
+        let dir = LauncherDirGuard::acquire("init_data_read_error").await;
+        let blocked = dir.root().join("config_dir");
+        std::fs::create_dir_all(&blocked).expect("каталог вместо файла конфига");
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config_dir");
+        let state = Mutex::new(GlobalState::default());
+
+        let data = get_app_init_data_inner(&state)
+            .await
+            .expect("сбой чтения конфига не должен валить инициализацию");
+
+        assert!(
+            data.launcher_config.is_none(),
+            "при нечитаемом конфиге инициализация продолжает работу без него"
         );
     }
 }

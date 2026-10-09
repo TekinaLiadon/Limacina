@@ -33,7 +33,13 @@ struct FoojayPackagesResponse {
     result: Vec<FoojayPackageResult>,
 }
 
-const SUPPORTED_ARCHIVE_TYPES: &[&str] = &["tar.gz", "zip"];
+fn is_supported_archive_type(archive_type: &str) -> bool {
+    if cfg!(target_os = "windows") {
+        archive_type == "zip"
+    } else {
+        archive_type == "tar.gz"
+    }
+}
 
 pub fn get_java_distributions_list() -> Vec<JavaDistribution> {
     vec![
@@ -121,9 +127,7 @@ async fn fetch_package(
 
     let pkg = packages.result.into_iter().find_map(|p| {
         let links = p.links.as_ref()?;
-        if SUPPORTED_ARCHIVE_TYPES.contains(&p.archive_type.as_str())
-            && !links.pkg_download_redirect.is_empty()
-        {
+        if is_supported_archive_type(&p.archive_type) && !links.pkg_download_redirect.is_empty() {
             Some((links.pkg_download_redirect.clone(), p.archive_type.clone()))
         } else {
             None
@@ -235,8 +239,24 @@ pub async fn download_alt_java(
 
 #[cfg(test)]
 mod validation_tests {
-    use super::ensure_distribution_supported;
+    use super::{ensure_distribution_supported, is_supported_archive_type};
     use crate::utils::env_info::ensure_safe_relative_path;
+
+    #[test]
+    fn archive_filter_matches_platform_extraction() {
+        assert_eq!(
+            is_supported_archive_type("zip"),
+            cfg!(target_os = "windows"),
+            "zip распаковывается только на Windows"
+        );
+        assert_eq!(
+            is_supported_archive_type("tar.gz"),
+            !cfg!(target_os = "windows"),
+            "tar.gz распаковывается только вне Windows"
+        );
+        assert!(!is_supported_archive_type("tar.xz"));
+        assert!(!is_supported_archive_type(""));
+    }
 
     #[test]
     fn traversal_distribution_is_rejected() {

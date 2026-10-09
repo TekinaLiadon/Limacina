@@ -64,7 +64,8 @@ fn format_exec_line(appimage: &Path) -> String {
     let escaped = appimage
         .to_string_lossy()
         .replace('\\', "\\\\")
-        .replace('"', "\\\"");
+        .replace('"', "\\\"")
+        .replace('%', "%%");
     format!("\"{escaped}\"")
 }
 
@@ -192,6 +193,133 @@ mod tests {
     #[test]
     fn exec_line_escapes_quotes() {
         assert_eq!(format_exec_line(Path::new("/a\"b\\c")), "\"/a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn exec_line_doubles_percent_signs() {
+        assert_eq!(
+            format_exec_line(Path::new("/opt/100% Limacina%20.AppImage")),
+            "\"/opt/100%% Limacina%%20.AppImage\""
+        );
+    }
+
+    #[test]
+    fn find_largest_png_picks_widest_entry_recursively() {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-icon-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("hicolor/256x256/apps")).unwrap();
+        std::fs::create_dir_all(dir.join("hicolor/128x128/apps")).unwrap();
+        write_fake_png(&dir.join("hicolor/256x256/apps/big.png"), 256, 256);
+        write_fake_png(&dir.join("hicolor/128x128/apps/small.png"), 128, 128);
+        std::fs::write(dir.join("hicolor/not-png.txt"), b"junk").unwrap();
+
+        let best = find_largest_png(&dir).expect("png должен найтись");
+
+        assert_eq!(
+            best,
+            dir.join("hicolor/256x256/apps/big.png"),
+            "выбирается png с наибольшей площадью, независимо от глубины"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_largest_png_ignores_corrupt_and_missing() {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-icon-broken-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("icons")).unwrap();
+        std::fs::write(dir.join("icons/broken.png"), b"not a png").unwrap();
+
+        assert_eq!(
+            find_largest_png(&dir),
+            Some(dir.join("icons/broken.png")),
+            "битый png — единственный кандидат: выбирается, размер компенсируется фолбэком"
+        );
+        assert_eq!(
+            find_largest_png(&dir.join("missing-root")),
+            None,
+            "несуществующий корень не должен паниковать"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_icon_falls_back_to_256x256_for_corrupt_png() {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-sync-corrupt-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let appdir = dir.join("app");
+        let data_home = dir.join("data");
+        std::fs::create_dir_all(appdir.join("usr/share/icons")).unwrap();
+        std::fs::write(appdir.join("usr/share/icons/icon.png"), b"not a png").unwrap();
+
+        sync_icon(&appdir, &data_home, "com.tekina.limacina")
+            .expect("битый png не должен ломать синхронизацию");
+
+        assert!(
+            data_home
+                .join("icons/hicolor/256x256/apps/com.tekina.limacina.png")
+                .exists(),
+            "неизвестный размер подставляется как 256x256"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_icon_copies_to_hicolor_apps_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-sync-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let appdir = dir.join("app");
+        let data_home = dir.join("data");
+        std::fs::create_dir_all(appdir.join("usr/share/icons")).unwrap();
+        write_fake_png(&appdir.join("usr/share/icons/icon.png"), 128, 128);
+
+        sync_icon(&appdir, &data_home, "com.tekina.limacina").expect("синхронизация иконки");
+
+        let target = data_home.join("icons/hicolor/128x128/apps/com.tekina.limacina.png");
+        assert!(target.exists(), "иконка копируется в hicolor/128x128/apps");
+
+        sync_icon(&appdir, &data_home, "com.tekina.limacina")
+            .expect("повторный вызов перезаписывает файл без ошибок");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_icon_is_noop_without_icons() {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-sync-empty-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let appdir = dir.join("app");
+        let data_home = dir.join("data");
+        std::fs::create_dir_all(&appdir).unwrap();
+
+        sync_icon(&appdir, &data_home, "com.tekina.limacina")
+            .expect("отсутствие иконок — тихий no-op");
+        assert!(!data_home.join("icons").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

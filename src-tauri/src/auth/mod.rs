@@ -11,10 +11,19 @@ use crate::{
     utils::http::{http_client, request_json, with_launcher_id},
 };
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct AuthTokens {
     pub access_token: String,
     pub refresh_token: String,
+}
+
+impl std::fmt::Debug for AuthTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthTokens")
+            .field("access_token", &"[redacted]")
+            .field("refresh_token", &"[redacted]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -23,7 +32,7 @@ pub struct AuthProfile {
     pub username: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct AuthData {
     pub tokens: AuthTokens,
     #[serde(default)]
@@ -34,6 +43,18 @@ pub struct AuthData {
     pub username: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
+}
+
+impl std::fmt::Debug for AuthData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthData")
+            .field("tokens", &self.tokens)
+            .field("profile", &self.profile)
+            .field("uuid", &self.uuid)
+            .field("username", &self.username)
+            .field("role", &self.role)
+            .finish()
+    }
 }
 
 impl AuthData {
@@ -358,5 +379,60 @@ mod auth_http_tests {
             .await
             .expect_err("должна быть ошибка");
         assert!(error.to_string().contains("500"), "{}", error);
+    }
+
+    #[test]
+    fn auth_tokens_debug_masks_tokens() {
+        let tokens = AuthTokens {
+            access_token: "access-secret-value".to_string(),
+            refresh_token: "refresh-secret-value".to_string(),
+        };
+
+        let rendered = format!("{tokens:?}");
+
+        assert!(
+            rendered.contains("[redacted]"),
+            "токены должны маскироваться: {rendered}"
+        );
+        assert!(
+            !rendered.contains("access-secret-value"),
+            "access_token не должен попадать в Debug: {rendered}"
+        );
+        assert!(
+            !rendered.contains("refresh-secret-value"),
+            "refresh_token не должен попадать в Debug: {rendered}"
+        );
+    }
+
+    #[test]
+    fn auth_data_debug_masks_tokens_but_keeps_profile() {
+        let data = AuthData {
+            tokens: AuthTokens {
+                access_token: "access-secret-value".to_string(),
+                refresh_token: "refresh-secret-value".to_string(),
+            },
+            profile: Some(AuthProfile {
+                uuid: "uuid-1".to_string(),
+                username: "Steve".to_string(),
+            }),
+            uuid: None,
+            username: None,
+            role: None,
+        };
+
+        let rendered = format!("{data:?}");
+
+        assert!(
+            !rendered.contains("access-secret-value"),
+            "access_token не должен попадать в Debug: {rendered}"
+        );
+        assert!(
+            !rendered.contains("refresh-secret-value"),
+            "refresh_token не должен попадать в Debug: {rendered}"
+        );
+        assert!(
+            rendered.contains("Steve"),
+            "профиль не секретен и остаётся в Debug: {rendered}"
+        );
     }
 }

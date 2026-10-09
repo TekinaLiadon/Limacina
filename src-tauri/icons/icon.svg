@@ -14,7 +14,7 @@
       <stop offset="50%" stop-color="#c8c8d8"/>
       <stop offset="100%" stop-color="#6a6a7a"/>
     </linearGradient>
-    <filter id="glow">
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
       <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
       <feMerge>
         <feMergeNode in="coloredBlur"/>
@@ -35,56 +35,42 @@
     <circle cx="256" cy="472" r="5"/>
     <circle cx="40" cy="256" r="5"/>
     <circle cx="472" cy="256" r="5"/>
-    <circle cx="90.3" cy="90.3" r="4.5"/>
-    <circle cx="421.7" cy="90.3" r="4.5"/>
-    <circle cx="90.3" cy="421.7" r="4.5"/>
-    <circle cx="421.7" cy="421.7" r="4.5"/>
-    <circle cx="148" cy="52" r="3.5"/>
-    <circle cx="364" cy="52" r="3.5"/>
-    <circle cx="148" cy="460" r="3.5"/>
-    <circle cx="364" cy="460" r="3.5"/>
-    <circle cx="52" cy="148" r="3.5"/>
-    <circle cx="460" cy="148" r="3.5"/>
-    <circle cx="52" cy="364" r="3.5"/>
-    <circle cx="460" cy="364" r="3.5"/>
+    <circle cx="91.95" cy="91.95" r="4.5"/>
+    <circle cx="420.05" cy="91.95" r="4.5"/>
+    <circle cx="91.95" cy="420.05" r="4.5"/>
+    <circle cx="420.05" cy="420.05" r="4.5"/>
+    <circle cx="147.08" cy="51.16" r="3.5"/>
+    <circle cx="364.92" cy="51.16" r="3.5"/>
+    <circle cx="147.08" cy="460.84" r="3.5"/>
+    <circle cx="364.92" cy="460.84" r="3.5"/>
+    <circle cx="51.16" cy="147.08" r="3.5"/>
+    <circle cx="460.84" cy="147.08" r="3.5"/>
+    <circle cx="51.16" cy="364.92" r="3.5"/>
+    <circle cx="460.84" cy="364.92" r="3.5"/>
   </g>
 
   <circle cx="256" cy="256" r="180" fill="none" stroke="url(#gold)" stroke-width="4" opacity="0.6"/>
   <circle cx="256" cy="256" r="168" fill="none" stroke="url(#silver)" stroke-width="1.5" opacity="0.4"/>
 
   <g stroke="url(#gold)" stroke-width="2.5" fill="none" opacity="0.7" filter="url(#glow)">
-    <line x1="256" y1="76" x2="256" y2="96"/>
-    <line x1="246" y1="86" x2="266" y2="86"/>
-    <line x1="256" y1="416" x2="256" y2="436"/>
-    <line x1="246" y1="426" x2="266" y2="426"/>
-    <line x1="76" y1="256" x2="96" y2="256"/>
-    <line x1="86" y1="246" x2="86" y2="266"/>
-    <line x1="416" y1="256" x2="436" y2="256"/>
-    <line x1="426" y1="246" x2="426" y2="266"/>
+    <path d="M256 76 V96 M246 86 H266"/>
+    <path d="M256 416 V436 M246 426 H266"/>
+    <path d="M76 256 H96 M86 246 V266"/>
+    <path d="M416 256 H436 M426 246 V266"/>
   </g>
 
   <g stroke="url(#gold)" stroke-width="2" fill="none" opacity="0.5" filter="url(#glow)">
-    <line x1="122" y1="122" x2="136" y2="136"/>
-    <line x1="128" y1="116" x2="116" y2="128"/>
-    <line x1="390" y1="122" x2="376" y2="136"/>
-    <line x1="384" y1="116" x2="396" y2="128"/>
-    <line x1="122" y1="390" x2="136" y2="376"/>
-    <line x1="116" y1="384" x2="128" y2="396"/>
-    <line x1="390" y1="390" x2="376" y2="376"/>
-    <line x1="396" y1="384" x2="384" y2="396"/>
+    <path d="M116 116 L136 136 M116 136 L136 116"/>
+    <path d="M376 116 L396 136 M376 136 L396 116"/>
+    <path d="M116 376 L136 396 M116 396 L136 376"/>
+    <path d="M376 376 L396 396 M376 396 L396 376"/>
   </g>
 
   <circle cx="256" cy="256" r="130" fill="none" stroke="url(#gold)" stroke-width="5" filter="url(#glow)"/>
   <circle cx="256" cy="256" r="118" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.4"/>
   <circle cx="256" cy="256" r="108" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.4"/>
 
-  <g stroke="url(#gold)" stroke-width="3" fill="none" filter="url(#glow)">
-    <line x1="256" y1="196" x2="256" y2="316"/>
-    <line x1="256" y1="316" x2="302" y2="316"/>
-    <path d="M256 196 Q236 182 240 200" stroke-linecap="round"/>
-    <circle cx="256" cy="191" r="3.5" fill="url(#gold)" stroke="none"/>
-    <circle cx="302" cy="316" r="2.5" fill="url(#gold)" stroke="none"/>
-  </g>
+  <path d="M201.233 336.001 V176 H225.222 V314.049 H310.767 V336.001 Z" fill="url(#gold)" filter="url(#glow)"/>
 
   <g stroke="url(#gold)" stroke-width="1.5" fill="none" opacity="0.3">
     <path d="M105 105 Q130 108 125 133"/>

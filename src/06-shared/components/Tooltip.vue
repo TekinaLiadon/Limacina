@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { randomId } from '../utils/utils'
+import { randomId } from '@/06-shared/utils/utils'
 
 const SHOW_DELAY_MS = 300
 const VIEWPORT_MARGIN = 8

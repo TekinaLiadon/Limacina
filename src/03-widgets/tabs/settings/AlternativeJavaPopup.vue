@@ -103,6 +103,7 @@ onBeforeUnmount((): void => {
                   Загрузить
                 </Button>
                 <Button
+                  v-focus
                   class="btn-quiet alt-java-popup__btn"
                   @click="emit('close')"
                 >

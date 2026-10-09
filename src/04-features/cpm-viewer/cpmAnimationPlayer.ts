@@ -11,6 +11,9 @@ const PLAYER_PART_IDS: Record<string, number> = {
   right_leg: 5,
 }
 
+export const SPEED_MIN = 0.25
+export const SPEED_MAX = 3
+
 const MODEL_ORIGIN_Y = 24
 
 interface AnimatedNode {
@@ -20,6 +23,7 @@ interface AnimatedNode {
   baseScale: THREE.Vector3
   baseVisible: boolean
   isRoot: boolean
+  isVanillaPart: boolean
   meshes: THREE.Mesh[]
 }
 
@@ -35,6 +39,7 @@ export function indexModelNodes(modelGroup: THREE.Group): NodeIndex {
     if (index.has(storeId)) return
 
     const isRoot = object.userData.isRoot === true
+    const isVanillaPart = isRoot && object.userData.isVanillaPart === true
     const meshes: THREE.Mesh[] = []
     if (isRoot) {
       object.traverse((child) => {
@@ -55,6 +60,7 @@ export function indexModelNodes(modelGroup: THREE.Group): NodeIndex {
       baseScale: object.scale.clone(),
       baseVisible,
       isRoot,
+      isVanillaPart,
       meshes,
     })
   })
@@ -109,6 +115,8 @@ function sampleChannel(values: number[], framePos: number, loop: boolean, smooth
     const i3 = (idx + 2) % count
     return catmullRom(at(i0), at(i1), at(i2), at(i3), t)
   }
+
+  if (idx >= count - 1) return at(count - 1)
 
   const clamped = Math.min(idx, count - 2)
   const i0 = Math.max(clamped - 1, 0)
@@ -239,6 +247,12 @@ export interface SharedClock {
   speed: number
   playing: boolean
   forceLoop: boolean
+  delayMs: number
+}
+
+export interface ActiveCpmAnimation {
+  animation: CPMAnimation
+  startDelayMs: number
 }
 
 interface AnimationEntry {
@@ -266,18 +280,18 @@ export class CpmAnimationPlayer {
     this.entries = []
   }
 
-  setAnimations(animations: CPMAnimation[]): void {
+  setAnimations(entries: ActiveCpmAnimation[]): void {
     this.resetNodes()
 
-    const activeIds = new Set(animations.map((animation) => animation.id))
+    const activeIds = new Set(entries.map((entry) => entry.animation.id))
     this.clocks.forEach((_clock, id) => {
       if (!activeIds.has(id)) this.clocks.delete(id)
     })
 
-    this.entries = [...animations]
-      .sort((a, b) => a.priority - b.priority)
-      .map((animation) => {
-        let clock = this.clocks.get(animation.id)
+    this.entries = [...entries]
+      .sort((a, b) => a.animation.priority - b.animation.priority)
+      .map((entry) => {
+        let clock = this.clocks.get(entry.animation.id)
         if (!clock) {
           clock = {
             startedAt: performance.now(),
@@ -285,22 +299,24 @@ export class CpmAnimationPlayer {
             speed: this.defaultSpeed,
             playing: this.host.isPlaying.value,
             forceLoop: this.defaultForceLoop,
+            delayMs: entry.startDelayMs,
           }
-          this.clocks.set(animation.id, clock)
+          this.clocks.set(entry.animation.id, clock)
         }
-        return { animation, tracks: buildTracks(animation, this.index), clock }
+        clock.delayMs = entry.startDelayMs
+        return { animation: entry.animation, tracks: buildTracks(entry.animation, this.index), clock }
       })
 
     if (this.entries.length > 0) this.applyCurrentFrame()
   }
 
   setSpeed(speed: number): void {
-    const clamped = Math.max(0.25, Math.min(3, speed))
+    const clamped = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speed))
     this.defaultSpeed = clamped
     this.clocks.forEach((clock) => {
       if (clock.speed === clamped) return
       if (clock.playing) {
-        const virtualElapsed = (performance.now() - clock.startedAt) * clock.speed
+        const virtualElapsed = Math.max(0, (performance.now() - clock.startedAt) * clock.speed - clock.delayMs)
         clock.startedAt = performance.now() - virtualElapsed / clamped
       }
       clock.speed = clamped
@@ -325,11 +341,11 @@ export class CpmAnimationPlayer {
           clock.startedAt = performance.now()
           clock.pausedAt = 0
         } else {
-          clock.startedAt = performance.now() - clock.pausedAt / clock.speed
+          clock.startedAt = performance.now() - (clock.pausedAt + clock.delayMs) / clock.speed
         }
         clock.playing = true
       } else {
-        clock.pausedAt = (performance.now() - clock.startedAt) * clock.speed
+        clock.pausedAt = (performance.now() - clock.startedAt) * clock.speed - clock.delayMs
         clock.playing = false
       }
     })
@@ -343,7 +359,7 @@ export class CpmAnimationPlayer {
       if (!clock.playing) return
 
       const duration = Math.max(entry.animation.duration, 1)
-      const elapsed = (performance.now() - clock.startedAt) * clock.speed
+      const elapsed = this.clockElapsed(entry)
       const loops = entry.animation.loop || clock.forceLoop
 
       if (!loops && elapsed >= duration) {
@@ -362,7 +378,7 @@ export class CpmAnimationPlayer {
   private clockElapsed(entry: AnimationEntry): number {
     const {clock} = entry
     if (!clock.playing) return clock.pausedAt
-    return (performance.now() - clock.startedAt) * clock.speed
+    return (performance.now() - clock.startedAt) * clock.speed - clock.delayMs
   }
 
   resetNodes(): void {
@@ -374,9 +390,9 @@ export class CpmAnimationPlayer {
       node.meshes.forEach((mesh) => {
         const layerId = mesh.userData.layerId as number | undefined
         mesh.userData.animVisible = true
-        mesh.visible = layerId !== undefined
+        mesh.visible = (layerId !== undefined
           ? this.host.activeLayerIds.value.includes(layerId)
-          : mesh.userData.defaultVisible !== false
+          : true) && mesh.userData.defaultVisible !== false
       })
     })
   }
@@ -393,6 +409,9 @@ export class CpmAnimationPlayer {
     const {animation} = entry
     const frameCount = animation.frames.length
     if (frameCount === 0) return
+    if (elapsed < 0) return
+    const {clock} = entry
+    if (!clock.playing && clock.pausedAt === 0 && clock.delayMs > 0) return
 
     const loop = isLoopInterpolator(animation.interpolator, animation.loop)
     const smooth = isSmoothInterpolator(animation.interpolator)
@@ -402,7 +421,7 @@ export class CpmAnimationPlayer {
 
     const loops = animation.loop || entry.clock.forceLoop
     const wrappedElapsed = loops && elapsed >= duration ? elapsed % duration : elapsed
-    const framePos = (wrappedElapsed / duration) * frameCount
+    const framePos = (wrappedElapsed / duration) * Math.max(frameCount - 1, 1)
 
     entry.tracks.forEach((track) => {
       const node = this.index.get(track.storeId)
@@ -456,11 +475,16 @@ export class CpmAnimationPlayer {
         )
       }
 
-      node.group.visible = show
-      node.meshes.forEach((mesh) => {
-        mesh.userData.animVisible = show
-        mesh.visible = show
-      })
+      if (!node.isVanillaPart) {
+        node.group.visible = show
+        node.meshes.forEach((mesh) => {
+          mesh.userData.animVisible = show
+          const layerId = mesh.userData.layerId as number | undefined
+          mesh.visible = show && (layerId !== undefined
+            ? this.host.activeLayerIds.value.includes(layerId)
+            : mesh.userData.defaultVisible !== false)
+        })
+      }
     })
   }
 }

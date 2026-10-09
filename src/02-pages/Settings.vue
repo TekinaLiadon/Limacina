@@ -2,17 +2,18 @@
 import { watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Button, Tooltip } from '@/06-shared'
-import { useProjectSettings, useSettingsNav } from '@/04-features'
+import { useProjectSettings, useSettingsNav, useSettingsDirtyGuard } from '@/04-features'
 
 const router = useRouter()
 const route = useRoute()
 
 const { config, isLoaded } = useProjectSettings()
 const { items: tabs } = useSettingsNav()
+useSettingsDirtyGuard()
 
 watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   if (offline && route.name === 'SettingsAccount') router.replace({ name: 'SettingsLauncher' })
-})
+}, { immediate: true })
 </script>
 
 <template>

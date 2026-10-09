@@ -31,16 +31,16 @@ impl ProjectConfig {
     pub async fn save_config(&self) -> Result<()> {
         let toml_string =
             to_string_pretty(self).context("Не удалось сериализовать конфиг профиля")?;
+        let path = config_file_path(&self.project_name)?;
         let config_dir = launcher_path(Some("config"))?;
         create_dir_all(&config_dir)
             .await
             .with_context(|| format!("Не удалось создать каталог конфигов {config_dir:?}"))?;
-        write_atomic(
-            &config_dir.join(format!("{}.toml", self.project_name)),
-            toml_string.as_bytes(),
-        )
-        .await
-        .with_context(|| format!("Не удалось записать конфиг профиля {:?}", self.project_name))?;
+        write_atomic(&path, toml_string.as_bytes())
+            .await
+            .with_context(|| {
+                format!("Не удалось записать конфиг профиля {:?}", self.project_name)
+            })?;
         Ok(())
     }
 }
@@ -61,6 +61,16 @@ pub(crate) async fn update_project_config(
         guard.project_config = project_config.clone();
     }
     Ok(project_config)
+}
+
+pub(crate) async fn set_project_config(
+    state: &Mutex<GlobalState>,
+    config: ProjectConfig,
+) -> Result<()> {
+    let _write_guard = PROJECT_CONFIG_WRITE_LOCK.lock().await;
+    let mut guard = state.lock().await;
+    guard.project_config = config;
+    Ok(())
 }
 
 pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
@@ -88,6 +98,7 @@ fn default_project_config(project_name: &str) -> ProjectConfig {
 }
 
 fn config_file_path(project_name: &str) -> Result<std::path::PathBuf> {
+    validate_project_name(project_name)?;
     Ok(launcher_path(Some("config"))?.join(format!("{}.toml", project_name)))
 }
 
@@ -128,7 +139,8 @@ async fn recover_corrupt_config(
 #[cfg(test)]
 mod tests {
     use super::{
-        load_config, load_config_or_default, update_project_config, validate_project_name,
+        config_file_path, load_config, load_config_or_default, update_project_config,
+        validate_project_name,
     };
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::LauncherDirGuard;
@@ -165,6 +177,33 @@ mod tests {
                 "имя {name:?} должно отклоняться"
             );
         }
+    }
+
+    #[test]
+    fn config_file_path_rejects_unsafe_names() {
+        for name in ["", "   ", "../evil", "/abs", "a/b", "a.b"] {
+            assert!(
+                config_file_path(name).is_err(),
+                "имя {name:?} должно отклоняться"
+            );
+        }
+        assert!(config_file_path("Limacina").is_ok());
+    }
+
+    #[tokio::test]
+    async fn save_config_rejects_unsafe_project_name() {
+        let guard = LauncherDirGuard::acquire("config_save_unsafe").await;
+
+        let config = ProjectConfig {
+            project_name: "../evil".to_string(),
+            ..ProjectConfig::default()
+        };
+
+        assert!(config.save_config().await.is_err());
+        assert!(
+            !guard.root().join("project/evil.toml").exists(),
+            "конфиг не должен быть записан вне каталога конфигов"
+        );
     }
 
     #[tokio::test]

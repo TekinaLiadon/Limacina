@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   getErrorMessage,
   modrinthSearch,
@@ -9,10 +9,11 @@ import {
   modrinthUninstall,
 } from '@/06-shared/api'
 import { useAsyncRaceGuard } from '@/06-shared'
-import type {
-  ModrinthSearchHit,
-  ModrinthProjectDetails,
-  ModrinthInstalledMod,
+import {
+  useCoreStore,
+  type ModrinthSearchHit,
+  type ModrinthProjectDetails,
+  type ModrinthInstalledMod,
 } from '@/05-entities'
 
 export interface ModrinthCategory {
@@ -69,7 +70,12 @@ export const MODRINTH_CATEGORY_LABELS: Record<string, string> = {
 
 export const PAGE_SIZE = 20
 
+export async function fetchModrinthProjectDetails(projectId: string): Promise<ModrinthProjectDetails> {
+  return modrinthProject(projectId)
+}
+
 export function useModrinth() {
+  const coreStore = useCoreStore()
   const query = ref('')
   const sort = ref('relevance')
   const categories = ref<string[]>([])
@@ -109,7 +115,7 @@ export function useModrinth() {
         offset: newOffset,
       })
       if (!searchGuard.isCurrent(generation)) return
-      versionNumbers.value = { ...versionNumbers.value, ...result.version_numbers }
+      versionNumbers.value = result.version_numbers
       hits.value = result.hits
       total.value = result.total
       currentPage.value = Math.floor(newOffset / PAGE_SIZE) + 1
@@ -126,23 +132,34 @@ export function useModrinth() {
     await search((clamped - 1) * PAGE_SIZE)
   }
 
+  const installedGuard = useAsyncRaceGuard()
+
   const loadInstalled = async (): Promise<void> => {
+    const project = coreStore.currentProject
+    const generation = installedGuard.next()
     isLoadingInstalled.value = true
     installedError.value = ''
     try {
-      installed.value = await modrinthInstalled()
+      const list = await modrinthInstalled()
+      if (!installedGuard.isCurrent(generation) || coreStore.currentProject !== project) return
+      installed.value = list
     } catch (e: unknown) {
+      if (!installedGuard.isCurrent(generation) || coreStore.currentProject !== project) return
       installedError.value = getErrorMessage(e)
     } finally {
-      isLoadingInstalled.value = false
+      if (installedGuard.isCurrent(generation) && coreStore.currentProject === project) isLoadingInstalled.value = false
     }
   }
 
+  const updatesGuard = useAsyncRaceGuard()
+
   const checkForUpdates = async (): Promise<void> => {
+    const generation = updatesGuard.next()
     isCheckingUpdates.value = true
     actionError.value = ''
     try {
       const checks = await modrinthCheckUpdates()
+      if (!updatesGuard.isCurrent(generation)) return
       const next: Record<string, string> = {}
       for (const check of checks) {
         if (check.available_version !== null) {
@@ -151,21 +168,27 @@ export function useModrinth() {
       }
       updates.value = next
     } catch (e: unknown) {
+      if (!updatesGuard.isCurrent(generation)) return
       actionError.value = getErrorMessage(e)
     } finally {
-      isCheckingUpdates.value = false
+      if (updatesGuard.isCurrent(generation)) isCheckingUpdates.value = false
     }
   }
 
   const install = async (projectId: string): Promise<boolean> => {
     if (installingId.value !== null) return false
+    const project = coreStore.currentProject
     installingId.value = projectId
     actionError.value = ''
     try {
       await modrinthInstall(projectId)
+      if (coreStore.currentProject !== project) return false
       await loadInstalled()
+      const { [projectId]: _resolved, ...rest } = updates.value
+      updates.value = rest
       return true
     } catch (e: unknown) {
+      if (coreStore.currentProject !== project) return false
       actionError.value = getErrorMessage(e)
       return false
     } finally {
@@ -175,15 +198,18 @@ export function useModrinth() {
 
   const uninstall = async (projectId: string): Promise<boolean> => {
     if (installingId.value !== null) return false
+    const project = coreStore.currentProject
     installingId.value = projectId
     actionError.value = ''
     try {
       await modrinthUninstall(projectId)
+      if (coreStore.currentProject !== project) return false
       const { [projectId]: _removed, ...rest } = updates.value
       updates.value = rest
       await loadInstalled()
       return true
     } catch (e: unknown) {
+      if (coreStore.currentProject !== project) return false
       actionError.value = getErrorMessage(e)
       return false
     } finally {
@@ -191,9 +217,34 @@ export function useModrinth() {
     }
   }
 
-  const fetchProjectDetails = async (projectId: string): Promise<ModrinthProjectDetails> => {
-    return modrinthProject(projectId)
+  const resetTabState = (): void => {
+    searchGuard.cancel()
+    installedGuard.cancel()
+    updatesGuard.cancel()
+    query.value = ''
+    sort.value = 'relevance'
+    categories.value = []
+    hits.value = []
+    total.value = 0
+    versionNumbers.value = {}
+    currentPage.value = 1
+    isSearching.value = false
+    searchError.value = ''
+    installed.value = []
+    isLoadingInstalled.value = false
+    installingId.value = null
+    updates.value = {}
+    isCheckingUpdates.value = false
+    actionError.value = ''
+    installedError.value = ''
   }
+
+  watch((): string => coreStore.currentProject, (projectName: string): void => {
+    if (!projectName) return
+    resetTabState()
+    void loadInstalled()
+    void search(0)
+  })
 
   return {
     query,
@@ -220,6 +271,5 @@ export function useModrinth() {
     checkForUpdates,
     install,
     uninstall,
-    fetchProjectDetails,
   }
 }

@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
-import { randomId } from '../utils/utils'
+import { randomId } from '@/06-shared/utils/utils'
 
 const props = withDefaults(defineProps<{
   options: DropdownOption[]
@@ -51,29 +51,28 @@ const moveActive = (delta: number): void => {
   activeIndex.value = (activeIndex.value + delta + count) % count
 }
 
+const confirmActive = (): void => {
+  const option = props.options[activeIndex.value]
+  if (option) emit('select', option.value)
+}
+
+const openActions: Record<string, () => void> = {
+  ArrowDown: (): void => moveActive(1),
+  ArrowUp: (): void => moveActive(-1),
+  Enter: confirmActive,
+  ' ': confirmActive,
+  Escape: close,
+}
+
+const openingKeys = new Set(['ArrowDown', 'ArrowUp', 'Enter', ' '])
+
 const handleTriggerKeydown = (event: KeyboardEvent): void => {
   if (props.disabled) return
-  if (!shown.value) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      toggle()
-    }
-    return
-  }
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    moveActive(1)
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    moveActive(-1)
-  } else if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    const option = props.options[activeIndex.value]
-    if (option) emit('select', option.value)
-  } else if (event.key === 'Escape') {
-    event.preventDefault()
-    close()
-  }
+  if (!shown.value && !openingKeys.has(event.key)) return
+  const action = shown.value ? openActions[event.key] : toggle
+  if (!action) return
+  event.preventDefault()
+  action()
 }
 
 defineExpose({ close })

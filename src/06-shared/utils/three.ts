@@ -46,7 +46,7 @@ export function removeGroupFromScene(
 }
 
 export interface ManagedTexture {
-  load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void) => void
+  load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void, onError?: (url: string) => void) => void
   dispose: () => void
 }
 
@@ -55,7 +55,7 @@ export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): Mana
   let currentTexture: THREE.Texture | null = null
 
   return {
-    load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void): void => {
+    load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void, onError?: (url: string) => void): void => {
       if (!scene.value) return
       const generation = guard.next()
       const loader = new THREE.TextureLoader()
@@ -72,6 +72,7 @@ export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): Mana
       }, undefined, () => {
         if (!guard.isCurrent(generation)) return
         reportError(`Не удалось загрузить текстуру: ${url}`)
+        onError?.(url)
       })
     },
     dispose: (): void => {

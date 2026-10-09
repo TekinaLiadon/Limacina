@@ -1,23 +1,13 @@
-use crate::utils::errors::LauncherError;
 use crate::{
-    log_info,
     minecraft::{
         mod_loader::{
-            config::{
-                loader_args_map, loader_game_args, loader_jvm_args, merge_classpath,
-                merge_game_args,
-            },
+            config::{build_loader_config, LoaderConfigOptions, LoaderMainClass, VanillaClientJar},
             installer::setup_loader,
-            manifest::{
-                latest_list_version, loader_libraries, loader_manifest_path, loader_version_or_err,
-                versions_with_installed, Manifest, NEOFORGE,
-            },
+            manifest::{latest_list_version, versions_with_installed, NEOFORGE},
         },
         structs::{GameConfig, ModLoader, VersionMod},
-        vanilla::config::filter_classpath,
     },
     state::dto::ProjectConfig,
-    utils::download_file::download_json,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -51,59 +41,17 @@ impl ModLoader for NeoForge {
         vanilla_config: GameConfig,
         version: &VersionMod,
     ) -> Result<GameConfig> {
-        log_info!("Соединение classpath NeoForge");
-        let target_version = loader_version_or_err(state)?;
-
-        let neoforge_manifest = loader_manifest_path(NEOFORGE.manifest_prefix, target_version)
-            .map_err(|e| {
-                LauncherError::LoaderSetup(format!(
-                    "Не удалось определить путь к файлам лаунчера: {e:#}"
-                ))
-            })?;
-        let manifest = download_json::<Manifest>(None, &neoforge_manifest)
-            .await
-            .map_err(|e| {
-                LauncherError::LoaderSetup(format!("Не удалось скачать манифест NeoForge: {e:#}"))
-            })?;
-
-        let neoforge_libraries = if version.library.is_empty() {
-            loader_libraries(manifest.libraries.clone(), NEOFORGE.maven_base).map_err(|e| {
-                LauncherError::LoaderSetup(format!("Не удалось собрать библиотеки NeoForge: {e:#}"))
-            })?
-        } else {
-            version.library.clone()
-        };
-        let mut classpath = merge_classpath(
-            &state.project_name,
-            &version.id,
-            &neoforge_libraries,
-            &Vec::new(),
+        build_loader_config(
+            &NEOFORGE,
+            state,
+            vanilla_config,
+            version,
+            LoaderConfigOptions {
+                main_class: LoaderMainClass::FromManifest,
+                vanilla_client_jar: VanillaClientJar::Drop,
+            },
         )
         .await
-        .map_err(|e| {
-            LauncherError::LoaderSetup(format!("Не удалось собрать classpath NeoForge: {e:#}"))
-        })?;
-        let vanilla_client_jar = format!("{}.jar", state.mc_version);
-        let vanilla_filtered: Vec<String> = vanilla_config
-            .classpath
-            .iter()
-            .filter(|p| !p.ends_with(&vanilla_client_jar))
-            .cloned()
-            .collect();
-        classpath.extend(vanilla_filtered);
-        let clean_classpath = filter_classpath(classpath);
-
-        let args_map = loader_args_map(state)?;
-        let neoforge_jvm = loader_jvm_args(&args_map, &manifest);
-        let jvm_args = [&vanilla_config.jvm_args[..], &neoforge_jvm[..]].concat();
-        let game_args = merge_game_args(
-            vanilla_config.game_args.clone(),
-            loader_game_args(&args_map, &manifest),
-        );
-
-        Ok(vanilla_config
-            .with_args(jvm_args, game_args)
-            .with_loader(clean_classpath, manifest.main_class.clone()))
     }
 }
 
@@ -211,6 +159,88 @@ mod tests {
             config.main_class,
             "cpw.mods.bootstraplauncher.BootstrapLauncher"
         );
+    }
+
+    #[tokio::test]
+    async fn neoforge_config_drops_vanilla_client_jar() {
+        let dir = LauncherDirGuard::acquire("neoforge_config_filter").await;
+
+        let manifest_json = json!({
+            "id": "neoforge-20.4.237",
+            "time": "2023-01-01T00:00:00+00:00",
+            "releaseTime": "2023-01-01T00:00:00+00:00",
+            "type": "release",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "inheritsFrom": "1.20.4",
+            "arguments": {
+                "game": ["--launchTarget", "forgeclient"],
+                "jvm": ["-cp", "${classpath}"]
+            },
+            "libraries": [
+                {
+                    "name": "org.ow2.asm:asm:9.5",
+                    "downloads": { "artifact": { "path": "", "url": "", "sha1": "0", "size": 1 } }
+                }
+            ]
+        });
+        let manifest_path = dir.root().join("manifest").join("neoforge_20.4.237.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+
+        let state = ProjectConfig {
+            project_name: "NeoFilter".to_string(),
+            mc_version: "1.20.4".to_string(),
+            loader_version: Some("20.4.237".to_string()),
+            ..ProjectConfig::default()
+        };
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.4-20.4.237".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        };
+
+        let game_root = dir.project_dir("NeoFilter");
+        let lib_path = game_root
+            .join("libraries")
+            .join("org/ow2/asm/asm/9.5/asm-9.5.jar");
+        fs::create_dir_all(lib_path.parent().unwrap()).unwrap();
+        fs::write(&lib_path, b"asm").unwrap();
+
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec![],
+            vec![],
+            vec![game_root.join("1.20.4.jar").to_string_lossy().to_string()],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root.clone(),
+        );
+
+        let config = NeoForge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг NeoForge");
+
+        assert!(
+            !config
+                .classpath
+                .contains(&game_root.join("1.20.4.jar").to_string_lossy().into_owned()),
+            "ванильный клиентский jar должен отфильтровываться: {:?}",
+            config.classpath
+        );
+        assert!(
+            config
+                .classpath
+                .contains(&lib_path.to_string_lossy().into_owned()),
+            "библиотеки из манифеста должны попасть в classpath: {:?}",
+            config.classpath
+        );
+        assert!(config.classpath.contains(
+            &game_root
+                .join("1.20.4-20.4.237.jar")
+                .to_string_lossy()
+                .into_owned()
+        ));
     }
 
     #[tokio::test]

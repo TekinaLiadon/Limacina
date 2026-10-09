@@ -12,16 +12,22 @@ export const alternativeJavaModelDefaults: AlternativeJavaModelProps = {
   versionInput: '',
 }
 
+export interface AlternativeJavaResolvedModelProps {
+  selectedDistribution: string
+  replaceDefault: boolean
+  versionInput: string
+}
+
 export interface AlternativeJavaModels {
   selectedDistribution: ModelRef<string>
   replaceDefault: ModelRef<boolean>
   versionInput: ModelRef<string>
 }
 
-export function useAlternativeJavaModels(props: AlternativeJavaModelProps): AlternativeJavaModels {
+export function useAlternativeJavaModels(props: AlternativeJavaResolvedModelProps): AlternativeJavaModels {
   return {
-    selectedDistribution: useModel(props, 'selectedDistribution') as ModelRef<string>,
-    replaceDefault: useModel(props, 'replaceDefault') as ModelRef<boolean>,
-    versionInput: useModel(props, 'versionInput') as ModelRef<string>,
+    selectedDistribution: useModel(props, 'selectedDistribution'),
+    replaceDefault: useModel(props, 'replaceDefault'),
+    versionInput: useModel(props, 'versionInput'),
   }
 }

@@ -4,7 +4,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, AuthUserData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities'
+import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload } from '@/05-entities/core/types'
+import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
 
 export interface CommandErrorPayload {
   code: string
@@ -55,8 +56,12 @@ export async function loadSettingsProject(projectName: string): Promise<ProjectC
   return invoke<ProjectConfig>('load_settings_project', { projectName })
 }
 
-export async function saveSettingsProject(config: ProjectConfig): Promise<void> {
-  return invoke('save_settings_project', { config })
+export async function saveSettingsProject(config: ProjectConfig): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>('save_settings_project', { config })
+}
+
+export async function probeJavaVersion(path: string): Promise<number | null> {
+  return invoke<number | null>('probe_java_version', { path })
 }
 
 export async function saveLauncherConfig(parentPath: string): Promise<LauncherConfig> {
@@ -201,8 +206,12 @@ export async function deleteAccount(projectName: string, username: string): Prom
   return invoke('delete_account', { projectName, username })
 }
 
-export async function authLogin(info: AuthUserData): Promise<void> {
-  const {projectName, username, password, rememberMe} = info
+export async function authLogin(
+  projectName: string,
+  username: string,
+  password: string,
+  rememberMe: boolean
+): Promise<void> {
   return invoke('auth_login', { projectName, username, password, rememberMe })
 }
 
@@ -254,12 +263,10 @@ export async function getStartupLogs(): Promise<ConsoleLog[]> {
   return invoke<ConsoleLog[]>('get_startup_logs')
 }
 
+export { sendConsoleLog } from './consoleLog'
+
 export async function getNotificationIcon(): Promise<string | null> {
   return invoke<string | null>('get_notification_icon')
-}
-
-export async function sendConsoleLog(line: string, isError: boolean): Promise<void> {
-  return invoke('send_frontend_log', { line, isError })
 }
 
 export async function listenGameConsole(
@@ -405,8 +412,9 @@ export async function setPlayerModelsLimit(limit: number | null): Promise<void> 
   return invoke('set_player_models_limit', { limit })
 }
 
-export async function readCpmProjectFile(path: string): Promise<ArrayBuffer> {
-  return invoke<ArrayBuffer>('read_cpm_project_file', { path })
+export async function readCpmProjectFile(path: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('read_cpm_project_file', { path })
+  return new Uint8Array(buffer)
 }
 
 export async function takeCpmProjectPath(): Promise<string | null> {

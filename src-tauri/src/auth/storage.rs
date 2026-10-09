@@ -55,11 +55,12 @@ fn read_fallback_store(path: &std::path::Path, content: &str) -> CredentialStore
 }
 
 fn derive_key(project: &str, username: &str, key_suffix: &str) -> [u8; 8] {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    format!("{}_{}_{}", project, username, key_suffix).hash(&mut hasher);
-    hasher.finish().to_le_bytes()
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in format!("{project}_{username}_{key_suffix}").as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash.to_le_bytes()
 }
 
 fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
@@ -122,8 +123,7 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
 
     let content =
         fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
-    let store: CredentialStore =
-        serde_json::from_str(&content).context("Неверный формат хранилища credentials")?;
+    let store = read_fallback_store(&path, &content);
     let key_name = fallback_entry_key(project, username, key_suffix);
     let legacy_name = legacy_fallback_entry_key(username, key_suffix);
     let entry = store
@@ -137,7 +137,17 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
     let ciphertext = from_hex(&entry.obfuscated)
         .context("Не удалось декодировать запись хранилища credentials")?;
     let decrypted = xor_crypt(&ciphertext, &key);
-    String::from_utf8(decrypted).context("Не удалось расшифровать credentials")
+    let value = match String::from_utf8(decrypted) {
+        Ok(value) => value,
+        Err(_) => {
+            log_info!(
+                "Fallback-хранилище: запись «{key_name}» не расшифрована (алгоритм ключа обновлён) — запись сброшена, потребуется повторный вход"
+            );
+            let _ = delete_fallback(project, username, key_suffix);
+            anyhow::bail!("Не удалось расшифровать credentials");
+        }
+    };
+    Ok(value)
 }
 
 pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
@@ -293,24 +303,49 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
     let key = keyring_key(project, username, key_suffix);
     let service = get_launcher_name();
 
-    let keyring_result = (|| -> Result<()> {
+    let keyring_delete = (|| -> Result<()> {
         let entry = keyring::Entry::new(&service, &key)
             .context("Не удалось получить доступ к хранилищу")?;
         match entry.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(anyhow::Error::new(e)
                 .context(format!("Не удалось удалить {} из keyring", key_suffix))),
         }
     })();
 
-    if let Err(e) = &keyring_result {
+    if let Err(e) = &keyring_delete {
         log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e);
     }
 
-    let _ = delete_fallback(project, username, key_suffix);
+    let keyring_unavailable = matches!(
+        &keyring_delete,
+        Err(e) if e.chain().any(|cause| {
+            cause
+                .downcast_ref::<keyring::Error>()
+                .is_some_and(|err| matches!(
+                    err,
+                    keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)
+                ))
+        })
+    );
 
-    Ok(())
+    let fallback_result = delete_fallback(project, username, key_suffix);
+
+    if keyring_unavailable {
+        return fallback_result;
+    }
+
+    let keyring_err = match keyring_delete {
+        Ok(()) => return fallback_result,
+        Err(e) => e,
+    };
+
+    match fallback_result {
+        Ok(()) => Err(keyring_err),
+        Err(fallback_err) => Err(keyring_err.context(format!(
+            "также не удалось очистить fallback-хранилище: {fallback_err}"
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -471,6 +506,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn corrupt_store_backed_up_on_load() {
+        let dir = LauncherDirGuard::acquire("credentials_corrupt_load").await;
+        write_atomic_sync(&dir.root().join("credentials.json"), b"{ broken").unwrap();
+
+        let error = load_fallback("Cordelia", "Steve", "refresh_token")
+            .expect_err("битое хранилище не должно молча читаться");
+
+        assert!(
+            error.to_string().contains("Credentials не найдены"),
+            "битое хранилище — это отсутствие записей, а не жёсткий сбой: {error}"
+        );
+        let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
+            .expect("битое хранилище должно быть забэкаплено при чтении");
+        assert!(backup.contains("broken"));
+    }
+
+    #[tokio::test]
     async fn corrupt_store_backed_up_before_overwrite() {
         let dir = LauncherDirGuard::acquire("credentials_corrupt_save").await;
         write_atomic_sync(&dir.root().join("credentials.json"), b"{ broken").unwrap();
@@ -484,6 +536,50 @@ mod tests {
         assert_eq!(
             load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
             "token"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_credential_propagates_fallback_failure() {
+        let _dir = LauncherDirGuard::acquire("credentials_delete_failure").await;
+        std::fs::create_dir(super::fallback_path().expect("путь хранилища"))
+            .expect("заглушка недоступного хранилища");
+
+        assert!(
+            super::delete_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .is_err(),
+            "ошибка удаления из fallback-хранилища не должна проглатываться"
+        );
+    }
+
+    #[test]
+    fn derive_key_matches_fixed_fnv1a() {
+        assert_eq!(
+            derive_key("Cordelia", "Steve", "refresh_token"),
+            [144, 176, 89, 172, 167, 236, 201, 204]
+        );
+    }
+
+    #[tokio::test]
+    async fn load_fallback_resets_entry_encrypted_with_foreign_key() {
+        let dir = LauncherDirGuard::acquire("credentials_foreign_key").await;
+
+        let obfuscated = to_hex(&xor_crypt(b"refresh-token-old-toolchain", &[0xA5; 8]));
+        let store = format!(
+            "{{\"entries\":[{{\"username\":\"Steve_refresh_token\",\"obfuscated\":\"{}\"}}]}}",
+            obfuscated
+        );
+        write_atomic_sync(&dir.root().join("credentials.json"), store.as_bytes()).unwrap();
+
+        assert!(
+            load_fallback("Cordelia", "Steve", "refresh_token").is_err(),
+            "запись, зашифрованная чужим ключом, не должна расшифровываться"
+        );
+        let stored = std::fs::read_to_string(dir.root().join("credentials.json")).unwrap();
+        assert!(
+            !stored.contains("Steve_refresh_token"),
+            "нечитаемая запись должна сбрасываться: {stored}"
         );
     }
 

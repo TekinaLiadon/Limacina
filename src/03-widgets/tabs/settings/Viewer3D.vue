@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { provideViewerControls } from './viewerControls'
+import { DEFAULT_VIEWER_MIN_ZOOM, provideViewerControls } from './viewerControls'
 import ViewerToolbar from './ViewerToolbar.vue'
 
 const props = withDefaults(defineProps<{
   minZoom?: number
 }>(), {
-  minZoom: 5,
+  minZoom: DEFAULT_VIEWER_MIN_ZOOM,
 })
 
 provideViewerControls((): number => props.minZoom)

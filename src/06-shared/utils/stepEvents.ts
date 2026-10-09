@@ -1,4 +1,4 @@
-import type { StepEvent, StepProgressItem } from '@/05-entities'
+import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
 
 export function createStepItem(key: string, label: string, shownAt: number): StepProgressItem {
   return {
@@ -6,6 +6,7 @@ export function createStepItem(key: string, label: string, shownAt: number): Ste
     label,
     status: 'active',
     skipped: false,
+    untracked: false,
     current: 0,
     total: 0,
     detail: '',
@@ -17,8 +18,6 @@ export function createStepItem(key: string, label: string, shownAt: number): Ste
 export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): void {
   switch (event.type) {
     case 'started': {
-      const active = steps.find((step) => step.status === 'active')
-      if (active) active.status = 'done'
       const index = steps.findIndex((item) => item.key === event.id)
       const markLimit = index === -1 ? steps.length : index
       for (let i = 0; i < markLimit; i += 1) {
@@ -29,7 +28,7 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
         }
       }
       if (index === -1) {
-        steps.push(createStepItem(event.id, event.label, Date.now()))
+        steps.push({ ...createStepItem(event.id, event.label, Date.now()), untracked: true })
         break
       }
       const step = steps[index]
@@ -75,15 +74,16 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
 }
 
 export function computeStepProgress(steps: StepProgressItem[]): number {
-  if (steps.length === 0) return 0
+  const tracked = steps.filter((step) => !step.untracked)
+  if (tracked.length === 0) return 0
   let done = 0
   let fraction = 0
-  for (const step of steps) {
+  for (const step of tracked) {
     if (step.status === 'done' || step.status === 'error') {
       done++
     } else if (step.status === 'active' && step.total > 0) {
       fraction = Math.min(step.current / step.total, 1)
     }
   }
-  return ((done + fraction) / steps.length) * 100
+  return ((done + fraction) / tracked.length) * 100
 }

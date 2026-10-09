@@ -37,12 +37,6 @@ const kindTabs: Array<{ key: ProfileKind; label: string }> = [
   { key: 'offline', label: 'Одиночная игра' },
 ]
 
-const kindHint = computed((): string =>
-  kind.value === 'server'
-    ? 'Подключение по адресу — версия, сборка и моды загрузятся с сервера автоматически'
-    : 'Локальный профиль без сети: сами выбираете версию и загрузчик модов',
-)
-
 const canGoBack = computed((): boolean => !(props.embedded ?? false))
 
 const goToAccounts = (config: ProjectConfig | null): void => {
@@ -79,8 +73,6 @@ const handleOfflineSubmit = async (): Promise<void> => {
         {{ tab.label }}
       </Button>
     </div>
-
-    <p class="add-profile-tab__hint">{{ kindHint }}</p>
 
     <div class="add-profile-tab__form">
       <ServerProfileForm
@@ -140,12 +132,6 @@ const handleOfflineSubmit = async (): Promise<void> => {
     box-shadow: none;
     white-space: normal;
     overflow-wrap: anywhere;
-  }
-
-  &__hint {
-    @include mixins.caption-hint;
-
-    margin-bottom: var(--tabs-gap);
   }
 
   &__form {

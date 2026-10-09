@@ -173,50 +173,54 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn find_manifest_json_in_dir(dir: &Path, inherits_from: &str) -> Option<PathBuf> {
-    let mut inner = fs::read_dir(dir).await.ok()?;
-    while let Some(entry) = inner.next_entry().await.ok()? {
+pub async fn find_manifest_json_in_dir(dir: &Path, inherits_from: &str) -> Result<Option<PathBuf>> {
+    let mut inner = fs::read_dir(dir)
+        .await
+        .map_err(|e| LauncherError::DiskIo(format!("Не удалось прочитать {dir:?}: {e:#}")))?;
+    while let Some(entry) = inner.next_entry().await.map_err(|e| {
+        LauncherError::DiskIo(format!("Не удалось прочитать запись в {dir:?}: {e:#}"))
+    })? {
         let p = entry.path();
         if p.extension().and_then(|e| e.to_str()) == Some("json")
-            && is_manifest_with_parent(&p, inherits_from).await
+            && is_manifest_with_parent(&p, inherits_from).await?
         {
-            return Some(p);
+            return Ok(Some(p));
         }
     }
-    None
+    Ok(None)
 }
 
-async fn is_manifest_with_parent(path: &Path, inherits_from: &str) -> bool {
-    let Ok(content) = fs::read_to_string(path).await else {
-        return false;
+async fn is_manifest_with_parent(path: &Path, inherits_from: &str) -> Result<bool> {
+    let content = match fs::read_to_string(path).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => {
+            return Err(
+                LauncherError::DiskIo(format!("Не удалось прочитать {path:?}: {e:#}")).into(),
+            )
+        }
     };
     let Ok(json) = serde_json::from_str::<Value>(&content) else {
-        return false;
+        return Ok(false);
     };
-    json.get("inheritsFrom").and_then(|v| v.as_str()) == Some(inherits_from)
+    Ok(json.get("inheritsFrom").and_then(|v| v.as_str()) == Some(inherits_from))
 }
 
-pub async fn locate_installed_manifest(
-    versions_dir: &Path,
-    mc_version: &str,
-    dest: &Path,
-) -> Result<PathBuf> {
-    if let Some(json_path) = find_manifest_json_in_dir(versions_dir, mc_version).await {
+pub async fn locate_installed_manifest(versions_dir: &Path, mc_version: &str) -> Result<PathBuf> {
+    if let Some(json_path) = find_manifest_json_in_dir(versions_dir, mc_version).await? {
         return Ok(json_path);
     }
 
     for path in version_subdirs(versions_dir).await? {
-        if let Some(json_path) = find_manifest_json_in_dir(&path, mc_version).await {
+        if let Some(json_path) = find_manifest_json_in_dir(&path, mc_version).await? {
             return Ok(json_path);
         }
     }
 
-    log_info!(
-        "Манифест лоадера не найден в {:?}, используем существующий {:?}",
-        versions_dir,
-        dest
-    );
-    Ok(dest.to_path_buf())
+    Err(LauncherError::LoaderSetup(format!(
+        "Манифест лоадера не найден в {versions_dir:?} (inheritsFrom: {mc_version})"
+    ))
+    .into())
 }
 
 pub fn manifest_paths(state_project: &ProjectConfig, prefix: &str) -> Result<(PathBuf, PathBuf)> {
@@ -252,8 +256,7 @@ pub async fn start_installer(
     let source = if tokio::fs::try_exists(&fast_manifest).await.unwrap_or(false) {
         fast_manifest
     } else {
-        locate_installed_manifest(&versions_dir, &state_project.mc_version, &loader_manifest)
-            .await?
+        locate_installed_manifest(&versions_dir, &state_project.mc_version).await?
     };
 
     move_version_jar(&base_url, &state_project.mc_version).await?;
@@ -304,6 +307,42 @@ pub(crate) async fn install_loader_files(
     Ok(())
 }
 
+pub(crate) fn find_loader_version<'a>(
+    manifest: &'a [VersionMod],
+    target_id: &str,
+) -> Result<&'a VersionMod> {
+    manifest
+        .iter()
+        .find(|v| v.id == target_id)
+        .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()).into())
+}
+
+pub(crate) async fn install_version_files(
+    state: &ProjectConfig,
+    version_info: &VersionMod,
+    library: &[LibraryMod],
+    label: String,
+    skipped: bool,
+) -> Result<()> {
+    let step = StepHandle::start("loader", label);
+    let base = launcher_path(Some(&state.project_name)).map_err(|e| {
+        LauncherError::LoaderSetup(format!(
+            "Не удалось определить путь к файлам проекта: {e:#}"
+        ))
+    })?;
+    install_loader_files(
+        step.clone(),
+        &base,
+        &state.project_name,
+        &version_info.id,
+        library,
+        &version_info.url,
+    )
+    .await?;
+    step.finish(skipped);
+    Ok(())
+}
+
 pub async fn setup_loader(
     loader_name: &str,
     manifest_prefix: &str,
@@ -314,13 +353,8 @@ pub async fn setup_loader(
     let base_url = launcher_path(Some(&state.project_name))?;
     let loader_version = loader_version_or_err(state)?;
     let target_version = format!("{}-{}", &state.mc_version, loader_version);
-    let version_info = manifest
-        .iter()
-        .find(|v| v.id == target_version)
-        .ok_or_else(|| LauncherError::LoaderSetup("Версия не найдена".to_string()))?;
-
-    let step = StepHandle::start("loader", format!("Установка {}", loader_name));
-
+    let version_info = find_loader_version(manifest, &target_version)?;
+    let label = format!("Установка {loader_name}");
     let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
 
     if tokio::fs::try_exists(&loader_manifest_file)
@@ -329,19 +363,12 @@ pub async fn setup_loader(
     {
         let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         let library = loader_libraries(version_manifest.libraries, maven_base)?;
-        install_loader_files(
-            step.clone(),
-            &base_url,
-            &state.project_name,
-            &target_version,
-            &library,
-            &version_info.url,
-        )
-        .await?;
+        install_version_files(state, version_info, &library, label.clone(), true).await?;
         log_info!("{} уже установлен, проверка файлов завершена", loader_name);
-        step.finish(true);
         return Ok(());
     }
+
+    let step = StepHandle::start("loader", label);
 
     step.detail("Скачивание инсталлера");
     step.set_total(1);
@@ -687,9 +714,8 @@ mod loader_install_tests {
             r#"{"inheritsFrom": "1.20.1"}"#,
         )
         .unwrap();
-        let dest = dir.root().join("fallback.json");
 
-        let found = locate_installed_manifest(&versions, "1.20.1", &dest)
+        let found = locate_installed_manifest(&versions, "1.20.1")
             .await
             .expect("поиск манифеста");
 
@@ -697,16 +723,18 @@ mod loader_install_tests {
     }
 
     #[tokio::test]
-    async fn locate_installed_manifest_falls_back_to_dest() {
-        let dir = LauncherDirGuard::acquire("locate_manifest_fallback").await;
+    async fn locate_installed_manifest_errors_when_manifest_missing() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_missing").await;
         let versions = dir.root().join("game/versions");
         fs::create_dir_all(&versions).unwrap();
-        let dest = dir.root().join("fallback.json");
 
-        let found = locate_installed_manifest(&versions, "1.20.1", &dest)
+        let error = locate_installed_manifest(&versions, "1.20.1")
             .await
-            .expect("фолбэк");
+            .expect_err("ненайденный манифест должен давать явную ошибку, а не фейковый путь");
 
-        assert_eq!(found, dest);
+        assert!(
+            error.to_string().contains("Манифест лоадера не найден"),
+            "ошибка должна объяснять, что манифест не найден: {error}"
+        );
     }
 }

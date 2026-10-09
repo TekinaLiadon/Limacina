@@ -31,10 +31,10 @@ pub async fn run_vanilla_phases(
     exec: &mut dyn VanillaPhaseExecutor,
     manifest: &VersionDetailsManifest,
 ) -> Result<()> {
-    let targets = collect_install_targets(manifest);
+    let targets = collect_install_targets(manifest)?;
     exec.fetch(&PHASE_CLIENT, vec![targets.client]).await?;
     exec.fetch(&PHASE_LIBRARIES, targets.libraries).await?;
-    exec.natives(&manifest.id, collect_natives_to_extract(manifest))
+    exec.natives(&manifest.id, collect_natives_to_extract(manifest)?)
         .await?;
     let asset_index = exec.asset_index(targets.asset_index).await?;
     let asset_targets = collect_asset_targets(&asset_index)?;

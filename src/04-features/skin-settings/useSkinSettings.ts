@@ -1,24 +1,36 @@
 import { ref, computed, watch, onMounted, onScopeDispose, nextTick } from 'vue'
-import { reportError, useAsyncRaceGuard } from '@/06-shared'
+import { getErrorMessage, reportError, useAsyncRaceGuard } from '@/06-shared'
 import {
   getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
 } from '@/06-shared/api'
-import { useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 
-async function loadBlobUrl(bytes: Uint8Array): Promise<string> {
-  const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+const SKIN_SIZE_UNIT = 64
+
+function assertSkinSize(width: number, height: number): void {
+  const isSupported = width > 0 && height > 0
+    && width % SKIN_SIZE_UNIT === 0
+    && (height === width || height * 2 === width)
+  if (!isSupported) {
+    throw new Error(`Неподдерживаемый размер скина ${width}x${height} — поддерживаются 64x32, 64x64 и кратные им форматы`)
+  }
+}
+
+async function decodeSkinSize(blob: Blob): Promise<{ width: number; height: number }> {
   try {
     const bitmap = await createImageBitmap(blob)
+    const size = { width: bitmap.width, height: bitmap.height }
     bitmap.close()
+    return size
   } catch {
     throw new Error('Не удалось декодировать изображение')
   }
-  return URL.createObjectURL(blob)
 }
 
 export function useSkinSettings() {
+  const coreStore = useCoreStore()
   const content = useSkinUserContent()
   const notification = useNotificationStore()
 
@@ -41,8 +53,37 @@ export function useSkinSettings() {
     else if (skin?.model === 'classic') modelMode.value = 'classic'
   }, { immediate: true })
 
+  const pendingPreviewUrls = new Set<string>()
+
+  const createPreviewUrl = async (bytes: Uint8Array): Promise<string> => {
+    const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+    const size = await decodeSkinSize(blob)
+    assertSkinSize(size.width, size.height)
+    const url = URL.createObjectURL(blob)
+    pendingPreviewUrls.add(url)
+    return url
+  }
+
+  const adoptPreviewUrl = (url: string): void => {
+    pendingPreviewUrls.delete(url)
+    setSkinUrl(url)
+  }
+
+  const discardPreviewUrl = (url: string): void => {
+    URL.revokeObjectURL(url)
+    pendingPreviewUrls.delete(url)
+  }
+
+  const revokePendingPreviewUrls = (): void => {
+    for (const url of pendingPreviewUrls) URL.revokeObjectURL(url)
+    pendingPreviewUrls.clear()
+  }
+
   const resetSkinUrl = (): void => {
-    if (skinUrl.value.startsWith('blob:')) URL.revokeObjectURL(skinUrl.value)
+    if (skinUrl.value.startsWith('blob:')) {
+      URL.revokeObjectURL(skinUrl.value)
+      pendingPreviewUrls.delete(skinUrl.value)
+    }
     skinUrl.value = ''
   }
 
@@ -51,15 +92,23 @@ export function useSkinSettings() {
     skinUrl.value = url
   }
 
+  let persistQueue: Promise<void> = Promise.resolve()
+
   const persistOfflineSkin = async (notify: boolean): Promise<void> => {
     if (!content.isOffline.value || skinFileBytes.value.length === 0) return
-    try {
-      await saveOfflineSkin(skinFileBytes.value, modelMode.value)
-      if (notify) notification.show('Скин сохранён')
-    } catch (e: unknown) {
-      content.errorMessage.value = 'Не удалось сохранить скин на диск'
-      reportError('Не удалось сохранить локальный скин', e)
+    const previous = persistQueue
+    const run = async (): Promise<void> => {
+      await previous
+      try {
+        await saveOfflineSkin(skinFileBytes.value, modelMode.value)
+        if (notify) notification.show('Скин сохранён')
+      } catch (e: unknown) {
+        content.errorMessage.value = 'Не удалось сохранить скин на диск'
+        reportError('Не удалось сохранить локальный скин', e)
+      }
     }
+    persistQueue = run()
+    await persistQueue
   }
 
   watch(modelMode, () => {
@@ -75,14 +124,15 @@ export function useSkinSettings() {
     try {
       const bytes = await getProfileSkin(current.url)
       if (!skinPreviewGuard.isCurrent(generation)) return
-      const url = await loadBlobUrl(bytes)
+      const url = await createPreviewUrl(bytes)
       if (!skinPreviewGuard.isCurrent(generation)) {
-        URL.revokeObjectURL(url)
+        discardPreviewUrl(url)
         return
       }
-      setSkinUrl(url)
+      adoptPreviewUrl(url)
     } catch (e: unknown) {
       if (!skinPreviewGuard.isCurrent(generation)) return
+      content.errorMessage.value = getErrorMessage(e)
       reportError('Не удалось загрузить текущий скин', e)
     }
   }
@@ -93,36 +143,56 @@ export function useSkinSettings() {
   }
 
   const loadOfflineSkin = async (): Promise<void> => {
+    const generation = skinPreviewGuard.next()
     let dataUrl: string | null = null
     try {
       const bytes = await getOfflineSkin()
+      if (!skinPreviewGuard.isCurrent(generation)) return
       if (bytes.length === 0) return
-      dataUrl = await loadBlobUrl(bytes)
+      dataUrl = await createPreviewUrl(bytes)
+      if (!skinPreviewGuard.isCurrent(generation)) {
+        discardPreviewUrl(dataUrl)
+        return
+      }
       skinFileBytes.value = bytes
       restoringOfflineModel = true
       const model = await getOfflineSkinModel()
+      if (!skinPreviewGuard.isCurrent(generation)) {
+        restoringOfflineModel = false
+        discardPreviewUrl(dataUrl)
+        return
+      }
       if (model === 'slim' || model === 'classic') modelMode.value = model
       await nextTick()
       restoringOfflineModel = false
-      setSkinUrl(dataUrl)
-      dataUrl = null
+      adoptPreviewUrl(dataUrl)
     } catch (e: unknown) {
       restoringOfflineModel = false
-      if (dataUrl) URL.revokeObjectURL(dataUrl)
+      if (dataUrl !== null) discardPreviewUrl(dataUrl)
+      content.errorMessage.value = getErrorMessage(e)
       reportError('Не удалось загрузить локальный скин', e)
     }
   }
+
+  watch((): string => coreStore.currentProject, (): void => {
+    skinPreviewGuard.cancel()
+    resetSkinUrl()
+    skinFileBytes.value = new Uint8Array()
+    content.errorMessage.value = ''
+    if (content.isOffline.value) {
+      void loadOfflineSkin()
+    }
+  })
 
   const { isDragOver, openFileDialog: selectSkin } = useUserContentFile({
     accept: '.png,image/png',
     extensions: ['png'],
     maxBytes: 256 * 1024,
-    readFile: async (path: string): Promise<ArrayBuffer> => (await readSkinFile(path)).buffer as ArrayBuffer,
-    processFile: async (bytes: ArrayBuffer): Promise<void> => {
-      const skinBytes = new Uint8Array(bytes)
-      const dataUrl = await loadBlobUrl(skinBytes)
+    readFile: readSkinFile,
+    processFile: async (skinBytes: Uint8Array): Promise<void> => {
+      const dataUrl = await createPreviewUrl(skinBytes)
       skinFileBytes.value = skinBytes
-      setSkinUrl(dataUrl)
+      adoptPreviewUrl(dataUrl)
       if (content.isOffline.value) {
         await persistOfflineSkin(true)
       }
@@ -148,11 +218,10 @@ export function useSkinSettings() {
     }
   }
 
-  const resetSkin = async (): Promise<void> => {
-    const confirmed = await notification.confirm('Сбросить текущий скин?')
-    if (!confirmed) return
-    await resetSkinState()
-  }
+  const resetSkin = (): Promise<void> =>
+    notification.runConfirmed('Сбросить текущий скин?', async (): Promise<void> => {
+      await resetSkinState()
+    })
 
   const reloadSkinPreview = async (): Promise<void> => {
     const generation = skinPreviewGuard.next()
@@ -165,12 +234,11 @@ export function useSkinSettings() {
     await reloadSkinPreview()
   }
 
-  const handleDelete = async (id: number): Promise<void> => {
-    const confirmed = await notification.confirm('Удалить скин из списка загруженных?')
-    if (!confirmed) return
-    await content.handleDelete(id)
-    await reloadSkinPreview()
-  }
+  const handleDelete = (id: number): Promise<void> =>
+    notification.runConfirmed('Удалить скин из списка загруженных?', async (): Promise<void> => {
+      await content.handleDelete(id)
+      await reloadSkinPreview()
+    })
 
   onMounted(async (): Promise<void> => {
     isSkinLoading.value = true
@@ -187,7 +255,9 @@ export function useSkinSettings() {
   })
 
   onScopeDispose((): void => {
+    skinPreviewGuard.cancel()
     resetSkinUrl()
+    revokePendingPreviewUrls()
   })
 
   return {

@@ -56,20 +56,12 @@ const JVM_PRESETS: JvmPreset[] = [
 ]
 
 export function splitJvmArgs(raw: string): string[] {
-  const args: string[] = []
-  let current = ''
-  let inQuotes = false
-  for (const char of raw) {
-    if (char === '"') inQuotes = !inQuotes
-    if (char === ',' && !inQuotes) {
-      args.push(current.trim())
-      current = ''
-      continue
-    }
-    current += char
-  }
-  args.push(current.trim())
-  return args.filter(Boolean)
+  return raw.split(/[\s,]+/).filter(Boolean)
+}
+
+export function validateJvmArgs(raw: string): string {
+  if (!/["']/.test(raw)) return ''
+  return 'Кавычки не поддерживаются: аргументы разделяются пробелами или запятыми и передаются процессу напрямую, как есть'
 }
 
 export function isPresetAvailable(preset: JvmPreset, javaVersion: number | null): boolean {

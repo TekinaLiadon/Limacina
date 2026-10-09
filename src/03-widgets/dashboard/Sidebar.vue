@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { IconButton, Tooltip } from '@/06-shared'
+import { Icon, Tooltip } from '@/06-shared'
 import { useSettingsNav } from '@/04-features'
-import type { TabItem, TabKey } from '@/03-widgets/types'
+import type { TabItem } from '@/03-widgets/types'
+import type { TabKey } from '@/05-entities'
 
 const props = defineProps<{
   activeTab: TabKey
@@ -55,7 +56,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
         :class="{ 'sidebar__item--active': activeTab === item.key }"
         @click="emit('navigate', item.key)"
       >
-        <IconButton tag="span" :icon="item.icon" />
+        <span class="sidebar__icon"><Icon :type="item.icon" /></span>
         <span class="sidebar__label">{{ item.label }}</span>
       </button>
 
@@ -67,7 +68,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
           :aria-expanded="isSettingsExpanded"
           @click="toggleSettings"
         >
-          <IconButton tag="span" icon="settings" />
+          <span class="sidebar__icon"><Icon type="settings" /></span>
           <span class="sidebar__label">Настройки</span>
           <svg
             class="sidebar__chevron"
@@ -113,7 +114,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
         type="button"
         @click="emit('navigate', 'debug')"
       >
-        <IconButton tag="span" icon="settings" />
+        <span class="sidebar__icon"><Icon type="settings" /></span>
         <span class="sidebar__label">Дебаг</span>
       </button>
     </div>
@@ -185,36 +186,38 @@ const items = computed<TabItem[]>((): TabItem[] => {
       box-shadow: var(--elevation-inset);
     }
 
-    .icon-btn {
+    .sidebar__icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
       width: var(--control-height-sm);
       height: var(--control-height-sm);
-      flex-shrink: 0;
-      background-color: transparent;
-      box-shadow: none;
+      border-radius: var(--radius-circle);
+      cursor: pointer;
       transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
 
-      &__icon {
+      .icon {
         font-size: var(--icon-size);
-        width: var(--icon-size);
-        height: var(--icon-size);
+        color: var(--login-text-secondary);
       }
     }
 
-    &:hover .icon-btn {
+    &:hover .sidebar__icon {
       background-color: var(--surface-hover);
       box-shadow: var(--elevation-inset);
       transform: translateX(var(--space-2));
 
-      .icon-btn__icon {
+      .icon {
         color: var(--login-text-primary);
       }
     }
 
-    &--active .icon-btn {
+    &--active .sidebar__icon {
       background-color: var(--accent-active-bg);
       box-shadow: var(--elevation-inset);
 
-      .icon-btn__icon {
+      .icon {
         color: var(--accent-text);
       }
     }

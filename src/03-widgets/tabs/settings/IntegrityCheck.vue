@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button, ProgressBar, useFocusTrap } from '@/06-shared'
-import StepProgress from '../login/StepProgress.vue'
+import StepProgress from '@/03-widgets/tabs/login/StepProgress.vue'
 import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
 const props = defineProps<{
   isChecking: boolean
+  isCheckingNow: boolean
   isPopupHidden: boolean
   steps: StepProgressItem[]
   progress: number
   report: IntegrityReport | null
   errorMessage: string
+  hasErrors: boolean
+  isClean: boolean
+  resultText: string
 }>()
 
 const emit = defineEmits<{
@@ -34,21 +38,6 @@ onMounted((): void => {
 onBeforeUnmount((): void => {
   window.removeEventListener('keydown', handleKeydown)
 })
-
-const hasErrors = computed((): boolean => props.report !== null && props.report.failed.length > 0)
-const isClean = computed((): boolean => props.report !== null && props.report.failed.length === 0)
-
-const resultText = computed((): string => {
-  const {report} = props
-  if (report === null) return ''
-  const parts: string[] = [`проверено: ${report.total}`]
-  if (report.broken > 0) parts.push(`повреждено: ${report.broken}`)
-  if (report.missing > 0) parts.push(`отсутствовало: ${report.missing}`)
-  if (report.repaired > 0) parts.push(`восстановлено: ${report.repaired}`)
-  return parts.join(', ')
-})
-
-const isCheckingNow = computed((): boolean => props.isChecking || props.steps.some((s) => s.status === 'active'))
 </script>
 
 <template>
@@ -101,7 +90,7 @@ const isCheckingNow = computed((): boolean => props.isChecking || props.steps.so
               >
                 Проверить снова
               </Button>
-              <Button class="btn-quiet integrity-popup__btn" @click="emit('close')">
+              <Button v-focus class="btn-quiet integrity-popup__btn" @click="emit('close')">
                 Закрыть
               </Button>
             </div>

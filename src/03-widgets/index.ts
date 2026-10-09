@@ -21,6 +21,7 @@ export { default as LauncherUpdate } from './tabs/settings/LauncherUpdate.vue'
 export { default as LauncherBehavior } from './tabs/settings/LauncherBehavior.vue'
 export { default as DangerActionButton } from './tabs/settings/DangerActionButton.vue'
 export { default as ThemeSelector } from './tabs/settings/ThemeSelector.vue'
+export { default as ThemeModeToggle } from './theme/ThemeModeToggle.vue'
 export { default as AnimationToggle } from './tabs/settings/AnimationToggle.vue'
 export { default as SettingsInfoRow } from './tabs/settings/SettingsInfoRow.vue'
 export { default as JvmPreset } from './tabs/settings/JvmPreset.vue'
@@ -38,4 +39,4 @@ export { default as SettingsSaveBar } from './tabs/settings/SettingsSaveBar.vue'
 
 export { default as ThemeSwitchAnimation } from './theme/ThemeSwitchAnimation.vue'
 
-export type { TabItem, TabKey } from './types'
+export type { TabItem, LauncherBehaviorForm } from './types'

@@ -106,4 +106,28 @@ mod tests {
             "запись не должна попасть в цель"
         );
     }
+
+    #[test]
+    fn extract_skips_entries_with_traversal_names() {
+        let dir = TempDir::new("zipslip");
+        let archive_path = dir.0.join("archive.zip");
+        write_test_zip(
+            &archive_path,
+            &[("../evil.txt", b"evil"), ("ok.txt", b"ok")],
+        );
+        let target = dir.0.join("out");
+
+        extract_zip_with_limit(&archive_path, &target, MAX_EXTRACT_TOTAL_BYTES)
+            .expect("архив с traversal-записью распаковывается без ошибки");
+
+        assert!(!target.join("evil.txt").exists());
+        assert!(
+            !dir.0.join("evil.txt").exists(),
+            "запись с .. не должна выйти за пределы цели"
+        );
+        assert_eq!(
+            std::fs::read(target.join("ok.txt")).expect("безопасная запись извлекается"),
+            b"ok"
+        );
+    }
 }

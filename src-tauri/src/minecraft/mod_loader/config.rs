@@ -2,15 +2,129 @@ use std::path::Path;
 
 use crate::utils::errors::LauncherError;
 use crate::{
+    log_info,
     minecraft::{
-        mod_loader::{manifest::Manifest, utils::library_rel_path},
-        structs::LibraryMod,
-        vanilla::config::{strip_classpath_args, ArgumentsMap},
+        mod_loader::{
+            manifest::{
+                loader_libraries, loader_manifest_path, loader_version_or_err, LoaderDef, Manifest,
+            },
+            utils::library_rel_path,
+        },
+        structs::{GameConfig, LibraryMod, VersionMod},
+        vanilla::config::{filter_classpath, strip_classpath_args, ArgumentsMap},
     },
     state::dto::ProjectConfig,
-    utils::env_info::launcher_path,
+    utils::{download_file::download_json, env_info::launcher_path},
 };
 use anyhow::Result;
+
+pub(crate) enum LoaderMainClass {
+    FromVersion,
+    FromManifest,
+}
+
+pub(crate) enum VanillaClientJar {
+    Keep,
+    Drop,
+}
+
+pub(crate) struct LoaderConfigOptions {
+    pub main_class: LoaderMainClass,
+    pub vanilla_client_jar: VanillaClientJar,
+}
+
+pub(crate) async fn build_loader_config(
+    def: &LoaderDef,
+    state: &ProjectConfig,
+    vanilla_config: GameConfig,
+    version: &VersionMod,
+    options: LoaderConfigOptions,
+) -> Result<GameConfig> {
+    log_info!("Соединение classpath {}", def.name);
+    let target_version = loader_version_or_err(state)?;
+    let manifest_path = loader_manifest_path(def.manifest_prefix, target_version).map_err(|e| {
+        LauncherError::LoaderSetup(format!(
+            "Не удалось определить путь к файлам лаунчера: {e:#}"
+        ))
+    })?;
+    let manifest = download_json::<Manifest>(None, &manifest_path)
+        .await
+        .map_err(|e| {
+            LauncherError::LoaderSetup(format!("Не удалось скачать манифест {}: {e:#}", def.name))
+        })?;
+
+    let libraries = if version.library.is_empty() {
+        loader_libraries(manifest.libraries.clone(), def.maven_base)
+    } else {
+        Ok(version.library.clone())
+    }
+    .map_err(|e| {
+        LauncherError::LoaderSetup(format!("Не удалось собрать библиотеки {}: {e:#}", def.name))
+    })?;
+    let classpath = merge_loader_classpath(
+        state,
+        &vanilla_config.classpath,
+        version,
+        &libraries,
+        options.vanilla_client_jar,
+    )
+    .await
+    .map_err(|e| {
+        LauncherError::LoaderSetup(format!("Не удалось собрать classpath {}: {e:#}", def.name))
+    })?;
+    let clean_classpath = filter_classpath(classpath);
+
+    let args_map = loader_args_map(state)?;
+    let game_args = merge_game_args(
+        vanilla_config.game_args.clone(),
+        loader_game_args(&args_map, &manifest),
+    );
+    let jvm_args = [
+        &vanilla_config.jvm_args[..],
+        &loader_jvm_args(&args_map, &manifest)[..],
+    ]
+    .concat();
+    let main_class = match options.main_class {
+        LoaderMainClass::FromVersion => version.main_class.clone(),
+        LoaderMainClass::FromManifest => manifest.main_class.clone(),
+    };
+
+    Ok(vanilla_config
+        .with_args(jvm_args, game_args)
+        .with_loader(clean_classpath, main_class))
+}
+
+async fn merge_loader_classpath(
+    state: &ProjectConfig,
+    vanilla_classpath: &[String],
+    version: &VersionMod,
+    libraries: &[LibraryMod],
+    vanilla_client_jar: VanillaClientJar,
+) -> Result<Vec<String>> {
+    match vanilla_client_jar {
+        VanillaClientJar::Keep => {
+            merge_classpath(
+                &state.project_name,
+                &version.id,
+                libraries,
+                vanilla_classpath,
+            )
+            .await
+        }
+        VanillaClientJar::Drop => {
+            let mut classpath =
+                merge_classpath(&state.project_name, &version.id, libraries, &[]).await?;
+            let client_jar = format!("{}.jar", state.mc_version);
+            classpath.extend(
+                vanilla_classpath
+                    .iter()
+                    .filter(|p| !p.ends_with(&client_jar))
+                    .cloned(),
+            );
+            Ok(classpath)
+        }
+    }
+}
 
 pub fn loader_version_jar_name(version_id: &str) -> String {
     format!("{}.jar", version_id)

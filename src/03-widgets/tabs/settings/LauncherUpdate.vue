@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Button, Dropdown, type DropdownOption } from '@/06-shared'
 import { useLauncherUpdate } from '@/04-features'
-import LoadErrorRow from '../../common/LoadErrorRow.vue'
+import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 
 const {
   versions,

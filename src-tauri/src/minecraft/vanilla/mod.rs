@@ -25,6 +25,7 @@ use crate::{
     minecraft::structs::{GameConfig, LaunchConfig, MinecraftLoader, Versions},
     step_try,
     utils::{
+        blocking,
         env_info::launcher_path,
         errors::LauncherError,
         integrity::{ensure_files, IntegrityTarget},
@@ -140,6 +141,12 @@ impl MinecraftLoader for Vanilla {
                 "Не удалось получить список версий Vanilla: {e:#}"
             ))
         })?;
+        let version_type = versions
+            .iter()
+            .find(|v| v.id == config.mc_version)
+            .map(|v| v.version_type.clone())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "release".to_string());
         let manifest_version: VersionDetailsManifest =
             get_manifest_version(&config.mc_version, versions)
                 .await
@@ -161,13 +168,19 @@ impl MinecraftLoader for Vanilla {
 
         log_info!("Формирование аргументов");
         let assets_index_id = manifest_version.assets.clone();
-        let args_map = ArgumentsMap::new(config, &assets_index_id);
+        let args_map = ArgumentsMap::new(config, &assets_index_id, &version_type);
         let jvm_args = get_jvm_args(&manifest_version, config, &args_map);
         let game_args = get_game_args(&manifest_version, &args_map);
 
         log_info!("Поиск java");
-        let java_path =
-            LauncherError::classify(find_java(state.java_path.clone()), LauncherError::Java)?;
+        let java_config = state.java_path.clone();
+        let java_path = LauncherError::classify(
+            blocking("Поиск Java в системе", move || {
+                find_java(java_config)
+            })
+            .await?,
+            LauncherError::Java,
+        )?;
 
         Ok(GameConfig::new(
             java_path,

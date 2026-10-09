@@ -1,5 +1,5 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, type LauncherSettingsPayload } from '@/05-entities'
+import { useCoreStore, useNotificationStore, bindSettingsDirtyTab, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import {
   joinPath,
@@ -10,6 +10,7 @@ import {
   enableAutostart,
   disableAutostart,
   useDirtySnapshot,
+  useAsyncAction,
 } from '@/06-shared'
 
 export function useLauncherSettings(): {
@@ -23,7 +24,7 @@ export function useLauncherSettings(): {
   systemNotifications: Ref<boolean>
   debugMode: Ref<boolean>
   downloadSpeedLimitInput: Ref<string>
-  settings: ComputedRef<LauncherSettingsPayload>
+  downloadSpeedLimitError: ComputedRef<string>
   isSaving: Ref<boolean>
   isDirty: ComputedRef<boolean>
   selectLauncherFolder: () => Promise<void>
@@ -54,6 +55,15 @@ export function useLauncherSettings(): {
     return parsed > 0 ? parsed : null
   }
 
+  const downloadSpeedLimitError = computed((): string => {
+    const trimmed = downloadSpeedLimitInput.value.trim()
+    if (trimmed === '') return ''
+    if (!/^\d+$/.test(trimmed) || Number.parseInt(trimmed, 10) <= 0) {
+      return 'Ограничение скорости — целое число больше нуля, КБ/с'
+    }
+    return ''
+  })
+
   const formSettings = (): LauncherSettingsPayload => ({
     discordActivity: discordActivity.value,
     autoUpdate: autoUpdate.value,
@@ -73,6 +83,8 @@ export function useLauncherSettings(): {
     ...formSettings(),
   }))
   const { isDirty } = dirtyState
+
+  bindSettingsDirtyTab('launcher', isDirty)
 
   const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
     try {
@@ -119,7 +131,7 @@ export function useLauncherSettings(): {
     }
     dirtyState.captureBaseline()
     void syncStartWithSystemState(startWithSystem.value).then((changed: boolean): void => {
-      if (changed) dirtyState.captureBaseline()
+      if (changed) dirtyState.patchBaseline({ startWithSystem: startWithSystem.value })
     })
   })
 
@@ -139,10 +151,18 @@ export function useLauncherSettings(): {
     }
   }
 
+  const saveAction = useAsyncAction(async (e: unknown): Promise<void> => {
+    await resyncLauncherConfig()
+    notification.show(getErrorMessage(e))
+  }, isSaving)
+
   const handleSave = async (): Promise<void> => {
     if (isSaving.value) return
-    isSaving.value = true
-    try {
+    if (downloadSpeedLimitError.value) {
+      notification.show(downloadSpeedLimitError.value)
+      return
+    }
+    await saveAction.run(async () => {
       const savedSettings = await saveLauncherSettings(settings.value)
       coreStore.launcherConfig = savedSettings
 
@@ -156,12 +176,7 @@ export function useLauncherSettings(): {
 
       if (!(await applyStartWithSystem(startWithSystem.value))) return
       notification.show('Настройки сохранены')
-    } catch (e: unknown) {
-      await resyncLauncherConfig()
-      notification.show(getErrorMessage(e))
-    } finally {
-      isSaving.value = false
-    }
+    })
   }
 
   return {
@@ -175,7 +190,7 @@ export function useLauncherSettings(): {
     systemNotifications,
     debugMode,
     downloadSpeedLimitInput,
-    settings,
+    downloadSpeedLimitError,
     isSaving,
     isDirty,
     selectLauncherFolder,

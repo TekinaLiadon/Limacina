@@ -1,13 +1,13 @@
 import { type Ref } from 'vue'
-import { selectFile, useFileDrop } from '@/06-shared'
+import { selectFile, useFileDrop, fileSizeLimitMessage } from '@/06-shared'
 import { getErrorMessage } from '@/06-shared/api'
 
 interface UserContentFileOptions {
   accept: string
   extensions: string[]
   maxBytes: number
-  readFile: (path: string) => Promise<ArrayBuffer>
-  processFile: (bytes: ArrayBuffer, name: string) => Promise<void>
+  readFile: (path: string) => Promise<Uint8Array>
+  processFile: (bytes: Uint8Array, name: string) => Promise<void>
   errorMessage: Ref<string>
 }
 
@@ -16,6 +16,10 @@ export function useUserContentFile(options: UserContentFileOptions) {
     options.errorMessage.value = ''
     try {
       const bytes = await options.readFile(path)
+      if (bytes.byteLength > options.maxBytes) {
+        options.errorMessage.value = fileSizeLimitMessage(options.maxBytes, bytes.byteLength)
+        return
+      }
       const name = path.split(/[\\/]/).pop() ?? path
       await options.processFile(bytes, name)
     } catch (e: unknown) {
@@ -34,7 +38,7 @@ export function useUserContentFile(options: UserContentFileOptions) {
       },
       onLoad: async (file: File, result: string | ArrayBuffer): Promise<void> => {
         try {
-          await options.processFile(result as ArrayBuffer, file.name)
+          await options.processFile(new Uint8Array(result as ArrayBuffer), file.name)
         } catch (e: unknown) {
           options.errorMessage.value = getErrorMessage(e)
         }

@@ -50,6 +50,7 @@ use commands::profile::{
 };
 use commands::settings_project::clear_minecraft_config;
 use commands::settings_project::load_settings_project;
+use commands::settings_project::probe_java_version;
 use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
 use commands::start::get_game_state;
@@ -135,6 +136,14 @@ pub fn run() {
             let _ = std::fs::create_dir_all(base_path.join("manifest"));
             let _ = std::fs::create_dir_all(base_path.join("java"));
 
+            let part_cleanup_root = base_path.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let removed = utils::download_file::cleanup_part_files(&part_cleanup_root);
+                if removed > 0 {
+                    log_info!("Удалено временных .part-файлов после сбоя: {removed}");
+                }
+            });
+
             crate::utils::winreg::init_uninstall_registry_key(app.config());
             crate::utils::winreg::remember_data_path(&base_path);
 
@@ -198,7 +207,8 @@ pub fn run() {
         ))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if tray::minimize_to_tray_enabled() {
+                let app = window.app_handle();
+                if tray::minimize_to_tray_enabled() && tray::is_available(app) {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -244,6 +254,7 @@ pub fn run() {
             get_launch_state,
             save_settings_project,
             load_settings_project,
+            probe_java_version,
             clear_minecraft_config,
             get_game_options,
             save_game_options,

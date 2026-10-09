@@ -20,7 +20,7 @@ const clampToRange = (v: number, minVal: number, maxVal: number, fallback: numbe
 }
 
 const minVal = computed({
-  get: () => props.modelValue[0],
+  get: () => clampToRange(props.modelValue[0], min, maxLimit.value, min),
   set: (v: number) => {
     const clamped = clampToRange(v, min, maxLimit.value, min)
     if (clamped > props.modelValue[1]) {
@@ -32,7 +32,7 @@ const minVal = computed({
 })
 
 const maxVal = computed({
-  get: () => props.modelValue[1],
+  get: () => clampToRange(props.modelValue[1], min, maxLimit.value, fallbackMax),
   set: (v: number) => {
     const clamped = clampToRange(v, min, maxLimit.value, fallbackMax)
     if (clamped < props.modelValue[0]) {

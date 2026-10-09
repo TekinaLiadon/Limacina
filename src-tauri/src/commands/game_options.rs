@@ -9,7 +9,7 @@ use tokio::fs;
 
 use crate::log_info;
 use crate::state::config::load_config_or_default;
-use crate::utils::env_info::launcher_path;
+use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::tauri_err::CommandResult;
 
 pub const SETTINGS_DIR_NAME: &str = "settings";
@@ -113,7 +113,18 @@ pub struct GameOptionsData {
     pub has_global: bool,
 }
 
+fn ensure_safe_project_name(project_name: &str) -> Result<()> {
+    if !is_safe_relative_path(project_name) {
+        return Err(LauncherError::InvalidInput(format!(
+            "Некорректное имя проекта: {project_name}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 fn options_file_path(project_name: &str) -> Result<PathBuf> {
+    ensure_safe_project_name(project_name)?;
     Ok(launcher_path(Some(project_name))?.join(OPTIONS_FILE))
 }
 
@@ -406,6 +417,7 @@ async fn read_options_content(path: &PathBuf) -> Result<Option<String>> {
 }
 
 async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
+    ensure_safe_project_name(project_name)?;
     let dir = launcher_path(Some(project_name))?.join("resourcepacks");
     let mut packs = Vec::new();
     let mut entries = match fs::read_dir(&dir).await {
@@ -426,7 +438,12 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
         LauncherError::DiskIo,
     )? {
         let path = entry.path();
-        if path.is_file() {
+        let is_pack = if path.is_file() {
+            true
+        } else {
+            path.is_dir() && path.join("pack.mcmeta").is_file()
+        };
+        if is_pack {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 packs.push(name.to_string());
             }
@@ -554,7 +571,10 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_game_options_inner, merge_options, parse_options, write_options_file};
+    use super::{
+        get_game_options_inner, merge_options, parse_options, save_game_options_inner,
+        write_options_file,
+    };
     use crate::test_support::LauncherDirGuard;
 
     #[test]
@@ -765,6 +785,63 @@ mod tests {
         assert!(
             result.is_err(),
             "пустое имя проекта не должно читать options.txt из корня лаунчера"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_game_options_rejects_unsafe_project_name() {
+        let _guard = LauncherDirGuard::acquire("game_options_unsafe").await;
+
+        for name in ["../evil", "/abs", "C:\\evil", "a/../b"] {
+            assert!(
+                get_game_options_inner(name).await.is_err(),
+                "имя {name:?} должно отклоняться"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn save_game_options_rejects_unsafe_project_name() {
+        let guard = LauncherDirGuard::acquire("game_options_save_unsafe").await;
+
+        let result = save_game_options_inner("../evil", &super::GameOptions::default()).await;
+
+        assert!(result.is_err(), "имя с обходом пути должно отклоняться");
+        assert!(
+            !guard.root().join("evil").exists(),
+            "запись не должна выходить за пределы папки проекта"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_game_options_allows_legitimate_name() {
+        let _guard = LauncherDirGuard::acquire("game_options_legit").await;
+
+        let data = get_game_options_inner("LegitProj")
+            .await
+            .expect("легитимное имя проекта должно работать");
+
+        assert!(!data.file_exists);
+        assert!(data.available_resource_packs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resource_packs_include_directories_with_pack_mcmeta() {
+        let guard = LauncherDirGuard::acquire("game_options_pack_dirs").await;
+        let packs_dir = guard.project_dir("Cordelia").join("resourcepacks");
+        std::fs::create_dir_all(packs_dir.join("folder-pack")).unwrap();
+        std::fs::write(packs_dir.join("folder-pack/pack.mcmeta"), b"{}").unwrap();
+        std::fs::create_dir_all(packs_dir.join("empty-dir")).unwrap();
+        std::fs::write(packs_dir.join("zipped.zip"), b"PK").unwrap();
+
+        let data = get_game_options_inner("Cordelia")
+            .await
+            .expect("список ресурс-паков");
+
+        assert_eq!(
+            data.available_resource_packs,
+            vec!["folder-pack".to_string(), "zipped.zip".to_string()],
+            "папочный ресурспак с pack.mcmeta попадает в список, папка без него — нет"
         );
     }
 }

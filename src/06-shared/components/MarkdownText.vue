@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { openExternalUrl } from '../utils/externalUrl'
-import { getErrorMessage } from '../api'
-import { resolveMarkdownUrl, renderMarkdown } from '../utils/markdown'
+import { openExternalUrl } from '@/06-shared/utils/externalUrl'
+import { getErrorMessage } from '@/06-shared/api'
+import { resolveMarkdownUrl, renderMarkdown } from '@/06-shared/utils/markdown'
 
 const props = defineProps<{
   source: string

@@ -1,4 +1,5 @@
 import { watch, type WatchSource } from 'vue'
+import { reportError } from './reportError'
 
 export interface BackoffPollerConfig<T> {
   okIntervalMs: number
@@ -16,6 +17,14 @@ export interface BackoffPollerConfig<T> {
 
 export interface BackoffPoller {
   startSync: () => void
+}
+
+const guardApply = (run: () => void): void => {
+  try {
+    run()
+  } catch (e: unknown) {
+    reportError('Сбой обработчика цикла опроса', e)
+  }
 }
 
 export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffPoller {
@@ -63,11 +72,11 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
     try {
       const result = await fetch()
       if (generation !== pollGeneration) return
-      applySuccess(result)
+      guardApply((): void => { applySuccess(result) })
       succeeded = true
     } catch (e: unknown) {
       if (generation !== pollGeneration) return
-      applyError?.(e)
+      if (applyError !== undefined) guardApply((): void => { applyError(e) })
     }
     if (succeeded) {
       resetBackoff()
@@ -75,23 +84,28 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
     }
     consecutiveFailures += 1
     if (failureThreshold !== undefined && consecutiveFailures >= failureThreshold) {
-      onFailureStreak?.()
+      guardApply((): void => { onFailureStreak?.() })
     }
     currentDelayMs = Math.min(currentDelayMs * 2, maxIntervalMs)
   }
 
   const poll = async (): Promise<void> => {
-    if (shouldPoll !== undefined && !shouldPoll()) return
     const generation = pollGeneration
-    await runCycle(generation)
-    if (generation !== pollGeneration) return
-    schedule(currentDelayMs)
+    try {
+      if (shouldPoll !== undefined && !shouldPoll()) {
+        schedule(okIntervalMs)
+        return
+      }
+      await runCycle(generation)
+    } finally {
+      if (generation === pollGeneration) schedule(currentDelayMs)
+    }
   }
 
   const syncWithProject = (): void => {
     stopPolling()
     if (!isWatched()) {
-      applyIdle()
+      guardApply(applyIdle)
       return
     }
     resetBackoff()

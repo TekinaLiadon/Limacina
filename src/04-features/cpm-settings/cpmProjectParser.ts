@@ -1,6 +1,9 @@
-import JSZip from 'jszip'
 import { parseCpmAnimations } from './cpmAnimationParser'
+import { readCpmProjectZip } from '../cpm-convert/cpmProjectZip'
 import type { CPMAnimation, CPMConfig } from '@/05-entities'
+
+export { readCpmProjectZip } from '../cpm-convert/cpmProjectZip'
+export type { CpmProjectZip } from '../cpm-convert/cpmProjectZip'
 
 export interface CpmProject {
   config: CPMConfig
@@ -8,44 +11,7 @@ export interface CpmProject {
   animations: CPMAnimation[]
 }
 
-export interface CpmProjectZip {
-  zip: JSZip
-  config: CPMConfig
-  skinPng: Uint8Array | null
-}
-
-function parseCpmConfig(configText: string): CPMConfig {
-  let config: CPMConfig
-  try {
-    config = JSON.parse(configText) as CPMConfig
-  } catch {
-    throw new Error('Некорректный config.json в файле проекта')
-  }
-
-  const { skinSize } = config
-  if (!skinSize || typeof skinSize.x !== 'number' || typeof skinSize.y !== 'number' || !Array.isArray(config.elements)) {
-    throw new Error('Некорректный config.json в файле проекта')
-  }
-
-  return config
-}
-
-export async function readCpmProjectZip(data: ArrayBuffer): Promise<CpmProjectZip> {
-  const zip = await JSZip.loadAsync(data)
-
-  const configFile = zip.file('config.json')
-  if (!configFile) throw new Error('ZIP не содержит config.json')
-
-  const configText = await configFile.async('string')
-  const config = parseCpmConfig(configText)
-
-  const skinFile = zip.file('skin.png')
-  const skinPng = skinFile ? new Uint8Array(await skinFile.async('arraybuffer')) : null
-
-  return { zip, config, skinPng }
-}
-
-export async function parseCpmProjectFile(data: ArrayBuffer): Promise<CpmProject> {
+export async function parseCpmProjectFile(data: Uint8Array): Promise<CpmProject> {
   const { zip, config, skinPng } = await readCpmProjectZip(data)
   if (skinPng === null) throw new Error('Файл не содержит skin.png')
 

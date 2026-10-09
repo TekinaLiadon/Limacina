@@ -13,6 +13,7 @@ const buildStep = (overrides: Partial<StepProgressItem> = {}): StepProgressItem 
   label: 'Шаг',
   status: 'active',
   skipped: false,
+  untracked: false,
   current: 0,
   total: 0,
   detail: '',
@@ -134,5 +135,24 @@ describe('StepProgress', () => {
     await nextTick()
 
     expect(animeMock.remove).toHaveBeenCalledWith(indicator.element)
+  })
+
+  it('cancels the running indicator animation on unmount', async () => {
+    const wrapper = mountStepProgress([
+      buildStep({ key: 'a' }),
+      buildStep({ key: 'b', status: 'pending' }),
+    ])
+
+    await wrapper.setProps({
+      steps: [buildStep({ key: 'a' }), buildStep({ key: 'b', status: 'active' })],
+    })
+    await nextTick()
+    expect(animeMock).toHaveBeenCalled()
+
+    animeMock.remove.mockClear()
+    wrapper.unmount()
+
+    expect(animeMock.remove).toHaveBeenCalledTimes(1)
+    expect(animeMock.remove.mock.calls[0]?.[0]).toHaveLength(2)
   })
 })

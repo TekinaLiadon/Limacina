@@ -25,12 +25,24 @@ export function useViewerCamera(
     controls: ViewerControls,
 ) {
   function applyCamera(): void {
-    if (!scene.camera.value) return
+    const camera = scene.camera.value
+    if (!camera) return
 
     const dist = controls.zoomLevel.value
     const elevation = THREE.MathUtils.degToRad(controls.rotationX.value)
-    scene.camera.value.position.set(0, dist * Math.sin(elevation), dist * Math.cos(elevation))
-    scene.camera.value.lookAt(0, 0, 0)
+    const { x, z } = camera.position
+    const azimuth = x !== 0 || z !== 0 ? Math.atan2(x, z) : 0
+    camera.position.set(
+        dist * Math.cos(elevation) * Math.sin(azimuth),
+        dist * Math.sin(elevation),
+        dist * Math.cos(elevation) * Math.cos(azimuth),
+    )
+    camera.lookAt(0, 0, 0)
+  }
+
+  function applyModelRotation(): void {
+    const group = model.value
+    if (group) group.rotation.y = THREE.MathUtils.degToRad(controls.rotationY.value)
   }
 
   function setFitDistance(distance: number): void {
@@ -60,10 +72,12 @@ export function useViewerCamera(
     applyCamera()
   })
 
-  watch(controls.rotationY, (angle: number) => {
-    if (model.value) {
-      model.value.rotation.y = THREE.MathUtils.degToRad(angle)
-    }
+  watch(controls.rotationY, () => {
+    applyModelRotation()
+  })
+
+  watch(model, () => {
+    applyModelRotation()
   })
 
   return { applyCamera, setFitDistance, modelBoundingSphereRadius }

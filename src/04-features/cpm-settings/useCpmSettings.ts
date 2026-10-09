@@ -8,7 +8,7 @@ import {
   savePlayerModel,
   setPlayerModelsLimit,
 } from '@/06-shared/api'
-import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features'
+import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
@@ -22,18 +22,17 @@ export interface CpmLayer {
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
-function collectLayers(children: CPMChild[] | undefined, inheritedHidden: boolean, result: CpmLayer[]): void {
+function collectLayers(children: CPMChild[] | undefined, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
-    const isHidden = inheritedHidden || child.hidden === true
     const empty = child.size !== undefined && isZeroVec(child.size)
     result.push(reactive({
       storeId: child.storeID ?? null,
       name: child.name,
-      visible: !empty && !isHidden,
+      visible: !empty,
       empty,
     }))
-    collectLayers(child.children, isHidden, result)
+    collectLayers(child.children, result)
   }
 }
 
@@ -43,7 +42,7 @@ export function useCpmSettings() {
   const notification = useNotificationStore()
 
   const cpmData = ref<CPMData | null>(null)
-  const cpmFileBytes = ref<ArrayBuffer | null>(null)
+  const cpmFileBytes = ref<Uint8Array | null>(null)
   const cpmFileName = ref<string>('')
   const isSaving = ref<boolean>(false)
   const isUploading = ref<boolean>(false)
@@ -61,7 +60,7 @@ export function useCpmSettings() {
 
     const layers: CpmLayer[] = []
     cpmData.value.config.elements.forEach((element) => {
-      collectLayers(element.children, false, layers)
+      collectLayers(element.children, layers)
     })
     return layers
   })
@@ -77,7 +76,7 @@ export function useCpmSettings() {
       .filter((storeId): storeId is number => storeId !== null),
   )
 
-  function applyCpmProject(project: CpmProject, bytes: ArrayBuffer, name: string): void {
+  function applyCpmProject(project: CpmProject, bytes: Uint8Array, name: string): void {
     const textureUrl = URL.createObjectURL(project.textureBlob)
     if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
     cpmData.value = {
@@ -94,7 +93,7 @@ export function useCpmSettings() {
     extensions: ['cpmproject'],
     maxBytes: 2 * 1024 * 1024,
     readFile: readCpmProjectFile,
-    processFile: async (bytes: ArrayBuffer, name: string): Promise<void> => {
+    processFile: async (bytes: Uint8Array, name: string): Promise<void> => {
       const project = await parseCpmProjectFile(bytes)
       applyCpmProject(project, bytes, name.replace(/\.cpmproject$/i, ''))
     },
@@ -116,17 +115,14 @@ export function useCpmSettings() {
     content.errorMessage.value = ''
   }
 
-  const resetCpm = async (): Promise<void> => {
-    const confirmed = await notification.confirm('Сбросить текущую модель?')
-    if (!confirmed) return
-    resetCpmState()
-  }
+  const resetCpm = (): Promise<void> =>
+    notification.runConfirmed('Сбросить текущую модель?', (): void => {
+      resetCpmState()
+    })
 
-  const handleDeleteModel = async (id: number): Promise<void> => {
-    const confirmed = await notification.confirm('Удалить модель из списка загруженных?')
-    if (!confirmed) return
-    await content.handleDelete(id)
-  }
+  const handleDeleteModel = (id: number): Promise<void> =>
+    notification.runConfirmed('Удалить модель из списка загруженных?', (): Promise<void> =>
+      content.handleDelete(id))
 
   const handleUploadModel = async (): Promise<void> => {
     if (!cpmFileBytes.value || !cpmData.value) return
@@ -177,15 +173,19 @@ export function useCpmSettings() {
   }
 
   const loadModelsLimit = async (): Promise<void> => {
+    const project = coreStore.currentProject
     isLimitLoading.value = true
     limitLoadError.value = ''
     try {
-      modelsLimit.value = await getPlayerModelsLimit()
+      const limit = await getPlayerModelsLimit()
+      if (coreStore.currentProject !== project) return
+      modelsLimit.value = limit
     } catch (e: unknown) {
+      if (coreStore.currentProject !== project) return
       reportError('Не удалось загрузить лимит моделей', e)
       limitLoadError.value = getErrorMessage(e)
     } finally {
-      isLimitLoading.value = false
+      if (coreStore.currentProject === project) isLimitLoading.value = false
     }
   }
 
@@ -195,18 +195,26 @@ export function useCpmSettings() {
       limitSaveError.value = 'Лимит моделей — положительное число или пустое значение'
       return
     }
+    const project = coreStore.currentProject
     isSavingLimit.value = true
     limitSaveError.value = ''
     try {
       await setPlayerModelsLimit(limit)
+      if (coreStore.currentProject !== project) return
       modelsLimit.value = limit
       limitLoadError.value = ''
     } catch (e: unknown) {
+      if (coreStore.currentProject !== project) return
       limitSaveError.value = getErrorMessage(e)
     } finally {
       isSavingLimit.value = false
     }
   }
+
+  watch((): string => coreStore.currentProject, (): void => {
+    resetCpmState()
+    void loadModelsLimit()
+  })
 
   void content.loadItems()
   void loadModelsLimit()

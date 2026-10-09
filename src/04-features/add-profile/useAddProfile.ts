@@ -12,13 +12,13 @@ import {
 import {
   createOfflineProfile,
   createServerProfile,
-  clearSession,
   getErrorMessage,
   getLoaderVersions,
   getMinecraftVersions,
 } from '@/06-shared/api'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
-import { reportError, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
+import { finalizeSession } from '@/04-features/accounts/finalizeSession'
+import { useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 
 const loaderOption = (value: ModLoaderKind): DropdownOption => ({
   value,
@@ -146,11 +146,7 @@ export function useAddProfile() {
     coreStore.projectConfig = config
     resetAccountsState()
 
-    try {
-      await clearSession()
-    } catch (e: unknown) {
-      reportError('Не удалось выйти из аккаунта', e)
-    }
+    await finalizeSession()
   }
 
   const selectKind = async (value: ProfileKind): Promise<void> => {

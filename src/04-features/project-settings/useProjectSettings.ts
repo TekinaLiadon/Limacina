@@ -1,10 +1,19 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAccountsStore, useCoreStore, useNotificationStore, useProjectSettingsStore, type ProjectSettingsForm, type ProjectConfig } from '@/05-entities'
-import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { copyToClipboard, reportError, selectDirectory, useDirtySnapshot } from '@/06-shared'
-import { useProjectSwitch } from '@/04-features'
-import { splitJvmArgs } from './jvmPresets'
+import {
+  useCoreStore,
+  useNotificationStore,
+  useLaunchStore,
+  useProjectSettingsStore,
+  projectSettingsFormFromConfig,
+  type ProjectSettingsForm,
+  type ProjectConfig,
+} from '@/05-entities'
+import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJavaVersion, refreshManifests, saveSettingsProject } from '@/06-shared/api'
+import { copyToClipboard, selectDirectory, useAsyncAction } from '@/06-shared'
+import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
+import { loadProjectConfig } from './loadProjectConfig'
+import { splitJvmArgs, validateJvmArgs } from './jvmPresets'
 
 export function useProjectSettings(): {
   config: ComputedRef<ProjectSettingsForm>
@@ -13,6 +22,7 @@ export function useProjectSettings(): {
   loadError: ComputedRef<string>
   isDirty: ComputedRef<boolean>
   maxMemoryLimit: ComputedRef<number>
+  jvmArgsError: ComputedRef<string>
   isSaving: ComputedRef<boolean>
   isClearingConfig: Ref<boolean>
   isRefreshingManifests: Ref<boolean>
@@ -28,10 +38,9 @@ export function useProjectSettings(): {
   handleGetConnectUrl: () => Promise<void>
   handleCopyConnectUrl: () => Promise<void>
   loadConfig: (project: string, force?: boolean) => Promise<void>
-  retryLoad: () => Promise<void>
-} {
+  retryLoad: () => Promise<void>} {
   const coreStore = useCoreStore()
-  const accountsStore = useAccountsStore()
+  const launchStore = useLaunchStore()
   const notification = useNotificationStore()
   const store = useProjectSettingsStore()
   const router = useRouter()
@@ -42,75 +51,28 @@ export function useProjectSettings(): {
   const isLoading = computed((): boolean => store.loadingProject !== '')
   const loadError = computed((): string => store.loadError)
   const isSaving = computed((): boolean => store.isSaving)
-
-  type DirtyFields = Pick<
-    ProjectSettingsForm,
-    'loaderVersion' | 'javaPath' | 'jvmArgs' | 'memoryRange' | 'autoJoinServer'
-  >
-
-  const dirtyState = useDirtySnapshot((): DirtyFields => ({
-    loaderVersion: store.config.loaderVersion,
-    javaPath: store.config.javaPath,
-    jvmArgs: store.config.jvmArgs,
-    memoryRange: store.config.memoryRange,
-    autoJoinServer: store.config.autoJoinServer,
-  }))
-  const { isFieldDirty } = dirtyState
-
-  const isDirty = computed((): boolean => store.isLoaded && dirtyState.isDirty.value)
-
-  watch((): string => store.loadedProject, (): void => {
-    dirtyState.captureBaseline()
-  }, { immediate: true })
+  const isDirty = computed((): boolean => store.isDirty)
 
   const maxMemoryLimit = computed((): number => {
     return Math.max(512, coreStore.totalMemoryMb - 2048)
   })
 
-  const DEFAULT_MIN_MEMORY = 512
-  const DEFAULT_MAX_MEMORY = 4096
-
-  const parseMemory = (val: string | null | undefined, fallback: number): number => {
-    if (!val) return fallback
-    const num = parseInt(val.replace(/[^0-9]/g, ''), 10)
-    if (Number.isNaN(num)) return fallback
-    const mb = val.toUpperCase().includes('G') ? num * 1024 : num
-    return Number.isFinite(mb) ? mb : fallback
-  }
+  const jvmArgsError = computed((): string => validateJvmArgs(config.value.jvmArgs))
 
   const selectJavaFolder = async (): Promise<void> => {
     const selected = await selectDirectory()
-    if (selected) config.value.javaPath = selected
+    if (!selected) return
+    config.value.javaPath = selected
+    try {
+      config.value.javaVersion = await probeJavaVersion(selected)
+    } catch (e: unknown) {
+      config.value.javaVersion = null
+      notification.show(getErrorMessage(e))
+    }
   }
 
   const loadConfig = async (project: string, force: boolean = false): Promise<void> => {
-    if (!project) return
-    if (!force && (store.loadedProject === project || store.loadingProject === project)) return
-
-    store.startLoading(project)
-    try {
-      const loaded = await loadSettingsProject(project)
-      store.applyLoaded(project, {
-        projectName: loaded.projectName,
-        mcVersion: loaded.mcVersion,
-        modLoader: loaded.modLoader,
-        loaderVersion: loaded.loaderVersion ?? '',
-        javaPath: loaded.javaPath ?? '',
-        javaVersion: loaded.javaVersion ?? null,
-        jvmArgs: (loaded.jvmArgs ?? []).join(', '),
-        memoryRange: [parseMemory(loaded.minMemory, DEFAULT_MIN_MEMORY), parseMemory(loaded.maxMemory, DEFAULT_MAX_MEMORY)],
-        online: loaded.online,
-        initialized: loaded.initialized,
-        serverUrl: loaded.serverUrl,
-        autoJoinServer: loaded.autoJoinServer,
-      })
-    } catch (e: unknown) {
-      const message = getErrorMessage(e)
-      reportError('Не удалось загрузить настройки проекта', e)
-      store.applyError(project, message)
-    } finally {
-      store.finishLoading(project)
-    }
+    await loadProjectConfig(project, force)
   }
 
   const retryLoad = (): Promise<void> => loadConfig(coreStore.currentProject, true)
@@ -118,14 +80,22 @@ export function useProjectSettings(): {
   const serverConnectUrl = ref<string>('')
   const isLoadingConnectUrl = ref<boolean>(false)
 
+  const notifyError = (e: unknown): void => notification.show(getErrorMessage(e))
+
+  const connectUrlAction = useAsyncAction(notifyError, isLoadingConnectUrl)
+
   watch(() => coreStore.currentProject, (project: string) => {
     serverConnectUrl.value = ''
-    loadConfig(project)
+    void loadProjectConfig(project)
   }, { immediate: true })
 
   const handleSave = async (): Promise<void> => {
     if (!store.isLoaded) return
     if (store.isSaving) return
+    if (store.isFieldDirty('jvmArgs') && jvmArgsError.value) {
+      notification.show(jvmArgsError.value)
+      return
+    }
     const { projectName } = config.value
     store.startSaving()
 
@@ -134,17 +104,17 @@ export function useProjectSettings(): {
       if (coreStore.currentProject !== projectName) return
       const projectConfig: ProjectConfig = {
         ...fresh,
-        loaderVersion: isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
-        javaPath: isFieldDirty('javaPath') ? config.value.javaPath || null : fresh.javaPath,
-        jvmArgs: isFieldDirty('jvmArgs') ? (config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : []) : fresh.jvmArgs,
-        minMemory: isFieldDirty('memoryRange') ? `-Xms${config.value.memoryRange[0]}M` : fresh.minMemory,
-        maxMemory: isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
-        autoJoinServer: isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
+        loaderVersion: store.isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
+        javaPath: store.isFieldDirty('javaPath') ? config.value.javaPath || null : fresh.javaPath,
+        jvmArgs: store.isFieldDirty('jvmArgs') ? (config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : []) : fresh.jvmArgs,
+        minMemory: store.isFieldDirty('memoryRange') ? `-Xms${config.value.memoryRange[0]}M` : fresh.minMemory,
+        maxMemory: store.isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
+        autoJoinServer: store.isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
-      await saveSettingsProject(projectConfig)
+      const saved = await saveSettingsProject(projectConfig)
       if (coreStore.currentProject !== projectName) return
-      coreStore.projectConfig = projectConfig
-      dirtyState.captureBaseline()
+      coreStore.projectConfig = saved
+      store.adoptLoaded(projectName, projectSettingsFormFromConfig(saved))
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
       notification.show(getErrorMessage(e))
@@ -153,31 +123,24 @@ export function useProjectSettings(): {
     }
   }
 
-  const isRefreshingManifests = ref<boolean>(false)
-
   const handleGetConnectUrl = async (): Promise<void> => {
-    if (isLoadingConnectUrl.value) return
-    isLoadingConnectUrl.value = true
-    try {
+    await connectUrlAction.run(async () => {
       serverConnectUrl.value = await getServerConnectUrl()
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isLoadingConnectUrl.value = false
-    }
+    })
   }
+
+  const copyConnectUrlAction = useAsyncAction(notifyError)
 
   const handleCopyConnectUrl = async (): Promise<void> => {
     if (!serverConnectUrl.value) return
-    try {
+    await copyConnectUrlAction.run(async () => {
       await copyToClipboard(serverConnectUrl.value)
       notification.show('Ссылка скопирована')
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    }
+    })
   }
 
   const isClearingConfig = ref<boolean>(false)
+  const clearConfigAction = useAsyncAction(notifyError, isClearingConfig)
 
   const handleClearMinecraftConfig = async (): Promise<void> => {
     const confirmed = await notification.confirm(
@@ -185,31 +148,24 @@ export function useProjectSettings(): {
     )
     if (!confirmed) return
 
-    isClearingConfig.value = true
-    try {
+    await clearConfigAction.run(async () => {
       const message = await clearMinecraftConfig()
       notification.show(message)
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isClearingConfig.value = false
-    }
+    })
   }
 
+  const isRefreshingManifests = ref<boolean>(false)
+  const manifestsAction = useAsyncAction(notifyError, isRefreshingManifests)
+
   const handleRefreshManifests = async (): Promise<void> => {
-    if (isRefreshingManifests.value) return
-    isRefreshingManifests.value = true
-    try {
+    await manifestsAction.run(async () => {
       const message = await refreshManifests()
       notification.show(message)
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isRefreshingManifests.value = false
-    }
+    })
   }
 
   const isDeleting = ref<boolean>(false)
+  const deleteAction = useAsyncAction(notifyError, isDeleting)
 
   const canDeleteProject = computed((): boolean =>
     coreStore.envProjectName === '' || coreStore.currentProject !== coreStore.envProjectName
@@ -223,7 +179,7 @@ export function useProjectSettings(): {
       notification.show('Нельзя удалить проект, пока запущена игра')
       return
     }
-    if (accountsStore.isLaunching) {
+    if (launchStore.isLaunching) {
       notification.show('Дождитесь завершения запуска игры')
       return
     }
@@ -233,8 +189,7 @@ export function useProjectSettings(): {
     )
     if (!confirmed) return
 
-    isDeleting.value = true
-    try {
+    await deleteAction.run(async () => {
       const launcherConfig = await deleteProject()
       coreStore.launcherConfig = launcherConfig
       coreStore.projects = [...launcherConfig.projectNames]
@@ -256,11 +211,7 @@ export function useProjectSettings(): {
         coreStore.projectConfig = null
         notification.show(getErrorMessage(e))
       }
-    } catch (e: unknown) {
-      notification.show(getErrorMessage(e))
-    } finally {
-      isDeleting.value = false
-    }
+    })
   }
 
   return {
@@ -270,6 +221,7 @@ export function useProjectSettings(): {
     loadError,
     isDirty,
     maxMemoryLimit,
+    jvmArgsError,
     isSaving,
     isClearingConfig,
     isRefreshingManifests,

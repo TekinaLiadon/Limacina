@@ -89,7 +89,7 @@ const applyLimitInput = async (): Promise<void> => {
       Локальный профиль: модель сохраняется в игру без отправки на сервер
     </div>
 
-    <Viewer3D v-if="hasModel" :min-zoom="8">
+    <Viewer3D v-show="hasModel" :min-zoom="8">
       <CpmViewer
         :cpm-data="cpmData"
         :active-layers="activeLayerIds"
@@ -97,8 +97,9 @@ const applyLimitInput = async (): Promise<void> => {
         :is-animation-playing="isAnimationPlaying"
         :animation-speed="animationSpeed"
         :is-animation-looped="isAnimationLooped"
-        @animations-changed="setPlaying"
+        @playing-changed="setPlaying"
         @animation-finished="setPlaying(false)"
+        @load-error="errorMessage = 'Не удалось загрузить текстуру модели'"
       />
       <template #bottom>
         <CpmAnimationBar

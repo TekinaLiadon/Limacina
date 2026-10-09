@@ -144,20 +144,29 @@ impl LauncherConfig {
             .unwrap_or_default()
     }
 
+    fn resolve_uncached() -> Result<PathBuf> {
+        Ok(Self::load()?
+            .filter(|c| !c.launcher_path.trim().is_empty())
+            .map(|c| normalize_path(&c.launcher_path))
+            .unwrap_or_else(Self::fallback_path))
+    }
+
     pub fn resolved_launcher_path() -> PathBuf {
-        RESOLVED_LAUNCHER_PATH
-            .get_or_init(|| {
-                let path = Self::load()
-                    .ok()
-                    .flatten()
-                    .filter(|c| !c.launcher_path.trim().is_empty())
-                    .map(|c| normalize_path(&c.launcher_path))
-                    .unwrap_or_else(Self::fallback_path);
-                RwLock::new(path)
-            })
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        if let Some(cache) = RESOLVED_LAUNCHER_PATH.get() {
+            return cache.read().unwrap_or_else(|e| e.into_inner()).clone();
+        }
+        match Self::resolve_uncached() {
+            Ok(path) => {
+                let _ = RESOLVED_LAUNCHER_PATH.set(RwLock::new(path.clone()));
+                path
+            }
+            Err(e) => {
+                log_err!(
+                    "Не удалось прочитать конфиг лаунчера для определения пути данных: {e:#} — временно используем резервный путь"
+                );
+                Self::fallback_path()
+            }
+        }
     }
 
     fn update_resolved_path(&self) {
@@ -350,6 +359,45 @@ fn migrate_flattened_projects(config: &mut LauncherConfig, content: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+
+    #[tokio::test]
+    async fn resolve_errors_when_config_unreadable() {
+        let dir = LauncherDirGuard::acquire("resolve_unreadable").await;
+        let blocked = dir.root().join("config_dir");
+        std::fs::create_dir_all(&blocked).expect("каталог вместо файла конфига");
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config_dir");
+
+        assert!(
+            LauncherConfig::resolve_uncached().is_err(),
+            "ошибка чтения конфига должна возвращаться наружу, а не глотаться"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_uses_configured_launcher_path() {
+        let dir = LauncherDirGuard::acquire("resolve_configured").await;
+        std::fs::write(
+            dir.root().join("config.json"),
+            r#"{ "launcherPath": "C:/Games/Limacina" }"#,
+        )
+        .expect("запись конфига");
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+
+        let path = LauncherConfig::resolve_uncached().expect("путь из конфига");
+
+        assert_eq!(path, normalize_path("C:/Games/Limacina"));
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_without_config() {
+        let dir = LauncherDirGuard::acquire("resolve_fallback").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "missing.json");
+
+        let path = LauncherConfig::resolve_uncached().expect("резервный путь");
+
+        assert_eq!(path, LauncherConfig::fallback_path());
+    }
 
     #[test]
     fn current_project_survives_json_round_trip_with_flattened_logins() {

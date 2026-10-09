@@ -63,8 +63,9 @@ fn json_param(values: &[String]) -> String {
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const CACHE_MAX_ENTRIES: usize = 256;
+const CACHE_MAX_TOTAL_BYTES: usize = 4 * 1024 * 1024;
 
-type ResponseCache = HashMap<String, (std::time::Instant, serde_json::Value)>;
+type ResponseCache = HashMap<String, (std::time::Instant, serde_json::Value, usize)>;
 
 fn response_cache() -> &'static std::sync::Mutex<ResponseCache> {
     static CACHE: OnceLock<std::sync::Mutex<ResponseCache>> = OnceLock::new();
@@ -84,21 +85,47 @@ fn response_cache_guard() -> Option<std::sync::MutexGuard<'static, ResponseCache
     }
 }
 
+fn json_size(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Null => 4,
+        serde_json::Value::Bool(_) => 4,
+        serde_json::Value::Number(n) => n.to_string().len(),
+        serde_json::Value::String(s) => s.len() + 2,
+        serde_json::Value::Array(items) => {
+            2 + items.len() + items.iter().map(json_size).sum::<usize>()
+        }
+        serde_json::Value::Object(map) => {
+            2 + map
+                .iter()
+                .map(|(key, value)| key.len() + 4 + json_size(value))
+                .sum::<usize>()
+        }
+    }
+}
+
 fn cache_insert(cache_key: String, value: serde_json::Value) {
     let Some(mut guard) = response_cache_guard() else {
         return;
     };
-    guard.retain(|_, (stored_at, _)| stored_at.elapsed() < CACHE_TTL);
-    if guard.len() >= CACHE_MAX_ENTRIES {
-        let oldest = guard
+    let size = json_size(&value);
+    if size > CACHE_MAX_TOTAL_BYTES {
+        return;
+    }
+    guard.retain(|_, (stored_at, _, _)| stored_at.elapsed() < CACHE_TTL);
+    let mut total_bytes: usize = guard.values().map(|(_, _, s)| *s).sum();
+    while guard.len() >= CACHE_MAX_ENTRIES || total_bytes + size > CACHE_MAX_TOTAL_BYTES {
+        let Some(oldest) = guard
             .iter()
-            .min_by_key(|(_, (stored_at, _))| *stored_at)
-            .map(|(key, _)| key.clone());
-        if let Some(oldest) = oldest {
-            guard.remove(&oldest);
+            .min_by_key(|(_, (stored_at, _, _))| *stored_at)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        if let Some((_, _, removed_size)) = guard.remove(&oldest) {
+            total_bytes = total_bytes.saturating_sub(removed_size);
         }
     }
-    guard.insert(cache_key, (std::time::Instant::now(), value));
+    guard.insert(cache_key, (std::time::Instant::now(), value, size));
 }
 
 async fn send_and_check(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
@@ -112,10 +139,10 @@ async fn send_and_check(request: reqwest::RequestBuilder, url: &str) -> Result<r
 }
 async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
     let url = format!("{}{}", api_base(), path);
-    let cache_key = format!("GET {url} {}", json_param_str(query));
+    let cache_key = build_cache_key(path, query);
 
     if let Some(guard) = response_cache_guard() {
-        if let Some((stored_at, value)) = guard.get(&cache_key).cloned() {
+        if let Some((stored_at, value, _)) = guard.get(&cache_key).cloned() {
             if stored_at.elapsed() < CACHE_TTL {
                 return serde_json::from_value(value).map_err(|e| {
                     LauncherError::Modrinth(format!(
@@ -140,12 +167,9 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
     })
 }
 
-fn json_param_str(query: &[(&str, String)]) -> String {
-    query
-        .iter()
-        .map(|(key, value)| format!("{key}={value}"))
-        .collect::<Vec<_>>()
-        .join("&")
+fn build_cache_key(path: &str, query: &[(&str, String)]) -> String {
+    let query_json = serde_json::to_string(query).unwrap_or_default();
+    format!("GET {}{} {}", api_base(), path, query_json)
 }
 
 pub async fn search(
@@ -209,30 +233,8 @@ pub async fn get_versions(version_ids: &[String]) -> Result<Vec<ModrinthVersion>
     get_json("/versions", &[("ids", json_param(version_ids))]).await
 }
 
-pub async fn get_version_from_hash(
-    sha1: &str,
-    loaders: &[String],
-    game_versions: &[String],
-) -> Result<Option<ModrinthVersion>> {
-    let query = loaders_game_versions_query(loaders, game_versions);
-    let url = format!("{}/version_file/{}/update", api_base(), sha1);
-    let client = modrinth_client()?;
-    let response = client.get(&url).query(&query).send().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
-    })?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let response = response
-        .error_for_status()
-        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
-    let version = response.json().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
-    })?;
-    Ok(Some(version))
-}
-
-pub async fn get_versions_from_hashes(
+async fn post_version_files(
+    path: &str,
     hashes: &[String],
     loaders: &[String],
     game_versions: &[String],
@@ -253,12 +255,28 @@ pub async fn get_versions_from_hashes(
         loaders: loaders.to_vec(),
         game_versions: game_versions.to_vec(),
     };
-    let url = format!("{}/version_files", api_base());
+    let url = format!("{}{}", api_base(), path);
     let client = modrinth_client()?;
     let response = send_and_check(client.post(&url).json(&body), &url).await?;
     response.json().await.map_err(|e| {
         LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}")).into()
     })
+}
+
+pub async fn get_versions_from_hashes(
+    hashes: &[String],
+    loaders: &[String],
+    game_versions: &[String],
+) -> Result<HashMap<String, ModrinthVersion>> {
+    post_version_files("/version_files", hashes, loaders, game_versions).await
+}
+
+pub async fn get_version_updates_from_hashes(
+    hashes: &[String],
+    loaders: &[String],
+    game_versions: &[String],
+) -> Result<HashMap<String, ModrinthVersion>> {
+    post_version_files("/version_files/update", hashes, loaders, game_versions).await
 }
 
 #[cfg(test)]
@@ -311,13 +329,32 @@ mod tests {
     }
 
     #[test]
+    fn cache_keys_isolate_queries_with_special_characters() {
+        let with_special = build_cache_key("/search", &[("query", "a&facets=b".to_string())]);
+        let split = build_cache_key(
+            "/search",
+            &[("query", "a".to_string()), ("facets", "b".to_string())],
+        );
+
+        assert_ne!(
+            with_special, split,
+            "значение с &/= не должно давать чужой ключ кеша"
+        );
+        assert_eq!(
+            with_special,
+            build_cache_key("/search", &[("query", "a&facets=b".to_string())]),
+            "одинаковые запросы дают одинаковый ключ"
+        );
+    }
+
+    #[test]
     fn response_cache_caps_size_and_drops_expired() {
         clear_cache();
         {
             let mut guard = response_cache_guard().expect("кеш ответов");
             guard.insert(
                 "cache-evict-expired".to_string(),
-                (std::time::Instant::now() - 2 * CACHE_TTL, json!("old")),
+                (std::time::Instant::now() - 2 * CACHE_TTL, json!("old"), 1),
             );
         }
         for i in 0..CACHE_MAX_ENTRIES {
@@ -332,6 +369,38 @@ mod tests {
         assert!(
             guard.len() <= CACHE_MAX_ENTRIES,
             "кеш не должен расти неограниченно: {}",
+            guard.len()
+        );
+    }
+
+    #[test]
+    fn response_cache_caps_total_byte_budget() {
+        clear_cache();
+
+        let oversized = serde_json::Value::String("x".repeat(CACHE_MAX_TOTAL_BYTES + 1));
+        cache_insert("cache-oversized".to_string(), oversized);
+        {
+            let guard = response_cache_guard().expect("кеш ответов");
+            assert!(
+                !guard.contains_key("cache-oversized"),
+                "ответ крупнее всего бюджета не кешируется"
+            );
+        }
+
+        let entry = serde_json::Value::String("y".repeat(CACHE_MAX_TOTAL_BYTES / 4));
+        for i in 0..20 {
+            cache_insert(format!("cache-budget-{i}"), entry.clone());
+        }
+
+        let guard = response_cache_guard().expect("кеш ответов");
+        let total_bytes: usize = guard.values().map(|(_, _, size)| *size).sum();
+        assert!(
+            total_bytes <= CACHE_MAX_TOTAL_BYTES,
+            "суммарный размер кеша {total_bytes} превышает бюджет {CACHE_MAX_TOTAL_BYTES}"
+        );
+        assert!(
+            guard.len() >= 3,
+            "бюджет не должен выметать кеш целиком: {}",
             guard.len()
         );
     }

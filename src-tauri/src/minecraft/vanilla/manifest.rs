@@ -17,6 +17,7 @@ pub fn create_manifest_versions(manifest_index: Vec<VersionInfo>) -> Vec<Version
         .map(|version| Versions {
             url: version.url,
             id: version.id,
+            version_type: version.version_type,
         })
         .collect()
 }

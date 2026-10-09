@@ -130,9 +130,7 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         "mc.manifest",
         "Загрузка манифеста версии",
     );
-    let manifest = load_version_manifest(project).await.map_err(|e| {
-        LauncherError::GameDownload(format!("Не удалось загрузить манифест версии: {e:#}"))
-    })?;
+    let manifest = load_version_manifest(project).await?;
     manifest_step.finish(false);
 
     let base_path = launcher_path(Some(&project_name)).map_err(|e| {
@@ -277,10 +275,13 @@ mod tests {
         let manifest: VersionDetailsManifest =
             serde_json::from_value(natives_manifest_json()).unwrap();
 
-        let report =
-            check_natives_integrity(&base, collect_natives_to_extract(&manifest), &manifest.id)
-                .await
-                .expect("фаза natives проверки целостности");
+        let report = check_natives_integrity(
+            &base,
+            collect_natives_to_extract(&manifest).expect("список natives"),
+            &manifest.id,
+        )
+        .await
+        .expect("фаза natives проверки целостности");
 
         assert!(report.failed.is_empty());
         assert_eq!(
@@ -290,10 +291,13 @@ mod tests {
 
         std::fs::remove_file(&natives_jar).unwrap();
 
-        let report =
-            check_natives_integrity(&base, collect_natives_to_extract(&manifest), &manifest.id)
-                .await
-                .expect("отчёт фазы natives при сбое");
+        let report = check_natives_integrity(
+            &base,
+            collect_natives_to_extract(&manifest).expect("список natives"),
+            &manifest.id,
+        )
+        .await
+        .expect("отчёт фазы natives при сбое");
 
         assert_eq!(report.failed, vec!["natives".to_string()]);
         let natives_clean = std::fs::read_dir(base.join("natives"))

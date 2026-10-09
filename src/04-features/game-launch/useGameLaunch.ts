@@ -1,7 +1,7 @@
 import { computed } from 'vue'
-import { useCoreStore, useAccountsStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
+import { useCoreStore, useLaunchStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
 import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
-import { reportError, computeStepProgress, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
+import { reportError, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
 
 type StepAction = () => Promise<void>
@@ -105,26 +105,16 @@ function buildInstallFingerprint(config: ProjectConfig): string {
 
 export function useGameLaunch() {
   const coreStore = useCoreStore()
-  const store = useAccountsStore()
+  const launch = useLaunchStore()
   const { resetLaunchSteps, prefillLaunchSteps, flushLaunchSteps } = useLaunchStepsStream()
 
-  const launchSteps = computed((): StepProgressItem[] => store.launchSteps)
-  const activeProgress = computed((): number => store.activeProgress)
-
-  const markActiveStepError = (message: string): void => {
-    const step = store.launchSteps.find((s) => s.status === 'active')
-    if (step) {
-      step.status = 'error'
-      step.error = message
-    }
-  }
+  const launchSteps = computed((): StepProgressItem[] => launch.launchSteps)
+  const activeProgress = computed((): number => launch.activeProgress)
 
   const failStep = async (error: unknown, isCancelled?: () => boolean): Promise<void> => {
     if (isCancelled?.()) return
     await flushLaunchSteps()
-    markActiveStepError(getErrorMessage(error))
-    store.loginError = getErrorMessage(error)
-    store.isLaunching = false
+    launch.failActiveStep(getErrorMessage(error))
   }
 
   const executeSteps = async (isCancelled?: () => boolean): Promise<void> => {
@@ -133,8 +123,8 @@ export function useGameLaunch() {
       config = await initializeProject(coreStore.currentProject)
     } catch (e: unknown) {
       if (isCancelled?.()) return
-      store.loginError = getErrorMessage(e)
-      store.isLaunching = false
+      resetLaunchSteps()
+      launch.failActive(getErrorMessage(e))
       return
     }
     if (isCancelled?.()) return
@@ -149,7 +139,7 @@ export function useGameLaunch() {
       : buildLaunchPlan(config)
 
     prefillLaunchSteps(plan)
-    store.loginError = ''
+    launch.clearLoginError()
 
     const fingerprint = buildInstallFingerprint(config)
     const skipKeys = new Set<string>()
@@ -168,13 +158,7 @@ export function useGameLaunch() {
             .filter((step) => step.key !== null && skipKeys.has(step.key))
             .flatMap((step) => step.plan.map((item) => item.key)),
         )
-        for (const item of store.launchSteps) {
-          if (skippedPlanKeys.has(item.key)) {
-            item.status = 'done'
-            item.skipped = true
-          }
-        }
-        store.activeProgress = computeStepProgress(store.launchSteps)
+        launch.markStepsSkipped(skippedPlanKeys)
       }
     }
 
@@ -225,7 +209,7 @@ export function useGameLaunch() {
 
     await flushLaunchSteps()
     resetLaunchSteps()
-    store.isLaunching = false
+    launch.finishLaunch()
   }
 
   return {

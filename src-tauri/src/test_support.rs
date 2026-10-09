@@ -68,6 +68,21 @@ impl Drop for LauncherDirGuard {
     }
 }
 
+pub struct ConfigFileGuard;
+
+impl ConfigFileGuard {
+    pub fn acquire(root: &Path, name: &str) -> Self {
+        crate::state::launcher_config::set_config_file_path_for_tests(Some(root.join(name)));
+        Self
+    }
+}
+
+impl Drop for ConfigFileGuard {
+    fn drop(&mut self) {
+        crate::state::launcher_config::set_config_file_path_for_tests(None);
+    }
+}
+
 pub struct TempDir(pub PathBuf);
 
 impl TempDir {
@@ -157,6 +172,47 @@ pub fn gson_library_no_url() -> serde_json::Value {
         258075,
         "",
     )
+}
+
+pub enum ServersDatContainer {
+    Raw,
+    Gzip,
+    Zlib,
+}
+
+pub fn write_servers_dat(dir: &Path, ip: &str, container: ServersDatContainer) {
+    let mut nbt = Vec::new();
+    nbt.push(0x0A);
+    nbt.extend_from_slice(&0u16.to_be_bytes());
+    nbt.push(0x09);
+    nbt.extend_from_slice(&7u16.to_be_bytes());
+    nbt.extend_from_slice(b"servers");
+    nbt.push(0x0A);
+    nbt.extend_from_slice(&1u32.to_be_bytes());
+    nbt.push(0x08);
+    nbt.extend_from_slice(&2u16.to_be_bytes());
+    nbt.extend_from_slice(b"ip");
+    nbt.extend_from_slice(&(ip.len() as u16).to_be_bytes());
+    nbt.extend_from_slice(ip.as_bytes());
+    nbt.push(0x00);
+    nbt.push(0x00);
+
+    let bytes = match container {
+        ServersDatContainer::Raw => nbt,
+        ServersDatContainer::Gzip => {
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&nbt).expect("gzip сжатие");
+            encoder.finish().expect("завершение gzip")
+        }
+        ServersDatContainer::Zlib => {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&nbt).expect("zlib сжатие");
+            encoder.finish().expect("завершение zlib")
+        }
+    };
+    std::fs::write(dir.join("servers.dat"), bytes).expect("запись servers.dat");
 }
 
 pub fn write_test_zip(path: &Path, entries: &[(&str, &[u8])]) {

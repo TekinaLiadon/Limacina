@@ -13,6 +13,8 @@ use crate::utils::errors::LauncherError;
 pub struct Versions {
     pub url: String,
     pub id: String,
+    #[serde(default)]
+    pub version_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +72,7 @@ impl GameConfig {
     }
 }
 
-pub async fn new_launch_config(
+pub fn new_launch_config(
     username: &str,
     uuid: &str,
     access_token: &str,
@@ -164,3 +166,90 @@ pub const INDEX_CACHE_FILES: [&str; 4] = [
 ];
 
 pub const INDEX_CACHE_PREFIXES: [&str; 1] = ["fabric_"];
+
+#[cfg(test)]
+mod launch_config_tests {
+    use super::*;
+    use crate::test_support::LauncherDirGuard;
+
+    fn project() -> ProjectConfig {
+        ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            mc_version: "1.20.1".to_string(),
+            min_memory: "-Xms512M".to_string(),
+            max_memory: "-Xmx4G".to_string(),
+            jvm_args: vec!["-XX:+UseG1GC".to_string(), String::new()],
+            ..ProjectConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn new_launch_config_builds_dirs_and_filters_empty_jvm_args() {
+        let guard = LauncherDirGuard::acquire("launch_config_dirs").await;
+        let state = project();
+
+        let config =
+            new_launch_config("Steve", "uuid-1", "token-1", &state).expect("конфиг запуска");
+
+        let base = guard.project_dir("Cordelia");
+        assert_eq!(config.username, "Steve");
+        assert_eq!(config.uuid, "uuid-1");
+        assert_eq!(config.access_token, "token-1");
+        assert_eq!(config.mc_version, "1.20.1");
+        assert_eq!(config.game_dir, base);
+        assert_eq!(config.assets_dir, base.join("assets"));
+        assert_eq!(config.libraries_dir, base.join("libraries"));
+        assert_eq!(config.natives_dir, base.join("natives"));
+        assert_eq!(
+            config.jvm_sub_arg,
+            vec![
+                "-Xms512M".to_string(),
+                "-Xmx4G".to_string(),
+                "-XX:+UseG1GC".to_string()
+            ],
+            "пустые пользовательские аргументы отфильтровываются"
+        );
+    }
+
+    #[test]
+    fn game_config_builder_replaces_only_own_fields() {
+        let config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xmx1G".to_string()],
+            vec!["--game".to_string()],
+            vec!["a.jar".to_string()],
+            "net.minecraft.client.main.Main".to_string(),
+            PathBuf::from("game"),
+        );
+
+        let with_args = config.with_args(vec!["-Xmx2G".to_string()], vec!["--server".to_string()]);
+        assert_eq!(with_args.jvm_args, vec!["-Xmx2G".to_string()]);
+        assert_eq!(with_args.game_args, vec!["--server".to_string()]);
+        assert_eq!(
+            with_args.classpath,
+            vec!["a.jar".to_string()],
+            "with_args не должен трогать classpath"
+        );
+        assert_eq!(
+            with_args.main_class, "net.minecraft.client.main.Main",
+            "with_args не должен трогать main_class"
+        );
+
+        let config = GameConfig::new(
+            PathBuf::from("java"),
+            vec!["-Xmx1G".to_string()],
+            vec!["--game".to_string()],
+            vec!["a.jar".to_string()],
+            "net.minecraft.client.main.Main".to_string(),
+            PathBuf::from("game"),
+        );
+        let with_loader = config.with_loader(vec!["b.jar".to_string()], "cpw.mods.App".to_string());
+        assert_eq!(with_loader.classpath, vec!["b.jar".to_string()]);
+        assert_eq!(with_loader.main_class, "cpw.mods.App");
+        assert_eq!(
+            with_loader.jvm_args,
+            vec!["-Xmx1G".to_string()],
+            "with_loader не должен трогать аргументы"
+        );
+    }
+}

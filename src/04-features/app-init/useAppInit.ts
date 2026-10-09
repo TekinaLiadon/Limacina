@@ -1,9 +1,10 @@
 import { onBeforeMount, ref } from 'vue'
-import { useCoreStore, useSettingsStore, useNotificationStore, normalizeTheme, type AppInitData, type ProjectConfig, type UpdateInfo } from '@/05-entities'
-import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage, loadSettingsProject } from '@/06-shared/api'
+import { useCoreStore, useSettingsStore, useNotificationStore, useProjectSettingsStore, normalizeTheme, type AppInitData, type UpdateInfo } from '@/05-entities'
+import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
+import { loadProjectConfig } from '@/04-features/project-settings/loadProjectConfig'
 
 const STARTUP_ERROR_DURATION = 5000
 
@@ -22,18 +23,15 @@ export function useAppInit() {
     notification.show(detail ? `${message}: ${detail}` : message, STARTUP_ERROR_DURATION)
   }
 
-  const loadProject = (name: string): Promise<void> =>
-    loadSettingsProject(name)
-      .then((config: ProjectConfig): void => {
-        if (coreStore.currentProject !== name) return
-        coreStore.projectConfig = config
-        startupError.value = ''
-      })
-      .catch((e: unknown): void => {
-        if (coreStore.currentProject !== name) return
-        reportError('Не удалось загрузить конфиг проекта', e)
-        startupError.value = getErrorMessage(e) || 'Не удалось загрузить конфиг проекта'
-      })
+  const loadProject = async (name: string): Promise<void> => {
+    const loaded = await loadProjectConfig(name)
+    if (coreStore.currentProject !== name) return
+    if (!loaded) {
+      startupError.value = useProjectSettingsStore().loadError || 'Не удалось загрузить конфиг проекта'
+      return
+    }
+    startupError.value = ''
+  }
 
   const applyInitData = (data: AppInitData): void => {
     coreStore.launcherName = data.launcherName
@@ -47,6 +45,7 @@ export function useAppInit() {
     if (!data.launcherConfig) return
 
     coreStore.applyLauncherProjects(data.launcherConfig)
+    settingsStore.markThemeHydration(data.launcherConfig.theme)
     settingsStore.setTheme(normalizeTheme(data.launcherConfig.theme))
     settingsStore.setAnimationsEnabled(data.launcherConfig.animationsEnabled)
   }

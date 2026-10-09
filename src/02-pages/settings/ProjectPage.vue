@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
 import { useCoreStore, LOADER_LABELS } from '@/05-entities'
 import { PathPicker, AlternativeJavaButton, MemorySlider, DangerActionButton, IntegrityCheck, JvmPreset, ServerConnect, SettingsSection, SettingsSaveBar, SettingsInfoRow, LoadErrorRow } from '@/03-widgets'
-import { Button, Checkbox, Input } from '@/06-shared'
+import { Button, Checkbox, Input, Skeleton } from '@/06-shared'
 
 const coreStore = useCoreStore()
 
@@ -13,6 +13,7 @@ const {
   isLoading,
   loadError,
   maxMemoryLimit,
+  jvmArgsError,
   isSaving,
   isClearingConfig,
   isRefreshingManifests,
@@ -50,9 +51,13 @@ const {
   steps: integritySteps,
   progress: integrityProgress,
   isChecking: isIntegrityChecking,
+  isCheckingNow: isIntegrityCheckingNow,
   isPopupHidden: isIntegrityPopupHidden,
   report: integrityReport,
   errorMessage: integrityError,
+  hasErrors: integrityHasErrors,
+  isClean: integrityIsClean,
+  resultText: integrityResultText,
   handleCheck: handleIntegrityCheck,
   closeResult: closeIntegrityResult,
 } = useIntegrityCheck()
@@ -78,6 +83,11 @@ const handleDownload = async (): Promise<void> => {
   <div class="project-settings">
     <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
 
+    <div v-if="isLoading" class="project-settings__loading" aria-hidden="true">
+      <Skeleton v-for="index in 9" :key="index" variant="line" height="var(--control-height)" />
+    </div>
+
+    <template v-else>
     <SettingsSection title="Сборка" storage-key="project-build">
       <div class="settings-grid">
         <div class="project-settings__info">
@@ -115,12 +125,14 @@ const handleDownload = async (): Promise<void> => {
 
         <JvmPreset class="settings-row" :config="config" />
 
-        <Input
-          class="settings-row"
-          :model-value="config.jvmArgs"
-          :options="{ label: 'JVM аргументы', placeholder: '-XX:+UseG1GC, -XX:MaxGCPauseMillis=50' }"
-          @update:model-value="config.jvmArgs = $event"
-        />
+        <div class="settings-row project-settings__jvm">
+          <Input
+            :model-value="config.jvmArgs"
+            :options="{ label: 'JVM аргументы', placeholder: '-XX:+UseG1GC, -XX:MaxGCPauseMillis=50' }"
+            @update:model-value="config.jvmArgs = $event"
+          />
+          <p v-if="jvmArgsError" class="project-settings__jvm-error">{{ jvmArgsError }}</p>
+        </div>
       </div>
     </SettingsSection>
 
@@ -164,11 +176,15 @@ const handleDownload = async (): Promise<void> => {
     <SettingsSection title="Обслуживание" storage-key="project-maintenance">
       <IntegrityCheck
         :is-checking="isIntegrityChecking"
+        :is-checking-now="isIntegrityCheckingNow"
         :is-popup-hidden="isIntegrityPopupHidden"
         :steps="integritySteps"
         :progress="integrityProgress"
         :report="integrityReport"
         :error-message="integrityError"
+        :has-errors="integrityHasErrors"
+        :is-clean="integrityIsClean"
+        :result-text="integrityResultText"
         @check="handleIntegrityCheck"
         @close="closeIntegrityResult"
       />
@@ -190,8 +206,9 @@ const handleDownload = async (): Promise<void> => {
         />
       </div>
     </SettingsSection>
+    </template>
 
-    <SettingsSaveBar :is-saving="isSaving" :is-dirty="isDirty" :is-blocked="loadError !== ''" @save="handleSave" />
+    <SettingsSaveBar :is-saving="isSaving" :is-loading="isLoading" :is-dirty="isDirty" :is-blocked="loadError !== ''" @save="handleSave" />
   </div>
 </template>
 
@@ -206,6 +223,10 @@ const handleDownload = async (): Promise<void> => {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
+
+  &__loading {
+    @include mixins.settings-fields-grid;
+  }
 
   &__info {
     display: flex;
@@ -222,6 +243,18 @@ const handleDownload = async (): Promise<void> => {
 
   &__autojoin {
     align-self: center;
+  }
+
+  &__jvm {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+  }
+
+  &__jvm-error {
+    @include mixins.error-box;
+
+    margin: 0;
   }
 
   &__danger {

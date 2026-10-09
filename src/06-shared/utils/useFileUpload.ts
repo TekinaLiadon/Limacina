@@ -6,6 +6,12 @@ interface FileUploadOptions {
   onLoad: (file: File, result: string | ArrayBuffer) => void
 }
 
+export function fileSizeLimitMessage(maxBytes: number, sizeBytes: number): string {
+  const maxKb = Math.round(maxBytes / 1024)
+  const sizeKb = Math.round(sizeBytes / 1024)
+  return `Размер файла не должен превышать ${maxKb} КБ (загружено ${sizeKb} КБ)`
+}
+
 export function selectFile(options: FileUploadOptions): void {
   const { accept, maxBytes, readAs = 'dataURL', onError, onLoad } = options
 
@@ -25,9 +31,7 @@ export function selectFile(options: FileUploadOptions): void {
     }
 
     if (file.size > maxBytes) {
-      const maxKb = Math.round(maxBytes / 1024)
-      const fileSizeKb = Math.round(file.size / 1024)
-      onError(`Размер файла не должен превышать ${maxKb} КБ (загружено ${fileSizeKb} КБ)`)
+      onError(fileSizeLimitMessage(maxBytes, file.size))
       return
     }
 

@@ -70,12 +70,23 @@ impl ProjectConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionTokens {
     pub access_token: String,
     pub uuid: String,
     pub username: String,
     pub project_name: String,
+}
+
+impl std::fmt::Debug for SessionTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionTokens")
+            .field("access_token", &"[redacted]")
+            .field("uuid", &self.uuid)
+            .field("username", &self.username)
+            .field("project_name", &self.project_name)
+            .finish()
+    }
 }
 
 #[derive(Default)]
@@ -89,6 +100,28 @@ pub struct GlobalState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_tokens_debug_masks_access_token() {
+        let session = SessionTokens {
+            access_token: "access-secret-value".to_string(),
+            uuid: "uuid-1".to_string(),
+            username: "Steve".to_string(),
+            project_name: "Cordelia".to_string(),
+        };
+
+        let rendered = format!("{session:?}");
+
+        assert!(
+            !rendered.contains("access-secret-value"),
+            "access_token не должен попадать в Debug: {rendered}"
+        );
+        assert!(rendered.contains("[redacted]"));
+        assert!(
+            rendered.contains("Steve"),
+            "ник не секретен и остаётся в Debug: {rendered}"
+        );
+    }
 
     #[test]
     fn project_config_toml_round_trip_with_server_url() {

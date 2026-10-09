@@ -5,6 +5,7 @@ use tokio::fs;
 use tokio::sync::Mutex;
 
 use crate::commands::launcher_config::update_launcher_config;
+use crate::log_err;
 use crate::log_info;
 use crate::minecraft::manifest::VERSION_MANIFEST_URL;
 use crate::minecraft::mod_loader::fabric::Fabric;
@@ -13,7 +14,9 @@ use crate::minecraft::structs::{
     ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
 };
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
-use crate::state::config::{load_config, load_config_or_default, validate_project_name};
+use crate::state::config::{
+    load_config, load_config_or_default, set_project_config, validate_project_name,
+};
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::compare_versions;
@@ -72,9 +75,8 @@ async fn persist_new_project(config: &ProjectConfig) -> Result<()> {
     LauncherError::classify(result, LauncherError::DiskIo)
 }
 
-async fn activate_project(state: &State<'_, Mutex<GlobalState>>, config: &ProjectConfig) {
-    let mut guard = state.lock().await;
-    guard.project_config = config.clone();
+async fn activate_project(state: &Mutex<GlobalState>, config: &ProjectConfig) -> Result<()> {
+    set_project_config(state, config.clone()).await
 }
 
 async fn add_server_profile(
@@ -129,7 +131,7 @@ async fn add_server_profile(
 
     persist_new_project(&config).await?;
     register_project(state, &config.project_name).await?;
-    activate_project(state, &config).await;
+    activate_project(state.inner(), &config).await?;
 
     log_info!("[profile] Профиль сервера создан: {}", config.project_name);
     Ok(config)
@@ -172,7 +174,7 @@ async fn add_offline_profile(
         .with_context(|| format!("Не удалось создать папку модов {:?}", mods_dir))?;
 
     register_project(state, &config.project_name).await?;
-    activate_project(state, &config).await;
+    activate_project(state.inner(), &config).await?;
 
     log_info!(
         "[profile] Одиночный профиль создан: {}",
@@ -302,6 +304,33 @@ pub async fn save_current_project(
 }
 
 async fn delete_project_files(project_name: &str) -> Result<()> {
+    let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
+    if config_path.exists() {
+        fs::remove_file(&config_path)
+            .await
+            .with_context(|| format!("Не удалось удалить конфиг проекта {:?}", config_path))?;
+    }
+
+    let aux_paths = [
+        (
+            launcher_path(Some("config"))?.join(format!("{}.models.json", project_name)),
+            "манифест моделей",
+        ),
+        (
+            launcher_path(None)?
+                .join("manifest")
+                .join(format!("installed_{}.json", project_name)),
+            "install-манифест",
+        ),
+    ];
+    for (path, label) in aux_paths {
+        if let Err(e) = fs::remove_file(&path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log_err!("Не удалось удалить {label} проекта {project_name} ({path:?}): {e}");
+            }
+        }
+    }
+
     let project_dir = launcher_path(Some(project_name))?;
     if project_dir.exists() {
         LauncherError::classify(
@@ -312,26 +341,14 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
         )?;
     }
 
-    let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
-    let _ = fs::remove_file(&config_path).await;
-
-    let models_manifest_path =
-        launcher_path(Some("config"))?.join(format!("{}.models.json", project_name));
-    let _ = fs::remove_file(&models_manifest_path).await;
-
-    let manifest_path = launcher_path(None)?
-        .join("manifest")
-        .join(format!("installed_{}.json", project_name));
-    let _ = fs::remove_file(&manifest_path).await;
-
     Ok(())
 }
 
-async fn delete_project_credentials(project_name: &str, logins: Vec<String>) {
-    crate::commands::auth::wipe_project_credentials(project_name, &logins).await;
+async fn delete_project_credentials(project_name: &str, logins: Vec<String>) -> Result<()> {
+    crate::commands::auth::wipe_project_credentials(project_name, &logins).await
 }
 
-async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result<LauncherConfig> {
+async fn delete_current_project(state: &Mutex<GlobalState>) -> Result<LauncherConfig> {
     let project_name = {
         let guard = state.lock().await;
         guard.project_config.project_name.clone()
@@ -358,14 +375,14 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
             .map(|c| c.get_logins(&project_name))
             .unwrap_or_default()
     };
-    delete_project_credentials(&project_name, saved_logins).await;
-
-    delete_project_files(&project_name).await?;
+    delete_project_credentials(&project_name, saved_logins).await?;
 
     let config = update_launcher_config(state, |config| {
         config.remove_project(&project_name);
     })
     .await?;
+
+    delete_project_files(&project_name).await?;
 
     let next_project = config.current_project.clone();
     let next_config = match next_project.as_deref() {
@@ -375,8 +392,8 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
     {
         let mut guard = state.lock().await;
         guard.session = None;
-        guard.project_config = next_config;
     }
+    set_project_config(state, next_config).await?;
 
     log_info!("[profile] Проект {} удалён", project_name);
     Ok(config)
@@ -384,7 +401,7 @@ async fn delete_current_project(state: &State<'_, Mutex<GlobalState>>) -> Result
 
 #[tauri::command]
 pub async fn delete_project(state: State<'_, Mutex<GlobalState>>) -> CommandResult<LauncherConfig> {
-    Ok(delete_current_project(&state).await?)
+    Ok(delete_current_project(state.inner()).await?)
 }
 
 #[tauri::command]
@@ -452,9 +469,164 @@ pub async fn refresh_manifests() -> CommandResult<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::LauncherDirGuard;
+    use std::time::Duration;
 
-    use super::delete_project_files;
+    use crate::state::config::update_project_config;
+    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::state::launcher_config::LauncherConfig;
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use tokio::sync::Mutex;
+
+    use super::{activate_project, delete_current_project, delete_project_files};
+
+    fn state_with_current(project_name: &str) -> GlobalState {
+        GlobalState {
+            project_config: ProjectConfig {
+                project_name: project_name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+            session: None,
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn activate_project_survives_parallel_settings_save() {
+        let _guard = LauncherDirGuard::acquire("activate_race").await;
+        let activated = ProjectConfig {
+            project_name: "NewActive".to_string(),
+            mc_version: "1.21.1".to_string(),
+            ..ProjectConfig::default()
+        };
+        activated
+            .save_config()
+            .await
+            .expect("сохранение конфига нового профиля");
+        let state = Mutex::new(state_with_current("Starter"));
+
+        let (save_result, activate_result) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                config.java_path = Some("java-path".to_string());
+                Ok(())
+            }),
+            activate_project(&state, &activated),
+        );
+        save_result.expect("параллельное сохранение настроек");
+        activate_result.expect("активация профиля");
+
+        let current = state.lock().await.project_config.clone();
+        assert_eq!(
+            current.project_name, "NewActive",
+            "параллельное сохранение настроек не должно откатывать активацию профиля"
+        );
+        assert_eq!(current.mc_version, "1.21.1");
+    }
+
+    #[tokio::test]
+    async fn delete_switch_survives_parallel_settings_save() {
+        let guard = LauncherDirGuard::acquire("delete_switch_race").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        for name in ["Old", "Next"] {
+            ProjectConfig {
+                project_name: name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            }
+            .save_config()
+            .await
+            .expect("сохранение конфига проекта");
+        }
+        let project_dir = guard.root().join("project").join("Old");
+        std::fs::create_dir_all(&project_dir).expect("создание папки проекта");
+
+        let mut state = state_with_current("Old");
+        if let Some(config) = state.launcher_config.as_mut() {
+            config.add_project("Old");
+            config.add_project("Next");
+            config.current_project = Some("Next".to_string());
+        }
+        let state = Mutex::new(state);
+
+        let (save_result, delete_result) = tokio::join!(
+            update_project_config(&state, async |config: &mut ProjectConfig| {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                config.java_path = Some("java-path".to_string());
+                Ok(())
+            }),
+            delete_current_project(&state),
+        );
+        save_result.expect("параллельное сохранение настроек");
+        delete_result.expect("удаление проекта");
+
+        let current = state.lock().await;
+        assert_eq!(
+            current.project_config.project_name, "Next",
+            "параллельное сохранение настроек не должно откатывать переключение после удаления"
+        );
+        assert!(current.session.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_current_project_aborts_when_toml_removal_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let guard = LauncherDirGuard::acquire("delete_toml_locked").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let project_dir = guard.root().join("project").join("Cordelia");
+        std::fs::create_dir_all(project_dir.join("mods")).expect("создание папки проекта");
+        std::fs::write(project_dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+        let config_dir = guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("создание папки конфигов");
+        std::fs::write(config_dir.join("Cordelia.toml"), b"toml").expect("создание TOML");
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                ..ProjectConfig::default()
+            },
+            session: None,
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        });
+        state
+            .lock()
+            .await
+            .launcher_config
+            .as_mut()
+            .expect("конфиг лаунчера")
+            .add_project("Cordelia");
+
+        std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o555))
+            .expect("запрет записи в папку конфигов");
+        let result = delete_current_project(&state).await;
+        std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o755))
+            .expect("возврат прав");
+
+        result.expect_err("сбой удаления TOML должен останавливать удаление проекта");
+
+        assert!(
+            !state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .has_project("Cordelia"),
+            "реестр должен обновляться до удаления файлов"
+        );
+        assert!(
+            project_dir.exists(),
+            "файлы проекта не должны удаляться при сбое удаления TOML"
+        );
+        assert!(
+            config_dir.join("Cordelia.toml").exists(),
+            "TOML должен остаться на месте при сбое"
+        );
+    }
 
     #[tokio::test]
     async fn delete_project_files_removes_dir_toml_and_manifest() {

@@ -10,6 +10,7 @@ use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 use anyhow::{bail, Context};
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::AppHandle;
 use tauri::State;
@@ -17,6 +18,16 @@ use tokio::sync::Mutex;
 
 const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const PING_TIMEOUT: Duration = Duration::from_secs(5);
+
+static APPLY_UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+struct UpdateApplyGuard;
+
+impl Drop for UpdateApplyGuard {
+    fn drop(&mut self) {
+        APPLY_UPDATE_IN_PROGRESS.store(false, Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct ServerStatus {
@@ -137,9 +148,16 @@ pub async fn get_launcher_versions() -> CommandResult<Vec<UpdateRelease>> {
 #[tauri::command]
 pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> CommandResult<()> {
     if cfg!(debug_assertions) {
-        log_info!("Режим разработки, скачивание и применение обновления пропущены");
+        log_info!("Режим разработки, скачивание и применение обновления пропущено");
         return Ok(());
     }
+    if APPLY_UPDATE_IN_PROGRESS.swap(true, Ordering::Relaxed) {
+        return Err(LauncherError::Update(
+            "Обновление уже устанавливается, дождитесь завершения".to_string(),
+        )
+        .into());
+    }
+    let _apply_guard = UpdateApplyGuard;
 
     let current_version = app.package_info().version.to_string();
 

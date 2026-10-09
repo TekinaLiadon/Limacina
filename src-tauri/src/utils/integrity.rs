@@ -13,24 +13,24 @@ use crate::utils::install_manifest::{
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::{StepChannel, StepHandle};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HashKind {
     Sha1,
 }
 
 impl HashKind {
     pub async fn matches(&self, path: &Path, expected: &str) -> Result<bool> {
-        Ok(file_sha1(path).await? == expected)
+        Ok(file_sha1(path).await?.eq_ignore_ascii_case(expected))
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TargetDownload {
     Url(String),
     LauncherServer { key: String },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IntegrityTarget {
     pub rel_path: PathBuf,
     pub hash: String,
@@ -198,7 +198,7 @@ async fn settle_results(
                 } else {
                     match file_sha1(&file_path).await {
                         Ok(hash) => {
-                            if !target.hash.is_empty() && hash != target.hash {
+                            if !target.hash.is_empty() && !hash.eq_ignore_ascii_case(&target.hash) {
                                 let _ = tokio::fs::remove_file(&file_path).await;
                                 log_err!(
                                     "Скачанный файл не соответствует хешу {:?}: ожидается {}, получен {}",
@@ -425,6 +425,34 @@ pub async fn record_installed_hash(
 }
 
 #[cfg(test)]
+mod hash_kind_tests {
+    use super::HashKind::Sha1;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+
+    #[tokio::test]
+    async fn matches_is_case_insensitive() {
+        let dir = LauncherDirGuard::acquire("hash_kind_case").await;
+        let path = dir.project_dir("Cordelia").join("a.txt");
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, b"content").await.unwrap();
+
+        let uppercase = sha1_hex(b"content").to_uppercase();
+        assert!(
+            Sha1.matches(&path, &uppercase)
+                .await
+                .expect("проверка хеша"),
+            "uppercase-хеш из сети не должен вызывать вечную перекачку"
+        );
+        assert!(!Sha1
+            .matches(&path, "0000000000000000000000000000000000000000")
+            .await
+            .expect("проверка несовпадающего хеша"));
+    }
+}
+
+#[cfg(test)]
 mod ensure_files_tests {
     use super::*;
     use crate::test_support::{sha1_hex, LauncherDirGuard};
@@ -633,5 +661,191 @@ mod ensure_files_tests {
             installed.files.get("libraries/installer.jar"),
             Some(&sha1_hex(&body))
         );
+    }
+}
+
+#[cfg(test)]
+mod check_integrity_tests {
+    use super::*;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::Arc;
+
+    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+        IntegrityTarget {
+            rel_path: PathBuf::from(rel),
+            hash: hash.to_string(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(url),
+        }
+    }
+
+    async fn write_file(base: &Path, name: &str, content: &[u8]) {
+        tokio::fs::create_dir_all(base).await.unwrap();
+        tokio::fs::write(base.join(name), content).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn intact_files_skip_downloads() {
+        let dir = LauncherDirGuard::acquire("integrity_intact").await;
+        let base = dir.project_dir("Cordelia");
+        write_file(&base, "a.txt", b"content a").await;
+        write_file(&base, "b.txt", b"content b").await;
+
+        let downloads = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&downloads);
+        let report = check_integrity(
+            &base,
+            vec![
+                url_target(
+                    "a.txt",
+                    &sha1_hex(b"content a"),
+                    "http://127.0.0.1:1/a".to_string(),
+                ),
+                url_target(
+                    "b.txt",
+                    &sha1_hex(b"content b"),
+                    "http://127.0.0.1:1/b".to_string(),
+                ),
+            ],
+            "files.check",
+            "Файлы сервера",
+            move |_url, _dest| {
+                counter.fetch_add(1, AtomicOrdering::Relaxed);
+                async move { Ok(()) }
+            },
+        )
+        .await
+        .expect("проверка целостности");
+
+        assert_eq!(report.total, 2);
+        assert_eq!(report.broken, 0);
+        assert_eq!(report.repaired, 0);
+        assert_eq!(report.missing, 0);
+        assert!(report.failed.is_empty());
+        assert_eq!(
+            downloads.load(AtomicOrdering::Relaxed),
+            0,
+            "целые файлы не должны перекачиваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn broken_and_missing_files_are_restored() {
+        let dir = LauncherDirGuard::acquire("integrity_repair").await;
+        let base = dir.project_dir("Cordelia");
+        write_file(&base, "a.txt", b"corrupted").await;
+        write_file(&base, "c.txt", b"good c").await;
+
+        let report = check_integrity(
+            &base,
+            vec![
+                url_target(
+                    "a.txt",
+                    &sha1_hex(b"good a"),
+                    "http://127.0.0.1:1/a".to_string(),
+                ),
+                url_target(
+                    "b.txt",
+                    &sha1_hex(b"good b"),
+                    "http://127.0.0.1:1/b".to_string(),
+                ),
+                url_target(
+                    "c.txt",
+                    &sha1_hex(b"good c"),
+                    "http://127.0.0.1:1/c".to_string(),
+                ),
+            ],
+            "files.check",
+            "Файлы сервера",
+            move |url, dest| {
+                let body: Vec<u8> = match url.as_str() {
+                    "http://127.0.0.1:1/a" => b"good a".to_vec(),
+                    "http://127.0.0.1:1/b" => b"good b".to_vec(),
+                    other => panic!("неожиданный адрес загрузки: {other}"),
+                };
+                async move {
+                    if let Some(parent) = dest.parent() {
+                        tokio::fs::create_dir_all(parent).await.unwrap();
+                    }
+                    tokio::fs::write(&dest, body).await.unwrap();
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .expect("проверка целостности");
+
+        assert_eq!(report.total, 3);
+        assert_eq!(report.broken, 2, "битый и отсутствующий файлы ломаются");
+        assert_eq!(report.missing, 1);
+        assert_eq!(report.repaired, 2);
+        assert!(report.failed.is_empty());
+
+        assert_eq!(
+            tokio::fs::read(base.join("a.txt")).await.unwrap(),
+            b"good a"
+        );
+        assert_eq!(
+            tokio::fs::read(base.join("b.txt")).await.unwrap(),
+            b"good b"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_downloads_are_reported_in_failed_list() {
+        let dir = LauncherDirGuard::acquire("integrity_failed").await;
+        let base = dir.project_dir("Cordelia");
+        write_file(&base, "a.txt", b"corrupted").await;
+
+        let report = check_integrity(
+            &base,
+            vec![url_target(
+                "a.txt",
+                &sha1_hex(b"good a"),
+                "http://127.0.0.1:1/a".to_string(),
+            )],
+            "files.check",
+            "Файлы сервера",
+            |_url, _dest| async move { Err(anyhow::anyhow!("сервер недоступен")) },
+        )
+        .await
+        .expect("сбой восстановления не должен ронять отчёт");
+
+        assert_eq!(report.broken, 1);
+        assert_eq!(report.repaired, 0);
+        assert_eq!(report.failed, vec!["a.txt".to_string()]);
+        assert!(
+            !base.join("a.txt").exists(),
+            "битый файл удаляется до попытки восстановления"
+        );
+    }
+
+    #[tokio::test]
+    async fn restored_file_with_wrong_hash_is_reported_failed() {
+        let dir = LauncherDirGuard::acquire("integrity_bad_restore").await;
+        let base = dir.project_dir("Cordelia");
+        write_file(&base, "a.txt", b"corrupted").await;
+
+        let report = check_integrity(
+            &base,
+            vec![url_target(
+                "a.txt",
+                &sha1_hex(b"good a"),
+                "http://127.0.0.1:1/a".to_string(),
+            )],
+            "files.check",
+            "Файлы сервера",
+            move |_url, dest| async move {
+                tokio::fs::write(&dest, b"still wrong").await.unwrap();
+                Ok(())
+            },
+        )
+        .await
+        .expect("плохое восстановление не должно ронять отчёт");
+
+        assert_eq!(report.broken, 1);
+        assert_eq!(report.repaired, 0);
+        assert_eq!(report.failed, vec!["a.txt".to_string()]);
     }
 }

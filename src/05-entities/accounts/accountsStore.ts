@@ -1,70 +1,62 @@
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { AuthSubTab, LoginForm, RegisterForm, StepProgressItem } from '../core/types'
+import type { AuthSubTab, LoginForm, RegisterForm } from '../core/types'
+import { AUTH_LOGIN_TAB } from '../core/authPolicy'
 
-export interface AccountsState {
-  isLoading: boolean
-  errorMessage: string
-  logins: string[]
-  loginsError: string
-  isLoginsLoading: boolean
-  selectedUsername: string
+export const useAccountsStore = defineStore('accounts', () => {
+  const isLoading = ref<boolean>(false)
+  const errorMessage = ref<string>('')
+  const logins = ref<string[]>([])
+  const loginsError = ref<string>('')
+  const isLoginsLoading = ref<boolean>(false)
+  const selectedUsername = ref<string>('')
 
-  authLoading: boolean
-  authError: string
-  loginError: string
-  loginFormData: LoginForm
-  registerFormData: RegisterForm
+  const authLoading = ref<boolean>(false)
+  const authError = ref<string>('')
+  const loginFormData = ref<LoginForm>({ username: '', password: '', rememberMe: false })
+  const registerFormData = ref<RegisterForm>({ login: '', password: '', confirmPassword: '' })
 
-  showAuthForm: boolean
-  activeSubTab: AuthSubTab
-  isLaunching: boolean
-  launchInterrupted: boolean
-  isCancelPending: boolean
-  isSwitching: boolean
-  launchGeneration: number
+  const showAuthForm = ref<boolean>(false)
+  const activeSubTab = ref<AuthSubTab>(AUTH_LOGIN_TAB)
+  const isSwitching = ref<boolean>(false)
 
-  launchSteps: StepProgressItem[]
-  activeProgress: number
-}
+  function closeAuthForm(): void {
+    showAuthForm.value = false
+    loginFormData.value.password = ''
+    registerFormData.value.password = ''
+    registerFormData.value.confirmPassword = ''
+  }
 
-export const useAccountsStore = defineStore('accounts', {
-  state: (): AccountsState => ({
-    isLoading: false,
-    errorMessage: '',
-    logins: [],
-    loginsError: '',
-    isLoginsLoading: false,
-    selectedUsername: '',
+  function reset(): void {
+    isLoading.value = false
+    errorMessage.value = ''
+    logins.value = []
+    loginsError.value = ''
+    isLoginsLoading.value = false
+    selectedUsername.value = ''
+    authLoading.value = false
+    authError.value = ''
+    loginFormData.value = { username: '', password: '', rememberMe: false }
+    registerFormData.value = { login: '', password: '', confirmPassword: '' }
+    closeAuthForm()
+    activeSubTab.value = AUTH_LOGIN_TAB
+  }
 
-    authLoading: false,
-    authError: '',
-    loginError: '',
-    loginFormData: {
-      username: '',
-      password: '',
-      rememberMe: false,
-    },
-    registerFormData: {
-      login: '',
-      password: '',
-      confirmPassword: '',
-    },
-
-    showAuthForm: false,
-    activeSubTab: 'login' as AuthSubTab,
-    isLaunching: false,
-    launchInterrupted: false,
-    isCancelPending: false,
-    isSwitching: false,
-    launchGeneration: 0,
-
-    launchSteps: [],
-    activeProgress: 0,
-  }),
-  actions: {
-    closeAuthForm(): void {
-      this.showAuthForm = false
-      this.loginFormData.password = ''
-    },
-  },
+  return {
+    isLoading,
+    errorMessage,
+    logins,
+    loginsError,
+    isLoginsLoading,
+    selectedUsername,
+    authLoading,
+    authError,
+    loginFormData,
+    registerFormData,
+    showAuthForm,
+    activeSubTab,
+    isSwitching,
+    closeAuthForm,
+    reset,
+  }
 })

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Button, MarkdownText, Preloader, useFocusTrap, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
+import { Button, MarkdownText, Preloader, useFocusTrap, useAsyncRaceGuard, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
-import { useModrinth, MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
+import { fetchModrinthProjectDetails, MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
 
 const props = withDefaults(defineProps<{
@@ -25,7 +25,6 @@ const emit = defineEmits<{
   update: []
 }>()
 
-const { fetchProjectDetails } = useModrinth()
 const notification = useNotificationStore()
 
 const popupRef = ref<HTMLDivElement | null>(null)
@@ -36,7 +35,7 @@ const details = ref<ModrinthProjectDetails | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
 const expandedChangelogs = ref<Set<string>>(new Set())
-let detailsGeneration = 0
+const detailsGuard = useAsyncRaceGuard()
 
 const sideLabels: Record<ModrinthSide, string> = {
   required: 'обязателен',
@@ -90,18 +89,20 @@ const licenseText = computed((): string => {
 async function loadDetails(): Promise<void> {
   const { hit } = props
   if (hit === null) return
-  const generation = (detailsGeneration += 1)
+  const generation = detailsGuard.next()
   isLoading.value = true
   details.value = null
   loadError.value = ''
   expandedChangelogs.value = new Set()
   try {
-    const result = await fetchProjectDetails(hit.project_id)
-    if (generation === detailsGeneration) details.value = result
+    const result = await fetchModrinthProjectDetails(hit.project_id)
+    if (!detailsGuard.isCurrent(generation)) return
+    details.value = result
   } catch (e: unknown) {
-    if (generation === detailsGeneration) loadError.value = getErrorMessage(e)
+    if (!detailsGuard.isCurrent(generation)) return
+    loadError.value = getErrorMessage(e)
   } finally {
-    if (generation === detailsGeneration) isLoading.value = false
+    if (detailsGuard.isCurrent(generation)) isLoading.value = false
   }
 }
 
@@ -178,7 +179,7 @@ async function handleLink(url: string): Promise<void> {
               Скачать
             </Button>
             <span v-else class="modrinth-popup__installed-badge">Установлен</span>
-            <Button class="btn-quiet modrinth-popup__close" @click="emit('close')">
+            <Button v-focus class="btn-quiet modrinth-popup__close" @click="emit('close')">
               Закрыть
             </Button>
           </div>

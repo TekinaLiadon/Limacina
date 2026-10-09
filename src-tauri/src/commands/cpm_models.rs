@@ -7,12 +7,12 @@ use tokio::sync::Mutex;
 
 use crate::commands::user_content::current_project_name;
 use crate::launcher_server::user_content;
-use crate::log_info;
 use crate::state::dto::GlobalState;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
+use crate::{log_err, log_info};
 
 const MODEL_HEADER: u8 = 0x53;
 const PART_END: u8 = 0;
@@ -23,6 +23,8 @@ const SKIN_TYPE_DEFAULT: u8 = 1;
 const LINK_MAX_LEN: usize = 255;
 const CPM_PROJECT_EXT: &str = "cpmproject";
 const CPM_PROJECT_MAX_BYTES: u64 = 20 * 1024 * 1024;
+
+static MODELS_MANIFEST_LOCK: Mutex<()> = Mutex::const_new(());
 
 fn pending_cpm_project() -> &'static StdMutex<Option<String>> {
     static PENDING: OnceLock<StdMutex<Option<String>>> = OnceLock::new();
@@ -296,6 +298,7 @@ async fn clear_selected_model(project_name: &str) -> Result<()> {
 }
 
 async fn replace_manifest_entry(project_name: &str, entry: &CpmModelEntry) -> Result<()> {
+    let _guard = MODELS_MANIFEST_LOCK.lock().await;
     let mut manifest = read_manifest(project_name).await?;
     let dir = player_models_dir(project_name)?;
     let mut removed_files: Vec<String> = Vec::new();
@@ -308,7 +311,9 @@ async fn replace_manifest_entry(project_name: &str, entry: &CpmModelEntry) -> Re
     });
     for file in removed_files {
         if file != entry.file {
-            let _ = tokio::fs::remove_file(dir.join(&file)).await;
+            if let Err(e) = tokio::fs::remove_file(dir.join(&file)).await {
+                log_err!("Не удалось удалить файл модели {file:?}: {e:#}");
+            }
         }
     }
     manifest.models.push(entry.clone());
@@ -348,7 +353,9 @@ async fn enforce_models_limit(project_name: &str, manifest: &mut CpmModelManifes
             break;
         };
         let entry = manifest.models.remove(index);
-        let _ = tokio::fs::remove_file(dir.join(&entry.file)).await;
+        if let Err(e) = tokio::fs::remove_file(dir.join(&entry.file)).await {
+            log_err!("Не удалось удалить файл модели {:?}: {e:#}", entry.file);
+        }
         log_info!("Модель {} удалена: достигнут лимит хранения", entry.file);
         evicted = true;
     }
@@ -381,6 +388,7 @@ pub async fn set_player_models_limit(
         .into());
     }
 
+    let _guard = MODELS_MANIFEST_LOCK.lock().await;
     let mut manifest = read_manifest(&project_name).await?;
     manifest.limit = limit;
     save_manifest(&project_name, &manifest).await?;
@@ -405,7 +413,18 @@ pub async fn save_player_model(
     data: Option<Vec<u8>>,
 ) -> CommandResult<()> {
     let project_name = current_project_name(&state).await?;
+    save_player_model_inner(&project_name, name, url, model_id, slim, data).await?;
+    Ok(())
+}
 
+async fn save_player_model_inner(
+    project_name: &str,
+    name: String,
+    url: Option<String>,
+    model_id: Option<i64>,
+    slim: Option<bool>,
+    data: Option<Vec<u8>>,
+) -> Result<()> {
     let (data_block, entry) = match url {
         Some(url) => {
             let id = model_id.ok_or_else(|| {
@@ -430,11 +449,18 @@ pub async fn save_player_model(
             (data_block, entry)
         }
         None => {
-            let data_block = data.ok_or_else(|| {
+            let data = data.ok_or_else(|| {
                 anyhow!(LauncherError::InvalidInput(
                     "Не переданы данные модели".to_string()
                 ))
             })?;
+            if data.len() as u64 > CPM_PROJECT_MAX_BYTES {
+                return Err(anyhow!(LauncherError::InvalidInput(format!(
+                    "Данные модели слишком большие: {} МБ, максимум {} МБ",
+                    data.len() / (1024 * 1024),
+                    CPM_PROJECT_MAX_BYTES / (1024 * 1024)
+                ))));
+            }
             let entry = CpmModelEntry {
                 id: None,
                 file: format!("limacina_local_{}.cpmmodel", sanitize_file_name(&name)),
@@ -443,11 +469,11 @@ pub async fn save_player_model(
                 skin_type: None,
                 offline: true,
             };
-            (data_block, entry)
+            (data, entry)
         }
     };
 
-    let dir = player_models_dir(&project_name)?;
+    let dir = player_models_dir(project_name)?;
     LauncherError::classify(
         tokio::fs::create_dir_all(&dir)
             .await
@@ -456,10 +482,13 @@ pub async fn save_player_model(
     )?;
     let container = build_player_model_file(&entry.name, &data_block);
     write_atomic(&dir.join(&entry.file), &container).await?;
-    replace_manifest_entry(&project_name, &entry).await?;
-    set_selected_model(&project_name, &entry.file).await?;
-    let mut manifest = read_manifest(&project_name).await?;
-    enforce_models_limit(&project_name, &mut manifest).await?;
+    replace_manifest_entry(project_name, &entry).await?;
+    set_selected_model(project_name, &entry.file).await?;
+    {
+        let _guard = MODELS_MANIFEST_LOCK.lock().await;
+        let mut manifest = read_manifest(project_name).await?;
+        enforce_models_limit(project_name, &mut manifest).await?;
+    }
 
     log_info!("Модель сохранена в игру: {}", entry.file);
     Ok(())
@@ -486,84 +515,90 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
     let items = user_content::list_models(state, uuid).await?;
     let server_ids: Vec<i64> = items.iter().filter_map(|i| i.id).collect();
 
-    let mut manifest = read_manifest(&project_name).await?;
-    let dir = player_models_dir(&project_name)?;
-    tokio::fs::create_dir_all(&dir).await?;
-    let mut changed = false;
+    let (manifest, dir, added_new) = {
+        let _guard = MODELS_MANIFEST_LOCK.lock().await;
+        let mut manifest = read_manifest(&project_name).await?;
+        let dir = player_models_dir(&project_name)?;
+        tokio::fs::create_dir_all(&dir).await?;
+        let mut changed = false;
 
-    let mut removed_files: Vec<String> = Vec::new();
-    manifest.models.retain(|entry| {
-        if entry.offline {
-            return true;
+        let mut removed_files: Vec<String> = Vec::new();
+        manifest.models.retain(|entry| {
+            if entry.offline {
+                return true;
+            }
+            let known = entry.id.map(|id| server_ids.contains(&id)).unwrap_or(false);
+            if !known {
+                removed_files.push(entry.file.clone());
+            }
+            known
+        });
+        for file in removed_files {
+            if let Err(e) = tokio::fs::remove_file(dir.join(&file)).await {
+                log_err!("Не удалось удалить файл модели {file:?}: {e:#}");
+            }
+            changed = true;
         }
-        let known = entry.id.map(|id| server_ids.contains(&id)).unwrap_or(false);
-        if !known {
-            removed_files.push(entry.file.clone());
-        }
-        known
-    });
-    for file in removed_files {
-        let _ = tokio::fs::remove_file(dir.join(&file)).await;
-        changed = true;
-    }
 
-    for entry in manifest.models.iter_mut() {
-        if entry.offline {
-            continue;
-        }
-        let mut url_changed = false;
-        if let Some(item) = items.iter().find(|i| i.id == entry.id) {
-            if entry.url.as_deref() != Some(item.url.as_str()) {
-                entry.url = Some(item.url.clone());
-                url_changed = true;
+        for entry in manifest.models.iter_mut() {
+            if entry.offline {
+                continue;
+            }
+            let mut url_changed = false;
+            if let Some(item) = items.iter().find(|i| i.id == entry.id) {
+                if entry.url.as_deref() != Some(item.url.as_str()) {
+                    entry.url = Some(item.url.clone());
+                    url_changed = true;
+                    changed = true;
+                }
+            }
+            let url = entry.url.clone().ok_or_else(|| {
+                anyhow!(LauncherError::PlayerModel(
+                    "В манифесте моделей нет ссылки на модель".to_string()
+                ))
+            })?;
+            let path = dir.join(&entry.file);
+            let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
+            if !exists || url_changed {
+                let data_block =
+                    build_link_definition(&url, entry.skin_type.unwrap_or(SKIN_TYPE_DEFAULT))?;
+                let container = build_player_model_file(&entry.name, &data_block);
+                write_atomic(&path, &container)
+                    .await
+                    .with_context(|| format!("Не удалось записать модель {:?}", path))?;
                 changed = true;
             }
         }
-        let url = entry.url.clone().ok_or_else(|| {
-            anyhow!(LauncherError::PlayerModel(
-                "В манифесте моделей нет ссылки на модель".to_string()
-            ))
-        })?;
-        let path = dir.join(&entry.file);
-        let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
-        if !exists || url_changed {
-            let data_block =
-                build_link_definition(&url, entry.skin_type.unwrap_or(SKIN_TYPE_DEFAULT))?;
+
+        let mut added_new = false;
+        for item in items.iter() {
+            let Some(id) = item.id else { continue };
+            if manifest.models.iter().any(|m| m.id == Some(id)) {
+                continue;
+            }
+            let name = format!("Модель {}", id);
+            let entry = CpmModelEntry {
+                id: Some(id),
+                file: format!("limacina_{}_{}.cpmmodel", id, sanitize_file_name(&name)),
+                name,
+                url: Some(item.url.clone()),
+                skin_type: Some(SKIN_TYPE_DEFAULT),
+                offline: false,
+            };
+            let data_block = build_link_definition(&item.url, SKIN_TYPE_DEFAULT)?;
             let container = build_player_model_file(&entry.name, &data_block);
-            write_atomic(&path, &container)
-                .await
-                .with_context(|| format!("Не удалось записать модель {:?}", path))?;
+            write_atomic(&dir.join(&entry.file), &container).await?;
+            manifest.models.push(entry);
+            added_new = true;
             changed = true;
         }
-    }
 
-    let mut added_new = false;
-    for item in items.iter() {
-        let Some(id) = item.id else { continue };
-        if manifest.models.iter().any(|m| m.id == Some(id)) {
-            continue;
+        if changed {
+            save_manifest(&project_name, &manifest).await?;
         }
-        let name = format!("Модель {}", id);
-        let entry = CpmModelEntry {
-            id: Some(id),
-            file: format!("limacina_{}_{}.cpmmodel", id, sanitize_file_name(&name)),
-            name,
-            url: Some(item.url.clone()),
-            skin_type: Some(SKIN_TYPE_DEFAULT),
-            offline: false,
-        };
-        let data_block = build_link_definition(&item.url, SKIN_TYPE_DEFAULT)?;
-        let container = build_player_model_file(&entry.name, &data_block);
-        write_atomic(&dir.join(&entry.file), &container).await?;
-        manifest.models.push(entry);
-        added_new = true;
-        changed = true;
-    }
-
-    if changed {
-        save_manifest(&project_name, &manifest).await?;
-    }
-    enforce_models_limit(&project_name, &mut manifest).await?;
+        enforce_models_limit(&project_name, &mut manifest).await?;
+        (manifest, dir, added_new)
+    };
 
     let selected = read_selected_model(&project_name).await?;
     let stale = match &selected {
@@ -788,5 +823,420 @@ mod tests {
         }
         assert_eq!(container[container.len() - 2], (sum >> 8) as u8);
         assert_eq!(container[container.len() - 1], (sum & 0xFF) as u8);
+    }
+
+    use crate::state::dto::{ProjectConfig, SessionTokens};
+
+    const SYNC_PROJECT: &str = "Cordelia";
+
+    fn sync_state(server_url: &str, online: bool, with_session: bool) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: SYNC_PROJECT.to_string(),
+                online,
+                server_url: Some(server_url.to_string()),
+                ..ProjectConfig::default()
+            },
+            session: with_session.then(|| SessionTokens {
+                access_token: "token-1".to_string(),
+                uuid: "uuid-1".to_string(),
+                username: "Cordelia".to_string(),
+                project_name: SYNC_PROJECT.to_string(),
+            }),
+            ..GlobalState::default()
+        })
+    }
+
+    fn online_entry(id: i64, file: &str, url: &str) -> CpmModelEntry {
+        CpmModelEntry {
+            id: Some(id),
+            file: file.to_string(),
+            name: file.to_string(),
+            url: Some(url.to_string()),
+            skin_type: Some(SKIN_TYPE_DEFAULT),
+            offline: false,
+        }
+    }
+
+    async fn seed_manifest(entries: Vec<CpmModelEntry>) {
+        save_manifest(
+            SYNC_PROJECT,
+            &CpmModelManifest {
+                models: entries,
+                limit: None,
+            },
+        )
+        .await
+        .expect("запись стартового манифеста");
+    }
+
+    async fn write_model_file(file: &str, content: &[u8]) {
+        let dir = player_models_dir(SYNC_PROJECT).unwrap();
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        tokio::fs::write(dir.join(file), content).await.unwrap();
+    }
+
+    async fn model_file_exists(file: &str) -> bool {
+        tokio::fs::try_exists(player_models_dir(SYNC_PROJECT).unwrap().join(file))
+            .await
+            .unwrap()
+    }
+
+    fn models_mock_body(items: &[serde_json::Value]) -> String {
+        serde_json::Value::Array(items.to_vec()).to_string()
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_skips_offline_project_without_server_call() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_offline").await;
+        let state = sync_state("http://127.0.0.1:1", false, true);
+
+        sync_player_models(&state)
+            .await
+            .expect("офлайн-профиль пропускается без ошибок");
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_requires_session_for_online_project() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_no_session").await;
+        let state = sync_state("http://127.0.0.1:1", true, false);
+
+        let error = sync_player_models(&state)
+            .await
+            .expect_err("без сессии синхронизация невозможна");
+        assert!(matches!(
+            error.downcast_ref::<LauncherError>(),
+            Some(LauncherError::NoSession)
+        ));
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_adds_server_models_and_selects_newest() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_add").await;
+        let mut server = mockito::Server::new_async().await;
+        let body = models_mock_body(&[serde_json::json!({
+            "id": 5,
+            "url": "https://cdn.example.com/m/5"
+        })]);
+        server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+        let state = sync_state(&server.url(), true, true);
+
+        sync_player_models(&state)
+            .await
+            .expect("первая синхронизация");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1, "модель с сервера добавлена");
+        let added = &manifest.models[0];
+        assert_eq!(added.id, Some(5));
+        assert_eq!(added.url.as_deref(), Some("https://cdn.example.com/m/5"));
+        assert!(
+            model_file_exists(&added.file).await,
+            "файл-заглушка должен быть записан"
+        );
+
+        let selected = read_selected_model(SYNC_PROJECT).await.unwrap();
+        assert_eq!(
+            selected.as_deref(),
+            Some(added.file.as_str()),
+            "при первой синхронизации модель выбирается автоматически"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_removes_gone_models_and_rebinds_selection() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_remove").await;
+        let mut server = mockito::Server::new_async().await;
+        let body = models_mock_body(&[serde_json::json!({
+            "id": 2,
+            "url": "https://cdn.example.com/m/2"
+        })]);
+        server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+        let state = sync_state(&server.url(), true, true);
+
+        seed_manifest(vec![
+            online_entry(1, "gone.cpmmodel", "https://cdn.example.com/m/1"),
+            online_entry(2, "stay.cpmmodel", "https://cdn.example.com/m/2"),
+        ])
+        .await;
+        write_model_file("gone.cpmmodel", b"old stub").await;
+        write_model_file("stay.cpmmodel", b"stay stub").await;
+        set_selected_model(SYNC_PROJECT, "gone.cpmmodel")
+            .await
+            .unwrap();
+
+        sync_player_models(&state).await.expect("синхронизация");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(
+            manifest
+                .models
+                .iter()
+                .map(|m| m.file.as_str())
+                .collect::<Vec<_>>(),
+            vec!["stay.cpmmodel"],
+            "исчезнувшая с сервера модель удаляется из манифеста"
+        );
+        assert!(
+            !model_file_exists("gone.cpmmodel").await,
+            "файл исчезнувшей модели должен быть удалён"
+        );
+        assert!(model_file_exists("stay.cpmmodel").await);
+        assert_eq!(
+            read_selected_model(SYNC_PROJECT).await.unwrap().as_deref(),
+            Some("stay.cpmmodel"),
+            "выбор должен переехать на оставшуюся модель"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_rewrites_stub_when_url_changes() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_url").await;
+        let mut server = mockito::Server::new_async().await;
+        let body = models_mock_body(&[serde_json::json!({
+            "id": 1,
+            "url": "https://cdn.example.com/m/new"
+        })]);
+        server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+        let state = sync_state(&server.url(), true, true);
+
+        seed_manifest(vec![online_entry(
+            1,
+            "a.cpmmodel",
+            "https://cdn.example.com/m/old",
+        )])
+        .await;
+        write_model_file("a.cpmmodel", b"stub with old url").await;
+
+        sync_player_models(&state).await.expect("синхронизация");
+
+        let stub = tokio::fs::read(player_models_dir(SYNC_PROJECT).unwrap().join("a.cpmmodel"))
+            .await
+            .unwrap();
+        let stub = String::from_utf8_lossy(&stub).into_owned();
+        assert!(
+            stub.contains("raw:https://cdn.example.com/m/new"),
+            "заглушка должна быть перезаписана с новой ссылкой: {stub}"
+        );
+        assert!(!stub.contains("m/old"), "старая ссылка не должна остаться");
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_keeps_offline_entries_without_server_id() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_offline_entry").await;
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .with_status(200)
+            .with_body(models_mock_body(&[]))
+            .create_async()
+            .await;
+        let state = sync_state(&server.url(), true, true);
+
+        let local = CpmModelEntry {
+            id: None,
+            file: "local.cpmmodel".to_string(),
+            name: "local".to_string(),
+            url: None,
+            skin_type: None,
+            offline: true,
+        };
+        seed_manifest(vec![local]).await;
+        write_model_file("local.cpmmodel", b"local model").await;
+
+        sync_player_models(&state).await.expect("синхронизация");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(
+            manifest.models.len(),
+            1,
+            "локальная модель не подчиняется серверному списку"
+        );
+        assert!(model_file_exists("local.cpmmodel").await);
+        assert!(
+            read_selected_model(SYNC_PROJECT).await.unwrap().is_none(),
+            "без добавленных моделей выбор не навязывается"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_propagates_server_errors() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_sync_error").await;
+        let state = sync_state("http://127.0.0.1:1", true, true);
+
+        assert!(
+            sync_player_models(&state).await.is_err(),
+            "недоступный сервер должен дать ошибку синхронизации"
+        );
+    }
+
+    #[tokio::test]
+    async fn replace_manifest_entry_swaps_file_and_removes_previous_jar() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_replace_swap").await;
+        seed_manifest(vec![
+            online_entry(7, "old.cpmmodel", "https://cdn.example.com/m/7"),
+            online_entry(8, "keep.cpmmodel", "https://cdn.example.com/m/8"),
+        ])
+        .await;
+        write_model_file("old.cpmmodel", b"old").await;
+        write_model_file("keep.cpmmodel", b"keep").await;
+
+        replace_manifest_entry(
+            SYNC_PROJECT,
+            &online_entry(7, "new.cpmmodel", "https://cdn.example.com/m/7v2"),
+        )
+        .await
+        .expect("замена записи");
+
+        let files: Vec<String> = read_manifest(SYNC_PROJECT)
+            .await
+            .unwrap()
+            .models
+            .iter()
+            .map(|m| m.file.clone())
+            .collect();
+        assert_eq!(files, vec!["keep.cpmmodel", "new.cpmmodel"]);
+        assert!(
+            !model_file_exists("old.cpmmodel").await,
+            "файл предыдущей версии должен быть удалён"
+        );
+        assert!(model_file_exists("keep.cpmmodel").await);
+    }
+
+    #[tokio::test]
+    async fn replace_manifest_entry_keeps_file_when_name_unchanged() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_replace_same").await;
+        seed_manifest(vec![online_entry(
+            9,
+            "same.cpmmodel",
+            "https://cdn.example.com/m/9",
+        )])
+        .await;
+        write_model_file("same.cpmmodel", b"model bytes").await;
+
+        replace_manifest_entry(
+            SYNC_PROJECT,
+            &online_entry(9, "same.cpmmodel", "https://cdn.example.com/m/9v2"),
+        )
+        .await
+        .expect("замена записи");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1);
+        assert_eq!(
+            manifest.models[0].url.as_deref(),
+            Some("https://cdn.example.com/m/9v2")
+        );
+        assert!(
+            model_file_exists("same.cpmmodel").await,
+            "переименования не было — файл не должен удаляться"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_player_model_rejects_oversized_offline_data() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_save_limit").await;
+        let data = vec![0u8; (CPM_PROJECT_MAX_BYTES + 1024) as usize];
+
+        let error = save_player_model_inner(
+            SYNC_PROJECT,
+            "Big".to_string(),
+            None,
+            None,
+            None,
+            Some(data),
+        )
+        .await
+        .expect_err("офлайн-данные больше лимита должны быть отклонены");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::InvalidInput(_))
+            ),
+            "ошибка лимита должна быть InvalidInput: {error}"
+        );
+        assert!(
+            error.to_string().contains("слишком большие"),
+            "русская ошибка лимита: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn manifest_survives_concurrent_save_and_sync() {
+        let _guard = crate::test_support::LauncherDirGuard::acquire("cpm_manifest_race").await;
+        let mut server = mockito::Server::new_async().await;
+        let mut items = vec![serde_json::json!({
+            "id": 1,
+            "url": "https://cdn.example.com/m/1"
+        })];
+        for id in 100..125 {
+            items.push(serde_json::json!({
+                "id": id,
+                "url": "https://cdn.example.com/m/saved"
+            }));
+        }
+        server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .with_status(200)
+            .with_body(models_mock_body(&items))
+            .create_async()
+            .await;
+        let state = sync_state(&server.url(), true, true);
+
+        seed_manifest(vec![online_entry(
+            1,
+            "seed.cpmmodel",
+            "https://cdn.example.com/m/1",
+        )])
+        .await;
+        write_model_file("seed.cpmmodel", b"seed").await;
+
+        let save_path = async {
+            for i in 0..25 {
+                let entry = online_entry(
+                    100 + i,
+                    &format!("saved-{i}.cpmmodel"),
+                    "https://cdn.example.com/m/saved",
+                );
+                replace_manifest_entry(SYNC_PROJECT, &entry)
+                    .await
+                    .expect("сохранение модели");
+            }
+        };
+        let sync_path = async {
+            for _ in 0..25 {
+                sync_player_models(&state).await.expect("синхронизация");
+            }
+        };
+        tokio::join!(save_path, sync_path);
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        for i in 0..25 {
+            let file = format!("saved-{i}.cpmmodel");
+            assert!(
+                manifest.models.iter().any(|m| m.file == file),
+                "запись {file} потеряна при параллельной записи манифеста"
+            );
+        }
+        assert!(
+            manifest.models.iter().any(|m| m.id == Some(1)),
+            "серверная запись потеряна при параллельной записи манифеста"
+        );
     }
 }

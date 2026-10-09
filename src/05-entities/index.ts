@@ -1,8 +1,7 @@
 export { useCoreStore } from './core/coreStore'
-export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, isPasswordConfirmed } from './core/authPolicy'
+export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, isPasswordConfirmed, AUTH_LOGIN_TAB, AUTH_REGISTER_TAB } from './core/authPolicy'
 export { LOADER_LABELS } from './core/loaders'
 export type {
-  CoreState,
   LauncherConfig,
   AppInitData,
   AuthUserData,
@@ -39,6 +38,7 @@ export type {
   CPMAnimation,
   CPMAnimationKind,
   CPMAnimationFrame,
+  CPMAnimationFrameComponent,
   CPMAnimationInterpolator,
   CPMData,
   GameOptions,
@@ -48,17 +48,19 @@ export type {
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'
-export type { SettingsState } from './settings/settingsStore'
+export { useSettingsDirtyStore, bindSettingsDirtyTab } from './settings/settingsDirtyStore'
+export type { SettingsDirtyTab } from './settings/settingsDirtyStore'
 export { THEME_FAMILIES, parseThemeId, normalizeTheme } from './settings/themes'
 export type { ThemeFamily, ThemeMode, ThemePreview } from './settings/types'
 
 export { useNotificationStore } from './notification/notificationStore'
 
 export { useAccountsStore } from './accounts/accountsStore'
-export type { AccountsState } from './accounts/accountsStore'
 
-export { useProjectSettingsStore } from './project-settings/projectSettingsStore'
-export type { ProjectSettingsForm, ProjectSettingsState } from './project-settings/projectSettingsStore'
+export { useLaunchStore } from './launch/launchStore'
+
+export { useProjectSettingsStore, projectSettingsFormFromConfig } from './project-settings/projectSettingsStore'
+export type { ProjectSettingsForm } from './project-settings/projectSettingsStore'
 
 export type {
   ModrinthSearchHit,

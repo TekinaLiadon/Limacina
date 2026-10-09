@@ -1,7 +1,7 @@
 import { computed, onMounted } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, type AuthUserData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, AUTH_LOGIN_TAB } from '@/05-entities'
 import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { reportError, storeBinding } from '@/06-shared'
+import { captureProjectScope, reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAuth() {
@@ -63,30 +63,41 @@ export function useAuth() {
     errorMessage.value = ''
   }
 
+  const reportAuthError = (e: unknown): void => {
+    reportError('Ошибка авторизации', e)
+    errorMessage.value = getErrorMessage(e)
+  }
+
   const handleLogin = async (): Promise<void> => {
     if (!isLoginValid.value || isLoading.value) return
 
     isLoading.value = true
     errorMessage.value = ''
+    const scope = captureProjectScope((): string => coreStore.currentProject)
 
     try {
-      const authData: AuthUserData = {
-        projectName: coreStore.currentProject,
-        username: store.loginFormData.username,
-        password: store.loginFormData.password,
-        rememberMe: store.loginFormData.rememberMe,
-      }
-      await authLogin(authData)
+      await authLogin(
+        scope.project,
+        store.loginFormData.username,
+        store.loginFormData.password,
+        store.loginFormData.rememberMe
+      )
+      if (!scope.isCurrent()) return
 
-      const session = await getSessionInfo()
-      if (session) coreStore.applySession(session)
+      try {
+        const session = await getSessionInfo()
+        if (session) coreStore.applySession(session)
+      } catch (e: unknown) {
+        reportError('Не удалось обновить сессию после входа', e)
+      }
 
       await loadAccounts()
+      if (!scope.isCurrent()) return
       store.closeAuthForm()
       notification.show('Авторизация прошла успешно')
     } catch (e: unknown) {
-      reportError('Ошибка авторизации', e)
-      errorMessage.value = getErrorMessage(e)
+      if (!scope.isCurrent()) return
+      reportAuthError(e)
     } finally {
       isLoading.value = false
     }
@@ -97,25 +108,29 @@ export function useAuth() {
 
     isLoading.value = true
     errorMessage.value = ''
+    const scope = captureProjectScope((): string => coreStore.currentProject)
 
     const {login} = store.registerFormData
     const {password} = store.registerFormData
 
     try {
       await authRegister(
-        coreStore.currentProject,
+        scope.project,
         login,
         password
       )
+      if (!scope.isCurrent()) return
 
       notification.show('Аккаунт успешно создан. Ожидайте одобрения администратора.')
       await loadAccounts()
+      if (!scope.isCurrent()) return
 
       store.registerFormData = { login: '', password: '', confirmPassword: '' }
       store.closeAuthForm()
-      store.activeSubTab = 'login'
+      store.activeSubTab = AUTH_LOGIN_TAB
     } catch (e: unknown) {
-      errorMessage.value = getErrorMessage(e)
+      if (!scope.isCurrent()) return
+      reportAuthError(e)
     } finally {
       isLoading.value = false
     }

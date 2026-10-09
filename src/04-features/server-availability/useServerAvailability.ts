@@ -1,10 +1,9 @@
 import { useCoreStore } from '@/05-entities'
 import { pingLauncherServer } from '@/06-shared/api'
-import { createBackoffPoller, type BackoffPoller } from '@/06-shared'
-import { FAILURE_THRESHOLD } from '../server-status/useServerStatus'
+import type { BackoffPoller } from '@/06-shared'
+import { createServerPoller } from '../server-polling/createServerPoller'
 
 const OK_INTERVAL_MS = 30_000
-const MAX_INTERVAL_MS = 300_000
 
 let poller: BackoffPoller | null = null
 
@@ -14,15 +13,8 @@ export function useServerAvailability(): {
   const coreStore = useCoreStore()
 
   if (poller === null) {
-    const isWatched = (): boolean => coreStore.isOnlineProject
-
-    poller = createBackoffPoller<boolean>({
+    poller = createServerPoller<boolean>({
       okIntervalMs: OK_INTERVAL_MS,
-      maxIntervalMs: MAX_INTERVAL_MS,
-      failureThreshold: FAILURE_THRESHOLD,
-      watchSource: () => coreStore.projectConfig,
-      isWatched,
-      shouldPoll: isWatched,
       fetch: async (): Promise<boolean> => {
         const reachable = await pingLauncherServer()
         if (!reachable) throw new Error('Лаунчер-сервер недоступен')
@@ -40,9 +32,7 @@ export function useServerAvailability(): {
     })
   }
 
-  const engine: BackoffPoller = poller
-
   return {
-    startServerAvailabilitySync: engine.startSync,
+    startServerAvailabilitySync: poller.startSync,
   }
 }

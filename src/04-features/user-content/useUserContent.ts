@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { copyToClipboard, reportError, useAsyncRaceGuard } from '@/06-shared'
 import {
@@ -111,6 +111,14 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       errorMessage.value = 'Не удалось скопировать'
     }
   }
+
+  watch((): string => coreStore.currentProject, (): void => {
+    listGuard.cancel()
+    items.value = []
+    isListLoading.value = false
+    listError.value = ''
+    void loadItems()
+  })
 
   return {
     items,
