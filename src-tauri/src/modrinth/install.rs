@@ -544,12 +544,7 @@ mod tests {
         json!({"id": id, "project_type": "mod", "title": title})
     }
 
-    async fn mock_install_env(
-        env: &mut ModrinthEnv,
-        version: serde_json::Value,
-        jar_body: &[u8],
-        cdn_expect: usize,
-    ) {
+    async fn mock_version_list(env: &mut ModrinthEnv, version: serde_json::Value) {
         env.server
             .mock("GET", "/v2/project/A/version")
             .match_query(Matcher::Any)
@@ -564,8 +559,22 @@ mod tests {
             .with_body(json!([project_json("A", "Mod A")]).to_string())
             .create_async()
             .await;
+    }
+
+    async fn mock_install_env(
+        env: &mut ModrinthEnv,
+        version: serde_json::Value,
+        jar_body: &[u8],
+        cdn_expect: usize,
+    ) {
+        let url = version["files"][0]["url"].as_str().unwrap().to_string();
+        let path = url
+            .strip_prefix(env.server.url().as_str())
+            .unwrap()
+            .to_string();
+        mock_version_list(env, version).await;
         env.server
-            .mock("GET", "/cdn/a.jar")
+            .mock("GET", path.as_str())
             .with_status(200)
             .with_body(jar_body)
             .expect(cdn_expect)
@@ -859,31 +868,7 @@ mod tests {
     }
 
     async fn mock_version_env(env: &mut ModrinthEnv, version: serde_json::Value, jar: &[u8]) {
-        env.server
-            .mock("GET", "/v2/project/A/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version]).to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/v2/projects")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([project_json("A", "Mod A")]).to_string())
-            .create_async()
-            .await;
-        let url = version["files"][0]["url"].as_str().unwrap().to_string();
-        let path = url
-            .strip_prefix(env.server.url().as_str())
-            .unwrap()
-            .to_string();
-        env.server
-            .mock("GET", path.as_str())
-            .with_status(200)
-            .with_body(jar)
-            .create_async()
-            .await;
+        mock_install_env(env, version, jar, 1).await;
     }
 
     fn mods_dir_file_names(ctx: &InstallContext) -> Vec<String> {
@@ -1485,26 +1470,7 @@ mod tests {
             sha1_hex(&jar_a),
             json!([]),
         );
-        env.server
-            .mock("GET", "/v2/project/A/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version_a]).to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/v2/projects")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([project_json("A", "Mod A")]).to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/cdn/a.jar")
-            .with_status(200)
-            .with_body(jar_a.clone())
-            .create_async()
-            .await;
+        mock_version_env(&mut env, version_a, &jar_a).await;
 
         let ctx = env.install_ctx();
         seed_mod_manifest(
@@ -1568,20 +1534,7 @@ mod tests {
             .expect("первая установка мода");
 
         clear_response_cache_for_tests();
-        env.server
-            .mock("GET", "/v2/project/A/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version_v2]).to_string())
-            .create_async()
-            .await;
-        env.server
-            .mock("GET", "/v2/projects")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([project_json("A", "Mod A")]).to_string())
-            .create_async()
-            .await;
+        mock_version_list(&mut env, version_v2).await;
         env.server
             .mock("GET", "/cdn/a.jar")
             .with_status(500)

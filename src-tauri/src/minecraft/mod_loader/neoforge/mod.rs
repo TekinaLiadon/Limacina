@@ -59,9 +59,11 @@ impl ModLoader for NeoForge {
 mod tests {
     use super::NeoForge;
     use crate::minecraft::process::validate_jvm_args;
-    use crate::minecraft::structs::{GameConfig, ModLoader, VersionMod};
-    use crate::state::dto::ProjectConfig;
-    use crate::test_support::LauncherDirGuard;
+    use crate::minecraft::structs::{GameConfig, ModLoader};
+    use crate::test_support::{
+        loader_manifest, loader_project, loader_vanilla_config, loader_version_mod,
+        write_loader_manifest, LauncherDirGuard,
+    };
     use crate::utils::get_classpath_separator;
     use serde_json::json;
     use std::fs;
@@ -71,14 +73,11 @@ mod tests {
     async fn neoforge_config_expands_jvm_placeholders() {
         let dir = LauncherDirGuard::acquire("neoforge_config").await;
 
-        let manifest_json = json!({
-            "id": "neoforge-20.4.237",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
-            "inheritsFrom": "1.20.4",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "neoforge-20.4.237",
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "1.20.4",
+            json!({
                 "game": [
                     "--fml.neoForgeVersion", "20.4.237",
                     "--fml.mcVersion", "1.20.4",
@@ -94,34 +93,16 @@ mod tests {
                     "-cp",
                     "${classpath}"
                 ]
-            },
-            "libraries": []
-        });
-        let manifest_path = dir.root().join("manifest").join("neoforge_20.4.237.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
-
-        let state = ProjectConfig {
-            project_name: "NeoPlaceholders".to_string(),
-            mc_version: "1.20.4".to_string(),
-            loader_version: Some("20.4.237".to_string()),
-            ..ProjectConfig::default()
-        };
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.4-20.4.237".to_string(),
-            main_class: String::new(),
-            library: Vec::new(),
-        };
-        let game_root = dir.project_dir("NeoPlaceholders");
-        let vanilla_config = GameConfig::new(
-            PathBuf::from("java"),
-            vec!["-Xms512M".to_string()],
-            vec!["--username".to_string(), "Cordelia".to_string()],
-            vec![game_root.join("1.20.4.jar").to_string_lossy().to_string()],
-            "net.minecraft.client.main.Main".to_string(),
-            game_root.clone(),
+            }),
+            json!([]),
         );
+        write_loader_manifest(dir.root(), "neoforge_20.4.237", &manifest_json);
+
+        let state = loader_project("NeoPlaceholders", "1.20.4", "20.4.237");
+        let version = loader_version_mod("1.20.4-20.4.237", "");
+        let game_root = dir.project_dir("NeoPlaceholders");
+        let vanilla_config =
+            loader_vanilla_config(&game_root, &game_root.join("1.20.4.jar").to_string_lossy());
 
         let config = NeoForge
             .config(&state, vanilla_config, &version)
@@ -165,40 +146,25 @@ mod tests {
     async fn neoforge_config_drops_vanilla_client_jar() {
         let dir = LauncherDirGuard::acquire("neoforge_config_filter").await;
 
-        let manifest_json = json!({
-            "id": "neoforge-20.4.237",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
-            "inheritsFrom": "1.20.4",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "neoforge-20.4.237",
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "1.20.4",
+            json!({
                 "game": ["--launchTarget", "forgeclient"],
                 "jvm": ["-cp", "${classpath}"]
-            },
-            "libraries": [
+            }),
+            json!([
                 {
                     "name": "org.ow2.asm:asm:9.5",
                     "downloads": { "artifact": { "path": "", "url": "", "sha1": "0", "size": 1 } }
                 }
-            ]
-        });
-        let manifest_path = dir.root().join("manifest").join("neoforge_20.4.237.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+            ]),
+        );
+        write_loader_manifest(dir.root(), "neoforge_20.4.237", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "NeoFilter".to_string(),
-            mc_version: "1.20.4".to_string(),
-            loader_version: Some("20.4.237".to_string()),
-            ..ProjectConfig::default()
-        };
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.4-20.4.237".to_string(),
-            main_class: String::new(),
-            library: Vec::new(),
-        };
+        let state = loader_project("NeoFilter", "1.20.4", "20.4.237");
+        let version = loader_version_mod("1.20.4-20.4.237", "");
 
         let game_root = dir.project_dir("NeoFilter");
         let lib_path = game_root
@@ -247,35 +213,20 @@ mod tests {
     async fn neoforge_config_keeps_user_jvm_args_on_validated_spawn_path() {
         let dir = LauncherDirGuard::acquire("neoforge_args_guard").await;
 
-        let manifest_json = json!({
-            "id": "neoforge-20.4.237",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
-            "inheritsFrom": "1.20.4",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "neoforge-20.4.237",
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "1.20.4",
+            json!({
                 "game": ["--launchTarget", "forgeclient"],
                 "jvm": ["-Dneoforge.keep=1", "-cp", "${classpath}"]
-            },
-            "libraries": []
-        });
-        let manifest_path = dir.root().join("manifest").join("neoforge_20.4.237.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+            }),
+            json!([]),
+        );
+        write_loader_manifest(dir.root(), "neoforge_20.4.237", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "NeoGuard".to_string(),
-            mc_version: "1.20.4".to_string(),
-            loader_version: Some("20.4.237".to_string()),
-            ..ProjectConfig::default()
-        };
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.4-20.4.237".to_string(),
-            main_class: String::new(),
-            library: Vec::new(),
-        };
+        let state = loader_project("NeoGuard", "1.20.4", "20.4.237");
+        let version = loader_version_mod("1.20.4-20.4.237", "");
         let game_root = dir.project_dir("NeoGuard");
         let vanilla_config = GameConfig::new(
             PathBuf::from("java"),

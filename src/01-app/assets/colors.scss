@@ -54,12 +54,14 @@
   --icon-size: 18px;
   --icon-size-lg: 20px;
   --spinner-size: 14px;
+  --spinner-border-width: 2px;
   --checkbox-size: 18px;
   --badge-size: 20px;
   --theme-swatch-size: 14px;
   --viewer-bg: #1a1d2e;
   --indicator-dot-size: 8px;
   --indicator-dot-size-lg: 12px;
+  --step-indicator-size: 24px;
   --menu-action-size: 28px;
   --modrinth-icon-size-sm: 48px;
   --modrinth-icon-size-lg: 56px;
@@ -69,7 +71,11 @@
   --cpm-speed-value-min-width: 44px;
   --skin-mode-btn-min-width: 96px;
   --progress-height: 6px;
+  --slider-track-height: 6px;
+  --slider-thumb-size: 16px;
+  --slider-input-height: 20px;
   --options-max-height: 200px;
+  --grid-cell-size: 80px;
   --integrity-popup-max-height: 80vh;
   --integrity-steps-max-height: 40vh;
   --skeleton-icon-size-sm: 28px;
@@ -78,6 +84,9 @@
   --skeleton-card-height: 96px;
   --tooltip-max-width: 280px;
   --notification-max-width: 360px;
+  --popup-max-width: 400px;
+  --confirm-popup-max-width: 360px;
+  --popup-overlay-blur: 4px;
   --preloader-max-width: 150px;
 
   --switch-glow: rgba(108, 127, 216, 0.5);
@@ -96,6 +105,7 @@
 
   --focus-ring: 2px solid var(--accent-text);
   --focus-ring-offset: 2px;
+  --drop-overlay-ring-width: 2px;
 
   --text-caption: 12px;
   --text-body-sm: 14px;

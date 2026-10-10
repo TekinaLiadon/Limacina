@@ -70,22 +70,23 @@ fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-pub(crate) fn save_fallback(
-    project: &str,
-    username: &str,
-    key_suffix: &str,
-    value: &str,
+fn mutate_fallback_store(
+    create_if_missing: bool,
+    mutate: impl FnOnce(&mut CredentialStore),
 ) -> Result<()> {
     let _guard = fallback_store_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let path = fallback_path()?;
+    if !path.exists() && !create_if_missing {
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
     }
 
-    let mut store: CredentialStore = if path.exists() {
+    let mut store = if path.exists() {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
         read_fallback_store(&path, &content)
@@ -93,26 +94,35 @@ pub(crate) fn save_fallback(
         CredentialStore::default()
     };
 
-    store.entries.retain(|e| !e.username.ends_with("_password"));
-
-    let key_name = fallback_entry_key(project, username, key_suffix);
-    store.entries.retain(|e| e.username != key_name);
-    let key = derive_key(project, username, key_suffix);
-    let encrypted = xor_crypt(value.as_bytes(), &key);
-
-    store.entries.insert(
-        0,
-        EncryptedEntry {
-            username: key_name,
-            obfuscated: to_hex(&encrypted),
-        },
-    );
+    mutate(&mut store);
 
     let content = serde_json::to_string_pretty(&store)
         .context("Не удалось сериализовать хранилище credentials")?;
     write_atomic_sync(&path, content.as_bytes())
         .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
+}
+
+pub(crate) fn save_fallback(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+    value: &str,
+) -> Result<()> {
+    let key_name = fallback_entry_key(project, username, key_suffix);
+    let key = derive_key(project, username, key_suffix);
+    let encrypted = xor_crypt(value.as_bytes(), &key);
+    mutate_fallback_store(true, |store| {
+        store.entries.retain(|e| !e.username.ends_with("_password"));
+        store.entries.retain(|e| e.username != key_name);
+        store.entries.insert(
+            0,
+            EncryptedEntry {
+                username: key_name,
+                obfuscated: to_hex(&encrypted),
+            },
+        );
+    })
 }
 
 pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<String> {
@@ -151,27 +161,13 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
 }
 
 pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
-    let _guard = fallback_store_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let path = fallback_path()?;
-    if !path.exists() {
-        return Ok(());
-    }
-
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
-    let mut store: CredentialStore = read_fallback_store(&path, &content);
     let key_name = fallback_entry_key(project, username, key_suffix);
     let legacy_name = legacy_fallback_entry_key(username, key_suffix);
-    store
-        .entries
-        .retain(|e| e.username != key_name && e.username != legacy_name);
-    let content = serde_json::to_string_pretty(&store)
-        .context("Не удалось сериализовать хранилище credentials")?;
-    write_atomic_sync(&path, content.as_bytes())
-        .with_context(|| format!("Не удалось записать {:?}", path))?;
-    Ok(())
+    mutate_fallback_store(false, |store| {
+        store
+            .entries
+            .retain(|e| e.username != key_name && e.username != legacy_name);
+    })
 }
 
 fn fallback_entry_key(project: &str, username: &str, key_suffix: &str) -> String {
@@ -186,26 +182,53 @@ fn keyring_key(project: &str, username: &str, key_suffix: &str) -> String {
     format!("{}_{}_{}", project, username, key_suffix)
 }
 
+async fn run_credential_task<T>(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+    task_context: &str,
+    op: impl FnOnce(&str, &str, &str) -> Result<T> + Send + 'static,
+) -> Result<T>
+where
+    T: Send + 'static,
+{
+    let (project, username, key_suffix) = (
+        project.to_string(),
+        username.to_string(),
+        key_suffix.to_string(),
+    );
+    let task_context = task_context.to_string();
+    LauncherError::classify(
+        tokio::task::spawn_blocking(move || op(&project, &username, &key_suffix))
+            .await
+            .context(task_context)?,
+        LauncherError::CredentialsStorage,
+    )
+}
+
+fn open_keyring_entry(project: &str, username: &str, key_suffix: &str) -> Result<keyring::Entry> {
+    let key = keyring_key(project, username, key_suffix);
+    keyring::Entry::new(&get_launcher_name(), &key)
+        .context("Не удалось получить доступ к хранилищу")
+}
+
 pub async fn save_credential(
     project: &str,
     username: &str,
     key_suffix: &str,
     value: &str,
 ) -> Result<()> {
-    let (project, username, key_suffix, value) = (
-        project.to_string(),
-        username.to_string(),
-        key_suffix.to_string(),
-        value.to_string(),
-    );
-    LauncherError::classify(
-        tokio::task::spawn_blocking(move || {
-            save_credential_sync(&project, &username, &key_suffix, &value)
-        })
-        .await
-        .context("Не удалось выполнить задачу сохранения credentials")?,
-        LauncherError::CredentialsStorage,
+    let value = value.to_string();
+    run_credential_task(
+        project,
+        username,
+        key_suffix,
+        "Не удалось выполнить задачу сохранения credentials",
+        move |project, username, key_suffix| {
+            save_credential_sync(project, username, key_suffix, &value)
+        },
     )
+    .await
 }
 
 fn save_credential_sync(
@@ -214,17 +237,11 @@ fn save_credential_sync(
     key_suffix: &str,
     value: &str,
 ) -> Result<()> {
-    let key = keyring_key(project, username, key_suffix);
-    let service = get_launcher_name();
-
-    let keyring_result = (|| -> Result<()> {
-        let entry = keyring::Entry::new(&service, &key)
-            .context("Не удалось получить доступ к хранилищу")?;
+    let keyring_result = open_keyring_entry(project, username, key_suffix).and_then(|entry| {
         entry
             .set_password(value)
-            .context(format!("Не удалось сохранить {} в keyring", key_suffix))?;
-        Ok(())
-    })();
+            .context(format!("Не удалось сохранить {} в keyring", key_suffix))
+    });
 
     if let Err(e) = &keyring_result {
         log_err!("Keyring save {}: ОШИБКА — {:?}", key_suffix, e);
@@ -242,24 +259,18 @@ fn save_credential_sync(
 }
 
 pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> Result<String> {
-    let (project, username, key_suffix) = (
-        project.to_string(),
-        username.to_string(),
-        key_suffix.to_string(),
-    );
-    LauncherError::classify(
-        tokio::task::spawn_blocking(move || get_credential_sync(&project, &username, &key_suffix))
-            .await
-            .context("Не удалось выполнить задачу чтения credentials")?,
-        LauncherError::CredentialsStorage,
+    run_credential_task(
+        project,
+        username,
+        key_suffix,
+        "Не удалось выполнить задачу чтения credentials",
+        get_credential_sync,
     )
+    .await
 }
 
 fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<String> {
-    let key = keyring_key(project, username, key_suffix);
-    let service = get_launcher_name();
-
-    let entry = match keyring::Entry::new(&service, &key) {
+    let entry = match open_keyring_entry(project, username, key_suffix) {
         Ok(entry) => entry,
         Err(e) => {
             log_err!("Keyring load {}: ОШИБКА — {}", key_suffix, e);
@@ -284,34 +295,24 @@ fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resul
 }
 
 pub async fn delete_credential(project: &str, username: &str, key_suffix: &str) -> Result<()> {
-    let (project, username, key_suffix) = (
-        project.to_string(),
-        username.to_string(),
-        key_suffix.to_string(),
-    );
-    LauncherError::classify(
-        tokio::task::spawn_blocking(move || {
-            delete_credential_sync(&project, &username, &key_suffix)
-        })
-        .await
-        .context("Не удалось выполнить задачу удаления credentials")?,
-        LauncherError::CredentialsStorage,
+    run_credential_task(
+        project,
+        username,
+        key_suffix,
+        "Не удалось выполнить задачу удаления credentials",
+        delete_credential_sync,
     )
+    .await
 }
 
 fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<()> {
-    let key = keyring_key(project, username, key_suffix);
-    let service = get_launcher_name();
-
-    let keyring_delete = (|| -> Result<()> {
-        let entry = keyring::Entry::new(&service, &key)
-            .context("Не удалось получить доступ к хранилищу")?;
+    let keyring_delete = open_keyring_entry(project, username, key_suffix).and_then(|entry| {
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(anyhow::Error::new(e)
                 .context(format!("Не удалось удалить {} из keyring", key_suffix))),
         }
-    })();
+    });
 
     if let Err(e) = &keyring_delete {
         log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e);

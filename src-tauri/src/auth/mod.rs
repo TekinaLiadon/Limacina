@@ -139,18 +139,27 @@ async fn auth_request(request: reqwest::RequestBuilder, parse_context: &str) -> 
     )
 }
 
-pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
+async fn credentials_auth_request(
+    server_url: &str,
+    endpoint: &str,
+    username: &str,
+    password: &str,
+) -> Result<AuthData> {
     let body = AuthLoginRequest {
         username: username.to_string(),
         password: password.to_string(),
     };
     auth_request(
         http_client()
-            .post(format!("{}/v1/common/auth/registration", server_url))
+            .post(format!("{server_url}/v1/common/auth/{endpoint}"))
             .json(&body),
         "Не удалось распарсить ответ авторизации",
     )
     .await
+}
+
+pub async fn register(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
+    credentials_auth_request(server_url, "registration", username, password).await
 }
 
 pub async fn change_password(
@@ -174,17 +183,7 @@ pub async fn change_password(
 }
 
 pub async fn login(server_url: &str, username: &str, password: &str) -> Result<AuthData> {
-    let body = AuthLoginRequest {
-        username: username.to_string(),
-        password: password.to_string(),
-    };
-    auth_request(
-        http_client()
-            .post(format!("{}/v1/common/auth/login", server_url))
-            .json(&body),
-        "Не удалось распарсить ответ авторизации",
-    )
-    .await
+    credentials_auth_request(server_url, "login", username, password).await
 }
 
 pub async fn refresh(server_url: &str, refresh_token: &str) -> Result<AuthData> {

@@ -64,7 +64,7 @@ onUnmounted((): void => {
 }
 
 .confirm-popup {
-  @include mixins.popup-card(360px);
+  @include mixins.popup-card(var(--confirm-popup-max-width));
 
   &__message {
     font-size: var(--text-body);

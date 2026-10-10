@@ -503,61 +503,45 @@ mod exit_launcher_tests {
 #[cfg(test)]
 mod narrator_tests {
     use super::force_narrator_off;
+    use crate::test_support::TempDir;
     use std::fs;
-    use std::path::PathBuf;
-
-    struct TempDirGuard(PathBuf);
-
-    impl Drop for TempDirGuard {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn temp_root(label: &str) -> (TempDirGuard, PathBuf) {
-        let root =
-            std::env::temp_dir().join(format!("limacina_narrator_{label}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("создание тестовой папки");
-        (TempDirGuard(root.clone()), root)
-    }
 
     #[tokio::test]
     async fn force_narrator_off_replaces_existing_line() {
-        let (_guard, root) = temp_root("replace");
+        let dir = TempDir::new("narrator_replace");
         fs::write(
-            root.join("options.txt"),
+            dir.0.join("options.txt"),
             "musicVolume:0.5\nnarrator:2\nfov:70\n",
         )
         .expect("запись options.txt");
 
-        force_narrator_off(&root).await.expect("патч options.txt");
+        force_narrator_off(&dir.0).await.expect("патч options.txt");
 
-        let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
+        let patched = fs::read_to_string(dir.0.join("options.txt")).expect("чтение options.txt");
         let lines: Vec<&str> = patched.lines().collect();
         assert_eq!(lines, vec!["musicVolume:0.5", "narrator:0", "fov:70"]);
     }
 
     #[tokio::test]
     async fn force_narrator_off_appends_missing_line() {
-        let (_guard, root) = temp_root("append");
-        fs::write(root.join("options.txt"), "musicVolume:0.5\nfov:70\n")
+        let dir = TempDir::new("narrator_append");
+        fs::write(dir.0.join("options.txt"), "musicVolume:0.5\nfov:70\n")
             .expect("запись options.txt");
 
-        force_narrator_off(&root).await.expect("патч options.txt");
+        force_narrator_off(&dir.0).await.expect("патч options.txt");
 
-        let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
+        let patched = fs::read_to_string(dir.0.join("options.txt")).expect("чтение options.txt");
         let lines: Vec<&str> = patched.lines().collect();
         assert_eq!(lines, vec!["musicVolume:0.5", "fov:70", "narrator:0"]);
     }
 
     #[tokio::test]
     async fn force_narrator_off_creates_missing_file() {
-        let (_guard, root) = temp_root("create");
+        let dir = TempDir::new("narrator_create");
 
-        force_narrator_off(&root).await.expect("патч options.txt");
+        force_narrator_off(&dir.0).await.expect("патч options.txt");
 
-        let patched = fs::read_to_string(root.join("options.txt")).expect("чтение options.txt");
+        let patched = fs::read_to_string(dir.0.join("options.txt")).expect("чтение options.txt");
         assert_eq!(patched, "narrator:0\n");
     }
 }

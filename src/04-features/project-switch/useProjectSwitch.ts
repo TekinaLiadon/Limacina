@@ -49,12 +49,14 @@ export function useProjectSwitch() {
     accountsStore.logins = logins
   }
 
-  const restoreSavedProject = async (projectName: string): Promise<void> => {
-    if (!projectName) return
+  const restoreSavedProject = async (projectName: string): Promise<boolean> => {
+    if (!projectName) return true
     try {
       await saveCurrentProject(projectName)
+      return true
     } catch (e: unknown) {
       reportError('Не удалось восстановить текущий проект', e)
+      return false
     }
   }
 
@@ -83,14 +85,21 @@ export function useProjectSwitch() {
     const previousProject = coreStore.currentProject
     accountsStore.isSwitching = true
 
+    let backendOnNewProject = false
+
     try {
       await saveCurrentProject(projectName)
+      backendOnNewProject = true
       await applyProjectSwitch(projectName)
     } catch (e: unknown) {
-      if (coreStore.currentProject === previousProject) {
-        await restoreSavedProject(previousProject)
+      let message = getErrorMessage(e)
+      if (backendOnNewProject && coreStore.currentProject === previousProject) {
+        const restored = await restoreSavedProject(previousProject)
+        if (!restored) {
+          message = `${message}. Не удалось вернуть предыдущий проект — после перезапуска откроется «${projectName}»`
+        }
       }
-      notification.show(getErrorMessage(e))
+      notification.show(message)
     } finally {
       accountsStore.isSwitching = false
     }

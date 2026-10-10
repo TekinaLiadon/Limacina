@@ -119,37 +119,49 @@ async fn download_and_verify(
     Ok(())
 }
 
-struct ListSource {
+struct SyncSource {
     endpoint: &'static str,
-    step_id: &'static str,
-    step_label: &'static str,
+    list_step_id: &'static str,
+    list_step_label: &'static str,
+    download_step_id: &'static str,
+    download_step_label: &'static str,
     log_prefix: &'static str,
+    item: &'static str,
     noun: &'static str,
+    offline_note: &'static str,
 }
 
-const FILES_LIST: ListSource = ListSource {
+const FILES_SOURCE: SyncSource = SyncSource {
     endpoint: "/v1/launcher/files/list",
-    step_id: "files.list",
-    step_label: "Получение списка файлов",
+    list_step_id: "files.list",
+    list_step_label: "Получение списка файлов",
+    download_step_id: "files.download",
+    download_step_label: "Скачивание файлов",
     log_prefix: "[files]",
+    item: "файла",
     noun: "файлов",
+    offline_note: "синхронизация с сервером не нужна",
 };
 
-const MODS_LIST: ListSource = ListSource {
+const MODS_SOURCE: SyncSource = SyncSource {
     endpoint: "/v1/launcher/files/mods",
-    step_id: "mods.list",
-    step_label: "Получение списка модов",
+    list_step_id: "mods.list",
+    list_step_label: "Получение списка модов",
+    download_step_id: "mods.download",
+    download_step_label: "Проверка и скачивание модов",
     log_prefix: "[mods]",
+    item: "мода",
     noun: "модов",
+    offline_note: "моды с сервера не скачиваются",
 };
 
 async fn fetch_hash_map(
     client: &Client,
     server_url: &str,
     project_name: &str,
-    source: &ListSource,
+    source: &SyncSource,
 ) -> Result<HashMap<String, String>> {
-    let list_step = StepHandle::start(source.step_id, source.step_label);
+    let list_step = StepHandle::start(source.list_step_id, source.list_step_label);
     let url = format!("{}{}", server_url, source.endpoint);
     log_info!(
         "{} Запрос списка {}: {}",
@@ -207,7 +219,7 @@ pub(crate) async fn fetch_file_list(
     server_url: &str,
     project_name: &str,
 ) -> Result<HashMap<String, String>> {
-    fetch_hash_map(client, server_url, project_name, &FILES_LIST).await
+    fetch_hash_map(client, server_url, project_name, &FILES_SOURCE).await
 }
 
 pub(crate) async fn fetch_mods_list(
@@ -215,7 +227,7 @@ pub(crate) async fn fetch_mods_list(
     server_url: &str,
     project_name: &str,
 ) -> Result<HashMap<String, String>> {
-    fetch_hash_map(client, server_url, project_name, &MODS_LIST).await
+    fetch_hash_map(client, server_url, project_name, &MODS_SOURCE).await
 }
 
 pub(crate) fn download_launcher_server_file(
@@ -239,35 +251,38 @@ pub struct FilesSyncReport {
     pub skipped: bool,
 }
 
-struct SyncLabels {
-    log_prefix: &'static str,
-    item: &'static str,
-    noun: &'static str,
+async fn fetch_online_list(
+    project_name: &str,
+    state: &Mutex<GlobalState>,
+    source: &SyncSource,
+) -> Result<Option<(ApiContext, HashMap<String, String>)>> {
+    let online = state.lock().await.project_config.online;
+    if !online {
+        log_info!(
+            "{} Одиночный профиль {} — {}",
+            source.log_prefix,
+            project_name,
+            source.offline_note
+        );
+        return Ok(None);
+    }
+
+    let ctx = require_api_client(state).await?;
+    let list = fetch_hash_map(&ctx.client, &ctx.server_url, project_name, source).await?;
+    Ok(Some((ctx, list)))
 }
-
-const FILES_LABELS: SyncLabels = SyncLabels {
-    log_prefix: "[files]",
-    item: "файла",
-    noun: "файлов",
-};
-
-const MODS_LABELS: SyncLabels = SyncLabels {
-    log_prefix: "[mods]",
-    item: "мода",
-    noun: "модов",
-};
 
 async fn sync_server_files(
     ctx: &ApiContext,
     list: &HashMap<String, String>,
     base_dir: &Path,
     step: StepHandle,
-    labels: &SyncLabels,
+    source: &SyncSource,
     dest_for: impl Fn(&str) -> PathBuf,
 ) -> Result<FilesSyncReport> {
     let client = ctx.client.clone();
     let server_url = ctx.server_url.clone();
-    let prefix = labels.log_prefix;
+    let prefix = source.log_prefix;
 
     let mut files_to_download: Vec<String> = Vec::new();
 
@@ -277,7 +292,7 @@ async fn sync_server_files(
             step.fail(format!("Сервер передал недопустимый путь: {}", key));
             return Err(LauncherError::InvalidModFilename(format!(
                 "Сервер передал недопустимый путь {}: {}",
-                labels.item, key
+                source.item, key
             ))
             .into());
         }
@@ -341,7 +356,7 @@ async fn sync_server_files(
         "{} Начало скачивания {} {} (макс. {} параллельно)",
         prefix,
         total,
-        labels.noun,
+        source.noun,
         MAX_CONCURRENT_DOWNLOADS
     );
     let step_counter = step.clone();
@@ -386,7 +401,7 @@ async fn sync_server_files(
     );
 
     if errors > 0 {
-        step.fail(format!("Не удалось скачать {}: {}", labels.noun, errors));
+        step.fail(format!("Не удалось скачать {}: {}", source.noun, errors));
     } else {
         step.finish(false);
     }
@@ -407,30 +422,26 @@ pub async fn download_all_files(
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
     let result = async {
-        let online = state.lock().await.project_config.online;
-        if !online {
-            log_info!(
-                "[files] Одиночный профиль {} — синхронизация с сервером не нужна",
-                project_name
-            );
+        let Some((ctx, file_list)) = fetch_online_list(&project_name, state, &FILES_SOURCE).await?
+        else {
             return Ok(FilesSyncReport::default());
-        }
-
-        let ctx = require_api_client(state).await?;
-        let file_list = fetch_file_list(&ctx.client, &ctx.server_url, &project_name).await?;
+        };
 
         let core = launcher_path(Some(&project_name))?;
 
         log_info!("[files] Получено файлов от сервера: {}", file_list.len());
         log_info!("[files] Папка проекта: {:?}", core);
 
-        let download_step = StepHandle::start("files.download", "Скачивание файлов");
+        let download_step = StepHandle::start(
+            FILES_SOURCE.download_step_id,
+            FILES_SOURCE.download_step_label,
+        );
         sync_server_files(
             &ctx,
             &file_list,
             &core,
             download_step,
-            &FILES_LABELS,
+            &FILES_SOURCE,
             |key: &str| PathBuf::from(key),
         )
         .await
@@ -445,17 +456,9 @@ pub async fn download_mods(
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
     let result = async {
-        let online = state.lock().await.project_config.online;
-        if !online {
-            log_info!(
-                "[mods] Одиночный профиль {} — моды с сервера не скачиваются",
-                project_name
-            );
+        let Some((ctx, mods)) = fetch_online_list(&project_name, state, &MODS_SOURCE).await? else {
             return Ok(FilesSyncReport::default());
-        }
-
-        let ctx = require_api_client(state).await?;
-        let mods = fetch_mods_list(&ctx.client, &ctx.server_url, &project_name).await?;
+        };
 
         log_info!("[mods] Получено модов: {}", mods.len());
         for (name, hash) in &mods {
@@ -473,14 +476,17 @@ pub async fn download_mods(
             .map(|k| k.strip_prefix("mods/").unwrap_or(k))
             .collect();
 
-        let download_step = StepHandle::start("mods.download", "Проверка и скачивание модов");
+        let download_step = StepHandle::start(
+            MODS_SOURCE.download_step_id,
+            MODS_SOURCE.download_step_label,
+        );
         log_info!("[mods] Путь к папке модов: {:?}", mods_dir);
         let report = sync_server_files(
             &ctx,
             &mods,
             &mods_dir,
             download_step,
-            &MODS_LABELS,
+            &MODS_SOURCE,
             |key: &str| PathBuf::from(key.strip_prefix("mods/").unwrap_or(key)),
         )
         .await
@@ -600,7 +606,7 @@ mod mock_server_tests {
 
         let ctx = api_context(&server).await;
         let step = StepHandle::start("files.download", "Скачивание файлов");
-        let report = sync_server_files(&ctx, &list, &base, step, &FILES_LABELS, |key: &str| {
+        let report = sync_server_files(&ctx, &list, &base, step, &FILES_SOURCE, |key: &str| {
             PathBuf::from(key)
         })
         .await
@@ -639,7 +645,7 @@ mod mock_server_tests {
         let list = HashMap::from([("mods/a.jar".to_string(), expected_hash)]);
         let ctx = api_context(&server).await;
         let step = StepHandle::start("files.download", "Скачивание файлов");
-        let result = sync_server_files(&ctx, &list, &base, step, &FILES_LABELS, |key: &str| {
+        let result = sync_server_files(&ctx, &list, &base, step, &FILES_SOURCE, |key: &str| {
             PathBuf::from(key)
         })
         .await;
@@ -668,7 +674,7 @@ mod mock_server_tests {
             &list,
             &dir.project_dir("Cordelia"),
             step,
-            &FILES_LABELS,
+            &FILES_SOURCE,
             |key: &str| PathBuf::from(key),
         )
         .await;

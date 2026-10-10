@@ -177,8 +177,8 @@ const subLabel = (step: StepProgressItem): string => {
     }
   }
   &__indicator {
-    width: 24px;
-    height: 24px;
+    width: var(--step-indicator-size);
+    height: var(--step-indicator-size);
     border-radius: var(--radius-circle);
     display: flex;
     align-items: center;
@@ -191,7 +191,7 @@ const subLabel = (step: StepProgressItem): string => {
     &--active {
       background: var(--login-accent);
       color: var(--text-on-accent);
-      box-shadow: 0 0 0 4px var(--accent-active-bg);
+      box-shadow: 0 0 0 var(--space-4) var(--accent-active-bg);
     }
 
     &--pending {

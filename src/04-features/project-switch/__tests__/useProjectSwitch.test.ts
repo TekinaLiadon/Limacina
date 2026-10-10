@@ -350,4 +350,23 @@ describe('useProjectSwitch', () => {
     expect(core.projectConfig).toBeNull()
     expect(useNotificationStore().message).toBe('config locked')
   })
+
+  it('warns about the diverged project when the rollback restore also fails', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    vi.mocked(saveCurrentProject)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('rollback failed'))
+    vi.mocked(loadSettingsProject).mockRejectedValue(new Error('config locked'))
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(1, 'beta')
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(2, 'alpha')
+    expect(core.currentProject).toBe('alpha')
+    expect(useNotificationStore().message).toBe(
+      'config locked. Не удалось вернуть предыдущий проект — после перезапуска откроется «beta»',
+    )
+  })
 })

@@ -150,8 +150,8 @@
   }
 
   &__img {
-    width: 20px;
-    height: 20px;
+    width: var(--icon-size-lg);
+    height: var(--icon-size-lg);
   }
 
   &__item-title {
@@ -250,7 +250,7 @@
   justify-content: center;
   border-radius: var(--radius-card);
   background: var(--accent-subtle);
-  box-shadow: inset 0 0 0 2px var(--accent-text);
+  box-shadow: inset 0 0 0 var(--drop-overlay-ring-width) var(--accent-text);
   color: var(--accent-text);
   font-size: var(--text-body);
   font-weight: var(--weight-medium);
@@ -265,10 +265,10 @@
   align-items: center;
   justify-content: center;
   background: var(--overlay);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(var(--popup-overlay-blur));
 }
 
-@mixin popup-card($max-width: 400px, $width: 100%) {
+@mixin popup-card($max-width: var(--popup-max-width), $width: 100%) {
   background: var(--login-bg-form);
   border-radius: var(--radius-modal);
   padding: var(--card-padding);
@@ -279,7 +279,7 @@
 
 @mixin slider-track {
   position: relative;
-  height: 6px;
+  height: var(--slider-track-height);
   background: var(--surface-active);
   box-shadow: var(--elevation-inset);
   border-radius: var(--radius-pill);
@@ -296,10 +296,10 @@
 
 @mixin slider-input {
   position: absolute;
-  top: -7px;
+  top: calc((var(--slider-track-height) - var(--slider-input-height)) / 2);
   left: 0;
   width: 100%;
-  height: 20px;
+  height: var(--slider-input-height);
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
@@ -307,8 +307,8 @@
 
   &::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
     border-radius: var(--radius-circle);
     background: var(--login-accent);
     border: none;
@@ -323,8 +323,8 @@
   }
 
   &::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
     border-radius: var(--radius-circle);
     background: var(--login-accent);
     border: none;
@@ -341,7 +341,7 @@
   background-image:
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
     linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-  background-size: 80px 80px;
+  background-size: var(--grid-cell-size) var(--grid-cell-size);
   mask-image: $mask;
   -webkit-mask-image: $mask;
   pointer-events: none;
