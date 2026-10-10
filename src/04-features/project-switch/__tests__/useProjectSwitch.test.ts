@@ -103,9 +103,9 @@ describe('useProjectSwitch', () => {
     expect(launch.loginError).toBe('')
     expect(launch.launchInterrupted).toBe(false)
     expect(launch.isLaunching).toBe(false)
-    expect(core.isLoggedIn).toBe(false)
+    expect(accounts.isLoggedIn).toBe(false)
     expect(clearSession).toHaveBeenCalledTimes(1)
-    expect(accounts.isSwitching).toBe(false)
+    expect(ps.isSwitching.value).toBe(false)
   })
 
   it('adopts the settings form from the committed project config', async () => {
@@ -140,7 +140,7 @@ describe('useProjectSwitch', () => {
   it('blocks the switch while a game session is active', async () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
-    core.gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     const ps = setup()
 
     await ps.selectProject('beta')
@@ -284,8 +284,9 @@ describe('useProjectSwitch', () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
     core.projects = ['alpha', 'beta']
-    core.isLoggedIn = true
-    core.session = { uuid: 'u-1', username: 'alice' }
+    const accounts = useAccountsStore()
+    accounts.isLoggedIn = true
+    accounts.session = { uuid: 'u-1', username: 'alice' }
     vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     vi.mocked(clearSession).mockRejectedValue(new Error('session stuck'))
@@ -296,7 +297,7 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).toHaveBeenCalledTimes(1)
     expect(saveCurrentProject).toHaveBeenCalledWith('beta')
     expect(core.currentProject).toBe('beta')
-    expect(core.isLoggedIn).toBe(false)
+    expect(accounts.isLoggedIn).toBe(false)
     expect(useAccountsStore().logins).toEqual(['carol'])
   })
 
@@ -333,7 +334,7 @@ describe('useProjectSwitch', () => {
     expect(useNotificationStore().message).toBe('disk full')
     expect(core.currentProject).toBe('alpha')
     expect(core.projectConfig).toBeNull()
-    expect(useAccountsStore().isSwitching).toBe(false)
+    expect(ps.isSwitching.value).toBe(false)
   })
 
   it('restores the saved project when the switch fails during the load', async () => {

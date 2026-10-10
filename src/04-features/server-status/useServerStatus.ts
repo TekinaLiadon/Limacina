@@ -1,4 +1,4 @@
-import { useCoreStore, type ServerStatus } from '@/05-entities'
+import { useServerStore, type ServerStatus } from '@/05-entities'
 import { getServerStatus } from '@/06-shared/api'
 import type { BackoffPoller } from '@/06-shared'
 import { createServerPoller } from '../server-polling/createServerPoller'
@@ -10,20 +10,20 @@ let poller: BackoffPoller | null = null
 export function useServerStatus(): {
   startServerStatusSync: () => void
 } {
-  const coreStore = useCoreStore()
+  const serverStore = useServerStore()
 
   if (poller === null) {
     poller = createServerPoller<ServerStatus>({
       okIntervalMs: OK_INTERVAL_MS,
       fetch: getServerStatus,
       applySuccess: (status: ServerStatus): void => {
-        coreStore.serverStatus = status
+        serverStore.serverStatus = status
       },
       applyIdle: (): void => {
-        coreStore.serverStatus = null
+        serverStore.serverStatus = null
       },
       onFailureStreak: (): void => {
-        coreStore.serverStatus = null
+        serverStore.serverStatus = null
       },
     })
   }

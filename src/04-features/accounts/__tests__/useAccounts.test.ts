@@ -41,10 +41,10 @@ describe('useAccounts', () => {
     await vi.waitFor(() => expect(accounts.isLoading.value).toBe(false))
 
     expect(accounts.logins.value).toEqual(['alice', 'bob'])
-    const core = useCoreStore()
-    expect(core.isLoggedIn).toBe(true)
-    expect(core.session).toEqual(makeSession('alice'))
-    expect(useAccountsStore().selectedUsername).toBe('alice')
+    const accountsStore = useAccountsStore()
+    expect(accountsStore.isLoggedIn).toBe(true)
+    expect(accountsStore.session).toEqual(makeSession('alice'))
+    expect(accountsStore.selectedUsername).toBe('alice')
   })
 
   it('stays logged out when there is no saved session', async () => {
@@ -54,7 +54,7 @@ describe('useAccounts', () => {
     const accounts = setupAccounts()
     await vi.waitFor(() => expect(accounts.isLoading.value).toBe(false))
 
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
     expect(accounts.selectedUsername.value).toBe('')
   })
 
@@ -75,7 +75,7 @@ describe('useAccounts', () => {
     const accounts = setupAccounts()
     await vi.waitFor(() => expect(console.error).toHaveBeenCalled())
 
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
     void accounts
   })
 
@@ -88,17 +88,17 @@ describe('useAccounts', () => {
     await accounts.handleSelect('bob')
 
     expect(authRefresh).toHaveBeenCalledWith('proj', 'bob')
-    const core = useCoreStore()
-    expect(core.session).toEqual(makeSession('bob'))
-    expect(core.isLoggedIn).toBe(true)
+    const accountsStore = useAccountsStore()
+    expect(accountsStore.session).toEqual(makeSession('bob'))
+    expect(accountsStore.isLoggedIn).toBe(true)
     expect(accounts.selectedUsername.value).toBe('bob')
     expect(accounts.isLoading.value).toBe(false)
   })
 
   it('reverts the selection and keeps the previous session on failure', async () => {
-    const core = useCoreStore()
-    core.isLoggedIn = true
-    core.session = makeSession('alice')
+    const accountsStore = useAccountsStore()
+    accountsStore.isLoggedIn = true
+    accountsStore.session = makeSession('alice')
     const accounts = setupAccounts()
     accounts.selectedUsername.value = 'alice'
     vi.mocked(authRefresh).mockRejectedValue(new Error('bad token'))
@@ -107,8 +107,8 @@ describe('useAccounts', () => {
 
     expect(accounts.selectedUsername.value).toBe('alice')
     expect(accounts.errorMessage.value).toBe('bad token')
-    expect(core.isLoggedIn).toBe(true)
-    expect(core.session).toEqual(makeSession('alice'))
+    expect(accountsStore.isLoggedIn).toBe(true)
+    expect(accountsStore.session).toEqual(makeSession('alice'))
   })
 
   it('stays logged out when a select fails without a previous session', async () => {
@@ -119,7 +119,7 @@ describe('useAccounts', () => {
 
     expect(accounts.selectedUsername.value).toBe('')
     expect(accounts.errorMessage.value).toBe('no credentials')
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
   })
 
   it('ignores a select while another select is running', async () => {
@@ -160,30 +160,29 @@ describe('useAccounts', () => {
     await vi.waitFor(() => expect(getSessionInfo).toHaveBeenCalledTimes(1))
     await new Promise((resolve) => { setTimeout(resolve, 0) })
 
-    const core = useCoreStore()
-    expect(core.isLoggedIn).toBe(false)
-    expect(core.session).toBeNull()
-    expect(useAccountsStore().selectedUsername).toBe('')
+    const accountsStore = useAccountsStore()
+    expect(accountsStore.isLoggedIn).toBe(false)
+    expect(accountsStore.session).toBeNull()
+    expect(accountsStore.selectedUsername).toBe('')
   })
 
   it('leaves no stale selection or session when the project changed during a select', async () => {
-    const core = useCoreStore()
-    core.isLoggedIn = true
-    core.session = makeSession('alice')
+    const accountsStore = useAccountsStore()
+    accountsStore.isLoggedIn = true
+    accountsStore.session = makeSession('alice')
     const accounts = setupAccounts()
     accounts.selectedUsername.value = 'alice'
     vi.mocked(authRefresh).mockImplementation(async () => {
-      const switched = useCoreStore()
-      switched.currentProject = 'other'
-      switched.clearSessionState()
-      useAccountsStore().reset()
+      useCoreStore().currentProject = 'other'
+      accountsStore.clearSessionState()
+      accountsStore.reset()
     })
 
     await accounts.handleSelect('bob')
 
-    expect(core.isLoggedIn).toBe(false)
-    expect(core.session).toBeNull()
-    expect(useAccountsStore().selectedUsername).toBe('')
+    expect(accountsStore.isLoggedIn).toBe(false)
+    expect(accountsStore.session).toBeNull()
+    expect(accountsStore.selectedUsername).toBe('')
     expect(accounts.isLoading.value).toBe(false)
     expect(accounts.errorMessage.value).toBe('')
   })

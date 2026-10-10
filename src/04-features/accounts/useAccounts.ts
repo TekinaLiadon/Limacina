@@ -19,7 +19,7 @@ export function useAccounts() {
       const session = await getSessionInfo()
       if (!scope.isCurrent()) return
       if (!session) return
-      coreStore.applySession(session)
+      store.applySession(session)
       store.selectedUsername = session.username
     } catch (e: unknown) {
       reportError('Не удалось проверить сессию', e)
@@ -38,7 +38,7 @@ export function useAccounts() {
       await authRefresh(scope.project, username)
       const session = await getSessionInfo()
       if (!scope.isCurrent()) return
-      if (session) coreStore.applySession(session)
+      if (session) store.applySession(session)
     } catch (e: unknown) {
       if (!scope.isCurrent()) return
       selectedUsername.value = previousUsername

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useAccountsPage, useGameSession, useProjectConfig, useProjectSwitch } from '@/04-features'
-import { useCoreStore } from '@/05-entities'
+import { useAccountsStore, useCoreStore, useLaunchStore } from '@/05-entities'
 import { Preloader } from '@/06-shared'
 import { LaunchScene, NoProjectsState } from '@/03-widgets'
 
@@ -9,6 +9,8 @@ useProjectConfig()
 
 const router = useRouter()
 const coreStore = useCoreStore()
+const accountsStore = useAccountsStore()
+const launchStore = useLaunchStore()
 const { minimizeToTray } = useGameSession()
 const { isSwitching } = useProjectSwitch()
 const {
@@ -48,7 +50,7 @@ const {
       v-model:active-tab="activeSubTab"
       :username="sceneUsername"
       :selected-username="selectedUsername"
-      :has-session="coreStore.isLoggedIn"
+      :has-session="accountsStore.isLoggedIn"
       :logins="logins"
       :is-loading="isLoading"
       :is-launching="isLaunching"
@@ -56,7 +58,7 @@ const {
       :is-interrupted="launchInterrupted"
       :progress="activeProgress"
       :steps="launchSteps"
-      :session-username="coreStore.gameUsername"
+      :session-username="launchStore.gameUsername"
       :server-offline="isServerOffline"
       :login-error="loginError"
       :select-error="errorMessage"

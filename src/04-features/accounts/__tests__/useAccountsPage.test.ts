@@ -7,6 +7,7 @@ import {
   useCoreStore,
   useLaunchStore,
   useNotificationStore,
+  useServerStore,
   type ProjectConfig,
 } from '@/05-entities'
 import { useAccountsPage } from '../useAccountsPage'
@@ -100,7 +101,7 @@ describe('useAccountsPage', () => {
 
     expect(page.isServerOffline.value).toBe(false)
 
-    core.isServerReachable = false
+    useServerStore().isServerReachable = false
     expect(page.isServerOffline.value).toBe(true)
 
     core.projectConfig = makeProjectConfig(false)
@@ -114,7 +115,7 @@ describe('useAccountsPage', () => {
   it('blocks the launch while the launcher server is offline', async () => {
     const core = useCoreStore()
     core.projectConfig = makeProjectConfig(true)
-    core.isServerReachable = false
+    useServerStore().isServerReachable = false
     const page = setupPage()
 
     await page.handleLaunch()
@@ -140,8 +141,7 @@ describe('useAccountsPage', () => {
   })
 
   it('blocks the launch while a game session is already active', async () => {
-    const core = useCoreStore()
-    core.gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     const page = setupPage()
 
     await page.handleLaunch()
@@ -152,7 +152,7 @@ describe('useAccountsPage', () => {
   })
 
   it('blocks the launch when the backend reports a session the store missed', async () => {
-    const core = useCoreStore()
+    const launch = useLaunchStore()
     vi.mocked(getGameState).mockResolvedValue('alice')
     const page = setupPage()
 
@@ -160,7 +160,7 @@ describe('useAccountsPage', () => {
 
     expect(stubs.executeSteps).not.toHaveBeenCalled()
     expect(useLaunchStore().isLaunching).toBe(false)
-    expect(core.gameUsername).toBe('alice')
+    expect(launch.gameUsername).toBe('alice')
     expect(useNotificationStore().message).toBe('Игра уже запущена')
   })
 
@@ -270,7 +270,7 @@ describe('useAccountsPage', () => {
     expect(useLaunchStore().isCancelPending).toBe(false)
     expect(useLaunchStore().loginError).toBe('')
     expect(useAccountsStore().showAuthForm).toBe(false)
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
   })
 
   it('shows the auth form instead of cancelling an idle page', async () => {
@@ -287,9 +287,9 @@ describe('useAccountsPage', () => {
   })
 
   it('deletes the account after confirmation and clears the active session', async () => {
-    const core = useCoreStore()
-    core.session = { uuid: 'u-1', username: 'alice' }
-    core.isLoggedIn = true
+    const accountsStore = useAccountsStore()
+    accountsStore.session = { uuid: 'u-1', username: 'alice' }
+    accountsStore.isLoggedIn = true
     vi.mocked(deleteAccount).mockResolvedValue(undefined)
     vi.mocked(clearSession).mockResolvedValue(undefined)
     vi.mocked(authLogins).mockResolvedValue([])
@@ -301,8 +301,8 @@ describe('useAccountsPage', () => {
 
     expect(deleteAccount).toHaveBeenCalledWith('proj', 'alice')
     expect(clearSession).toHaveBeenCalledTimes(1)
-    expect(core.session).toBeNull()
-    expect(core.isLoggedIn).toBe(false)
+    expect(accountsStore.session).toBeNull()
+    expect(accountsStore.isLoggedIn).toBe(false)
     expect(useAccountsStore().selectedUsername).toBe('')
     expect(useNotificationStore().message).toBe('Аккаунт удалён')
   })
@@ -329,7 +329,6 @@ describe('useAccountsPage', () => {
   })
 
   it('derives the scene username with the session priority', () => {
-    const core = useCoreStore()
     const accounts = useAccountsStore()
     accounts.logins = ['alice', 'bob']
     const page = setupPage()
@@ -339,7 +338,7 @@ describe('useAccountsPage', () => {
     accounts.selectedUsername = 'bob'
     expect(page.sceneUsername.value).toBe('bob')
 
-    core.session = { uuid: 'u-1', username: 'carol' }
+    accounts.session = { uuid: 'u-1', username: 'carol' }
     expect(page.sceneUsername.value).toBe('carol')
   })
 

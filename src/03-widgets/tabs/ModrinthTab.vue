@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { Button, Dropdown, Input, MultiSelect, Skeleton, formatNumber } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type ModrinthSearchHit, type ModrinthInstalledMod } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
 import ModrinthProjectPopup from './ModrinthProjectPopup.vue'
 import ModrinthIcon from './ModrinthIcon.vue'
@@ -71,17 +71,21 @@ const viewTabs: Array<{ key: ModsView; label: string }> = [
   { key: 'installed', label: 'Установленные' },
 ]
 
-const paginationItems = computed((): Array<number | 'gap'> => {
+type PaginationItem = { key: string; page: number | null }
+
+const paginationItems = computed((): PaginationItem[] => {
   const pages = totalPages.value
   const current = currentPage.value
-  if (pages <= 7) return Array.from({ length: pages }, (_, index) => index + 1)
-  const result: Array<number | 'gap'> = [1]
+  if (pages <= 7) {
+    return Array.from({ length: pages }, (_, index) => ({ key: `page-${index + 1}`, page: index + 1 }))
+  }
+  const result: PaginationItem[] = [{ key: 'page-1', page: 1 }]
   const start = Math.max(2, current - 1)
   const end = Math.min(pages - 1, current + 1)
-  if (start > 2) result.push('gap')
-  for (let page = start; page <= end; page += 1) result.push(page)
-  if (end < pages - 1) result.push('gap')
-  result.push(pages)
+  if (start > 2) result.push({ key: 'gap-start', page: null })
+  for (let page = start; page <= end; page += 1) result.push({ key: `page-${page}`, page })
+  if (end < pages - 1) result.push({ key: 'gap-end', page: null })
+  result.push({ key: `page-${pages}`, page: pages })
   return result
 })
 
@@ -93,8 +97,8 @@ function isInstalled(hit: ModrinthSearchHit): boolean {
   return installedIds.value.has(hit.project_id)
 }
 
-function availableUpdate(hit: ModrinthSearchHit): string | undefined {
-  return updates.value[hit.project_id]
+function availableUpdate(projectId: string): string | undefined {
+  return updates.value[projectId]
 }
 
 function isBusy(projectId: string): boolean {
@@ -105,8 +109,8 @@ async function handleInstall(hit: ModrinthSearchHit): Promise<void> {
   await install(hit.project_id)
 }
 
-async function handleUpdate(mod: ModrinthSearchHit | ModrinthInstalledMod): Promise<void> {
-  await install(mod.project_id)
+async function handleUpdate(projectId: string): Promise<void> {
+  await install(projectId)
 }
 
 async function handleUninstall(projectId: string): Promise<void> {
@@ -118,6 +122,35 @@ async function handleUninstall(projectId: string): Promise<void> {
 function openDetails(hit: ModrinthSearchHit): void {
   activeHit.value = hit
   popupVisible.value = true
+}
+
+const popupIsInstalled = computed((): boolean => {
+  const hit = activeHit.value
+  return hit !== null && isInstalled(hit)
+})
+
+const popupUpdateVersion = computed((): string => {
+  const hit = activeHit.value
+  return hit !== null ? (availableUpdate(hit.project_id) ?? '') : ''
+})
+
+const popupIsBusy = computed((): boolean => {
+  const hit = activeHit.value
+  return hit !== null && isBusy(hit.project_id)
+})
+
+const popupIsBusyAny = computed((): boolean => installingId.value !== null)
+
+async function handlePopupInstall(): Promise<void> {
+  const hit = activeHit.value
+  if (hit === null) return
+  await handleInstall(hit)
+}
+
+async function handlePopupUpdate(): Promise<void> {
+  const hit = activeHit.value
+  if (hit === null) return
+  await handleUpdate(hit.project_id)
 }
 
 watch([sort, categories], () => {
@@ -197,19 +230,19 @@ onMounted(() => {
             <div class="modrinth-tab__row-head">
               <span class="modrinth-tab__row-title">{{ mod.title }}</span>
               <span class="modrinth-tab__badge">{{ mod.version_number }}</span>
-              <span v-if="updates[mod.project_id]" class="modrinth-tab__badge modrinth-tab__badge--update">
-                Доступно: {{ updates[mod.project_id] }}
+              <span v-if="availableUpdate(mod.project_id)" class="modrinth-tab__badge modrinth-tab__badge--update">
+                Доступно: {{ availableUpdate(mod.project_id) }}
               </span>
             </div>
             <span class="modrinth-tab__row-meta">{{ mod.filename }}</span>
           </div>
           <div class="modrinth-tab__row-actions">
             <Button
-              v-if="updates[mod.project_id]"
+              v-if="availableUpdate(mod.project_id)"
               class="btn-primary"
               :is-loading="isBusy(mod.project_id)"
               :is-disabled="installingId !== null"
-              @click="handleUpdate(mod)"
+              @click="handleUpdate(mod.project_id)"
             >
               Обновить
             </Button>
@@ -288,8 +321,8 @@ onMounted(() => {
             <div class="modrinth-tab__row-head">
               <span class="modrinth-tab__row-title">{{ hit.title }}</span>
               <span v-if="versionText(hit)" class="modrinth-tab__badge">{{ versionText(hit) }}</span>
-              <span v-if="availableUpdate(hit)" class="modrinth-tab__badge modrinth-tab__badge--update">
-                Доступно: {{ availableUpdate(hit) }}
+              <span v-if="availableUpdate(hit.project_id)" class="modrinth-tab__badge modrinth-tab__badge--update">
+                Доступно: {{ availableUpdate(hit.project_id) }}
               </span>
             </div>
             <p class="modrinth-tab__row-description">{{ hit.description }}</p>
@@ -297,11 +330,11 @@ onMounted(() => {
           </div>
           <div class="modrinth-tab__row-actions">
             <Button
-              v-if="availableUpdate(hit)"
+              v-if="availableUpdate(hit.project_id)"
               class="btn-primary"
               :is-loading="isBusy(hit.project_id)"
               :is-disabled="installingId !== null"
-              @click="handleUpdate(hit)"
+              @click="handleUpdate(hit.project_id)"
             >
               Обновить
             </Button>
@@ -328,16 +361,16 @@ onMounted(() => {
         >
           ‹
         </Button>
-        <template v-for="(item, index) in paginationItems" :key="`${item}-${index}`">
-          <span v-if="item === 'gap'" class="modrinth-tab__page-gap">...</span>
+        <template v-for="item in paginationItems" :key="item.key">
+          <span v-if="item.page === null" class="modrinth-tab__page-gap">...</span>
           <Button
             v-else
             class="btn-quiet modrinth-tab__page"
-            :class="{ 'modrinth-tab__page--active': item === currentPage }"
+            :class="{ 'modrinth-tab__page--active': item.page === currentPage }"
             :is-disabled="isSearching"
-            @click="loadPage(item)"
+            @click="loadPage(item.page)"
           >
-            {{ item }}
+            {{ item.page }}
           </Button>
         </template>
         <Button
@@ -353,12 +386,12 @@ onMounted(() => {
     <ModrinthProjectPopup
       :visible="popupVisible"
       :hit="activeHit"
-      :is-installed="activeHit !== null && isInstalled(activeHit)"
-      :update-version="(activeHit !== null ? availableUpdate(activeHit) : '') ?? ''"
-      :is-busy="activeHit !== null && isBusy(activeHit.project_id)"
-      :is-busy-any="installingId !== null"
-      @install="activeHit !== null && handleInstall(activeHit)"
-      @update="activeHit !== null && handleUpdate(activeHit)"
+      :is-installed="popupIsInstalled"
+      :update-version="popupUpdateVersion"
+      :is-busy="popupIsBusy"
+      :is-busy-any="popupIsBusyAny"
+      @install="handlePopupInstall"
+      @update="handlePopupUpdate"
       @close="popupVisible = false"
     />
   </div>

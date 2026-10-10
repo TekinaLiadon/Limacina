@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
-import { useCoreStore, type ProjectConfig, type ServerStatus } from '@/05-entities'
+import { useCoreStore, useServerStore, type ProjectConfig, type ServerStatus } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   getServerStatus: vi.fn(),
@@ -61,7 +61,7 @@ describe('useServerStatus', () => {
     await watchProject(true)
 
     expect(api.getServerStatus).toHaveBeenCalledTimes(1)
-    expect(useCoreStore().serverStatus).toEqual({ online: 3, max: 20, version: '1.20.1' })
+    expect(useServerStore().serverStatus).toEqual({ online: 3, max: 20, version: '1.20.1' })
 
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS)
     expect(api.getServerStatus).toHaveBeenCalledTimes(2)
@@ -72,7 +72,7 @@ describe('useServerStatus', () => {
     await watchProject(false)
 
     expect(api.getServerStatus).not.toHaveBeenCalled()
-    expect(useCoreStore().serverStatus).toBeNull()
+    expect(useServerStore().serverStatus).toBeNull()
   })
 
   it('keeps the previous status on an isolated failure', async () => {
@@ -85,7 +85,7 @@ describe('useServerStatus', () => {
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
 
     expect(api.getServerStatus).toHaveBeenCalledTimes(2)
-    expect(useCoreStore().serverStatus).toEqual(status)
+    expect(useServerStore().serverStatus).toEqual(status)
   })
 
   it('clears the status after three consecutive failures', async () => {
@@ -93,18 +93,18 @@ describe('useServerStatus', () => {
     api.getServerStatus.mockRejectedValue(new Error('down'))
     await startSync()
     await watchProject(true)
-    expect(useCoreStore().serverStatus).not.toBeNull()
+    expect(useServerStore().serverStatus).not.toBeNull()
 
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS)
-    expect(useCoreStore().serverStatus).not.toBeNull()
+    expect(useServerStore().serverStatus).not.toBeNull()
 
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
-    expect(useCoreStore().serverStatus).not.toBeNull()
+    expect(useServerStore().serverStatus).not.toBeNull()
 
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 4)
 
     expect(api.getServerStatus).toHaveBeenCalledTimes(4)
-    expect(useCoreStore().serverStatus).toBeNull()
+    expect(useServerStore().serverStatus).toBeNull()
   })
 
   it('backs off exponentially up to the cap', async () => {
@@ -134,6 +134,6 @@ describe('useServerStatus', () => {
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 20)
 
     expect(api.getServerStatus).toHaveBeenCalledTimes(1)
-    expect(useCoreStore().serverStatus).toBeNull()
+    expect(useServerStore().serverStatus).toBeNull()
   })
 })

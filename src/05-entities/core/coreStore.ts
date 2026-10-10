@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { LauncherConfig, ProjectConfig, ServerStatus, SessionInfo } from './types/index'
+import type { LauncherConfig, ProjectConfig } from './types/index'
 
 export const useCoreStore = defineStore('core', () => {
   const isLoading = ref<boolean>(true)
@@ -13,12 +13,7 @@ export const useCoreStore = defineStore('core', () => {
   const currentProject = ref<string>('')
   const projects = ref<string[]>([])
   const totalMemoryMb = ref<number>(0)
-  const isLoggedIn = ref<boolean>(false)
-  const session = ref<SessionInfo | null>(null)
   const projectConfig = ref<ProjectConfig | null>(null)
-  const serverStatus = ref<ServerStatus | null>(null)
-  const gameUsername = ref<string | null>(null)
-  const isServerReachable = ref<boolean | null>(null)
   const pendingCpmProjectPath = ref<string | null>(null)
 
   const needsOfflineSetup = computed<boolean>(
@@ -47,16 +42,6 @@ export const useCoreStore = defineStore('core', () => {
     currentProject.value = saved !== null && projects.value.includes(saved) ? saved : first
   }
 
-  function applySession(nextSession: SessionInfo): void {
-    session.value = nextSession
-    isLoggedIn.value = true
-  }
-
-  function clearSessionState(): void {
-    isLoggedIn.value = false
-    session.value = null
-  }
-
   return {
     isLoading,
     launcherName,
@@ -68,12 +53,7 @@ export const useCoreStore = defineStore('core', () => {
     currentProject,
     projects,
     totalMemoryMb,
-    isLoggedIn,
-    session,
     projectConfig,
-    serverStatus,
-    gameUsername,
-    isServerReachable,
     pendingCpmProjectPath,
     needsOfflineSetup,
     hasLauncherConfig,
@@ -81,7 +61,5 @@ export const useCoreStore = defineStore('core', () => {
     isOnlineProject,
     applyLauncherConfig,
     applyLauncherProjects,
-    applySession,
-    clearSessionState,
   }
 })

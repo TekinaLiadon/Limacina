@@ -1,4 +1,4 @@
-import { useCoreStore } from '@/05-entities'
+import { useServerStore } from '@/05-entities'
 import { pingLauncherServer } from '@/06-shared/api'
 import type { BackoffPoller } from '@/06-shared'
 import { createServerPoller } from '../server-polling/createServerPoller'
@@ -10,7 +10,7 @@ let poller: BackoffPoller | null = null
 export function useServerAvailability(): {
   startServerAvailabilitySync: () => void
 } {
-  const coreStore = useCoreStore()
+  const serverStore = useServerStore()
 
   if (poller === null) {
     poller = createServerPoller<boolean>({
@@ -21,13 +21,13 @@ export function useServerAvailability(): {
         return reachable
       },
       applySuccess: (reachable: boolean): void => {
-        coreStore.isServerReachable = reachable
+        serverStore.isServerReachable = reachable
       },
       onFailureStreak: (): void => {
-        coreStore.isServerReachable = false
+        serverStore.isServerReachable = false
       },
       applyIdle: (): void => {
-        coreStore.isServerReachable = null
+        serverStore.isServerReachable = null
       },
     })
   }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { STEP_IDS, type StepPlanItem } from '@/06-shared'
-import { useLaunchStore, useCoreStore, type StepEvent } from '@/05-entities'
+import { useLaunchStore, type StepEvent } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   listenLaunchSteps: vi.fn(),
@@ -96,7 +96,7 @@ describe('useLaunchStepsStream', () => {
 
   it('skips the interrupted marker when a session is already running', async () => {
     api.getLaunchState.mockResolvedValue(true)
-    useCoreStore().gameUsername = 'user'
+    useLaunchStore().gameUsername = 'user'
     await startStream()
 
     expect(useLaunchStore().isLaunching).toBe(false)
@@ -128,7 +128,7 @@ describe('useLaunchStepsStream', () => {
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useLaunchStore().launchInterrupted).toBe(false)
 
-    useCoreStore().gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     resolveSync()
     await pending
 

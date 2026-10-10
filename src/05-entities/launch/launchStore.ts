@@ -11,6 +11,7 @@ export const useLaunchStore = defineStore('launch', () => {
   const launchSteps = ref<StepProgressItem[]>([])
   const activeProgress = ref<number>(0)
   const loginError = ref<string>('')
+  const gameUsername = ref<string | null>(null)
 
   function beginLaunch(): number {
     isCancelPending.value = false
@@ -125,6 +126,7 @@ export const useLaunchStore = defineStore('launch', () => {
     launchSteps,
     activeProgress,
     loginError,
+    gameUsername,
     beginLaunch,
     invalidateGeneration,
     isCurrent,

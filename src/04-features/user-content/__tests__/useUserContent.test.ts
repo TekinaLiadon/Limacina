@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { copyToClipboard } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type ProjectConfig, type UserContentItem } from '@/05-entities'
+import { useAccountsStore, useCoreStore, useNotificationStore, type ProjectConfig, type UserContentItem } from '@/05-entities'
 import { useUserContent } from '../useUserContent'
 
 vi.mock('@/06-shared', async (importOriginal) => ({
@@ -60,7 +60,7 @@ describe('useUserContent', () => {
   const loginSession = (): void => {
     const core = useCoreStore()
     core.projectConfig = makeProjectConfig(true)
-    core.session = { uuid: 'u-1', username: 'alice' }
+    useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
   }
 
   it('skips the list load for an offline project', async () => {
@@ -276,7 +276,7 @@ describe('useUserContent', () => {
     expect(content.items.value).toHaveLength(1)
 
     core.currentProject = 'new'
-    core.clearSessionState()
+    useAccountsStore().clearSessionState()
     await nextTick()
 
     expect(content.items.value).toEqual([])
@@ -300,7 +300,7 @@ describe('useUserContent', () => {
 
     const pending = content.loadItems()
     core.currentProject = 'new'
-    core.clearSessionState()
+    useAccountsStore().clearSessionState()
     await nextTick()
     releaseFirst([makeItem(1)])
     await pending

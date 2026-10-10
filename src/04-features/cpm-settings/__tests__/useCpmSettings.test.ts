@@ -11,6 +11,7 @@ import {
   uploadModel,
 } from '@/06-shared/api'
 import {
+  useAccountsStore,
   useCoreStore,
   useNotificationStore,
   type CPMChild,
@@ -124,7 +125,7 @@ describe('useCpmSettings', () => {
       serverUrl: null,
       autoJoinServer: false,
     }
-    core.session = { uuid: 'u-1', username: 'alice' }
+    useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
   })
 
   afterEach(() => {
@@ -428,7 +429,7 @@ describe('useCpmSettings', () => {
     vi.mocked(getPlayerModelsLimit).mockClear()
     vi.mocked(getPlayerModelsLimit).mockResolvedValue(7)
     core.currentProject = 'other'
-    core.clearSessionState()
+    useAccountsStore().clearSessionState()
     await nextTick()
 
     expect(cpm.cpmData.value).toBeNull()

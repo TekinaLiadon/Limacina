@@ -51,7 +51,7 @@ export function useAuth() {
   })
 
   const loadSavedCredentials = (): void => {
-    if (coreStore.isLoggedIn) return
+    if (store.isLoggedIn) return
 
     const [firstLogin] = store.logins
     if (firstLogin !== undefined && !store.loginFormData.username) {
@@ -86,7 +86,7 @@ export function useAuth() {
 
       try {
         const session = await getSessionInfo()
-        if (session) coreStore.applySession(session)
+        if (session) store.applySession(session)
       } catch (e: unknown) {
         reportError('Не удалось обновить сессию после входа', e)
       }

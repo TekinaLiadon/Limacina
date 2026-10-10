@@ -500,14 +500,13 @@ describe('useProjectSettings', () => {
 
   it('blocks the delete while the game is running or launching', async () => {
     const settings = await loadReady()
-    const core = useCoreStore()
     const launch = useLaunchStore()
 
-    core.gameUsername = 'alice'
+    launch.gameUsername = 'alice'
     await settings.handleDeleteProject()
     expect(useNotificationStore().message).toBe('Нельзя удалить проект, пока запущена игра')
 
-    core.gameUsername = null
+    launch.gameUsername = null
     launch.isLaunching = true
     await settings.handleDeleteProject()
     expect(useNotificationStore().message).toBe('Дождитесь завершения запуска игры')
@@ -537,7 +536,7 @@ describe('useProjectSettings', () => {
     const core = useCoreStore()
     expect(core.projects).toEqual(['beta'])
     expect(core.currentProject).toBe('beta')
-    expect(core.isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
     expect(useAccountsStore().logins).toEqual([])
     expect(useNotificationStore().message).toBe('Проект удалён')
     expect(settings.isDeleting.value).toBe(false)

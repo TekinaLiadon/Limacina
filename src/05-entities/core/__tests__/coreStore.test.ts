@@ -44,16 +44,12 @@ describe('useCoreStore', () => {
     setActivePinia(createPinia())
   })
 
-  it('starts with the loading state and no session', () => {
+  it('starts with the loading state', () => {
     const store = useCoreStore()
     expect(store.isLoading).toBe(true)
     expect(store.hasLauncherConfig).toBe(false)
     expect(store.launcherConfig).toBeNull()
-    expect(store.isLoggedIn).toBe(false)
-    expect(store.session).toBeNull()
     expect(store.projectConfig).toBeNull()
-    expect(store.gameUsername).toBeNull()
-    expect(store.isServerReachable).toBeNull()
     expect(store.offlineBuild).toBe(false)
   })
 
@@ -71,21 +67,6 @@ describe('useCoreStore', () => {
     expect(store.hasLauncherConfig).toBe(true)
     store.launcherConfig = null
     expect(store.hasLauncherConfig).toBe(false)
-  })
-
-  it('applySession stores the session and marks the user logged in', () => {
-    const store = useCoreStore()
-    store.applySession({ uuid: 'u1', username: 'Steve' })
-    expect(store.session).toEqual({ uuid: 'u1', username: 'Steve' })
-    expect(store.isLoggedIn).toBe(true)
-  })
-
-  it('clearSessionState resets the session fields together', () => {
-    const store = useCoreStore()
-    store.applySession({ uuid: 'u1', username: 'Steve' })
-    store.clearSessionState()
-    expect(store.isLoggedIn).toBe(false)
-    expect(store.session).toBeNull()
   })
 
   it('isOfflineProject and isOnlineProject reflect the project config', () => {

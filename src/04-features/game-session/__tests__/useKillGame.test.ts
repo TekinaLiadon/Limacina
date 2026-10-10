@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { useLaunchStore, useNotificationStore } from '@/05-entities'
 import { killGameProcess } from '@/06-shared/api'
 import { useKillGame } from '../useKillGame'
 
@@ -16,7 +16,7 @@ describe('useKillGame', () => {
   })
 
   it('kills the running game without a toast', async () => {
-    useCoreStore().gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     vi.mocked(killGameProcess).mockResolvedValue(undefined)
     const { killGame, isKilling, isGameRunning } = useKillGame()
 
@@ -34,7 +34,7 @@ describe('useKillGame', () => {
 
     expect(isGameRunning.value).toBe(false)
 
-    useCoreStore().gameUsername = 'bob'
+    useLaunchStore().gameUsername = 'bob'
 
     expect(isGameRunning.value).toBe(true)
   })
@@ -51,7 +51,7 @@ describe('useKillGame', () => {
   })
 
   it('surfaces the kill failure as a toast with the command message', async () => {
-    useCoreStore().gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     vi.mocked(killGameProcess).mockRejectedValue(new Error('отказано в доступе'))
     const { killGame, isKilling } = useKillGame()
 
@@ -65,7 +65,7 @@ describe('useKillGame', () => {
   })
 
   it('ignores a repeated click while a kill is in flight', async () => {
-    useCoreStore().gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     let resolveKill: () => void = () => {}
     vi.mocked(killGameProcess).mockImplementationOnce(
       () =>

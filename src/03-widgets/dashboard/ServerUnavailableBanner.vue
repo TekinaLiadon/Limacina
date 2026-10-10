@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useCoreStore } from '@/05-entities'
+import { useCoreStore, useServerStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
+const serverStore = useServerStore()
 
 const isVisible = computed((): boolean =>
-  coreStore.isOnlineProject && coreStore.isServerReachable === false
+  coreStore.isOnlineProject && serverStore.isServerReachable === false
 )
 </script>
 

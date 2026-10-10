@@ -1,5 +1,5 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore } from '@/05-entities'
+import { useLaunchStore, useNotificationStore } from '@/05-entities'
 import { getErrorMessage, killGameProcess } from '@/06-shared/api'
 
 export function useKillGame(): {
@@ -7,11 +7,11 @@ export function useKillGame(): {
   isKilling: Ref<boolean>
   killGame: () => Promise<void>
 } {
-  const coreStore = useCoreStore()
+  const launchStore = useLaunchStore()
   const notificationStore = useNotificationStore()
   const isKilling = ref<boolean>(false)
 
-  const isGameRunning = computed((): boolean => coreStore.gameUsername !== null)
+  const isGameRunning = computed((): boolean => launchStore.gameUsername !== null)
 
   const killGame = async (): Promise<void> => {
     if (isKilling.value) return

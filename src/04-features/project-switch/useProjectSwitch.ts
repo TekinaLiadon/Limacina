@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   useAccountsStore,
   useCoreStore,
@@ -12,6 +12,8 @@ import { authLogins, getErrorMessage, loadSettingsProject, saveCurrentProject } 
 import { reportError, type DropdownOption } from '@/06-shared'
 import { finalizeSession } from '@/04-features/accounts/finalizeSession'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
+
+const isProjectSwitching = ref<boolean>(false)
 
 export function useProjectSwitch() {
   const coreStore = useCoreStore()
@@ -29,13 +31,13 @@ export function useProjectSwitch() {
   const canSwitch = computed((): boolean => coreStore.projects.length > 1)
 
   const resetAccountsState = (): void => {
-    coreStore.clearSessionState()
+    accountsStore.clearSessionState()
     accountsStore.reset()
     launchStore.reset()
     resetLaunchSteps()
   }
 
-  const isSwitching = computed((): boolean => accountsStore.isSwitching)
+  const isSwitching = computed((): boolean => isProjectSwitching.value)
 
   const applyProjectSwitch = async (projectName: string): Promise<void> => {
     const projectConfig = await loadSettingsProject(projectName)
@@ -62,8 +64,8 @@ export function useProjectSwitch() {
 
   const selectProject = async (projectName: string): Promise<void> => {
     if (!projectName || projectName === coreStore.currentProject) return
-    if (accountsStore.isSwitching) return
-    if (coreStore.gameUsername) {
+    if (isProjectSwitching.value) return
+    if (launchStore.gameUsername) {
       notification.show('Нельзя переключить проект, пока запущена игра')
       return
     }
@@ -83,7 +85,7 @@ export function useProjectSwitch() {
     }
 
     const previousProject = coreStore.currentProject
-    accountsStore.isSwitching = true
+    isProjectSwitching.value = true
 
     let backendOnNewProject = false
 
@@ -101,7 +103,7 @@ export function useProjectSwitch() {
       }
       notification.show(message)
     } finally {
-      accountsStore.isSwitching = false
+      isProjectSwitching.value = false
     }
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useCoreStore, useProjectSettingsStore } from '@/05-entities'
+import { useAccountsStore, useCoreStore, useProjectSettingsStore } from '@/05-entities'
 import { useSettingsNav } from '../useSettingsNav'
 
 const setupNav = (): ReturnType<typeof useSettingsNav> => useSettingsNav()
@@ -27,7 +27,7 @@ describe('useSettingsNav', () => {
     }
     store.isLoaded = true
     store.config.initialized = true
-    core.isLoggedIn = true
+    useAccountsStore().isLoggedIn = true
 
     const items = setupNav().items.value
 
