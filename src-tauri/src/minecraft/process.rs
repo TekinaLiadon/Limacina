@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
@@ -93,6 +93,55 @@ pub struct GameExitPayload {
     pub success: bool,
     pub code: Option<i32>,
     pub reason: Option<String>,
+}
+
+static GAME_PID: StdMutex<Option<u32>> = StdMutex::new(None);
+
+pub fn current_game_pid() -> Option<u32> {
+    *GAME_PID.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn register_game_pid(pid: u32) {
+    *GAME_PID.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+}
+
+fn clear_game_pid(pid: u32) {
+    let mut stored = GAME_PID.lock().unwrap_or_else(|e| e.into_inner());
+    if *stored == Some(pid) {
+        *stored = None;
+    }
+}
+
+fn build_kill_command(pid: u32) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut command = Command::new("kill");
+        command.args(["-9", &pid.to_string()]);
+        command
+    }
+}
+
+pub fn kill_game_process() -> Result<()> {
+    let Some(pid) = current_game_pid() else {
+        return Err(anyhow!(LauncherError::InvalidInput(
+            "Игра не запущена".to_string()
+        )));
+    };
+    let status = build_kill_command(pid)
+        .status()
+        .with_context(|| format!("Не удалось завершить процесс игры (PID {pid})"))?;
+    if !status.success() {
+        bail!("Не удалось завершить процесс игры (PID {pid}): {status}");
+    }
+    log_info!("Процесс игры принудительно завершён (PID {pid})");
+    Ok(())
 }
 
 pub struct GameProcess {
@@ -288,6 +337,8 @@ pub fn spawn_game_process(
     let mut child = command.spawn().map_err(|e| {
         LauncherError::GameProcess(format!("Не удалось запустить Java процесс: {e:#}"))
     })?;
+    let game_pid = child.id();
+    register_game_pid(game_pid);
 
     let stdout = child.stdout.take().ok_or(LauncherError::GameProcess(
         "Не удалось получить stdout процесса".to_string(),
@@ -352,6 +403,7 @@ pub fn spawn_game_process(
         };
         *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
         exited.store(true, AtomicOrdering::Relaxed);
+        clear_game_pid(game_pid);
         let _ = app.emit("game-exit", payload);
         crate::tray::set_game_state(&app, false, "");
         crate::discord::on_game_exit();
@@ -829,5 +881,118 @@ mod process_helpers_tests {
             find_authlib_jar(&guard.0),
             Some(guard.0.join("authlib-injector.jar"))
         );
+    }
+}
+
+#[cfg(test)]
+mod kill_process_tests {
+    use super::{
+        build_kill_command, clear_game_pid, current_game_pid, kill_game_process, register_game_pid,
+        GAME_PID,
+    };
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    static KILL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset_game_pid() {
+        *GAME_PID.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    #[test]
+    fn kill_reports_missing_game() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_game_pid();
+
+        let error =
+            kill_game_process().expect_err("без зарегистрированного процесса должна быть ошибка");
+
+        assert!(
+            error.to_string().contains("Игра не запущена"),
+            "ошибка должна называть причину: {error}"
+        );
+    }
+
+    #[test]
+    fn registry_clears_only_own_pid() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_game_pid();
+
+        register_game_pid(111);
+        clear_game_pid(222);
+        assert_eq!(
+            current_game_pid(),
+            Some(111),
+            "чужой pid не должен очищать реестр"
+        );
+
+        clear_game_pid(111);
+        assert_eq!(current_game_pid(), None, "свой pid очищает реестр");
+
+        reset_game_pid();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_kill_command_sends_sigkill_to_pid() {
+        let command = build_kill_command(4242);
+
+        assert_eq!(command.get_program(), "kill");
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["-9".to_string(), "4242".to_string()]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn build_kill_command_force_kills_process_tree() {
+        let command = build_kill_command(4242);
+
+        assert_eq!(command.get_program(), "taskkill");
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["/PID", "4242", "/T", "/F"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_terminates_registered_process() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_game_pid();
+
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("запуск тестового процесса");
+        let pid = child.id();
+        register_game_pid(pid);
+
+        kill_game_process().expect("принудительное завершение должно срабатывать");
+
+        let mut exit_status = None;
+        for _ in 0..50 {
+            if let Some(status) = child.try_wait().expect("опрос статуса процесса")
+            {
+                exit_status = Some(status);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let status = exit_status.expect("процесс должен завершиться после kill");
+        assert!(
+            !status.success(),
+            "SIGKILL не даёт успешный статус завершения"
+        );
+        assert_eq!(
+            current_game_pid(),
+            Some(pid),
+            "реестр очищает wait-поток, а не сам kill"
+        );
+
+        reset_game_pid();
     }
 }

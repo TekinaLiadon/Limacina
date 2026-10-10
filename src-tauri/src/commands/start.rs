@@ -411,6 +411,16 @@ pub async fn get_launch_state() -> CommandResult<bool> {
     Ok(crate::state::launch_state::launch_in_progress())
 }
 
+#[tauri::command]
+pub async fn kill_game_process() -> CommandResult<()> {
+    blocking(
+        "Не удалось завершить процесс игры",
+        crate::minecraft::process::kill_game_process,
+    )
+    .await??;
+    Ok(())
+}
+
 async fn repair_stale_java_path(
     state: &tauri::State<'_, Mutex<GlobalState>>,
     mut config: ProjectConfig,

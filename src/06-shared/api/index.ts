@@ -317,6 +317,10 @@ export async function getLaunchState(): Promise<boolean> {
   return invoke<boolean>('get_launch_state')
 }
 
+export async function killGameProcess(): Promise<void> {
+  return invoke('kill_game_process')
+}
+
 export async function listenGameStarted(
   callback: (username: string) => void
 ): Promise<UnlistenFn> {
@@ -472,4 +476,8 @@ export async function modrinthInstall(projectId: string): Promise<ModrinthInstal
 
 export async function modrinthUninstall(projectId: string): Promise<void> {
   return invoke('modrinth_uninstall', { projectId })
+}
+
+export async function openModsFolder(): Promise<void> {
+  return invoke('open_mods_folder')
 }

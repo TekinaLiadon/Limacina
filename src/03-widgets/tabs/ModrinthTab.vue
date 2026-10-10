@@ -26,6 +26,7 @@ const {
   updates,
   isCheckingUpdates,
   installingId,
+  isOpeningFolder,
   actionError,
   installedError,
   search,
@@ -34,6 +35,7 @@ const {
   checkForUpdates,
   install,
   uninstall,
+  openFolder,
 } = modrinth
 
 type ModsView = 'catalog' | 'installed'
@@ -155,6 +157,14 @@ onMounted(() => {
 
     <section v-if="activeView === 'installed'" class="modrinth-tab__section">
       <div class="modrinth-tab__section-head">
+        <Button
+          class="btn-secondary"
+          :is-loading="isOpeningFolder"
+          :is-disabled="isOpeningFolder"
+          @click="openFolder"
+        >
+          Открыть папку модов
+        </Button>
         <Button
           class="btn-secondary"
           :is-loading="isCheckingUpdates"

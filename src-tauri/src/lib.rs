@@ -29,6 +29,7 @@ use commands::download::download_server_file;
 use commands::download::download_server_mods;
 use commands::download::get_java_distributions;
 use commands::download::get_java_version;
+use commands::download::open_mods_folder;
 use commands::game_options::{
     get_game_options, import_global_game_options, save_game_options, save_global_game_options,
 };
@@ -55,6 +56,7 @@ use commands::settings_project::save_settings_project;
 use commands::start::exit_launcher;
 use commands::start::get_game_state;
 use commands::start::get_launch_state;
+use commands::start::kill_game_process;
 use commands::start::start_minecraft;
 use commands::update::{
     apply_update_cmd, check_update, get_launcher_versions, get_server_status, ping_launcher_server,
@@ -242,6 +244,7 @@ pub fn run() {
             refresh_manifests,
             download_server_file,
             download_server_mods,
+            open_mods_folder,
             check_files_integrity,
             download_minecraft,
             download_java,
@@ -252,6 +255,7 @@ pub fn run() {
             exit_launcher,
             get_game_state,
             get_launch_state,
+            kill_game_process,
             save_settings_project,
             load_settings_project,
             probe_java_version,

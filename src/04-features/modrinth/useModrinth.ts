@@ -7,6 +7,7 @@ import {
   modrinthCheckUpdates,
   modrinthInstall,
   modrinthUninstall,
+  openModsFolder,
 } from '@/06-shared/api'
 import { useAsyncRaceGuard } from '@/06-shared'
 import {
@@ -91,6 +92,7 @@ export function useModrinth() {
   const updates = ref<Record<string, string>>({})
   const isCheckingUpdates = ref(false)
   const installingId = ref<string | null>(null)
+  const isOpeningFolder = ref(false)
   const actionError = ref('')
   const installedError = ref('')
 
@@ -217,6 +219,20 @@ export function useModrinth() {
     }
   }
 
+  const openFolder = async (): Promise<void> => {
+    if (isOpeningFolder.value) return
+    const project = coreStore.currentProject
+    isOpeningFolder.value = true
+    actionError.value = ''
+    try {
+      await openModsFolder()
+    } catch (e: unknown) {
+      if (coreStore.currentProject === project) actionError.value = getErrorMessage(e)
+    } finally {
+      isOpeningFolder.value = false
+    }
+  }
+
   const resetTabState = (): void => {
     searchGuard.cancel()
     installedGuard.cancel()
@@ -235,6 +251,7 @@ export function useModrinth() {
     installingId.value = null
     updates.value = {}
     isCheckingUpdates.value = false
+    isOpeningFolder.value = false
     actionError.value = ''
     installedError.value = ''
   }
@@ -263,6 +280,7 @@ export function useModrinth() {
     updates,
     isCheckingUpdates,
     installingId,
+    isOpeningFolder,
     actionError,
     installedError,
     search,
@@ -271,5 +289,6 @@ export function useModrinth() {
     checkForUpdates,
     install,
     uninstall,
+    openFolder,
   }
 }

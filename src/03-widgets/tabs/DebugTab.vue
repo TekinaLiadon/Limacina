@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { useDebugConsole } from '@/04-features'
+import { useDebugConsole, useKillGame } from '@/04-features'
 import type { ConsoleLog } from '@/05-entities'
 import { Icon } from '@/06-shared'
 
 const { logs, filteredLogs, searchQuery, onlyErrors, linesCount, streamError, startConsoleStream, handleCopy } = useDebugConsole()
+const { isGameRunning, isKilling, killGame } = useKillGame()
 
 const logAt = (index: number): ConsoleLog | undefined => filteredLogs.value[index]
 
@@ -144,9 +145,19 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
         </button>
         <span class="debug-tab__count">{{ linesCount }} строк</span>
       </div>
-      <button class="debug-tab__copy-btn" @click="handleCopy">
-        Копировать
-      </button>
+      <div class="debug-tab__actions-right">
+        <button
+          class="debug-tab__kill-btn"
+          type="button"
+          :disabled="!isGameRunning || isKilling"
+          @click="killGame"
+        >
+          {{ isKilling ? 'Завершаем…' : 'Убить процесс' }}
+        </button>
+        <button class="debug-tab__copy-btn" @click="handleCopy">
+          Копировать
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -339,6 +350,12 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     gap: var(--space-8);
   }
 
+  &__actions-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+  }
+
   &__count {
     color: var(--debug-line-num);
     font-size: var(--text-caption);
@@ -361,6 +378,26 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
 
     &--off {
       color: var(--debug-line-num);
+    }
+  }
+
+  &__kill-btn {
+    @extend %debug-btn;
+
+    padding: var(--space-4) var(--space-16);
+    color: var(--debug-error);
+    border-color: var(--debug-error);
+    font-size: var(--text-caption);
+    font-family: inherit;
+    white-space: nowrap;
+
+    &:hover {
+      background: var(--debug-btn-hover-bg);
+    }
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.6;
     }
   }
 
