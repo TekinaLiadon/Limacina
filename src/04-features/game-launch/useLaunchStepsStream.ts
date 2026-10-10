@@ -1,6 +1,6 @@
-import { useLaunchStore, type StepEvent } from '@/05-entities'
+import { useLaunchStore } from '@/05-entities'
 import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
-import { createSingletonListeners, reportError, type StepPlanItem } from '@/06-shared'
+import { createSingletonListeners, reportError, type StepEvent, type StepPlanItem } from '@/06-shared'
 import { syncGameSession } from '../game-session/useGameSession'
 
 const MIN_DISPLAY_MS = 500

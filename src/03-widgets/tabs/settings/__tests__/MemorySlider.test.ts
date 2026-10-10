@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import MemorySlider from './MemorySlider.vue'
+import MemorySlider from '../MemorySlider.vue'
 
 const mountSlider = (modelValue: [number, number], max = 4096) =>
   mount(MemorySlider, { props: { modelValue, max } })

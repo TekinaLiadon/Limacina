@@ -79,4 +79,4 @@ export type {
   ModrinthInstalledMod,
   ModrinthUpdateCheck,
   ModrinthInstallResult,
-} from './modrinth/types'
+} from '@/06-shared'

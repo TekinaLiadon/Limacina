@@ -4,8 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload } from '@/05-entities/core/types'
-import type { ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '@/05-entities/modrinth/types'
+import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '../types'
 
 export interface CommandErrorPayload {
   code: string

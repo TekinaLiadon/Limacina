@@ -149,6 +149,30 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).not.toHaveBeenCalled()
   })
 
+  it('clears a ghost game session via reset and unblocks the switch', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    const launch = useLaunchStore()
+    launch.gameUsername = 'alice'
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(useNotificationStore().message).toBe('Нельзя переключить проект, пока запущена игра')
+    expect(saveCurrentProject).not.toHaveBeenCalled()
+
+    ps.resetAccountsState()
+    expect(launch.gameUsername).toBeNull()
+
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(authLogins).mockResolvedValue(['carol'])
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenCalledWith('beta')
+    expect(core.currentProject).toBe('beta')
+  })
+
   it('blocks the switch while the game is launching', async () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'

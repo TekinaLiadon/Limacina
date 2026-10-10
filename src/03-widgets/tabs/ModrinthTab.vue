@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Button, Dropdown, Input, MultiSelect, Skeleton, formatNumber } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
@@ -70,6 +70,29 @@ const viewTabs: Array<{ key: ModsView; label: string }> = [
   { key: 'catalog', label: 'Каталог' },
   { key: 'installed', label: 'Установленные' },
 ]
+
+const moveView = (delta: number): void => {
+  const count = viewTabs.length
+  const currentIndex = viewTabs.findIndex((tab) => tab.key === activeView.value)
+  const nextTab = viewTabs[(currentIndex + delta + count) % count]
+  if (!nextTab) return
+  activeView.value = nextTab.key
+  void nextTick((): void => {
+    document.getElementById(`modrinth-view-${nextTab.key}`)?.focus({ preventScroll: true })
+  })
+}
+
+const handleViewsKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    moveView(1)
+    return
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    moveView(-1)
+  }
+}
 
 type PaginationItem = { key: string; page: number | null }
 
@@ -169,15 +192,18 @@ onMounted(() => {
       Моды Modrinth для одиночного профиля{{ mcVersionText ? ` (Minecraft ${mcVersionText})` : '' }}. Требуемые зависимости устанавливаются автоматически.
     </p>
 
-    <div class="modrinth-tab__views" role="tablist">
+    <div class="modrinth-tab__views" role="tablist" aria-label="Режим модов" @keydown="handleViewsKeydown">
       <button
         v-for="view in viewTabs"
+        :id="`modrinth-view-${view.key}`"
         :key="view.key"
         type="button"
         role="tab"
         class="modrinth-tab__view"
         :class="{ 'modrinth-tab__view--active': activeView === view.key }"
         :aria-selected="activeView === view.key"
+        :tabindex="activeView === view.key ? 0 : -1"
+        aria-controls="modrinth-view-panel"
         @click="activeView = view.key"
       >
         {{ view.label }}
@@ -188,7 +214,13 @@ onMounted(() => {
       </button>
     </div>
 
-    <section v-if="activeView === 'installed'" class="modrinth-tab__section">
+    <section
+      v-if="activeView === 'installed'"
+      id="modrinth-view-panel"
+      role="tabpanel"
+      aria-labelledby="modrinth-view-installed"
+      class="modrinth-tab__section"
+    >
       <div class="modrinth-tab__section-head">
         <Button
           class="btn-secondary"
@@ -259,7 +291,13 @@ onMounted(() => {
       </div>
     </section>
 
-    <section v-else class="modrinth-tab__section">
+    <section
+      v-else
+      id="modrinth-view-panel"
+      role="tabpanel"
+      aria-labelledby="modrinth-view-catalog"
+      class="modrinth-tab__section"
+    >
       <div class="modrinth-tab__search">
         <Input
           v-model="query"
@@ -356,6 +394,7 @@ onMounted(() => {
       <div v-if="totalPages > 1 && hits.length > 0" class="modrinth-tab__pagination">
         <Button
           class="btn-quiet modrinth-tab__page"
+          aria-label="Предыдущая страница"
           :is-disabled="currentPage === 1 || isSearching"
           @click="loadPage(currentPage - 1)"
         >
@@ -367,6 +406,7 @@ onMounted(() => {
             v-else
             class="btn-quiet modrinth-tab__page"
             :class="{ 'modrinth-tab__page--active': item.page === currentPage }"
+            :aria-current="item.page === currentPage ? 'page' : undefined"
             :is-disabled="isSearching"
             @click="loadPage(item.page)"
           >
@@ -375,6 +415,7 @@ onMounted(() => {
         </template>
         <Button
           class="btn-quiet modrinth-tab__page"
+          aria-label="Следующая страница"
           :is-disabled="currentPage === totalPages || isSearching"
           @click="loadPage(currentPage + 1)"
         >

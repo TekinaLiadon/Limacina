@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useSettingsStore } from '@/05-entities'
 import { useThemeSwitchState } from '@/04-features/theme/useTheme'
-import ThemeModeToggle from './ThemeModeToggle.vue'
+import ThemeModeToggle from '../ThemeModeToggle.vue'
 
 const mountToggle = (variant: 'icons' | 'labels' = 'labels') =>
   mount(ThemeModeToggle, {

@@ -232,4 +232,14 @@ describe('useLaunchStore', () => {
     expect(launch.activeProgress).toBe(0)
     expect(launch.loginError).toBe('')
   })
+
+  it('resets a ghost game session username', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.gameUsername = 'alice'
+
+    launch.reset()
+
+    expect(launch.gameUsername).toBeNull()
+  })
 })

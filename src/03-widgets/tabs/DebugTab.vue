@@ -76,11 +76,14 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
         v-model="searchQuery"
         class="debug-tab__search"
         type="text"
+        aria-label="Поиск по логам"
         placeholder="Поиск по логам"
       >
       <button
+        type="button"
         class="debug-tab__errors-toggle"
         :class="{ 'debug-tab__errors-toggle--active': onlyErrors }"
+        :aria-pressed="onlyErrors"
         @click="onlyErrors = !onlyErrors"
       >
         Только ошибки

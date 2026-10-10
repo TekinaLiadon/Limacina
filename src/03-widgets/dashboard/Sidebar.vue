@@ -98,6 +98,8 @@ const items = computed<TabItem[]>((): TabItem[] => {
                   'sidebar__subitem--active': activeTab === 'settings' && settingsSubTab === item.routeName,
                   'sidebar__subitem--locked': !item.isAvailable,
                 }"
+                :aria-disabled="!item.isAvailable"
+                :tabindex="item.isAvailable ? undefined : -1"
                 @click="item.isAvailable && emit('navigate-settings', item.routeName)"
               >
                 {{ item.label }}

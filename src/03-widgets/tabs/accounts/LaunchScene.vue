@@ -222,6 +222,17 @@ const displayName = computed((): string => props.hasSession ? props.username : '
     transform-origin: bottom center;
   }
 
+  &__menu-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  &__menu-row &__menu-item {
+    flex: 1;
+    min-width: 0;
+  }
+
   &__menu-error {
     padding: var(--space-8) var(--space-12);
     font-size: var(--text-caption);
