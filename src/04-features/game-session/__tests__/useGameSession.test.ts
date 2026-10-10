@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useCoreStore } from '@/05-entities'
+import { useLaunchStore } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   getGameState: vi.fn(),
@@ -61,7 +61,7 @@ describe('useGameSession', () => {
 
     await session.startGameSessionSync()
 
-    expect(useCoreStore().gameUsername).toBe('alice')
+    expect(useLaunchStore().gameUsername).toBe('alice')
   })
 
   it('keeps the started event over a slow hydration', async () => {
@@ -80,11 +80,11 @@ describe('useGameSession', () => {
     resolveState('bob')
     await pending
 
-    expect(useCoreStore().gameUsername).toBe('alice')
+    expect(useLaunchStore().gameUsername).toBe('alice')
   })
 
   it('keeps the exit event over a slow hydration', async () => {
-    useCoreStore().gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     let resolveState: (username: string | null) => void = () => {}
     api.getGameState.mockImplementationOnce(
       () =>
@@ -100,7 +100,7 @@ describe('useGameSession', () => {
     resolveState('alice')
     await pending
 
-    expect(useCoreStore().gameUsername).toBeNull()
+    expect(useLaunchStore().gameUsername).toBeNull()
   })
 
   it('clears the username on the exit event after hydration', async () => {
@@ -110,7 +110,7 @@ describe('useGameSession', () => {
 
     emitExit?.()
 
-    expect(useCoreStore().gameUsername).toBeNull()
+    expect(useLaunchStore().gameUsername).toBeNull()
   })
 
   it('reports a hydration failure without touching the state', async () => {
@@ -119,7 +119,7 @@ describe('useGameSession', () => {
 
     await session.startGameSessionSync()
 
-    expect(useCoreStore().gameUsername).toBeNull()
+    expect(useLaunchStore().gameUsername).toBeNull()
     expect(console.error).toHaveBeenCalledWith(
       'Не удалось получить состояние игровой сессии',
       expect.any(Error),
@@ -171,7 +171,7 @@ describe('useGameSession', () => {
     resolveState('alice')
     await Promise.all([first, second])
 
-    expect(useCoreStore().gameUsername).toBe('alice')
+    expect(useLaunchStore().gameUsername).toBe('alice')
     expect(api.getGameState).toHaveBeenCalledTimes(1)
   })
 

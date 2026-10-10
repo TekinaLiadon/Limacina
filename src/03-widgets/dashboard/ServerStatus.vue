@@ -1,23 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Tooltip } from '@/06-shared'
-import { useCoreStore } from '@/05-entities'
+import { useCoreStore, useServerStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
+const serverStore = useServerStore()
 
 const isVisible = computed((): boolean => {
-  if (!coreStore.serverStatus) return false
+  if (!serverStore.serverStatus) return false
   return coreStore.projectConfig?.online !== false
 })
 
 const playersLabel = computed((): string => {
-  const status = coreStore.serverStatus
+  const status = serverStore.serverStatus
   if (!status) return ''
   return `${status.online}/${status.max}`
 })
 
 const title = computed((): string => {
-  const status = coreStore.serverStatus
+  const status = serverStore.serverStatus
   if (!status) return ''
   return `Игровой сервер доступен (${status.version})`
 })

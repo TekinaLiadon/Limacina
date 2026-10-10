@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::StreamExt;
 use quick_xml::de::from_str;
 use serde::de::DeserializeOwned;
@@ -69,9 +69,17 @@ pub fn write_atomic_sync(dest: &Path, content: &[u8]) -> Result<()> {
         LauncherError::DiskIo(format!("Не удалось записать файл во {tmp:?}: {e:#}"))
     })?;
     std::fs::rename(&tmp, dest).map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e:#}"))
+        LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e}"))
     })?;
     Ok(())
+}
+
+pub async fn read_to_string_opt(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path).await {
+        Ok(content) => Ok(Some(content)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
+    }
 }
 
 pub async fn download_file(url: &str, dest: &Path) -> Result<()> {

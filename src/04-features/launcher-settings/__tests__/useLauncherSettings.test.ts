@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { saveLauncherSettings } from '@/06-shared/api'
+import { saveLauncherSettings, getAppInitData } from '@/06-shared/api'
 import { isAutostartEnabled } from '@/06-shared'
-import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type AppInitData, type LauncherConfig } from '@/05-entities'
 import { useLauncherSettings } from '../useLauncherSettings'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -11,6 +11,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   saveLauncherSettings: vi.fn(),
   saveLauncherConfig: vi.fn(),
+  getAppInitData: vi.fn(),
 }))
 
 vi.mock('@/06-shared', async (importOriginal) => ({
@@ -38,6 +39,16 @@ const makeLauncherConfig = (debugMode: boolean): LauncherConfig => ({
   projects: {},
 })
 
+const makeAppInitData = (config: LauncherConfig): AppInitData => ({
+  launcherName: 'Limacina',
+  defaultParentPath: '/home',
+  launcherConfig: config,
+  version: '1.0.0',
+  totalMemoryMb: 16384,
+  offlineBuild: false,
+  envProjectName: null,
+})
+
 describe('useLauncherSettings', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -46,6 +57,81 @@ describe('useLauncherSettings', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('hydrates from the store without a backend fetch when the config is already loaded', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    expect(getAppInitData).not.toHaveBeenCalled()
+    expect(settings.isLoading.value).toBe(false)
+    expect(settings.loadError.value).toBe('')
+    expect(settings.launcherPath.value).toBe('/launcher')
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('fetches the config from the backend and shows the loading state when the store has none', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    let resolveInit: (data: AppInitData) => void = () => {}
+    vi.mocked(getAppInitData).mockImplementationOnce(
+      () =>
+        new Promise<AppInitData>((resolve) => {
+          resolveInit = resolve
+        }),
+    )
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+
+    expect(settings.isLoading.value).toBe(true)
+    expect(settings.loadError.value).toBe('')
+    expect(settings.isDirty.value).toBe(false)
+
+    resolveInit(makeAppInitData(makeLauncherConfig(true)))
+    await flushPromises()
+
+    expect(settings.isLoading.value).toBe(false)
+    expect(settings.loadError.value).toBe('')
+    expect(settings.debugMode.value).toBe(true)
+    expect(settings.launcherPath.value).toBe('/launcher')
+    expect(useCoreStore().launcherConfig).toEqual(makeLauncherConfig(true))
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('blocks the save while the load failed and recovers through retry', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(getAppInitData).mockRejectedValueOnce(new Error('disk locked'))
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    expect(settings.loadError.value).not.toBe('')
+    expect(settings.isLoading.value).toBe(false)
+    expect(settings.isDirty.value).toBe(false)
+
+    settings.launcherPath.value = '/other'
+    await settings.handleSave()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+
+    vi.mocked(getAppInitData).mockResolvedValueOnce(makeAppInitData(makeLauncherConfig(false)))
+    await settings.retryLoad()
+    await flushPromises()
+
+    expect(settings.loadError.value).toBe('')
+    expect(settings.launcherPath.value).toBe('/launcher')
+    expect(settings.isDirty.value).toBe(false)
+
+    await settings.handleSave()
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
+
+    unmount()
   })
 
   it('live-dirties when a field changes and cleans up when reverted', async () => {

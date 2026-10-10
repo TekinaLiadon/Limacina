@@ -10,10 +10,13 @@ import {
   type ProjectConfig,
 } from '@/05-entities'
 import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJavaVersion, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { copyToClipboard, selectDirectory, useAsyncAction } from '@/06-shared'
+import { captureProjectScope, copyToClipboard, selectDirectory, useAsyncAction } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { loadProjectConfig } from './loadProjectConfig'
 import { splitJvmArgs, validateJvmArgs } from './jvmPresets'
+
+const MIN_MEMORY_LIMIT_MB = 512
+const OS_MEMORY_RESERVE_MB = 2048
 
 export function useProjectSettings(): {
   config: ComputedRef<ProjectSettingsForm>
@@ -54,7 +57,7 @@ export function useProjectSettings(): {
   const isDirty = computed((): boolean => store.isDirty)
 
   const maxMemoryLimit = computed((): number => {
-    return Math.max(512, coreStore.totalMemoryMb - 2048)
+    return Math.max(MIN_MEMORY_LIMIT_MB, coreStore.totalMemoryMb - OS_MEMORY_RESERVE_MB)
   })
 
   const jvmArgsError = computed((): string => validateJvmArgs(config.value.jvmArgs))
@@ -97,11 +100,12 @@ export function useProjectSettings(): {
       return
     }
     const { projectName } = config.value
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     store.startSaving()
 
     try {
       const fresh = await loadSettingsProject(projectName)
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       const projectConfig: ProjectConfig = {
         ...fresh,
         loaderVersion: store.isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
@@ -112,7 +116,7 @@ export function useProjectSettings(): {
         autoJoinServer: store.isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
       const saved = await saveSettingsProject(projectConfig)
-      if (coreStore.currentProject !== projectName) return
+      if (!scope.isCurrent()) return
       coreStore.projectConfig = saved
       store.adoptLoaded(projectName, projectSettingsFormFromConfig(saved))
       notification.show('Настройки сохранены')
@@ -167,15 +171,16 @@ export function useProjectSettings(): {
   const isDeleting = ref<boolean>(false)
   const deleteAction = useAsyncAction(notifyError, isDeleting)
 
-  const canDeleteProject = computed((): boolean =>
-    coreStore.envProjectName === '' || coreStore.currentProject !== coreStore.envProjectName
-  )
+  const canDeleteProject = computed((): boolean => {
+    const { envProjectName } = coreStore
+    return envProjectName === '' || envProjectName !== coreStore.currentProject
+  })
 
   const handleDeleteProject = async (): Promise<void> => {
     if (isDeleting.value) return
     const projectName = coreStore.currentProject
     if (!projectName) return
-    if (coreStore.gameUsername) {
+    if (launchStore.gameUsername) {
       notification.show('Нельзя удалить проект, пока запущена игра')
       return
     }

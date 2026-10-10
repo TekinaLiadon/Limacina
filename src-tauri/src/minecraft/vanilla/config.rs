@@ -26,8 +26,26 @@ pub struct ArgumentsMap {
 }
 
 impl ArgumentsMap {
-    pub fn new(config: &LaunchConfig, assets_index: &str, version_type: &str) -> Self {
+    fn base() -> Self {
         let map = [
+            ("${launcher_name}", get_launcher_name()),
+            ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
+            ("${user_type}", "mojang".to_string()),
+            ("${clientid}", "1".to_string()),
+            ("${auth_xuid}", "1".to_string()),
+            (
+                "${classpath_separator}",
+                get_classpath_separator().to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        ArgumentsMap { map }
+    }
+
+    pub fn new(config: &LaunchConfig, assets_index: &str, version_type: &str) -> Self {
+        let mut map = Self::base();
+        map.map.extend([
             ("${auth_player_name}", config.username.clone()),
             ("${version_name}", config.mc_version.clone()),
             (
@@ -41,34 +59,24 @@ impl ArgumentsMap {
             ("${assets_index_name}", assets_index.to_string()),
             ("${auth_uuid}", config.uuid.clone()),
             ("${auth_access_token}", config.access_token.clone()),
-            ("${user_type}", "mojang".to_string()),
             ("${version_type}", version_type.to_string()),
             (
                 "${natives_directory}",
                 config.natives_dir.to_string_lossy().to_string(),
             ),
-            ("${launcher_name}", get_launcher_name()),
-            ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
-            ("${clientid}", "1".to_string()),
-            ("${auth_xuid}", "1".to_string()),
             (
                 "${library_directory}",
                 config.libraries_dir.to_string_lossy().to_string(),
             ),
-            (
-                "${classpath_separator}",
-                get_classpath_separator().to_string(),
-            ),
-        ]
-        .into_iter()
-        .collect();
-        ArgumentsMap { map }
+        ]);
+        map
     }
 
     pub fn for_loader(state: &ProjectConfig) -> Result<Self> {
         let base_dir = launcher_path(Some(&state.project_name))
             .context("Не удалось определить путь к файлам проекта")?;
-        let map = [
+        let mut map = Self::base();
+        map.map.extend([
             ("${version_name}", state.mc_version.clone()),
             ("${game_directory}", base_dir.to_string_lossy().to_string()),
             (
@@ -83,20 +91,9 @@ impl ArgumentsMap {
                 "${library_directory}",
                 base_dir.join("libraries").to_string_lossy().to_string(),
             ),
-            ("${launcher_name}", get_launcher_name()),
-            ("${launcher_version}", env!("CARGO_PKG_VERSION").to_string()),
-            (
-                "${classpath_separator}",
-                get_classpath_separator().to_string(),
-            ),
-            ("${user_type}", "mojang".to_string()),
             ("${version_type}", "release".to_string()),
-            ("${clientid}", "1".to_string()),
-            ("${auth_xuid}", "1".to_string()),
-        ]
-        .into_iter()
-        .collect();
-        Ok(ArgumentsMap { map })
+        ]);
+        Ok(map)
     }
 
     pub fn substitute_all(&self, args: Vec<String>) -> Vec<String> {
@@ -330,12 +327,14 @@ fn extract_maven_info(path_str: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::get_classpath;
+    use crate::minecraft::structs::LaunchConfig;
     use crate::minecraft::vanilla::structs::Library;
     use crate::test_support::{
         gson_library, gson_library_no_url, jopt_simple_library, logging_library,
         test_launch_config, TempDir,
     };
     use std::fs;
+    use std::path::PathBuf;
 
     fn libs_with_one_missing_url() -> Vec<Library> {
         serde_json::from_value(serde_json::json!([
@@ -343,6 +342,17 @@ mod tests {
             gson_library_no_url()
         ]))
         .unwrap()
+    }
+
+    fn logging_jar_setup(tag: &str) -> (TempDir, PathBuf, LaunchConfig) {
+        let dir = TempDir::new(tag);
+        let root = dir.0.clone();
+        let libraries_dir = root.join("libraries");
+        let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"jar").unwrap();
+        let config = test_launch_config(&root);
+        (dir, libraries_dir, config)
     }
 
     #[tokio::test]
@@ -387,14 +397,7 @@ mod tests {
         let libs: Vec<Library> =
             serde_json::from_value(serde_json::json!([logging_library(), gson_library()])).unwrap();
 
-        let dir = TempDir::new("classpath_missing");
-        let root = dir.0.clone();
-        let libraries_dir = root.join("libraries");
-        let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, b"jar").unwrap();
-
-        let config = test_launch_config(&root);
+        let (dir, _libraries_dir, config) = logging_jar_setup("classpath_missing");
 
         let error = get_classpath(&libs, &config)
             .await
@@ -411,21 +414,14 @@ mod tests {
         );
 
         drop(dir);
-        assert!(!root.exists(), "временная директория не удалена");
+        assert!(!_libraries_dir.exists(), "временная директория не удалена");
     }
 
     #[tokio::test]
     async fn get_classpath_allows_missing_library_without_download_url() {
         let libs = libs_with_one_missing_url();
 
-        let dir = TempDir::new("classpath_no_url");
-        let root = dir.0.clone();
-        let libraries_dir = root.join("libraries");
-        let path = libraries_dir.join("com/mojang/logging/1.0.0/logging-1.0.0.jar");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, b"jar").unwrap();
-
-        let config = test_launch_config(&root);
+        let (dir, libraries_dir, config) = logging_jar_setup("classpath_no_url");
 
         let paths = get_classpath(&libs, &config)
             .await
@@ -439,7 +435,7 @@ mod tests {
         );
 
         drop(dir);
-        assert!(!root.exists(), "временная директория не удалена");
+        assert!(!libraries_dir.exists(), "временная директория не удалена");
     }
 }
 

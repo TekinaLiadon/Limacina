@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { AuthSubTab, LoginForm, RegisterForm } from '../core/types'
+import type { AuthSubTab, LoginForm, RegisterForm, SessionInfo } from '../core/types'
 import { AUTH_LOGIN_TAB } from '../core/authPolicy'
 
 export const useAccountsStore = defineStore('accounts', () => {
@@ -16,9 +16,21 @@ export const useAccountsStore = defineStore('accounts', () => {
   const loginFormData = ref<LoginForm>({ username: '', password: '', rememberMe: false })
   const registerFormData = ref<RegisterForm>({ login: '', password: '', confirmPassword: '' })
 
+  const isLoggedIn = ref<boolean>(false)
+  const session = ref<SessionInfo | null>(null)
+
   const showAuthForm = ref<boolean>(false)
   const activeSubTab = ref<AuthSubTab>(AUTH_LOGIN_TAB)
-  const isSwitching = ref<boolean>(false)
+
+  function applySession(nextSession: SessionInfo): void {
+    session.value = nextSession
+    isLoggedIn.value = true
+  }
+
+  function clearSessionState(): void {
+    isLoggedIn.value = false
+    session.value = null
+  }
 
   function closeAuthForm(): void {
     showAuthForm.value = false
@@ -53,9 +65,12 @@ export const useAccountsStore = defineStore('accounts', () => {
     authError,
     loginFormData,
     registerFormData,
+    isLoggedIn,
+    session,
     showAuthForm,
     activeSubTab,
-    isSwitching,
+    applySession,
+    clearSessionState,
     closeAuthForm,
     reset,
   }

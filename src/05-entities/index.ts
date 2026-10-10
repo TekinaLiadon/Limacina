@@ -59,6 +59,8 @@ export { useAccountsStore } from './accounts/accountsStore'
 
 export { useLaunchStore } from './launch/launchStore'
 
+export { useServerStore } from './server/serverStore'
+
 export { useProjectSettingsStore, projectSettingsFormFromConfig } from './project-settings/projectSettingsStore'
 export type { ProjectSettingsForm } from './project-settings/projectSettingsStore'
 
@@ -77,4 +79,4 @@ export type {
   ModrinthInstalledMod,
   ModrinthUpdateCheck,
   ModrinthInstallResult,
-} from './modrinth/types'
+} from '@/06-shared'

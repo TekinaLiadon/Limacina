@@ -154,9 +154,8 @@ describe('useAuth', () => {
   })
 
   it('skips the prefill for an already logged in user', () => {
-    const coreStore = useCoreStore()
-    coreStore.isLoggedIn = true
     const store = useAccountsStore()
+    store.isLoggedIn = true
     store.logins = ['alice']
     const { unmount } = setupAuth()
     expect(store.loginFormData.username).toBe('')
@@ -172,10 +171,10 @@ describe('useAuth', () => {
     await auth.handleLogin()
 
     expect(authLogin).toHaveBeenCalledWith('proj', 'user', 'password', true)
-    const coreStore = useCoreStore()
-    expect(coreStore.session).toEqual({ uuid: 'u-1', username: 'user' })
-    expect(coreStore.isLoggedIn).toBe(true)
-    expect(useAccountsStore().showAuthForm).toBe(false)
+    const accountsStore = useAccountsStore()
+    expect(accountsStore.session).toEqual({ uuid: 'u-1', username: 'user' })
+    expect(accountsStore.isLoggedIn).toBe(true)
+    expect(accountsStore.showAuthForm).toBe(false)
     expect(useNotificationStore().message).toBe('Авторизация прошла успешно')
     expect(auth.isLoading.value).toBe(false)
     expect(auth.errorMessage.value).toBe('')
@@ -190,7 +189,7 @@ describe('useAuth', () => {
 
     await auth.handleLogin()
 
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
     expect(useAccountsStore().showAuthForm).toBe(false)
     unmount()
   })
@@ -232,7 +231,7 @@ describe('useAuth', () => {
 
     expect(auth.errorMessage.value).toBe('Неверный пароль')
     expect(auth.isLoading.value).toBe(false)
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
     expect(useAccountsStore().showAuthForm).toBe(true)
     expect(console.error).toHaveBeenCalledWith('Ошибка авторизации', expect.anything())
     unmount()
@@ -288,9 +287,9 @@ describe('useAuth', () => {
 
     await auth.handleLogin()
 
-    const coreStore = useCoreStore()
-    expect(coreStore.session).toBeNull()
-    expect(coreStore.isLoggedIn).toBe(false)
+    const accountsStore = useAccountsStore()
+    expect(accountsStore.session).toBeNull()
+    expect(accountsStore.isLoggedIn).toBe(false)
     expect(useNotificationStore().message).toBe('')
     expect(useAccountsStore().showAuthForm).toBe(true)
     expect(auth.isLoading.value).toBe(false)
@@ -309,7 +308,7 @@ describe('useAuth', () => {
     await auth.handleLogin()
 
     expect(auth.errorMessage.value).toBe('')
-    expect(useCoreStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().isLoggedIn).toBe(false)
     unmount()
   })
 
@@ -384,11 +383,11 @@ describe('useAuth', () => {
     await auth.handleLogin()
 
     expect(auth.errorMessage.value).toBe('')
-    expect(useCoreStore().session).toBeNull()
+    expect(useAccountsStore().session).toBeNull()
     unmount()
 
     const accounts = withSetup(() => useAccounts())
-    await vi.waitFor(() => expect(useCoreStore().session).toEqual({ uuid: 'u-1', username: 'user' }))
+    await vi.waitFor(() => expect(useAccountsStore().session).toEqual({ uuid: 'u-1', username: 'user' }))
     accounts.unmount()
   })
 

@@ -1,7 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import SelectBase from '../SelectBase.vue'
+
+const scrollIntoViewCalls: Element[] = []
+const originalScrollIntoView = Element.prototype.scrollIntoView
+
+beforeAll((): void => {
+  Element.prototype.scrollIntoView = function scrollIntoViewStub(this: Element): void {
+    scrollIntoViewCalls.push(this)
+  }
+})
+
+afterAll((): void => {
+  Element.prototype.scrollIntoView = originalScrollIntoView
+})
 
 const options = [
   { value: 'a', title: 'Alpha' },
@@ -69,5 +82,16 @@ describe('SelectBase', () => {
     await pressKey(wrapper, ' ')
 
     expect(wrapper.emitted('select')).toEqual([['a']])
+  })
+
+  it('scrolls the active option into view when arrow navigation moves it', async () => {
+    const wrapper = mountSelect()
+
+    await pressKey(wrapper, 'ArrowDown')
+    scrollIntoViewCalls.length = 0
+    await pressKey(wrapper, 'ArrowDown')
+
+    const items = wrapper.findAll('.select-base-options__item')
+    expect(scrollIntoViewCalls).toEqual([items[1]?.element])
   })
 })

@@ -123,10 +123,3 @@ a {
   -webkit-text-fill-color: transparent;
   color: var(--login-text-primary);
 }
-
-.d-flex {
-  display: flex;
-  &-colum {
-    flex-direction: column;
-  }
-}

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button, Checkbox, Dropdown, Input, Preloader, Skeleton, useFocusTrap } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
+import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 import { alternativeJavaModelDefaults, useAlternativeJavaModels, type AlternativeJavaModelProps } from './alternativeJavaModels'
 
 const props = withDefaults(defineProps<{
@@ -67,15 +68,12 @@ onBeforeUnmount((): void => {
                   height="var(--control-height)"
                   aria-hidden="true"
                 />
-                <div v-else-if="distributionsError" class="alt-java-popup__error">
-                  <span>{{ distributionsError }}</span>
-                  <Button
-                    class="btn-quiet alt-java-popup__retry"
-                    @click="emit('retry')"
-                  >
-                    Повторить
-                  </Button>
-                </div>
+                <LoadErrorRow
+                  v-else-if="distributionsError"
+                  :message="distributionsError"
+                  :is-loading="isDistributionsLoading"
+                  @retry="emit('retry')"
+                />
                 <span v-else class="alt-java-popup__empty">
                   Доступные дистрибутивы не найдены
                 </span>
@@ -159,21 +157,6 @@ onBeforeUnmount((): void => {
   &__actions {
     display: flex;
     gap: var(--space-8);
-  }
-
-  &__error {
-    @include mixins.error-box;
-
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-8);
-  }
-
-  &__retry {
-    min-height: var(--control-height-sm);
-    flex-shrink: 0;
-    color: var(--error);
   }
 
   &__empty {

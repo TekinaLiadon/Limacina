@@ -123,22 +123,35 @@ pub async fn upload_skin(
     Ok(item)
 }
 
-pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
+async fn list_content(
+    state: &Mutex<GlobalState>,
+    resource: &str,
+    uuid: String,
+) -> Result<Vec<UserContentItem>> {
     let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let url = format!("{}/v1/common/content/skins/{}", server_url, uuid);
+    let url = format!("{server_url}/v1/common/content/{resource}/{uuid}");
+    api_get_json(&url, &token).await
+}
 
-    let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
-    Ok(items)
+async fn delete_content(
+    state: &Mutex<GlobalState>,
+    resource: &str,
+    id: i64,
+    done_log: &str,
+) -> Result<()> {
+    let (token, server_url) = crate::launcher_server::api_context(state).await?;
+    let url = format!("{server_url}/v1/common/content/{resource}/{id}");
+    api_delete(&url, &token).await?;
+    log_info!("{done_log}: id={id}");
+    Ok(())
+}
+
+pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
+    list_content(state, "skins", uuid).await
 }
 
 pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let url = format!("{}/v1/common/content/skins/{}", server_url, id);
-
-    api_delete(&url, &token).await?;
-    log_info!("Скин удалён: id={}", id);
-
-    Ok(())
+    delete_content(state, "skins", id, "Скин удалён").await
 }
 
 pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
@@ -196,21 +209,11 @@ pub async fn upload_model(
 }
 
 pub async fn list_models(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
-    let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let url = format!("{}/v1/common/content/models/{}", server_url, uuid);
-
-    let items: Vec<UserContentItem> = api_get_json(&url, &token).await?;
-    Ok(items)
+    list_content(state, "models", uuid).await
 }
 
 pub async fn delete_model(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let url = format!("{}/v1/common/content/models/{}", server_url, id);
-
-    api_delete(&url, &token).await?;
-    log_info!("Модель удалёна: id={}", id);
-
-    Ok(())
+    delete_content(state, "models", id, "Модель удалёна").await
 }
 
 #[cfg(test)]

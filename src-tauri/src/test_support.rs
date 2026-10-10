@@ -3,7 +3,59 @@ use std::path::{Path, PathBuf};
 
 use sha1::{Digest, Sha1};
 
-use crate::minecraft::structs::{LaunchConfig, LibraryMod};
+use crate::minecraft::structs::{GameConfig, LaunchConfig, LibraryMod, VersionMod};
+use crate::state::dto::ProjectConfig;
+
+pub fn loader_project(project: &str, mc_version: &str, loader_version: &str) -> ProjectConfig {
+    ProjectConfig {
+        project_name: project.to_string(),
+        mc_version: mc_version.to_string(),
+        loader_version: Some(loader_version.to_string()),
+        ..ProjectConfig::default()
+    }
+}
+
+pub fn loader_version_mod(id: &str, main_class: &str) -> VersionMod {
+    VersionMod {
+        url: String::new(),
+        id: id.to_string(),
+        main_class: main_class.to_string(),
+        library: Vec::new(),
+    }
+}
+
+pub fn loader_vanilla_config(game_root: &Path, client_jar: &str) -> GameConfig {
+    GameConfig::new(
+        PathBuf::from("java"),
+        vec!["-Xms512M".to_string()],
+        vec!["--username".to_string(), "Cordelia".to_string()],
+        vec![client_jar.to_string()],
+        "net.minecraft.client.main.Main".to_string(),
+        game_root.to_path_buf(),
+    )
+}
+
+pub fn rotation_payload(access: &str, refresh: &str) -> String {
+    serde_json::json!({
+        "tokens": { "access_token": access, "refresh_token": refresh },
+        "profile": { "uuid": "uuid-1", "username": "Steve" }
+    })
+    .to_string()
+}
+
+pub async fn seed_online_project(project_name: &str, server_url: &str) {
+    let config = ProjectConfig {
+        project_name: project_name.to_string(),
+        mc_version: "1.20.1".to_string(),
+        server_url: Some(server_url.to_string()),
+        online: true,
+        ..ProjectConfig::default()
+    };
+    config
+        .save_config()
+        .await
+        .expect("сохранение конфига проекта");
+}
 
 pub fn sha1_hex(data: &[u8]) -> String {
     let mut hasher = Sha1::new();
@@ -19,6 +71,37 @@ pub fn library_mod(name: &str, path: &str) -> LibraryMod {
         hash: String::new(),
         size: 1,
     }
+}
+
+pub fn loader_manifest(
+    id: &str,
+    main_class: &str,
+    inherits_from: &str,
+    arguments: serde_json::Value,
+    libraries: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "time": "2023-01-01T00:00:00+00:00",
+        "releaseTime": "2023-01-01T00:00:00+00:00",
+        "type": "release",
+        "mainClass": main_class,
+        "inheritsFrom": inherits_from,
+        "arguments": arguments,
+        "libraries": libraries
+    })
+}
+
+pub fn write_loader_manifest(
+    root: &Path,
+    file_stem: &str,
+    manifest: &serde_json::Value,
+) -> PathBuf {
+    let path = root.join("manifest").join(format!("{file_stem}.json"));
+    std::fs::create_dir_all(path.parent().expect("родительская директория"))
+        .expect("создание каталога манифеста");
+    std::fs::write(&path, manifest.to_string()).expect("запись манифеста лоадера");
+    path
 }
 
 pub static LAUNCHER_DIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

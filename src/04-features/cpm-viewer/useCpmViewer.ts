@@ -5,6 +5,7 @@ import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type SharedClock } from './cpmAnimationPlayer'
+import { computeMeshVisible } from './meshVisibility'
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -344,7 +345,8 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
 
         mesh.position.copy(position)
         mesh.userData.layerId = child.storeID
-        mesh.userData.defaultVisible = child.hidden !== true
+        mesh.userData.defaultVisible = defaultVisible
+        mesh.userData.animVisible = defaultVisible
 
         group.add(mesh)
       }
@@ -457,8 +459,11 @@ export function useCpmViewer(
       if (object instanceof THREE.Mesh) {
         const layerId = object.userData.layerId as number | undefined
         const animVisible = object.userData.animVisible !== false
-        const layerVisible = layerId === undefined || activeLayerIds.value.includes(layerId)
-        object.visible = layerVisible && animVisible && object.userData.defaultVisible !== false
+        object.visible = computeMeshVisible(
+          animVisible,
+          layerId,
+          activeLayerIds.value,
+        )
       }
     })
 

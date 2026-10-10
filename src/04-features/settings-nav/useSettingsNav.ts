@@ -1,5 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import { useCoreStore, useProjectSettingsStore } from '@/05-entities'
+import { useCoreStore, useAccountsStore, useProjectSettingsStore } from '@/05-entities'
 
 export type SettingsNavKey = 'launcher' | 'project' | 'game' | 'account' | 'skin' | 'model'
 
@@ -33,6 +33,7 @@ export function useSettingsNav(): {
   items: ComputedRef<SettingsNavItem[]>
 } {
   const coreStore = useCoreStore()
+  const accountsStore = useAccountsStore()
   const settingsStore = useProjectSettingsStore()
 
   const items = computed((): SettingsNavItem[] => {
@@ -54,7 +55,7 @@ export function useSettingsNav(): {
       } else if (seed.needsInit === true && !isProjectReady) {
         isAvailable = false
         reason = 'Проект ещё не инициализирован'
-      } else if (seed.needsAuth === true && !coreStore.isLoggedIn) {
+      } else if (seed.needsAuth === true && !accountsStore.isLoggedIn) {
         isAvailable = false
         reason = 'Требуется авторизация'
       }

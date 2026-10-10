@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
 import { randomId } from '@/06-shared/utils/utils'
@@ -43,12 +43,19 @@ watch(shown, (isShown: boolean): void => {
   if (!isShown) return
   const selectedIndex = props.options.findIndex((option) => props.isSelected?.(option.value) ?? false)
   activeIndex.value = selectedIndex >= 0 ? selectedIndex : 0
+  void nextTick(scrollActiveIntoView)
 })
+
+const scrollActiveIntoView = (): void => {
+  const option = panelRef.value?.children[activeIndex.value]
+  if (option instanceof HTMLElement) option.scrollIntoView({ block: 'nearest' })
+}
 
 const moveActive = (delta: number): void => {
   const count = props.options.length
   if (count === 0) return
   activeIndex.value = (activeIndex.value + delta + count) % count
+  void nextTick(scrollActiveIntoView)
 }
 
 const confirmActive = (): void => {

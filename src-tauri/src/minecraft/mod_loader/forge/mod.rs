@@ -61,7 +61,10 @@ mod config_tests {
     use crate::minecraft::mod_loader::installer::setup_loader;
     use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::LibraryMod;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{
+        loader_manifest, loader_project, loader_vanilla_config, loader_version_mod, sha1_hex,
+        write_loader_manifest, LauncherDirGuard,
+    };
     use crate::utils::get_classpath_separator;
     use mockito::Server;
     use serde_json::json;
@@ -72,29 +75,19 @@ mod config_tests {
     async fn forge_config_merges_classpath_and_strips_cp_args() {
         let dir = LauncherDirGuard::acquire("forge_config").await;
 
-        let manifest_json = json!({
-            "id": "1.20.1-forge-0.16.9",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
-            "inheritsFrom": "1.20.1",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-0.16.9",
+            "net.minecraftforge.bootstrap.Bootstrap",
+            "1.20.1",
+            json!({
                 "game": ["--fml.forgeVersion", "0.16.9"],
                 "jvm": ["-Dforge.keep=1", "-cp", "${classpath}"]
-            },
-            "libraries": []
-        });
-        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+            }),
+            json!([]),
+        );
+        write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "ForgeProj".to_string(),
-            mc_version: "1.20.1".to_string(),
-            loader_version: Some("0.16.9".to_string()),
-            ..ProjectConfig::default()
-        };
+        let state = loader_project("ForgeProj", "1.20.1", "0.16.9");
 
         let game_root = dir.project_dir("ForgeProj");
         let lib_path = game_root
@@ -104,27 +97,16 @@ mod config_tests {
         fs::write(&lib_path, b"lib").unwrap();
         fs::write(game_root.join("1.20.1-0.16.9.jar"), b"jar").unwrap();
 
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.1-0.16.9".to_string(),
-            main_class: "LoaderMain".to_string(),
-            library: vec![LibraryMod {
-                name: "net.fabricmc:fabric-loader:0.16.9".to_string(),
-                path: String::new(),
-                url: "http://unused.test/lib.jar".to_string(),
-                hash: String::new(),
-                size: 0,
-            }],
-        };
+        let mut version = loader_version_mod("1.20.1-0.16.9", "LoaderMain");
+        version.library = vec![LibraryMod {
+            name: "net.fabricmc:fabric-loader:0.16.9".to_string(),
+            path: String::new(),
+            url: "http://unused.test/lib.jar".to_string(),
+            hash: String::new(),
+            size: 0,
+        }];
 
-        let vanilla_config = GameConfig::new(
-            PathBuf::from("java"),
-            vec!["-Xms512M".to_string()],
-            vec!["--username".to_string(), "Cordelia".to_string()],
-            vec!["/game/libraries/vanilla.jar".to_string()],
-            "net.minecraft.client.main.Main".to_string(),
-            game_root.clone(),
-        );
+        let vanilla_config = loader_vanilla_config(&game_root, "/game/libraries/vanilla.jar");
 
         let config = Forge
             .config(&state, vanilla_config, &version)
@@ -163,34 +145,24 @@ mod config_tests {
     async fn forge_config_falls_back_to_manifest_libraries() {
         let dir = LauncherDirGuard::acquire("forge_config_fallback").await;
 
-        let manifest_json = json!({
-            "id": "1.20.1-forge-0.16.9",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
-            "inheritsFrom": "1.20.1",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-0.16.9",
+            "net.minecraftforge.bootstrap.Bootstrap",
+            "1.20.1",
+            json!({
                 "game": ["--fml.forgeVersion", "0.16.9"],
                 "jvm": ["-cp", "${classpath}"]
-            },
-            "libraries": [
+            }),
+            json!([
                 {
                     "name": "net.fabricmc:fabric-loader:0.16.9",
                     "downloads": { "artifact": { "path": "", "url": "", "sha1": sha1_hex(b"loader lib bytes"), "size": 16 } }
                 }
-            ]
-        });
-        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+            ]),
+        );
+        write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "ForgeFallback".to_string(),
-            mc_version: "1.20.1".to_string(),
-            loader_version: Some("0.16.9".to_string()),
-            ..ProjectConfig::default()
-        };
+        let state = loader_project("ForgeFallback", "1.20.1", "0.16.9");
 
         let game_root = dir.project_dir("ForgeFallback");
         let lib_path = game_root
@@ -199,12 +171,7 @@ mod config_tests {
         fs::create_dir_all(lib_path.parent().unwrap()).unwrap();
         fs::write(&lib_path, b"loader lib bytes").unwrap();
 
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.1-0.16.9".to_string(),
-            main_class: "LoaderMain".to_string(),
-            library: Vec::new(),
-        };
+        let version = loader_version_mod("1.20.1-0.16.9", "LoaderMain");
 
         let vanilla_config = GameConfig::new(
             PathBuf::from("java"),
@@ -265,18 +232,15 @@ mod config_tests {
             .create_async()
             .await;
 
-        let manifest_json = json!({
-            "id": "1.20.1-forge-47.2.0",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
-            "inheritsFrom": "1.20.1",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-47.2.0",
+            "net.minecraftforge.bootstrap.Bootstrap",
+            "1.20.1",
+            json!({
                 "game": ["--fml.forgeVersion", "47.2.0"],
                 "jvm": ["-cp", "${classpath}"]
-            },
-            "libraries": [
+            }),
+            json!([
                 {
                     "name": "net.fabricmc:fabric-loader:47.2.0",
                     "downloads": { "artifact": { "path": "", "url": "", "sha1": sha1_hex(b"loader jar bytes"), "size": 15 } }
@@ -285,18 +249,11 @@ mod config_tests {
                     "name": "org.ow2.asm:asm:9.7",
                     "downloads": { "artifact": { "path": "", "url": "", "sha1": sha1_hex(b"asm lib bytes"), "size": 13 } }
                 }
-            ]
-        });
-        let manifest_path = dir.root().join("manifest").join("forge_47.2.0.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+            ]),
+        );
+        write_loader_manifest(dir.root(), "forge_47.2.0", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "ForgeInstallProj".to_string(),
-            mc_version: "1.20.1".to_string(),
-            loader_version: Some("47.2.0".to_string()),
-            ..ProjectConfig::default()
-        };
+        let state = loader_project("ForgeInstallProj", "1.20.1", "47.2.0");
         let version = VersionMod {
             url: format!("{}/installer/1.20.1-47.2.0.jar", server.url()),
             id: "1.20.1-47.2.0".to_string(),
@@ -317,14 +274,8 @@ mod config_tests {
 
         let game_root = dir.project_dir("ForgeInstallProj");
         fs::write(game_root.join("1.20.1.jar"), b"client").unwrap();
-        let vanilla_config = GameConfig::new(
-            PathBuf::from("java"),
-            vec!["-Xms512M".to_string()],
-            vec!["--username".to_string(), "Cordelia".to_string()],
-            vec![game_root.join("1.20.1.jar").to_string_lossy().to_string()],
-            "net.minecraft.client.main.Main".to_string(),
-            game_root.clone(),
-        );
+        let vanilla_config =
+            loader_vanilla_config(&game_root, &game_root.join("1.20.1.jar").to_string_lossy());
 
         let config = Forge
             .config(&state, vanilla_config, &version)
@@ -348,14 +299,11 @@ mod config_tests {
     async fn forge_config_expands_loader_placeholders() {
         let dir = LauncherDirGuard::acquire("forge_config_placeholders").await;
 
-        let manifest_json = json!({
-            "id": "1.20.1-forge-47.2.0",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
-            "inheritsFrom": "1.20.1",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-47.2.0",
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "1.20.1",
+            json!({
                 "game": ["--launchTarget", "forgeclient", "--fml.forgeVersion", "47.2.0"],
                 "jvm": [
                     "-Djava.net.preferIPv6Addresses=system",
@@ -367,34 +315,16 @@ mod config_tests {
                     "-cp",
                     "${classpath}"
                 ]
-            },
-            "libraries": []
-        });
-        let manifest_path = dir.root().join("manifest").join("forge_47.2.0.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
-
-        let state = ProjectConfig {
-            project_name: "ForgePlaceholders".to_string(),
-            mc_version: "1.20.1".to_string(),
-            loader_version: Some("47.2.0".to_string()),
-            ..ProjectConfig::default()
-        };
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.1-47.2.0".to_string(),
-            main_class: "LoaderMain".to_string(),
-            library: Vec::new(),
-        };
-        let game_root = dir.project_dir("ForgePlaceholders");
-        let vanilla_config = GameConfig::new(
-            PathBuf::from("java"),
-            vec!["-Xms512M".to_string()],
-            vec!["--username".to_string(), "Cordelia".to_string()],
-            vec![game_root.join("1.20.1.jar").to_string_lossy().to_string()],
-            "net.minecraft.client.main.Main".to_string(),
-            game_root.clone(),
+            }),
+            json!([]),
         );
+        write_loader_manifest(dir.root(), "forge_47.2.0", &manifest_json);
+
+        let state = loader_project("ForgePlaceholders", "1.20.1", "47.2.0");
+        let version = loader_version_mod("1.20.1-47.2.0", "LoaderMain");
+        let game_root = dir.project_dir("ForgePlaceholders");
+        let vanilla_config =
+            loader_vanilla_config(&game_root, &game_root.join("1.20.1.jar").to_string_lossy());
 
         let config = Forge
             .config(&state, vanilla_config, &version)
@@ -435,32 +365,24 @@ mod config_tests {
     async fn forge_config_merges_legacy_minecraft_arguments() {
         let dir = LauncherDirGuard::acquire("forge_config_legacy").await;
 
-        let manifest_json = json!({
-            "id": "1.12.2-forge-14.23.5.2859",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "net.minecraft.launchwrapper.Launch",
-            "inheritsFrom": "1.12.2",
-            "minecraftArguments": "--username ${auth_player_name} --version ${version_name} --gameDir ${game_directory} --assetsDir ${assets_root} --assetIndex ${assets_index_name} --uuid ${auth_uuid} --accessToken ${auth_access_token} --userType ${user_type} --tweakClass net.minecraftforge.fml.common.launcher.FMLTweaker --versionType Forge",
-            "libraries": []
-        });
-        let manifest_path = dir.root().join("manifest").join("forge_14.23.5.2859.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+        let mut manifest_json = loader_manifest(
+            "1.12.2-forge-14.23.5.2859",
+            "net.minecraft.launchwrapper.Launch",
+            "1.12.2",
+            json!(null),
+            json!([]),
+        );
+        let manifest_obj = manifest_json.as_object_mut().unwrap();
+        manifest_obj.remove("arguments");
+        manifest_obj.insert(
+            "minecraftArguments".to_string(),
+            json!("--username ${auth_player_name} --version ${version_name} --gameDir ${game_directory} --assetsDir ${assets_root} --assetIndex ${assets_index_name} --uuid ${auth_uuid} --accessToken ${auth_access_token} --userType ${user_type} --tweakClass net.minecraftforge.fml.common.launcher.FMLTweaker --versionType Forge"),
+        );
+        write_loader_manifest(dir.root(), "forge_14.23.5.2859", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "ForgeLegacy".to_string(),
-            mc_version: "1.12.2".to_string(),
-            loader_version: Some("14.23.5.2859".to_string()),
-            ..ProjectConfig::default()
-        };
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.12.2-14.23.5.2859".to_string(),
-            main_class: "net.minecraft.launchwrapper.Launch".to_string(),
-            library: Vec::new(),
-        };
+        let state = loader_project("ForgeLegacy", "1.12.2", "14.23.5.2859");
+        let version =
+            loader_version_mod("1.12.2-14.23.5.2859", "net.minecraft.launchwrapper.Launch");
         let game_root = dir.project_dir("ForgeLegacy");
         let vanilla_config = GameConfig::new(
             PathBuf::from("java"),
@@ -529,35 +451,20 @@ mod config_tests {
     async fn forge_config_keeps_user_jvm_args_on_validated_spawn_path() {
         let dir = LauncherDirGuard::acquire("forge_args_guard").await;
 
-        let manifest_json = json!({
-            "id": "1.20.1-forge-0.16.9",
-            "time": "2023-01-01T00:00:00+00:00",
-            "releaseTime": "2023-01-01T00:00:00+00:00",
-            "type": "release",
-            "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
-            "inheritsFrom": "1.20.1",
-            "arguments": {
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-0.16.9",
+            "net.minecraftforge.bootstrap.Bootstrap",
+            "1.20.1",
+            json!({
                 "game": ["--fml.forgeVersion", "0.16.9"],
                 "jvm": ["-Dforge.keep=1", "-cp", "${classpath}"]
-            },
-            "libraries": []
-        });
-        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, manifest_json.to_string()).unwrap();
+            }),
+            json!([]),
+        );
+        write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
 
-        let state = ProjectConfig {
-            project_name: "ForgeGuard".to_string(),
-            mc_version: "1.20.1".to_string(),
-            loader_version: Some("0.16.9".to_string()),
-            ..ProjectConfig::default()
-        };
-        let version = VersionMod {
-            url: String::new(),
-            id: "1.20.1-0.16.9".to_string(),
-            main_class: "LoaderMain".to_string(),
-            library: Vec::new(),
-        };
+        let state = loader_project("ForgeGuard", "1.20.1", "0.16.9");
+        let version = loader_version_mod("1.20.1-0.16.9", "LoaderMain");
         let game_root = dir.project_dir("ForgeGuard");
         let vanilla_config = GameConfig::new(
             PathBuf::from("java"),

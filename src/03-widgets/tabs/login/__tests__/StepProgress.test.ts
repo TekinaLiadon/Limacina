@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import type { StepProgressItem } from '@/05-entities'
-import StepProgress from './StepProgress.vue'
+import StepProgress from '../StepProgress.vue'
 
 const animeMock = vi.hoisted(() => Object.assign(vi.fn(), { remove: vi.fn() }))
 

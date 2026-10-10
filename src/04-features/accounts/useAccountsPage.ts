@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore, AUTH_LOGIN_TAB } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore, useServerStore, AUTH_LOGIN_TAB } from '@/05-entities'
 import { useAccounts } from '@/04-features/accounts/useAccounts'
 import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
@@ -13,6 +13,7 @@ export function useAccountsPage() {
   const notificationStore = useNotificationStore()
   const store = useAccountsStore()
   const launch = useLaunchStore()
+  const serverStore = useServerStore()
 
   const {
     isLoading,
@@ -32,12 +33,12 @@ export function useAccountsPage() {
   const { resetLaunchSteps } = useLaunchStepsStream()
 
   const isServerOffline = computed((): boolean =>
-    coreStore.isOnlineProject && coreStore.isServerReachable === false
+    coreStore.isOnlineProject && serverStore.isServerReachable === false
   )
 
   const handleLaunch = async (): Promise<void> => {
     if (launch.isLaunching) return
-    if (coreStore.gameUsername !== null) {
+    if (launch.gameUsername !== null) {
       notificationStore.show('Игра уже запущена')
       return
     }
@@ -54,7 +55,7 @@ export function useAccountsPage() {
       try {
         const username = await getGameState()
         if (username !== null) {
-          coreStore.gameUsername = username
+          launch.gameUsername = username
           notificationStore.show('Игра уже запущена')
           return
         }
@@ -81,9 +82,9 @@ export function useAccountsPage() {
   const showAuth = computed((): boolean =>
     !launch.isLaunching
     && !store.isLoginsLoading
-    && (store.showAuthForm || (!hasAccounts.value && !coreStore.isLoggedIn && !loginsError.value)),
+    && (store.showAuthForm || (!hasAccounts.value && !store.isLoggedIn && !loginsError.value)),
   )
-  const showBack = computed((): boolean => hasAccounts.value || coreStore.isLoggedIn)
+  const showBack = computed((): boolean => hasAccounts.value || store.isLoggedIn)
 
   const launchInterrupted = computed((): boolean => launch.launchInterrupted)
   const isCancelPending = computed((): boolean => launch.isCancelPending)
@@ -116,7 +117,7 @@ export function useAccountsPage() {
   const activeSubTab = storeBinding(store, 'activeSubTab')
   const loginError = computed((): string => launch.loginError)
   const sceneUsername = computed((): string => {
-    if (coreStore.session?.username) return coreStore.session.username
+    if (store.session?.username) return store.session.username
     if (store.selectedUsername) return store.selectedUsername
     return logins.value[0] ?? ''
   })
@@ -131,7 +132,7 @@ export function useAccountsPage() {
 
     await deleteAccountAction.run(async () => {
       await deleteAccount(coreStore.currentProject, username)
-      if (coreStore.session?.username === username) {
+      if (store.session?.username === username) {
         await finalizeSession()
         store.selectedUsername = ''
       }

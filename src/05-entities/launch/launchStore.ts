@@ -1,7 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { StepEvent, StepProgressItem } from '../core/types'
-import { applyStepEvent, computeStepProgress, createStepItem, type StepPlanItem } from '@/06-shared'
+import { applyStepEvent, computeStepProgress, createStepItem, type StepEvent, type StepProgressItem, type StepPlanItem } from '@/06-shared'
 
 export const useLaunchStore = defineStore('launch', () => {
   const isLaunching = ref<boolean>(false)
@@ -11,6 +10,7 @@ export const useLaunchStore = defineStore('launch', () => {
   const launchSteps = ref<StepProgressItem[]>([])
   const activeProgress = ref<number>(0)
   const loginError = ref<string>('')
+  const gameUsername = ref<string | null>(null)
 
   function beginLaunch(): number {
     isCancelPending.value = false
@@ -115,6 +115,7 @@ export const useLaunchStore = defineStore('launch', () => {
     launchSteps.value = []
     activeProgress.value = 0
     loginError.value = ''
+    gameUsername.value = null
   }
 
   return {
@@ -125,6 +126,7 @@ export const useLaunchStore = defineStore('launch', () => {
     launchSteps,
     activeProgress,
     loginError,
+    gameUsername,
     beginLaunch,
     invalidateGeneration,
     isCurrent,

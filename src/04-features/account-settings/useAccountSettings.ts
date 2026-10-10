@@ -1,10 +1,11 @@
 import { computed, ref } from 'vue'
-import { useCoreStore, useNotificationStore, MIN_PASSWORD_LENGTH, isPasswordConfirmed } from '@/05-entities'
+import { useCoreStore, useAccountsStore, useNotificationStore, MIN_PASSWORD_LENGTH, isPasswordConfirmed } from '@/05-entities'
 import { changePassword, getErrorMessage, getSessionInfo } from '@/06-shared/api'
 import { captureProjectScope, reportError, useAsyncAction } from '@/06-shared'
 
 export function useAccountSettings() {
   const coreStore = useCoreStore()
+  const accountsStore = useAccountsStore()
   const notification = useNotificationStore()
 
   const oldPassword = ref<string>('')
@@ -13,7 +14,7 @@ export function useAccountSettings() {
   const isChanging = ref<boolean>(false)
   const errorMessage = ref<string>('')
 
-  const username = computed((): string => coreStore.session?.username ?? '')
+  const username = computed((): string => accountsStore.session?.username ?? '')
   const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
   const passwordsMatch = computed((): boolean =>
@@ -65,7 +66,7 @@ export function useAccountSettings() {
 
       try {
         const session = await getSessionInfo()
-        if (session) coreStore.applySession(session)
+        if (session) accountsStore.applySession(session)
       } catch (e: unknown) {
         reportError('Не удалось обновить сессию после смены пароля', e)
       }

@@ -19,14 +19,34 @@ describe('useAccountsStore', () => {
     expect(store.authError).toBe('')
   })
 
-  it('starts without an active auth form or switching', () => {
+  it('starts without an active auth form and logged out', () => {
     setActivePinia(createPinia())
     const store = useAccountsStore()
     expect(store.showAuthForm).toBe(false)
     expect(store.activeSubTab).toBe('login')
-    expect(store.isSwitching).toBe(false)
     expect(store.selectedUsername).toBe('')
     expect(store.isLoading).toBe(false)
+    expect(store.isLoggedIn).toBe(false)
+    expect(store.session).toBeNull()
+  })
+
+  it('applySession stores the session and marks the user logged in', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.applySession({ uuid: 'u1', username: 'Steve' })
+    expect(store.session).toEqual({ uuid: 'u1', username: 'Steve' })
+    expect(store.isLoggedIn).toBe(true)
+  })
+
+  it('clearSessionState resets the session fields together', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.applySession({ uuid: 'u1', username: 'Steve' })
+
+    store.clearSessionState()
+
+    expect(store.isLoggedIn).toBe(false)
+    expect(store.session).toBeNull()
   })
 
   it('closes the auth form and wipes the login password', () => {
@@ -72,7 +92,6 @@ describe('useAccountsStore', () => {
     store.registerFormData = { login: 'user', password: 'secret', confirmPassword: 'secret' }
     store.showAuthForm = true
     store.activeSubTab = 'register'
-    store.isSwitching = true
 
     store.reset()
 
@@ -92,7 +111,6 @@ describe('useAccountsStore', () => {
     })
     expect(store.showAuthForm).toBe(false)
     expect(store.activeSubTab).toBe('login')
-    expect(store.isSwitching).toBe(true)
   })
 
   it('keeps state across accesses within the same pinia', () => {

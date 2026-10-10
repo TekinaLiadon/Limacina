@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useLauncherSettings } from '@/04-features'
-import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar, type LauncherBehaviorForm } from '@/03-widgets'
+import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar, LoadErrorRow, type LauncherBehaviorForm } from '@/03-widgets'
+import { Skeleton } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
@@ -17,10 +18,13 @@ const {
   systemNotifications,
   debugMode,
   downloadSpeedLimitInput,
+  isLoading,
+  loadError,
   isSaving,
   isDirty,
   selectLauncherFolder,
   handleSave,
+  retryLoad,
 } = useLauncherSettings()
 
 const behaviorForm = computed<LauncherBehaviorForm>({
@@ -51,6 +55,13 @@ const behaviorForm = computed<LauncherBehaviorForm>({
 
 <template>
   <div class="launcher-settings">
+    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
+
+    <div v-if="isLoading" class="launcher-settings__loading" aria-hidden="true">
+      <Skeleton v-for="index in 9" :key="index" variant="line" height="var(--control-height)" />
+    </div>
+
+    <template v-else>
     <SettingsSection title="Расположение" storage-key="launcher-location">
       <div class="settings-grid">
         <PathPicker
@@ -73,15 +84,22 @@ const behaviorForm = computed<LauncherBehaviorForm>({
     <SettingsSection v-if="!coreStore.offlineBuild" title="Обновление лаунчера" storage-key="launcher-update">
       <LauncherUpdate />
     </SettingsSection>
+    </template>
 
-    <SettingsSaveBar :is-saving="isSaving" :is-dirty="isDirty" @save="handleSave" />
+    <SettingsSaveBar :is-saving="isSaving" :is-loading="isLoading" :is-dirty="isDirty" :is-blocked="loadError !== ''" @save="handleSave" />
   </div>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .launcher-settings {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
+
+  &__loading {
+    @include mixins.settings-fields-grid;
+  }
 }
 </style>

@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useLaunchStore, useNotificationStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps, type UnlistenFn } from '@/06-shared/api'
-import { applyStepEvent, computeStepProgress, createStepItem, reportError, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
+import { applyStepEvent, captureProjectScope, computeStepProgress, createStepItem, reportError, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 
 const INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.mcManifest,
@@ -100,6 +100,7 @@ export function useIntegrityCheck(): {
       notification.show('Идёт запуск игры, проверка целостности недоступна')
       return
     }
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     isCheckRunning.value = true
     isChecking.value = true
     isPopupHidden.value = false
@@ -110,7 +111,7 @@ export function useIntegrityCheck(): {
     try {
       if (unlisten === null) {
         const fn = await listenIntegritySteps((event: StepEvent) => {
-          if (isChecking.value) apply(event)
+          if (isChecking.value && scope.isCurrent()) apply(event)
         })
         if (isUnmounted) {
           fn()
@@ -119,7 +120,7 @@ export function useIntegrityCheck(): {
         unlisten = fn
       }
       const result = await checkFilesIntegrity()
-      if (isUnmounted) return
+      if (isUnmounted || !scope.isCurrent()) return
       report.value = result
       if (isPopupHidden.value) {
         notification.show(
@@ -129,7 +130,7 @@ export function useIntegrityCheck(): {
         )
       }
     } catch (e: unknown) {
-      if (isUnmounted) return
+      if (isUnmounted || !scope.isCurrent()) return
       reportError('Проверка целостности файлов завершилась с ошибкой', e)
       errorMessage.value = getErrorMessage(e)
       if (isPopupHidden.value) notification.show(`Проверка целостности не удалась: ${errorMessage.value}`)

@@ -2,7 +2,10 @@ use std::cmp::Ordering;
 use std::path::PathBuf;
 
 use crate::utils::errors::LauncherError;
-use crate::utils::{compare_versions, download_file::write_atomic};
+use crate::utils::{
+    compare_versions,
+    download_file::{read_to_string_opt, write_atomic},
+};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
@@ -408,14 +411,6 @@ pub fn merge_options(content: Option<&str>, options: &GameOptions, normalized_fo
     serialize_lines(&lines)
 }
 
-async fn read_options_content(path: &PathBuf) -> Result<Option<String>> {
-    match fs::read_to_string(path).await {
-        Ok(content) => Ok(Some(content)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
-    }
-}
-
 async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
     ensure_safe_project_name(project_name)?;
     let dir = launcher_path(Some(project_name))?.join("resourcepacks");
@@ -455,7 +450,7 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
 
 async fn global_options_content() -> Result<Option<String>> {
     let path = global_options_file_path()?;
-    read_options_content(&path).await
+    read_to_string_opt(&path).await
 }
 
 async fn resolve_mc_version(project_name: &str) -> String {
@@ -475,7 +470,7 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
         anyhow::bail!(LauncherError::ProjectNotSelected);
     }
     let path = options_file_path(project_name)?;
-    let content = read_options_content(&path).await?;
+    let content = read_to_string_opt(&path).await?;
     let file_exists = content.is_some();
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
     let options = content
@@ -516,7 +511,7 @@ async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> R
         anyhow::bail!(LauncherError::ProjectNotSelected);
     }
     let path = options_file_path(project_name)?;
-    let content = read_options_content(&path).await?;
+    let content = read_to_string_opt(&path).await?;
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
     let merged = merge_options(content.as_deref(), options, normalized_fov);
     write_options_file(&path, &merged).await?;

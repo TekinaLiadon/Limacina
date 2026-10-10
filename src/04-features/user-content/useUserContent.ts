@@ -1,5 +1,5 @@
 import { ref, computed, watch } from 'vue'
-import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
+import { useCoreStore, useAccountsStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { copyToClipboard, reportError, useAsyncRaceGuard } from '@/06-shared'
 import {
   getErrorMessage,
@@ -23,6 +23,7 @@ interface UserContentApi<T> {
 
 export function useUserContent<T>(api: UserContentApi<T>) {
   const coreStore = useCoreStore()
+  const accountsStore = useAccountsStore()
   const notification = useNotificationStore()
 
   const items = ref<UserContentItem[]>([])
@@ -38,7 +39,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 
   const loadItems = async (): Promise<void> => {
     if (isOffline.value) return
-    const uuid = coreStore.session?.uuid
+    const uuid = accountsStore.session?.uuid
     if (!uuid) return
 
     const generation = listGuard.next()
@@ -107,7 +108,8 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     try {
       await copyToClipboard(url)
       notification.show('Ссылка скопирована')
-    } catch {
+    } catch (e: unknown) {
+      reportError('Не удалось скопировать ссылку', e)
       errorMessage.value = 'Не удалось скопировать'
     }
   }

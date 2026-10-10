@@ -1,5 +1,5 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, bindSettingsDirtyTab, type LauncherSettingsPayload } from '@/05-entities'
+import { useCoreStore, useNotificationStore, bindSettingsDirtyTab, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
 import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import {
   joinPath,
@@ -25,10 +25,13 @@ export function useLauncherSettings(): {
   debugMode: Ref<boolean>
   downloadSpeedLimitInput: Ref<string>
   downloadSpeedLimitError: ComputedRef<string>
+  isLoading: Ref<boolean>
+  loadError: Ref<string>
   isSaving: Ref<boolean>
   isDirty: ComputedRef<boolean>
   selectLauncherFolder: () => Promise<void>
   handleSave: () => Promise<void>
+  retryLoad: () => Promise<void>
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
@@ -47,6 +50,9 @@ export function useLauncherSettings(): {
   const systemNotifications = ref<boolean>(true)
   const debugMode = ref<boolean>(false)
   const downloadSpeedLimitInput = ref<string>('')
+  const isLoading = ref<boolean>(false)
+  const loadError = ref<string>('')
+  let loadGeneration = 0
 
   const parseSpeedLimit = (raw: string): number | null => {
     const trimmed = raw.trim()
@@ -114,25 +120,63 @@ export function useLauncherSettings(): {
     }
   }
 
-  onMounted((): void => {
-    const config = coreStore.launcherConfig
-    if (config) {
-      launcherPath.value = config.launcherPath
-      discordActivity.value = config.discordActivity
-      autoUpdate.value = config.autoUpdate
-      keepOldConfigs.value = config.keepOldConfigs
-      startWithSystem.value = config.startWithSystem
-      closeAfterLaunch.value = config.closeAfterLaunch
-      minimizeToTray.value = config.minimizeToTray
-      systemNotifications.value = config.systemNotifications
-      debugMode.value = config.debugMode
-      downloadSpeedLimitInput.value =
-        config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
-    }
+  const applyConfig = (config: LauncherConfig): void => {
+    launcherPath.value = config.launcherPath
+    discordActivity.value = config.discordActivity
+    autoUpdate.value = config.autoUpdate
+    keepOldConfigs.value = config.keepOldConfigs
+    startWithSystem.value = config.startWithSystem
+    closeAfterLaunch.value = config.closeAfterLaunch
+    minimizeToTray.value = config.minimizeToTray
+    systemNotifications.value = config.systemNotifications
+    debugMode.value = config.debugMode
+    downloadSpeedLimitInput.value =
+      config.downloadSpeedLimit != null ? String(config.downloadSpeedLimit) : ''
+  }
+
+  const finishLoad = (): void => {
     dirtyState.captureBaseline()
     void syncStartWithSystemState(startWithSystem.value).then((changed: boolean): void => {
       if (changed) dirtyState.patchBaseline({ startWithSystem: startWithSystem.value })
     })
+  }
+
+  const loadConfig = async (force: boolean = false): Promise<void> => {
+    const existing = coreStore.launcherConfig
+    if (!force && existing) {
+      applyConfig(existing)
+      finishLoad()
+      return
+    }
+
+    const generation = ++loadGeneration
+    isLoading.value = true
+    loadError.value = ''
+    dirtyState.clearBaseline()
+    try {
+      const data = await getAppInitData()
+      if (generation !== loadGeneration) return
+      const config = data.launcherConfig
+      if (!config) {
+        loadError.value = 'Не удалось загрузить настройки лаунчера'
+        return
+      }
+      coreStore.launcherConfig = config
+      applyConfig(config)
+      finishLoad()
+    } catch (e: unknown) {
+      if (generation !== loadGeneration) return
+      reportError('Не удалось загрузить настройки лаунчера', e)
+      loadError.value = getErrorMessage(e)
+    } finally {
+      if (generation === loadGeneration) isLoading.value = false
+    }
+  }
+
+  const retryLoad = (): Promise<void> => loadConfig(true)
+
+  onMounted((): void => {
+    void loadConfig()
   })
 
   const selectLauncherFolder = async (): Promise<void> => {
@@ -158,6 +202,7 @@ export function useLauncherSettings(): {
 
   const handleSave = async (): Promise<void> => {
     if (isSaving.value) return
+    if (isLoading.value || loadError.value) return
     if (downloadSpeedLimitError.value) {
       notification.show(downloadSpeedLimitError.value)
       return
@@ -191,9 +236,12 @@ export function useLauncherSettings(): {
     debugMode,
     downloadSpeedLimitInput,
     downloadSpeedLimitError,
+    isLoading,
+    loadError,
     isSaving,
     isDirty,
     selectLauncherFolder,
     handleSave,
+    retryLoad,
   }
 }

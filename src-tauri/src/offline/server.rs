@@ -401,6 +401,17 @@ mod tests {
         result
     }
 
+    fn start_shim(username: &str) -> (super::SkinServer, u16) {
+        let server = super::SkinServer::start(
+            None,
+            "069a79f444e94726a5befca90e38abaf".to_string(),
+            username.to_string(),
+        )
+        .expect("шим должен стартовать");
+        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+        (server, port)
+    }
+
     #[test]
     fn skin_server_serves_skin_endpoints() {
         let server = SkinServer::start(
@@ -453,13 +464,7 @@ mod tests {
 
     #[test]
     fn skin_server_serves_privileges_and_blocklist() {
-        let server = SkinServer::start(
-            None,
-            "069a79f444e94726a5befca90e38abaf".to_string(),
-            "Steve".to_string(),
-        )
-        .expect("шим должен стартовать");
-        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+        let (server, port) = start_shim("Steve");
 
         let (head, body) = split_response(&send_request(port, "/privileges"));
         assert!(head.contains("200 OK"));
@@ -484,13 +489,7 @@ mod tests {
 
     #[test]
     fn skin_server_without_skin_serves_default_profile() {
-        let server = SkinServer::start(
-            None,
-            "069a79f444e94726a5befca90e38abaf".to_string(),
-            "Alex".to_string(),
-        )
-        .expect("шим должен стартовать");
-        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+        let (server, port) = start_shim("Alex");
 
         let profile_path =
             "/sessionserver/session/minecraft/profile/069a79f444e94726a5befca90e38abaf";
@@ -522,13 +521,7 @@ mod tests {
 
     #[test]
     fn skin_server_closes_without_response_for_non_get() {
-        let server = SkinServer::start(
-            None,
-            "069a79f444e94726a5befca90e38abaf".to_string(),
-            "Steve".to_string(),
-        )
-        .expect("шим должен стартовать");
-        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+        let (server, port) = start_shim("Steve");
 
         let response = send_raw(
             port,
@@ -546,13 +539,7 @@ mod tests {
 
     #[test]
     fn skin_server_closes_without_response_for_garbage_request() {
-        let server = SkinServer::start(
-            None,
-            "069a79f444e94726a5befca90e38abaf".to_string(),
-            "Steve".to_string(),
-        )
-        .expect("шим должен стартовать");
-        let port: u16 = server.url().rsplit(':').next().unwrap().parse().unwrap();
+        let (server, port) = start_shim("Steve");
 
         let response = send_raw(port, b"\xff\xfe\x00\x01binary-garbage");
 

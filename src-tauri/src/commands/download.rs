@@ -1,4 +1,6 @@
-use anyhow::Context;
+use std::path::PathBuf;
+
+use anyhow::{anyhow, Context, Result};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
@@ -13,8 +15,10 @@ use crate::minecraft::structs::MinecraftLoader;
 use crate::state::config::update_project_config;
 use crate::state::dto::ModLoader as ConfigModLoader;
 use crate::state::dto::{GlobalState, ProjectConfig};
+use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
 use crate::{minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
+use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
 pub async fn download_minecraft(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
@@ -115,6 +119,27 @@ pub async fn download_server_mods(
     Ok(())
 }
 
+async fn ensure_mods_dir(project: &str) -> Result<PathBuf> {
+    let mods_dir = launcher_path(Some(project))?.join("mods");
+    tokio::fs::create_dir_all(&mods_dir)
+        .await
+        .with_context(|| format!("Не удалось создать папку модов {mods_dir:?}"))?;
+    Ok(mods_dir)
+}
+
+#[tauri::command]
+pub async fn open_mods_folder(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> CommandResult<()> {
+    let project = state.lock().await.project_config.project_name.clone();
+    let mods_dir = ensure_mods_dir(&project).await?;
+    app.opener()
+        .open_path(mods_dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| anyhow!("Не удалось открыть папку модов: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_java_distributions() -> CommandResult<Vec<JavaDistribution>> {
     Ok(get_java_distributions_list())
@@ -149,4 +174,50 @@ pub async fn download_alternative_java(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod open_mods_folder_tests {
+    use super::ensure_mods_dir;
+    use crate::test_support::LauncherDirGuard;
+
+    #[tokio::test]
+    async fn creates_missing_mods_dir() {
+        let _guard = LauncherDirGuard::acquire("mods_dir_create").await;
+
+        let mods_dir = ensure_mods_dir("Proj")
+            .await
+            .expect("папка модов должна создаваться");
+
+        assert!(mods_dir.ends_with("mods"), "путь: {mods_dir:?}");
+        assert!(mods_dir.is_dir(), "папка должна существовать на диске");
+    }
+
+    #[tokio::test]
+    async fn keeps_existing_mods_dir() {
+        let guard = LauncherDirGuard::acquire("mods_dir_exists").await;
+        std::fs::create_dir_all(guard.project_dir("Proj").join("mods"))
+            .expect("создание существующей папки");
+
+        ensure_mods_dir("Proj")
+            .await
+            .expect("существующая папка не должна давать ошибку");
+    }
+
+    #[tokio::test]
+    async fn errors_when_mods_path_is_a_file() {
+        let guard = LauncherDirGuard::acquire("mods_dir_file").await;
+        let project_dir = guard.project_dir("Proj");
+        std::fs::create_dir_all(&project_dir).expect("создание папки проекта");
+        std::fs::write(project_dir.join("mods"), b"not a dir").expect("запись файла");
+
+        let error = ensure_mods_dir("Proj")
+            .await
+            .expect_err("файл вместо папки должен давать ошибку");
+
+        assert!(
+            error.to_string().contains("Не удалось создать папку модов"),
+            "ошибка должна быть понятной: {error}"
+        );
+    }
 }

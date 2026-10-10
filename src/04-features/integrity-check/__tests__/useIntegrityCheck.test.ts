@@ -204,6 +204,27 @@ describe('useIntegrityCheck', () => {
     expect(check.steps.value.find((step) => step.key === STEP_IDS.mcJar)?.status).toBe('pending')
   })
 
+  it('does not apply the report or step events after the project switches mid-check', async () => {
+    const core = useCoreStore()
+    core.projectConfig = makeProjectConfig(true)
+    core.currentProject = 'alpha'
+    const { release } = deferredReport()
+    const { check } = await setupCheck()
+
+    const pending = check.handleCheck()
+    core.currentProject = 'beta'
+    emitStep?.({ type: 'started', id: STEP_IDS.mcJar, label: 'Клиент игры' })
+
+    expect(check.steps.value.find((step) => step.key === STEP_IDS.mcJar)?.status).toBe('pending')
+
+    release()
+    await pending
+
+    expect(check.report.value).toBeNull()
+    expect(check.errorMessage.value).toBe('')
+    expect(check.isChecking.value).toBe(false)
+  })
+
   it('surfaces the command error and shows a toast for the hidden popup', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockRejectedValue(new Error('ipc down'))

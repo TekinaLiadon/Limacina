@@ -5,12 +5,12 @@ import ArrowRight from './svg/ArrowRight.vue'
 import ChevronDown from './svg/ChevronDown.vue'
 import Home from './svg/Home.vue'
 import Puzzle from './svg/Puzzle.vue'
-import Referals from './svg/Referals.vue'
+import Referrals from './svg/Referrals.vue'
 import Settings from './svg/Settings.vue'
 
 const ICONS: Record<IconType, Component> = {
   home: Home,
-  referals: Referals,
+  referrals: Referrals,
   settings: Settings,
   puzzle: Puzzle,
   'chevron-down': ChevronDown,

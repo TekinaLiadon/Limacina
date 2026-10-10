@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { useDebugConsole } from '@/04-features'
+import { useDebugConsole, useKillGame } from '@/04-features'
 import type { ConsoleLog } from '@/05-entities'
 import { Icon } from '@/06-shared'
+import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 
 const { logs, filteredLogs, searchQuery, onlyErrors, linesCount, streamError, startConsoleStream, handleCopy } = useDebugConsole()
+const { isGameRunning, isKilling, killGame } = useKillGame()
 
 const logAt = (index: number): ConsoleLog | undefined => filteredLogs.value[index]
 
@@ -75,28 +77,25 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
         v-model="searchQuery"
         class="debug-tab__search"
         type="text"
+        aria-label="Поиск по логам"
         placeholder="Поиск по логам"
       >
       <button
+        type="button"
         class="debug-tab__errors-toggle"
         :class="{ 'debug-tab__errors-toggle--active': onlyErrors }"
+        :aria-pressed="onlyErrors"
         @click="onlyErrors = !onlyErrors"
       >
         Только ошибки
       </button>
     </div>
 
-    <div v-if="streamError" class="debug-tab__stream-error">
-      <span class="debug-tab__stream-error-text">Стриминг логов недоступен: {{ streamError }}</span>
-      <button
-        class="debug-tab__retry-btn"
-        type="button"
-        :disabled="isRetrying"
-        @click="retryStream"
-      >
-        Повторить
-      </button>
-    </div>
+    <LoadErrorRow
+      :message="streamError ? `Стриминг логов недоступен: ${streamError}` : ''"
+      :is-loading="isRetrying"
+      @retry="retryStream"
+    />
 
     <div v-if="filteredLogs.length === 0" class="debug-tab__empty">
       {{ logs.length === 0 ? 'Логов пока нет' : 'Под фильтр ничего не подошло' }}
@@ -144,9 +143,19 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
         </button>
         <span class="debug-tab__count">{{ linesCount }} строк</span>
       </div>
-      <button class="debug-tab__copy-btn" @click="handleCopy">
-        Копировать
-      </button>
+      <div class="debug-tab__actions-right">
+        <button
+          class="debug-tab__kill-btn"
+          type="button"
+          :disabled="!isGameRunning || isKilling"
+          @click="killGame"
+        >
+          {{ isKilling ? 'Завершаем…' : 'Убить процесс' }}
+        </button>
+        <button class="debug-tab__copy-btn" @click="handleCopy">
+          Копировать
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -230,38 +239,6 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     }
   }
 
-  &__stream-error {
-    @extend %debug-band;
-
-    justify-content: space-between;
-    gap: var(--space-8);
-    border-bottom: 1px solid var(--debug-border);
-  }
-
-  &__stream-error-text {
-    min-width: 0;
-    color: var(--debug-error);
-    font-size: var(--text-caption);
-  }
-
-  &__retry-btn {
-    @extend %debug-btn;
-
-    flex-shrink: 0;
-    padding: var(--space-4) var(--space-12);
-    color: var(--debug-error);
-    border-color: var(--debug-error);
-    font-size: var(--text-caption);
-    font-family: inherit;
-    white-space: nowrap;
-    transition: background-color var(--duration-fast) var(--ease-out);
-
-    &:disabled {
-      cursor: default;
-      opacity: 0.6;
-    }
-  }
-
   &__empty {
     flex: 1;
     min-height: 0;
@@ -339,6 +316,12 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     gap: var(--space-8);
   }
 
+  &__actions-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+  }
+
   &__count {
     color: var(--debug-line-num);
     font-size: var(--text-caption);
@@ -361,6 +344,26 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
 
     &--off {
       color: var(--debug-line-num);
+    }
+  }
+
+  &__kill-btn {
+    @extend %debug-btn;
+
+    padding: var(--space-4) var(--space-16);
+    color: var(--debug-error);
+    border-color: var(--debug-error);
+    font-size: var(--text-caption);
+    font-family: inherit;
+    white-space: nowrap;
+
+    &:hover {
+      background: var(--debug-btn-hover-bg);
+    }
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.6;
     }
   }
 

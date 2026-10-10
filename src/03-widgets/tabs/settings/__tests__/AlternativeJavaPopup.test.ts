@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { Dropdown } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
-import AlternativeJavaPopup from './AlternativeJavaPopup.vue'
+import AlternativeJavaPopup from '../AlternativeJavaPopup.vue'
 
 const makeDistributions = (names: string[]): JavaDistribution[] =>
   names.map((name) => ({ name, apiParameter: `api-${name}` }))

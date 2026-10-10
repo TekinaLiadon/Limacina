@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { changePassword, getSessionInfo } from '@/06-shared/api'
 import {
+  useAccountsStore,
   useCoreStore,
   useNotificationStore,
   type ProjectConfig,
@@ -53,7 +54,8 @@ describe('useAccountSettings', () => {
 
   it('derives the username and the offline flag from the stores', () => {
     const core = useCoreStore()
-    core.session = makeSession('alice')
+    const accounts = useAccountsStore()
+    accounts.session = makeSession('alice')
     core.projectConfig = makeProjectConfig(false)
     const settings = useAccountSettings()
 
@@ -132,8 +134,9 @@ describe('useAccountSettings', () => {
 
   it('changes the password, refreshes the session and resets the form', async () => {
     const core = useCoreStore()
+    const accounts = useAccountsStore()
     core.currentProject = 'proj'
-    core.session = makeSession('alice')
+    accounts.session = makeSession('alice')
     vi.mocked(changePassword).mockResolvedValue(undefined)
     vi.mocked(getSessionInfo).mockResolvedValue(makeSession('alice'))
     const settings = useAccountSettings()
@@ -142,8 +145,8 @@ describe('useAccountSettings', () => {
     await settings.handleChangePassword()
 
     expect(changePassword).toHaveBeenCalledWith('proj', 'oldpassword', 'newpassword')
-    expect(core.session).toEqual(makeSession('alice'))
-    expect(core.isLoggedIn).toBe(true)
+    expect(accounts.session).toEqual(makeSession('alice'))
+    expect(accounts.isLoggedIn).toBe(true)
     expect(useNotificationStore().message).toBe('Пароль изменён')
     expect(settings.oldPassword.value).toBe('')
     expect(settings.newPassword.value).toBe('')
@@ -167,8 +170,9 @@ describe('useAccountSettings', () => {
 
   it('still notifies when the session refresh fails after the change', async () => {
     const core = useCoreStore()
+    const accounts = useAccountsStore()
     core.currentProject = 'proj'
-    core.session = makeSession('alice')
+    accounts.session = makeSession('alice')
     vi.mocked(changePassword).mockResolvedValue(undefined)
     vi.mocked(getSessionInfo).mockRejectedValue(new Error('ipc down'))
     const settings = useAccountSettings()
@@ -178,13 +182,14 @@ describe('useAccountSettings', () => {
 
     expect(useNotificationStore().message).toBe('Пароль изменён')
     expect(settings.oldPassword.value).toBe('')
-    expect(core.session).toEqual(makeSession('alice'))
+    expect(accounts.session).toEqual(makeSession('alice'))
   })
 
   it('skips the session refresh and the toast when the project changed during the change', async () => {
     const core = useCoreStore()
+    const accounts = useAccountsStore()
     core.currentProject = 'proj'
-    core.session = makeSession('alice')
+    accounts.session = makeSession('alice')
     vi.mocked(changePassword).mockImplementation(async () => {
       core.currentProject = 'other'
     })

@@ -1,6 +1,6 @@
 [package]
 name = "Limacina"
-version = "0.5.2"
+version = "0.6.0"
 description = "Limacina — Minecraft launcher"
 authors = ["Tekina"]
 edition = "2021"

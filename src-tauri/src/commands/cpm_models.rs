@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use crate::commands::user_content::current_project_name;
 use crate::launcher_server::user_content;
 use crate::state::dto::GlobalState;
-use crate::utils::download_file::write_atomic;
+use crate::utils::download_file::{read_to_string_opt, write_atomic};
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
@@ -190,12 +190,10 @@ fn manifest_path(project_name: &str) -> Result<std::path::PathBuf> {
 
 async fn read_manifest(project_name: &str) -> Result<CpmModelManifest> {
     let path = manifest_path(project_name)?;
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => Ok(serde_json::from_str(&content)
-            .with_context(|| format!("Повреждён манифест моделей {:?}", path))?),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(CpmModelManifest::default()),
-        Err(e) => Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
-    }
+    let Some(content) = read_to_string_opt(&path).await? else {
+        return Ok(CpmModelManifest::default());
+    };
+    serde_json::from_str(&content).with_context(|| format!("Повреждён манифест моделей {:?}", path))
 }
 
 async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {
@@ -256,14 +254,13 @@ fn remove_selected_model(content: Option<&str>) -> Result<Option<String>> {
 
 async fn read_selected_model(project_name: &str) -> Result<Option<String>> {
     let path = cpm_config_path(project_name)?;
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => Ok(parse_cpm_config(Some(&content))
-            .get("selectedModel")
-            .and_then(|v| v.as_str())
-            .map(String::from)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
-    }
+    let Some(content) = read_to_string_opt(&path).await? else {
+        return Ok(None);
+    };
+    Ok(parse_cpm_config(Some(&content))
+        .get("selectedModel")
+        .and_then(|v| v.as_str())
+        .map(String::from))
 }
 
 async fn set_selected_model(project_name: &str, file_name: &str) -> Result<()> {
@@ -273,11 +270,7 @@ async fn set_selected_model(project_name: &str, file_name: &str) -> Result<()> {
             .await
             .with_context(|| format!("Не удалось создать папку {:?}", parent))?;
     }
-    let existing = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => Some(content),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
-    };
+    let existing = read_to_string_opt(&path).await?;
     if let Some(content) = merge_selected_model(existing.as_deref(), file_name)? {
         write_atomic(&path, content.as_bytes()).await?;
     }
@@ -286,11 +279,7 @@ async fn set_selected_model(project_name: &str, file_name: &str) -> Result<()> {
 
 async fn clear_selected_model(project_name: &str) -> Result<()> {
     let path = cpm_config_path(project_name)?;
-    let existing = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => Some(content),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e).with_context(|| format!("Не удалось прочитать {:?}", path)),
-    };
+    let existing = read_to_string_opt(&path).await?;
     if let Some(content) = remove_selected_model(existing.as_deref())? {
         write_atomic(&path, content.as_bytes()).await?;
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyStepEvent, computeStepProgress, createStepItem } from '../stepEvents'
-import type { StepEvent, StepProgressItem } from '@/05-entities'
+import { applyStepEvent, computeStepProgress, createStepItem, type StepProgressItem } from '../stepEvents'
+import type { StepEvent } from '../../types'
 
 const pendingStep = (key: string): StepProgressItem => ({
   ...createStepItem(key, `label-${key}`, 0),
@@ -44,17 +44,13 @@ describe('createStepItem', () => {
 })
 
 describe('applyStepEvent', () => {
-  it('started keeps the previous active step active until its finished arrives', () => {
+  it('started closes a previous active step left open by a lost finish', () => {
     const steps = [pendingStep('a'), pendingStep('b')]
     emit(steps, { type: 'started', id: 'a', label: 'A' })
     emit(steps, { type: 'started', id: 'b', label: 'B' })
-    expect(stepById(steps, 'a').status).toBe('active')
+    expect(stepById(steps, 'a')).toMatchObject({ status: 'done', skipped: true })
     expect(stepById(steps, 'b').status).toBe('active')
     expect(steps).toHaveLength(2)
-
-    emit(steps, { type: 'finished', id: 'a', skipped: false })
-    expect(stepById(steps, 'a').status).toBe('done')
-    expect(stepById(steps, 'b').status).toBe('active')
   })
 
   it('started marks earlier pending steps as done and skipped', () => {
@@ -95,9 +91,11 @@ describe('applyStepEvent', () => {
     emit(steps, { type: 'finished', id: 'a', skipped: false })
     emit(steps, { type: 'started', id: 'b', label: 'B' })
     emit(steps, { type: 'progress', id: 'b', current: 5, total: 10 })
+    expect(computeStepProgress(steps)).toBeCloseTo(75, 5)
+
     emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
 
-    expect(computeStepProgress(steps)).toBeCloseTo(75, 5)
+    expect(computeStepProgress(steps)).toBe(100)
 
     emit(steps, { type: 'finished', id: 'b', skipped: false })
     expect(computeStepProgress(steps)).toBe(100)
@@ -161,7 +159,17 @@ describe('computeStepProgress', () => {
     expect(computeStepProgress([doneStep('a'), activeStep('b', 5, 4)])).toBeCloseTo(100, 5)
   })
 
-  it('takes the fraction from the last active step', () => {
-    expect(computeStepProgress([activeStep('a', 1, 2), activeStep('b', 1, 4)])).toBeCloseTo(12.5, 5)
+  it('adds the fractions of parallel active steps', () => {
+    expect(computeStepProgress([activeStep('a', 1, 2), activeStep('b', 1, 4)])).toBeCloseTo(37.5, 5)
+  })
+
+  it('caps the summed parallel fractions at full progress', () => {
+    expect(computeStepProgress([activeStep('a', 10, 10), activeStep('b', 9, 9)])).toBe(100)
+  })
+
+  it('mixes done steps with parallel active fractions', () => {
+    expect(
+      computeStepProgress([doneStep('a'), activeStep('b', 1, 4), activeStep('c', 1, 2)]),
+    ).toBeCloseTo(58.3333, 3)
   })
 })

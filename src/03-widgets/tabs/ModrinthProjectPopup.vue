@@ -5,19 +5,14 @@ import ModrinthIcon from './ModrinthIcon.vue'
 import { fetchModrinthProjectDetails, MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   visible: boolean
   hit: ModrinthSearchHit | null
-  isInstalled?: boolean
-  updateVersion?: string
-  isBusy?: boolean
-  isBusyAny?: boolean
-}>(), {
-  isInstalled: false,
-  updateVersion: '',
-  isBusy: false,
-  isBusyAny: false,
-})
+  isInstalled: boolean
+  updateVersion: string
+  isBusy: boolean
+  isBusyAny: boolean
+}>()
 
 const emit = defineEmits<{
   close: []
@@ -163,8 +158,8 @@ async function handleLink(url: string): Promise<void> {
             <Button
               v-if="updateVersion"
               class="btn-primary modrinth-popup__action"
-              :is-loading="isBusy ?? false"
-              :is-disabled="isBusyAny ?? false"
+              :is-loading="isBusy"
+              :is-disabled="isBusyAny"
               @click="emit('update')"
             >
               Обновить
@@ -172,8 +167,8 @@ async function handleLink(url: string): Promise<void> {
             <Button
               v-else-if="!isInstalled"
               class="btn-primary modrinth-popup__action"
-              :is-loading="isBusy ?? false"
-              :is-disabled="isBusyAny ?? false"
+              :is-loading="isBusy"
+              :is-disabled="isBusyAny"
               @click="emit('install')"
             >
               Скачать
@@ -312,14 +307,9 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__installed-badge {
+    @include mixins.badge($color: var(--accent-text));
+
     flex-shrink: 0;
-    padding: var(--space-4) var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
-    color: var(--accent-text);
-    font-size: var(--text-caption);
-    white-space: nowrap;
   }
 
   &__content {

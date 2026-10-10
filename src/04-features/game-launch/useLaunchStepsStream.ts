@@ -1,6 +1,6 @@
-import { useLaunchStore, useCoreStore, type StepEvent } from '@/05-entities'
+import { useLaunchStore } from '@/05-entities'
 import { getLaunchState, listenLaunchSteps } from '@/06-shared/api'
-import { createSingletonListeners, reportError, type StepPlanItem } from '@/06-shared'
+import { createSingletonListeners, reportError, type StepEvent, type StepPlanItem } from '@/06-shared'
 import { syncGameSession } from '../game-session/useGameSession'
 
 const MIN_DISPLAY_MS = 500
@@ -24,7 +24,6 @@ export function useLaunchStepsStream(): {
   flushLaunchSteps: () => Promise<void>
 } {
   const launch = useLaunchStore()
-  const coreStore = useCoreStore()
 
   const apply = (event: StepEvent): void => {
     if (activeGeneration === null || launch.launchGeneration !== activeGeneration) return
@@ -121,7 +120,7 @@ export function useLaunchStepsStream(): {
       reportError('Не удалось получить состояние запуска игры', e)
       return
     }
-    if (!inProgress || launch.isLaunching || coreStore.gameUsername !== null) return
+    if (!inProgress || launch.isLaunching || launch.gameUsername !== null) return
     launch.markInterrupted()
   }
 

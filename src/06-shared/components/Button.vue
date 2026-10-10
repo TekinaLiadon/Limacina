@@ -57,7 +57,7 @@ const props = withDefaults(defineProps<{
     height: var(--spinner-size);
     flex-shrink: 0;
     border-radius: 50%;
-    border: 2px solid currentColor;
+    border: var(--spinner-border-width) solid currentColor;
     border-top-color: transparent;
     animation: btn-spin var(--duration-spin) linear infinite;
   }

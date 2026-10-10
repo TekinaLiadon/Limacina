@@ -8,6 +8,7 @@ import {
   modrinthProject,
   modrinthSearch,
   modrinthUninstall,
+  openModsFolder,
 } from '@/06-shared/api'
 import {
   useCoreStore,
@@ -27,6 +28,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   modrinthCheckUpdates: vi.fn(),
   modrinthInstall: vi.fn(),
   modrinthUninstall: vi.fn(),
+  openModsFolder: vi.fn(),
 }))
 
 const makeHit = (id: string): ModrinthSearchHit => ({
@@ -76,6 +78,7 @@ describe('useModrinth', () => {
     vi.mocked(modrinthCheckUpdates).mockReset()
     vi.mocked(modrinthInstall).mockReset()
     vi.mocked(modrinthUninstall).mockReset()
+    vi.mocked(openModsFolder).mockReset()
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -319,6 +322,67 @@ describe('useModrinth', () => {
     releaseUninstall()
     await first
     expect(mods.installingId.value).toBeNull()
+  })
+
+  it('opens the mods folder without touching the action error', async () => {
+    vi.mocked(openModsFolder).mockResolvedValue(undefined)
+    const mods = useModrinth()
+
+    await mods.openFolder()
+
+    expect(openModsFolder).toHaveBeenCalledTimes(1)
+    expect(mods.isOpeningFolder.value).toBe(false)
+    expect(mods.actionError.value).toBe('')
+  })
+
+  it('reports the open-folder failure in the action error', async () => {
+    vi.mocked(openModsFolder).mockRejectedValue(new Error('проводник недоступен'))
+    const mods = useModrinth()
+
+    await mods.openFolder()
+
+    expect(mods.actionError.value).toBe('проводник недоступен')
+    expect(mods.isOpeningFolder.value).toBe(false)
+  })
+
+  it('keeps the open-folder error of the old project out of the new one', async () => {
+    let rejectOpen: (reason?: unknown) => void = () => {}
+    vi.mocked(openModsFolder).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectOpen = reject
+        }),
+    )
+    const coreStore = useCoreStore()
+    coreStore.currentProject = 'first'
+    const mods = useModrinth()
+
+    const pending = mods.openFolder()
+    coreStore.currentProject = 'second'
+    rejectOpen(new Error('старая ошибка'))
+    await pending
+
+    expect(mods.actionError.value).toBe('')
+  })
+
+  it('ignores a repeated click while the folder is opening', async () => {
+    let releaseOpen: () => void = () => {}
+    vi.mocked(openModsFolder).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseOpen = resolve
+        }),
+    )
+    const mods = useModrinth()
+
+    const first = mods.openFolder()
+    const second = mods.openFolder()
+    expect(mods.isOpeningFolder.value).toBe(true)
+    releaseOpen()
+    await Promise.all([first, second])
+
+    expect(openModsFolder).toHaveBeenCalledTimes(1)
+    expect(mods.isOpeningFolder.value).toBe(false)
   })
 
   it('fetches the project details for the popup without a composable instance', async () => {

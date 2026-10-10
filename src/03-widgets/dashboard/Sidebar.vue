@@ -37,7 +37,7 @@ const toggleSettings = (): void => {
 const items = computed<TabItem[]>((): TabItem[] => {
   const base: TabItem[] = [
     { key: 'accounts', icon: 'home', label: 'Аккаунты' },
-    { key: 'add-profile', icon: 'referals', label: 'Добавить профиль' },
+    { key: 'add-profile', icon: 'referrals', label: 'Добавить профиль' },
   ]
   if (props.showMods === true) {
     base.push({ key: 'mods', icon: 'puzzle', label: 'Моды' })
@@ -98,6 +98,8 @@ const items = computed<TabItem[]>((): TabItem[] => {
                   'sidebar__subitem--active': activeTab === 'settings' && settingsSubTab === item.routeName,
                   'sidebar__subitem--locked': !item.isAvailable,
                 }"
+                :aria-disabled="!item.isAvailable"
+                :tabindex="item.isAvailable ? undefined : -1"
                 @click="item.isAvailable && emit('navigate-settings', item.routeName)"
               >
                 {{ item.label }}

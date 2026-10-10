@@ -103,9 +103,9 @@ describe('useProjectSwitch', () => {
     expect(launch.loginError).toBe('')
     expect(launch.launchInterrupted).toBe(false)
     expect(launch.isLaunching).toBe(false)
-    expect(core.isLoggedIn).toBe(false)
+    expect(accounts.isLoggedIn).toBe(false)
     expect(clearSession).toHaveBeenCalledTimes(1)
-    expect(accounts.isSwitching).toBe(false)
+    expect(ps.isSwitching.value).toBe(false)
   })
 
   it('adopts the settings form from the committed project config', async () => {
@@ -140,13 +140,37 @@ describe('useProjectSwitch', () => {
   it('blocks the switch while a game session is active', async () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
-    core.gameUsername = 'alice'
+    useLaunchStore().gameUsername = 'alice'
     const ps = setup()
 
     await ps.selectProject('beta')
 
     expect(useNotificationStore().message).toBe('Нельзя переключить проект, пока запущена игра')
     expect(saveCurrentProject).not.toHaveBeenCalled()
+  })
+
+  it('clears a ghost game session via reset and unblocks the switch', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    const launch = useLaunchStore()
+    launch.gameUsername = 'alice'
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(useNotificationStore().message).toBe('Нельзя переключить проект, пока запущена игра')
+    expect(saveCurrentProject).not.toHaveBeenCalled()
+
+    ps.resetAccountsState()
+    expect(launch.gameUsername).toBeNull()
+
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(authLogins).mockResolvedValue(['carol'])
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenCalledWith('beta')
+    expect(core.currentProject).toBe('beta')
   })
 
   it('blocks the switch while the game is launching', async () => {
@@ -284,8 +308,9 @@ describe('useProjectSwitch', () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
     core.projects = ['alpha', 'beta']
-    core.isLoggedIn = true
-    core.session = { uuid: 'u-1', username: 'alice' }
+    const accounts = useAccountsStore()
+    accounts.isLoggedIn = true
+    accounts.session = { uuid: 'u-1', username: 'alice' }
     vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     vi.mocked(clearSession).mockRejectedValue(new Error('session stuck'))
@@ -296,7 +321,7 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).toHaveBeenCalledTimes(1)
     expect(saveCurrentProject).toHaveBeenCalledWith('beta')
     expect(core.currentProject).toBe('beta')
-    expect(core.isLoggedIn).toBe(false)
+    expect(accounts.isLoggedIn).toBe(false)
     expect(useAccountsStore().logins).toEqual(['carol'])
   })
 
@@ -333,7 +358,7 @@ describe('useProjectSwitch', () => {
     expect(useNotificationStore().message).toBe('disk full')
     expect(core.currentProject).toBe('alpha')
     expect(core.projectConfig).toBeNull()
-    expect(useAccountsStore().isSwitching).toBe(false)
+    expect(ps.isSwitching.value).toBe(false)
   })
 
   it('restores the saved project when the switch fails during the load', async () => {
@@ -349,5 +374,24 @@ describe('useProjectSwitch', () => {
     expect(core.currentProject).toBe('alpha')
     expect(core.projectConfig).toBeNull()
     expect(useNotificationStore().message).toBe('config locked')
+  })
+
+  it('warns about the diverged project when the rollback restore also fails', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    vi.mocked(saveCurrentProject)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('rollback failed'))
+    vi.mocked(loadSettingsProject).mockRejectedValue(new Error('config locked'))
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(1, 'beta')
+    expect(saveCurrentProject).toHaveBeenNthCalledWith(2, 'alpha')
+    expect(core.currentProject).toBe('alpha')
+    expect(useNotificationStore().message).toBe(
+      'config locked. Не удалось вернуть предыдущий проект — после перезапуска откроется «beta»',
+    )
   })
 })

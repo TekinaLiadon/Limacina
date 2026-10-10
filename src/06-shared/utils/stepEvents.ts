@@ -1,4 +1,19 @@
-import type { StepEvent, StepProgressItem } from '@/05-entities/core/types'
+import type { StepEvent } from '../types'
+
+export type StepStatus = 'pending' | 'active' | 'done' | 'error'
+
+export interface StepProgressItem {
+  key: string
+  label: string
+  status: StepStatus
+  skipped: boolean
+  untracked: boolean
+  current: number
+  total: number
+  detail: string
+  error: string
+  shownAt: number
+}
 
 export function createStepItem(key: string, label: string, shownAt: number): StepProgressItem {
   return {
@@ -22,7 +37,10 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
       const markLimit = index === -1 ? steps.length : index
       for (let i = 0; i < markLimit; i += 1) {
         const before = steps[i]
-        if (before !== undefined && before.status === 'pending') {
+        if (
+          before !== undefined &&
+          (before.status === 'pending' || before.status === 'active')
+        ) {
           before.status = 'done'
           before.skipped = true
         }
@@ -76,14 +94,13 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
 export function computeStepProgress(steps: StepProgressItem[]): number {
   const tracked = steps.filter((step) => !step.untracked)
   if (tracked.length === 0) return 0
-  let done = 0
-  let fraction = 0
+  let completed = 0
   for (const step of tracked) {
     if (step.status === 'done' || step.status === 'error') {
-      done++
+      completed += 1
     } else if (step.status === 'active' && step.total > 0) {
-      fraction = Math.min(step.current / step.total, 1)
+      completed += Math.min(step.current / step.total, 1)
     }
   }
-  return ((done + fraction) / tracked.length) * 100
+  return Math.min(completed / tracked.length, 1) * 100
 }

@@ -489,7 +489,7 @@ mod account_flow_tests {
     use crate::auth::storage;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
     use crate::state::launcher_config::{set_config_file_path_for_tests, LauncherConfig};
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
     use crate::utils::errors::LauncherError;
     use mockito::{Matcher, Server};
     use serde_json::json;
@@ -509,28 +509,6 @@ mod account_flow_tests {
         fn drop(&mut self) {
             set_config_file_path_for_tests(None);
         }
-    }
-
-    fn rotation_payload(access: &str, refresh: &str) -> String {
-        json!({
-            "tokens": { "access_token": access, "refresh_token": refresh },
-            "profile": { "uuid": "uuid-1", "username": "Steve" }
-        })
-        .to_string()
-    }
-
-    async fn seed_online_project(project_name: &str, server_url: &str) {
-        let config = ProjectConfig {
-            project_name: project_name.to_string(),
-            mc_version: "1.20.1".to_string(),
-            server_url: Some(server_url.to_string()),
-            online: true,
-            ..ProjectConfig::default()
-        };
-        config
-            .save_config()
-            .await
-            .expect("сохранение конфига проекта");
     }
 
     fn state_with_session(username: &str, project_name: &str) -> Mutex<GlobalState> {
@@ -577,6 +555,17 @@ mod account_flow_tests {
         })
     }
 
+    async fn assert_trimmed_offline_session(state: &Mutex<GlobalState>) {
+        let guard = state.lock().await;
+        let session = guard.session.as_ref().expect("сессия");
+        assert_eq!(session.username, "Steve", "ник должен тримиться");
+        assert_eq!(
+            session.uuid,
+            generate_offline_uuid("Steve"),
+            "uuid должен считаться от тримнутого ника"
+        );
+    }
+
     #[tokio::test]
     async fn offline_login_trims_username_and_respects_remember_me() {
         let dir = LauncherDirGuard::acquire("auth_offline_trim").await;
@@ -588,14 +577,8 @@ mod account_flow_tests {
             .await
             .expect("офлайн-вход");
 
+        assert_trimmed_offline_session(&state).await;
         let guard = state.lock().await;
-        let session = guard.session.as_ref().expect("сессия");
-        assert_eq!(session.username, "Steve", "ник должен тримиться");
-        assert_eq!(
-            session.uuid,
-            generate_offline_uuid("Steve"),
-            "uuid должен считаться от тримнутого ника"
-        );
         assert_eq!(
             guard
                 .launcher_config
@@ -688,14 +671,7 @@ mod account_flow_tests {
             .await
             .expect("офлайн-refresh");
 
-        let guard = state.lock().await;
-        let session = guard.session.as_ref().expect("сессия");
-        assert_eq!(session.username, "Steve", "ник должен тримиться");
-        assert_eq!(
-            session.uuid,
-            generate_offline_uuid("Steve"),
-            "uuid должен считаться от тримнутого ника"
-        );
+        assert_trimmed_offline_session(&state).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1007,31 +983,9 @@ mod restore_session_tests {
     use super::{restore_and_persist_session, restore_session, wipe_project_credentials};
     use crate::auth::storage;
     use crate::state::dto::ProjectConfig;
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
     use mockito::{Matcher, Server};
     use serde_json::json;
-
-    fn rotation_payload(access: &str, refresh: &str) -> String {
-        json!({
-            "tokens": { "access_token": access, "refresh_token": refresh },
-            "profile": { "uuid": "uuid-1", "username": "Steve" }
-        })
-        .to_string()
-    }
-
-    async fn seed_online_project(project_name: &str, server_url: &str) {
-        let config = ProjectConfig {
-            project_name: project_name.to_string(),
-            mc_version: "1.20.1".to_string(),
-            server_url: Some(server_url.to_string()),
-            online: true,
-            ..ProjectConfig::default()
-        };
-        config
-            .save_config()
-            .await
-            .expect("сохранение конфига проекта");
-    }
 
     #[tokio::test]
     async fn network_failure_keeps_refresh_token() {

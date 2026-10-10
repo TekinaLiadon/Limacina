@@ -14,7 +14,12 @@ import {
   startMinecraft,
 } from '@/06-shared/api'
 import { useGameLaunch } from '../useGameLaunch'
-import { useLaunchStore, useCoreStore, type ProjectConfig } from '@/05-entities'
+import {
+  useLaunchStore,
+  useCoreStore,
+  useNotificationStore,
+  type ProjectConfig,
+} from '@/05-entities'
 import { createStepItem, STEP_IDS, type StepPlanItem } from '@/06-shared'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -233,7 +238,7 @@ describe('useGameLaunch', () => {
     expect(store.activeProgress).toBeCloseTo(80, 5)
   })
 
-  it('continues the flow when the journal cannot be read', async () => {
+  it('continues the flow and warns the user when the journal cannot be read', async () => {
     useCoreStore().currentProject = 'proj'
     vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
     vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
@@ -245,9 +250,12 @@ describe('useGameLaunch', () => {
     expect(downloadMinecraft).toHaveBeenCalledTimes(1)
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useLaunchStore().loginError).toBe('')
+    expect(useNotificationStore().message).toBe(
+      'Не удалось прочитать журнал установки — возможно повторное скачивание файлов',
+    )
   })
 
-  it('continues the flow when recording a journal step fails', async () => {
+  it('continues the flow and warns the user when recording a journal step fails', async () => {
     useCoreStore().currentProject = 'proj'
     vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
     vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
@@ -259,6 +267,26 @@ describe('useGameLaunch', () => {
     expect(downloadMinecraft).toHaveBeenCalledTimes(1)
     expect(startMinecraft).toHaveBeenCalledTimes(1)
     expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe(
+      'Не удалось записать журнал установки — при прерывании шаг повторится',
+    )
+  })
+
+  it('continues the flow and warns the user when clearing the journal fails', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
+    vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
+    vi.mocked(loadInstallJournal).mockResolvedValue([])
+    vi.mocked(clearInstallJournal).mockRejectedValue(new Error('clear failed'))
+
+    await useGameLaunch().executeSteps()
+
+    expect(startMinecraft).toHaveBeenCalledTimes(1)
+    expect(setInitialized).toHaveBeenCalledTimes(1)
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe(
+      'Не удалось очистить журнал установки — на запуск это не повлияет',
+    )
   })
 
   it('stops and reports a failing install step', async () => {

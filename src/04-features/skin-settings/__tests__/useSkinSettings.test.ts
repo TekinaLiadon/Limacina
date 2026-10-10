@@ -15,6 +15,7 @@ import {
   uploadSkin,
 } from '@/06-shared/api'
 import {
+  useAccountsStore,
   useCoreStore,
   useNotificationStore,
   type ProjectConfig,
@@ -110,7 +111,7 @@ describe('useSkinSettings', () => {
   const goOnline = (): void => {
     const core = useCoreStore()
     core.projectConfig = makeProjectConfig(true)
-    core.session = { uuid: 'u-1', username: 'alice' }
+    useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
   }
 
   const goOffline = (): void => {
@@ -433,7 +434,7 @@ describe('useSkinSettings', () => {
     expect(skins.uploadedSkins.value).toHaveLength(1)
 
     core.currentProject = 'other'
-    core.clearSessionState()
+    useAccountsStore().clearSessionState()
     await vi.waitFor(() => expect(skins.skinUrl.value).toBe(''))
 
     expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-url')
@@ -458,7 +459,7 @@ describe('useSkinSettings', () => {
     await vi.waitFor(() => expect(getProfileSkin).toHaveBeenCalled())
 
     core.currentProject = 'other'
-    core.clearSessionState()
+    useAccountsStore().clearSessionState()
     await nextTick()
     releaseBytes(new Uint8Array([1, 2, 3]))
     await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
@@ -478,7 +479,7 @@ describe('useSkinSettings', () => {
 
     core.projectConfig = makeProjectConfig(false)
     core.currentProject = 'offline-proj'
-    core.clearSessionState()
+    useAccountsStore().clearSessionState()
     vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
     vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
     await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))

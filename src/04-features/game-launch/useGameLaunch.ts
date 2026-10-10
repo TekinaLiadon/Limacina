@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { useCoreStore, useLaunchStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
+import { useCoreStore, useLaunchStore, useNotificationStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
 import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
 import { reportError, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
@@ -106,10 +106,16 @@ function buildInstallFingerprint(config: ProjectConfig): string {
 export function useGameLaunch() {
   const coreStore = useCoreStore()
   const launch = useLaunchStore()
+  const notification = useNotificationStore()
   const { resetLaunchSteps, prefillLaunchSteps, flushLaunchSteps } = useLaunchStepsStream()
 
   const launchSteps = computed((): StepProgressItem[] => launch.launchSteps)
   const activeProgress = computed((): number => launch.activeProgress)
+
+  const reportJournalFailure = (message: string, error: unknown): void => {
+    notification.show(message)
+    reportError(message, error)
+  }
 
   const failStep = async (error: unknown, isCancelled?: () => boolean): Promise<void> => {
     if (isCancelled?.()) return
@@ -150,7 +156,7 @@ export function useGameLaunch() {
           skipKeys.add(key)
         }
       } catch (e: unknown) {
-        reportError('Не удалось прочитать журнал установки', e)
+        reportJournalFailure('Не удалось прочитать журнал установки — возможно повторное скачивание файлов', e)
       }
       if (skipKeys.size > 0) {
         const skippedPlanKeys = new Set<string>(
@@ -172,7 +178,7 @@ export function useGameLaunch() {
           try {
             await recordInstallStep(coreStore.currentProject, fingerprint, step.key)
           } catch (e: unknown) {
-            reportError('Не удалось записать журнал установки', e)
+            reportJournalFailure('Не удалось записать журнал установки — при прерывании шаг повторится', e)
           }
         }
       } catch (error: unknown) {
@@ -187,7 +193,7 @@ export function useGameLaunch() {
       try {
         await clearInstallJournal(coreStore.currentProject)
       } catch (e: unknown) {
-        reportError('Не удалось очистить журнал установки', e)
+        reportJournalFailure('Не удалось очистить журнал установки — на запуск это не повлияет', e)
       }
       try {
         coreStore.projectConfig = await setInitialized()
