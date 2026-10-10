@@ -307,14 +307,9 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__installed-badge {
+    @include mixins.badge($color: var(--accent-text));
+
     flex-shrink: 0;
-    padding: var(--space-4) var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
-    color: var(--accent-text);
-    font-size: var(--text-caption);
-    white-space: nowrap;
   }
 
   &__content {

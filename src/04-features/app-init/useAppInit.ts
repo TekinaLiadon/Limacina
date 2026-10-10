@@ -1,7 +1,7 @@
 import { onBeforeMount, ref } from 'vue'
 import { useCoreStore, useSettingsStore, useNotificationStore, useProjectSettingsStore, normalizeTheme, type AppInitData, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { captureProjectScope, reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
 import { loadProjectConfig } from '@/04-features/project-settings/loadProjectConfig'
@@ -24,8 +24,9 @@ export function useAppInit() {
   }
 
   const loadProject = async (name: string): Promise<void> => {
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     const loaded = await loadProjectConfig(name)
-    if (coreStore.currentProject !== name) return
+    if (!scope.isCurrent()) return
     if (!loaded) {
       startupError.value = useProjectSettingsStore().loadError || 'Не удалось загрузить конфиг проекта'
       return
@@ -87,8 +88,9 @@ export function useAppInit() {
           preloaderText.value = 'Обновление завершено, загрузка...'
           const freshData = await getAppInitData()
           applyInitData(freshData)
-          if (coreStore.currentProject && coreStore.currentProject !== loadedProject) {
-            projectLoad = loadProject(coreStore.currentProject)
+          const activeProject = coreStore.currentProject
+          if (activeProject && activeProject !== loadedProject) {
+            projectLoad = loadProject(activeProject)
           }
         }
       }

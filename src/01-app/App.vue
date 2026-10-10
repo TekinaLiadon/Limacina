@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Dropdown, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type TabKey } from '@/05-entities'
-import { useAppInit, useTheme, useProjectSwitch, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen, useSettingsNav } from '@/04-features'
+import { useAppInit, useTheme, useProjectSwitch, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen, useSettingsNav, useAppNavigation } from '@/04-features'
 import { Sidebar, ServerStatus, ServerUnavailableBanner, StartupError, ThemeModeToggle, ThemeSwitchAnimation } from '@/03-widgets'
 
 const router = useRouter()
@@ -27,19 +27,12 @@ void startServerAvailabilitySync()
 const { startGameSessionSync } = useGameSession()
 void startGameSessionSync()
 useCpmProjectOpen()
+const { isDebugTabVisible } = useAppNavigation()
 
 interface Tab {
   key: TabKey
   name: string
 }
-
-const isDebugTabVisible = computed((): boolean => coreStore.launcherConfig?.debugMode ?? false)
-
-watch((): boolean => coreStore.isOfflineProject, (offline) => {
-  if (!offline && route.name === 'Mods') {
-    router.push({ name: 'Accounts' })
-  }
-}, { immediate: true })
 
 const tabs = computed((): Tab[] => {
   const items: Tab[] = [
@@ -62,13 +55,6 @@ const fullscreenRouteNames: string[] = ['Setup']
 
 const showLayout = computed((): boolean => !fullscreenRouteNames.includes(route.name as string))
 
-watch((): boolean => coreStore.needsOfflineSetup, (needed: boolean): void => {
-  const isFullscreenRoute = fullscreenRouteNames.includes(route.name as string)
-  if (needed && !isFullscreenRoute) {
-    router.replace({ name: 'Setup' })
-  }
-})
-
 const currentTab = computed((): TabKey => {
   const name = route.name as string
   if (settingsRouteNames.value.includes(name)) return 'settings'
@@ -86,12 +72,6 @@ const goSetupFromError = (): void => {
   startupError.value = ''
   router.replace({ name: 'Setup' })
 }
-
-watch(isDebugTabVisible, (visible: boolean): void => {
-  if (!visible && route.name === 'Debug') {
-    router.push({ name: 'Accounts' })
-  }
-}, { immediate: true })
 </script>
 
 <template>

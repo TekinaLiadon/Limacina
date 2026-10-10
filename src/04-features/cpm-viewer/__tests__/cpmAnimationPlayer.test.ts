@@ -335,6 +335,14 @@ describe('CpmAnimationPlayer', () => {
     player.setAnimations(seq(makeAnimation()))
     expect(mesh.visible).toBe(true)
 
+    activeLayerIds.value = []
+    player.applyCurrentFrame()
+    expect(mesh.visible).toBe(false)
+
+    activeLayerIds.value = [7]
+    player.applyCurrentFrame()
+    expect(mesh.visible).toBe(true)
+
     player.setAnimations([])
     expect(mesh.visible).toBe(false)
   })

@@ -27,3 +27,25 @@ const emit = defineEmits<{
     </Button>
   </div>
 </template>
+
+<style lang="scss">
+.launch-scene {
+  &__session {
+    display: flex;
+    align-items: center;
+    gap: var(--space-16);
+    margin-bottom: var(--title-gap);
+    padding: var(--space-16);
+    border-radius: var(--radius-card);
+    background: var(--accent-subtle);
+  }
+
+  &__session-dot {
+    width: var(--indicator-dot-size-lg);
+    height: var(--indicator-dot-size-lg);
+    border-radius: var(--radius-circle);
+    background: var(--login-accent);
+    flex-shrink: 0;
+  }
+}
+</style>

@@ -9,7 +9,7 @@ import {
   modrinthUninstall,
   openModsFolder,
 } from '@/06-shared/api'
-import { useAsyncRaceGuard } from '@/06-shared'
+import { captureProjectScope, useAsyncRaceGuard } from '@/06-shared'
 import {
   useCoreStore,
   type ModrinthSearchHit,
@@ -137,19 +137,19 @@ export function useModrinth() {
   const installedGuard = useAsyncRaceGuard()
 
   const loadInstalled = async (): Promise<void> => {
-    const project = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     const generation = installedGuard.next()
     isLoadingInstalled.value = true
     installedError.value = ''
     try {
       const list = await modrinthInstalled()
-      if (!installedGuard.isCurrent(generation) || coreStore.currentProject !== project) return
+      if (!installedGuard.isCurrent(generation) || !scope.isCurrent()) return
       installed.value = list
     } catch (e: unknown) {
-      if (!installedGuard.isCurrent(generation) || coreStore.currentProject !== project) return
+      if (!installedGuard.isCurrent(generation) || !scope.isCurrent()) return
       installedError.value = getErrorMessage(e)
     } finally {
-      if (installedGuard.isCurrent(generation) && coreStore.currentProject === project) isLoadingInstalled.value = false
+      if (installedGuard.isCurrent(generation) && scope.isCurrent()) isLoadingInstalled.value = false
     }
   }
 
@@ -179,18 +179,18 @@ export function useModrinth() {
 
   const install = async (projectId: string): Promise<boolean> => {
     if (installingId.value !== null) return false
-    const project = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     installingId.value = projectId
     actionError.value = ''
     try {
       await modrinthInstall(projectId)
-      if (coreStore.currentProject !== project) return false
+      if (!scope.isCurrent()) return false
       await loadInstalled()
       const { [projectId]: _resolved, ...rest } = updates.value
       updates.value = rest
       return true
     } catch (e: unknown) {
-      if (coreStore.currentProject !== project) return false
+      if (!scope.isCurrent()) return false
       actionError.value = getErrorMessage(e)
       return false
     } finally {
@@ -200,18 +200,18 @@ export function useModrinth() {
 
   const uninstall = async (projectId: string): Promise<boolean> => {
     if (installingId.value !== null) return false
-    const project = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     installingId.value = projectId
     actionError.value = ''
     try {
       await modrinthUninstall(projectId)
-      if (coreStore.currentProject !== project) return false
+      if (!scope.isCurrent()) return false
       const { [projectId]: _removed, ...rest } = updates.value
       updates.value = rest
       await loadInstalled()
       return true
     } catch (e: unknown) {
-      if (coreStore.currentProject !== project) return false
+      if (!scope.isCurrent()) return false
       actionError.value = getErrorMessage(e)
       return false
     } finally {
@@ -221,13 +221,13 @@ export function useModrinth() {
 
   const openFolder = async (): Promise<void> => {
     if (isOpeningFolder.value) return
-    const project = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     isOpeningFolder.value = true
     actionError.value = ''
     try {
       await openModsFolder()
     } catch (e: unknown) {
-      if (coreStore.currentProject === project) actionError.value = getErrorMessage(e)
+      if (scope.isCurrent()) actionError.value = getErrorMessage(e)
     } finally {
       isOpeningFolder.value = false
     }

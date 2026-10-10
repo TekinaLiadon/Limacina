@@ -108,7 +108,8 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     try {
       await copyToClipboard(url)
       notification.show('Ссылка скопирована')
-    } catch {
+    } catch (e: unknown) {
+      reportError('Не удалось скопировать ссылку', e)
       errorMessage.value = 'Не удалось скопировать'
     }
   }

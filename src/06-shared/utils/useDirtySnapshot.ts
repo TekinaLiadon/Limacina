@@ -1,8 +1,8 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
-export type DirtyBaseline<T extends object> = Record<keyof T, string>
+type DirtyBaseline<T extends object> = Record<keyof T, string>
 
-export function captureDirtyBaseline<T extends object>(data: T): DirtyBaseline<T> {
+function captureDirtyBaseline<T extends object>(data: T): DirtyBaseline<T> {
   const snapshot = {} as DirtyBaseline<T>
   for (const key of Object.keys(data) as (keyof T)[]) {
     snapshot[key] = JSON.stringify(data[key])
@@ -10,13 +10,13 @@ export function captureDirtyBaseline<T extends object>(data: T): DirtyBaseline<T
   return snapshot
 }
 
-export function hasDirtyFields<T extends object>(baseline: DirtyBaseline<T>, data: T): boolean {
+function hasDirtyFields<T extends object>(baseline: DirtyBaseline<T>, data: T): boolean {
   return (Object.keys(data) as (keyof T)[]).some(
     (key) => baseline[key] !== JSON.stringify(data[key]),
   )
 }
 
-export function isFieldDirtyAgainst<T extends object>(
+function isFieldDirtyAgainst<T extends object>(
   baseline: DirtyBaseline<T>,
   data: T,
   key: keyof T,
@@ -24,7 +24,7 @@ export function isFieldDirtyAgainst<T extends object>(
   return baseline[key] !== JSON.stringify(data[key])
 }
 
-export interface DirtySnapshotState<T extends object> {
+interface DirtySnapshotState<T extends object> {
   isDirty: ComputedRef<boolean>
   hasBaseline: ComputedRef<boolean>
   captureBaseline: () => void

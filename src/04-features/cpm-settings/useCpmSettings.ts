@@ -1,5 +1,5 @@
 import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
-import { reportError } from '@/06-shared'
+import { captureProjectScope, reportError } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
 import {
   getErrorMessage,
@@ -173,19 +173,19 @@ export function useCpmSettings() {
   }
 
   const loadModelsLimit = async (): Promise<void> => {
-    const project = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     isLimitLoading.value = true
     limitLoadError.value = ''
     try {
       const limit = await getPlayerModelsLimit()
-      if (coreStore.currentProject !== project) return
+      if (!scope.isCurrent()) return
       modelsLimit.value = limit
     } catch (e: unknown) {
-      if (coreStore.currentProject !== project) return
+      if (!scope.isCurrent()) return
       reportError('Не удалось загрузить лимит моделей', e)
       limitLoadError.value = getErrorMessage(e)
     } finally {
-      if (coreStore.currentProject === project) isLimitLoading.value = false
+      if (scope.isCurrent()) isLimitLoading.value = false
     }
   }
 
@@ -195,16 +195,16 @@ export function useCpmSettings() {
       limitSaveError.value = 'Лимит моделей — положительное число или пустое значение'
       return
     }
-    const project = coreStore.currentProject
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     isSavingLimit.value = true
     limitSaveError.value = ''
     try {
       await setPlayerModelsLimit(limit)
-      if (coreStore.currentProject !== project) return
+      if (!scope.isCurrent()) return
       modelsLimit.value = limit
       limitLoadError.value = ''
     } catch (e: unknown) {
-      if (coreStore.currentProject !== project) return
+      if (!scope.isCurrent()) return
       limitSaveError.value = getErrorMessage(e)
     } finally {
       isSavingLimit.value = false

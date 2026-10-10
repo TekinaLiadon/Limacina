@@ -46,22 +46,3 @@
     mask-size: 750vmax;
   }
 }
-
-@keyframes scale-fast {
-  0% {
-    -webkit-mask-size: 0;
-    mask-size: 0;
-  }
-  10% {
-    -webkit-mask-size: 25vmax;
-    mask-size: 25vmax;
-  }
-  87.5% {
-    -webkit-mask-size: 25vmax;
-    mask-size: 25vmax;
-  }
-  to {
-    -webkit-mask-size: 750vmax;
-    mask-size: 750vmax;
-  }
-}

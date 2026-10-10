@@ -10,8 +10,11 @@ defineProps<{
 <template>
   <Transition name="theme-switch">
     <div v-if="visible" class="theme-switch-overlay">
-      <div class="theme-switch-girl" :class="`girl--${direction}`">
-        <img :src="shigureGif" alt="" class="girl-gif" />
+      <div
+        class="theme-switch-overlay__girl"
+        :class="`theme-switch-overlay__girl--${direction}`"
+      >
+        <img :src="shigureGif" alt="" class="theme-switch-overlay__girl-gif">
       </div>
     </div>
   </Transition>
@@ -29,26 +32,26 @@ defineProps<{
   pointer-events: none;
 }
 
-.theme-switch-girl {
-  animation: girl-pop var(--switch-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+.theme-switch-overlay__girl {
+  animation: theme-switch-girl-pop var(--switch-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.girl--to-dark .girl-gif {
+.theme-switch-overlay__girl--to-dark .theme-switch-overlay__girl-gif {
   filter: drop-shadow(0 4px 16px var(--switch-glow));
 }
 
-.girl--to-light .girl-gif {
+.theme-switch-overlay__girl--to-light .theme-switch-overlay__girl-gif {
   filter: invert(1) drop-shadow(0 4px 16px var(--switch-glow-invert));
 }
 
-.girl-gif {
+.theme-switch-overlay__girl-gif {
   width: var(--theme-switch-size);
   height: auto;
   -webkit-mask-image: radial-gradient(circle, black 60%, transparent 100%);
   mask-image: radial-gradient(circle, black 60%, transparent 100%);
 }
 
-@keyframes girl-pop {
+@keyframes theme-switch-girl-pop {
   0% {
     transform: scale(0.1) translateY(40px);
     opacity: 0;

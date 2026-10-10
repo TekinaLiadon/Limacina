@@ -461,57 +461,27 @@ onMounted(() => {
   }
 
   &__view {
+    @include mixins.segmented-item($disabled-opacity: null, $hover-exclude-active: true);
+
     display: inline-flex;
     align-items: center;
     gap: var(--space-8);
     padding: var(--space-4) var(--space-16);
-    border: none;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    color: var(--login-text-muted);
     font-family: inherit;
     font-size: var(--text-body-sm);
     font-weight: var(--weight-medium);
     cursor: pointer;
     transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
-
-    &:hover:not(&--active) {
-      color: var(--login-text-primary);
-      background: var(--surface-light);
-    }
-
-    &--active {
-      @include mixins.segmented-active;
-    }
   }
 
   &__view-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: var(--badge-size);
-    height: var(--badge-size);
-    padding: 0 var(--space-4);
-    border-radius: var(--radius-pill);
-    background: var(--surface-active);
-    color: var(--login-text-secondary);
-    font-size: var(--text-caption);
-    font-variant-numeric: tabular-nums;
+    @include mixins.badge-count;
   }
 
   &__view-updates {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: var(--badge-size);
-    height: var(--badge-size);
-    padding: 0 var(--space-4);
-    border-radius: var(--radius-pill);
-    background: var(--accent-active-bg);
-    color: var(--accent-text);
-    font-size: var(--text-caption);
+    @include mixins.badge-count($background: var(--accent-active-bg), $color: var(--accent-text));
+
     font-weight: var(--weight-medium);
-    font-variant-numeric: tabular-nums;
   }
 
   &__section {
@@ -604,13 +574,7 @@ onMounted(() => {
   }
 
   &__badge {
-    padding: var(--space-4) var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--surface-light);
-    box-shadow: var(--elevation-inset);
-    color: var(--login-text-muted);
-    font-size: var(--text-caption);
-    white-space: nowrap;
+    @include mixins.badge;
 
     &--update {
       color: var(--accent-text);

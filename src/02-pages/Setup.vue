@@ -88,7 +88,7 @@ const {
 .setup-card {
   @include mixins.fullscreen-card;
 
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(var(--popup-overlay-blur));
   text-align: left;
 
   &__eyebrow {

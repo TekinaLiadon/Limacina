@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button, Skeleton } from '@/06-shared'
 import type { UserContentItem } from '@/05-entities'
+import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 
 withDefaults(defineProps<{
   title: string
@@ -22,12 +23,7 @@ const emit = defineEmits<{
 <template>
   <div class="user-content-list">
     <div class="user-content-list__title section-label">{{ title }}</div>
-    <div v-if="!isLoading && error" class="user-content-list__error">
-      <span class="user-content-list__error-text">{{ error }}</span>
-      <Button class="btn-quiet" @click="emit('retry')">
-        Повторить
-      </Button>
-    </div>
+    <LoadErrorRow :message="error && !isLoading ? error : ''" :is-loading="isLoading ?? false" @retry="emit('retry')" />
     <div v-if="isLoading" class="user-content-list__items" aria-hidden="true">
       <div v-for="index in 3" :key="index" class="user-content-list__item">
         <Skeleton variant="line" height="var(--control-height)" />
@@ -75,19 +71,6 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
-
-  &__error {
-    @include mixins.error-box;
-
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-8);
-  }
-
-  &__error-text {
-    min-width: 0;
-  }
 
   &__items {
     display: flex;

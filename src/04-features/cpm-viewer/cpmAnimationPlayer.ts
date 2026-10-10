@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Ref } from 'vue'
 import type { CPMAnimation, CPMVec3 } from '@/05-entities'
+import { computeMeshVisible } from './meshVisibility'
 
 const PLAYER_PART_IDS: Record<string, number> = {
   head: 0,
@@ -389,10 +390,12 @@ export class CpmAnimationPlayer {
       node.group.visible = node.baseVisible
       node.meshes.forEach((mesh) => {
         const layerId = mesh.userData.layerId as number | undefined
-        mesh.userData.animVisible = true
-        mesh.visible = (layerId !== undefined
-          ? this.host.activeLayerIds.value.includes(layerId)
-          : true) && mesh.userData.defaultVisible !== false
+        mesh.userData.animVisible = mesh.userData.defaultVisible !== false
+        mesh.visible = computeMeshVisible(
+          mesh.userData.animVisible,
+          layerId,
+          this.host.activeLayerIds.value,
+        )
       })
     })
   }
@@ -480,9 +483,11 @@ export class CpmAnimationPlayer {
         node.meshes.forEach((mesh) => {
           mesh.userData.animVisible = show
           const layerId = mesh.userData.layerId as number | undefined
-          mesh.visible = show && (layerId !== undefined
-            ? this.host.activeLayerIds.value.includes(layerId)
-            : mesh.userData.defaultVisible !== false)
+          mesh.visible = computeMeshVisible(
+            show,
+            layerId,
+            this.host.activeLayerIds.value,
+          )
         })
       }
     })

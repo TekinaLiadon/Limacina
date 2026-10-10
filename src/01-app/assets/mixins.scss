@@ -31,17 +31,27 @@
   color: var(--login-text-primary);
 }
 
-@mixin segmented-item($hover-bg: true, $disabled-opacity: 0.5, $radius: var(--radius-pill)) {
+@mixin segmented-item($hover-bg: true, $disabled-opacity: 0.5, $radius: var(--radius-pill), $hover-exclude-active: false) {
   border: none;
   border-radius: $radius;
   background: transparent;
   color: var(--login-text-muted);
 
-  &:hover:not(:disabled):not(.disabled) {
-    color: var(--login-text-primary);
+  @if $hover-exclude-active {
+    &:hover:not(:disabled):not(.disabled):not(&--active) {
+      color: var(--login-text-primary);
 
-    @if $hover-bg {
-      background: var(--surface-light);
+      @if $hover-bg {
+        background: var(--surface-light);
+      }
+    }
+  } @else {
+    &:hover:not(:disabled):not(.disabled) {
+      color: var(--login-text-primary);
+
+      @if $hover-bg {
+        background: var(--surface-light);
+      }
     }
   }
 
@@ -56,6 +66,30 @@
     }
     cursor: not-allowed;
   }
+}
+
+@mixin badge($color: var(--login-text-muted)) {
+  padding: var(--space-4) var(--space-12);
+  border-radius: var(--radius-badge);
+  background: var(--surface-light);
+  box-shadow: var(--elevation-inset);
+  color: $color;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+@mixin badge-count($background: var(--surface-active), $color: var(--login-text-secondary)) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--badge-size);
+  height: var(--badge-size);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  background: $background;
+  color: $color;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
 
 @mixin tool-panel {

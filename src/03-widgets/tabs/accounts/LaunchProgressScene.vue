@@ -51,3 +51,19 @@ const progressLabel = computed((): string =>
     </Button>
   </div>
 </template>
+
+<style lang="scss">
+.launch-scene {
+  &__progress {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-24);
+  }
+
+  &__progress-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+  }
+}
+</style>

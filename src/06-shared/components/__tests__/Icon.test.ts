@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import Icon from '../Icon.vue'
 import type { IconType } from '@/06-shared/types'
 
-const ICON_TYPES: IconType[] = ['home', 'referals', 'settings', 'puzzle', 'chevron-down', 'arrow-right']
+const ICON_TYPES: IconType[] = ['home', 'referrals', 'settings', 'puzzle', 'chevron-down', 'arrow-right']
 
 describe('Icon', () => {
   it.each(ICON_TYPES)('renders the %s svg with the icon envelope', (type) => {

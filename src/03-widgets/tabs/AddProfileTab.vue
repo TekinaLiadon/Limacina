@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/06-shared'
 import { useAddProfile } from '@/04-features'
@@ -37,6 +37,29 @@ const kindTabs: Array<{ key: ProfileKind; label: string }> = [
   { key: 'offline', label: 'Одиночная игра' },
 ]
 
+const moveKind = (delta: number): void => {
+  const count = kindTabs.length
+  const currentIndex = kindTabs.findIndex((tab) => tab.key === kind.value)
+  const nextTab = kindTabs[(currentIndex + delta + count) % count]
+  if (!nextTab) return
+  selectKind(nextTab.key)
+  void nextTick((): void => {
+    document.getElementById(`add-profile-kind-${nextTab.key}`)?.focus({ preventScroll: true })
+  })
+}
+
+const handleKindKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    moveKind(1)
+    return
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    moveKind(-1)
+  }
+}
+
 const canGoBack = computed((): boolean => !(props.embedded ?? false))
 
 const goToAccounts = (config: ProjectConfig | null): void => {
@@ -60,21 +83,29 @@ const handleOfflineSubmit = async (): Promise<void> => {
   <div class="add-profile-tab" :class="{ 'add-profile-tab--embedded': props.embedded ?? false }">
     <h2 v-if="!(props.embedded ?? false)" class="add-profile-tab__title heading-display">Добавить профиль</h2>
 
-    <div class="add-profile-tab__switch" role="tablist">
+    <div class="add-profile-tab__switch" role="tablist" aria-label="Тип профиля" @keydown="handleKindKeydown">
       <Button
         v-for="tab in kindTabs"
+        :id="`add-profile-kind-${tab.key}`"
         :key="tab.key"
         class="add-profile-tab__kind"
         :class="{ 'add-profile-tab__kind--active': kind === tab.key }"
         role="tab"
         :aria-selected="kind === tab.key"
+        :tabindex="kind === tab.key ? 0 : -1"
+        aria-controls="add-profile-kind-panel"
         @click="selectKind(tab.key)"
       >
         {{ tab.label }}
       </Button>
     </div>
 
-    <div class="add-profile-tab__form">
+    <div
+      id="add-profile-kind-panel"
+      role="tabpanel"
+      class="add-profile-tab__form"
+      :aria-labelledby="`add-profile-kind-${kind}`"
+    >
       <ServerProfileForm
         v-if="kind === 'server'"
         :form="serverForm"
