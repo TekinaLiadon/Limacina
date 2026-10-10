@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import anime from 'animejs'
 import { isAnimationsEnabled } from '@/06-shared'
 import type { StepProgressItem } from '@/05-entities'
+import StepCounter from './StepCounter.vue'
 
 const props = withDefaults(defineProps<{
   steps: StepProgressItem[]
@@ -119,11 +120,6 @@ const STATUS_META: Record<StepProgressItem['status'], { modifier: string; icon: 
   error: { modifier: 'step-progress__indicator--error', icon: '✕' },
 }
 
-const hasCounter = (step: StepProgressItem): boolean =>
-  step.status === 'active' && step.total > 0
-
-const counterText = (step: StepProgressItem): string => `${step.current}/${step.total}`
-
 const subLabel = (step: StepProgressItem): string => {
   if (step.status === 'error' && step.error) return step.error
   if (step.status === 'done' && step.skipped) return 'Уже установлено'
@@ -147,7 +143,7 @@ const subLabel = (step: StepProgressItem): string => {
         <div class="step-progress__content">
           <span class="step-progress__label">
             {{ step.label }}
-            <span v-if="hasCounter(step)" class="step-progress__counter">{{ counterText(step) }}</span>
+            <StepCounter :step="step" />
           </span>
           <span v-if="subLabel(step)" class="step-progress__sublabel">{{ subLabel(step) }}</span>
         </div>
@@ -247,10 +243,6 @@ const subLabel = (step: StepProgressItem): string => {
 
   &__item--error &__sublabel {
     color: var(--error);
-  }
-
-  &__item--done &__counter {
-    display: none;
   }
 }
 
