@@ -51,21 +51,23 @@ async fn fetch_releases(server_url: &str) -> Result<Vec<UpdateRelease>> {
     let resp = with_launcher_id(crate::utils::http::http_client().get(&url))
         .send()
         .await
-        .map_err(|e| {
-            LauncherError::Update(format!(
-                "Не удалось подключиться к серверу обновлений: {e:#}"
-            ))
+        .map_err(|_| {
+            LauncherError::Update("Не удалось подключиться к серверу обновлений".to_string())
         })?
         .error_for_status()
         .map_err(|e| {
             LauncherError::Update(format!(
-                "Сервер вернул ошибку при получении списка версий: {e:#}"
+                "Сервер вернул ошибку при получении списка версий: {}",
+                e.status()
+                    .map(|status| status.as_str().to_string())
+                    .unwrap_or_else(|| "нет ответа".to_string())
             ))
         })?;
 
-    let data: ReleasesResponse = resp.json().await.map_err(|e| {
-        LauncherError::Update(format!("Не удалось распарсить список версий: {e:#}"))
-    })?;
+    let data: ReleasesResponse = resp
+        .json()
+        .await
+        .map_err(|_| LauncherError::Update("Не удалось распарсить список версий".to_string()))?;
 
     Ok(data.releases)
 }
@@ -155,6 +157,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fetch_releases_hides_url_on_connect_error() {
+        let error = fetch_releases("http://127.0.0.1:1")
+            .await
+            .expect_err("подключение к закрытому порту должно падать");
+        let text = error.to_string();
+        assert_eq!(
+            text,
+            "Ошибка обновления: Не удалось подключиться к серверу обновлений"
+        );
+        assert!(
+            !text.contains("127.0.0.1"),
+            "адрес сервера не должен попадать в текст ошибки: {text}"
+        );
+    }
+
+    #[tokio::test]
     async fn fetch_releases_reports_http_error() {
         let mut server = Server::new_async().await;
         server
@@ -163,8 +181,18 @@ mod tests {
             .create_async()
             .await;
 
-        let result = fetch_releases(&server.url()).await;
-        assert!(result.is_err());
+        let error = fetch_releases(&server.url())
+            .await
+            .expect_err("500 должен давать ошибку");
+        let text = error.to_string();
+        assert!(
+            text.contains("Сервер вернул ошибку при получении списка версий: 500"),
+            "текст должен называть статус: {text}"
+        );
+        assert!(
+            !text.contains("127.0.0.1"),
+            "адрес сервера не должен попадать в текст ошибки: {text}"
+        );
     }
 
     #[test]
