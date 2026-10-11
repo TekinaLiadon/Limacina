@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
 import { useCpmViewer, type CpmViewerOptions } from '../useCpmViewer'
 import type { ActiveCpmAnimation } from '../cpmAnimationPlayer'
-import type { CPMAnimation, CPMConfig, CPMData } from '@/05-entities'
+import type { CPMAnimation, CPMChild, CPMConfig, CPMData, CPMElement } from '@/05-entities'
 
 const seq = (...animations: CPMAnimation[]): ActiveCpmAnimation[] =>
   animations.map((animation) => ({ animation, startDelayMs: 0 }))
@@ -298,6 +298,44 @@ describe('useCpmViewer', () => {
 
     const rootGroup = firstModelMesh().parent?.parent
     expect(rootGroup?.userData.isVanillaPart).toBe(true)
+    harness.unmount()
+  })
+
+  it('maps storeID for cape and armor roots from the element config', async () => {
+    const cube = (name: string, storeID: number): CPMChild => ({
+      name,
+      storeID,
+      size: { x: 4, y: 4, z: 4 },
+      offset: { x: 0, y: 0, z: 0 },
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+    const root = (id: string, storeID: number): CPMElement => ({
+      id,
+      name: id,
+      storeID,
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      children: [cube(`${id}-cube`, storeID)],
+    })
+    const harness = await mountViewer()
+    harness.cpmData.value = {
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [root('head', 100), root('cape', 6), root('armor_helmet', 12)],
+      },
+      textureUrl: 'model.png',
+    }
+    await nextTick()
+    await resolveLastLoad(new THREE.Texture())
+
+    const [modelRoot] = modelGroups()
+    if (!modelRoot) throw new Error('model was not added to the scene')
+    const stores = new Map(modelRoot.children.map((group) => [group.name, group.userData.storeID as number | undefined]))
+    expect(stores.get('head')).toBe(0)
+    expect(stores.get('cape')).toBe(6)
+    expect(stores.get('armor_helmet')).toBe(12)
     harness.unmount()
   })
 

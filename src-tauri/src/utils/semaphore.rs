@@ -20,7 +20,7 @@ fn is_retryable_failure(error: &Error) -> bool {
     error.chain().any(|cause| {
         if let Some(typed) = cause.downcast_ref::<LauncherError>() {
             match typed {
-                LauncherError::HttpStatus { status, .. } => *status >= 500,
+                LauncherError::HttpStatus { status, .. } => *status >= 500 || *status == 429,
                 LauncherError::Download(_) | LauncherError::LauncherServer(_) => true,
                 _ => false,
             }
@@ -29,13 +29,29 @@ fn is_retryable_failure(error: &Error) -> bool {
                 || request_error.is_connect()
                 || request_error.is_body()
                 || request_error.is_decode()
-                || request_error
-                    .status()
-                    .is_some_and(|status| status.as_u16() >= 500)
+                || request_error.status().is_some_and(|status| {
+                    let status = status.as_u16();
+                    status >= 500 || status == 429
+                })
         } else {
             false
         }
     })
+}
+
+fn jitter_fraction(url: &str, attempt: usize) -> f64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in url.as_bytes().iter().chain(attempt.to_le_bytes().iter()) {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    f64::from((hash % 1000) as u16) / 1000.0
+}
+
+fn retry_delay(attempt: usize, url: &str) -> Duration {
+    let base_ms = 1000_u64 * 2_u64.pow(attempt as u32);
+    let scaled = 0.5 + 0.5 * jitter_fraction(url, attempt);
+    Duration::from_millis((base_ms as f64 * scaled) as u64)
 }
 
 pub fn semaphore_core<F, Fut, C>(
@@ -95,9 +111,13 @@ where
                             e
                         );
 
-                        let delay = 2_u64.pow(attempt as u32);
-                        log_info!("[semaphore] Повтор через {} сек: {}", delay, el.url);
-                        sleep(Duration::from_secs(delay)).await;
+                        let delay = retry_delay(attempt, &el.url);
+                        log_info!(
+                            "[semaphore] Повтор через {} мс: {}",
+                            delay.as_millis(),
+                            el.url
+                        );
+                        sleep(delay).await;
                     }
 
                     Err(e) => {
@@ -127,7 +147,7 @@ where
 
 #[cfg(test)]
 mod retry_classification_tests {
-    use super::is_retryable_failure;
+    use super::{is_retryable_failure, retry_delay};
     use crate::utils::errors::LauncherError;
     use anyhow::anyhow;
 
@@ -144,13 +164,14 @@ mod retry_classification_tests {
         for error in [
             LauncherError::Download("обрыв соединения".to_string()).into(),
             LauncherError::LauncherServer("Не удалось отправить запрос".to_string()).into(),
+            http_status(429),
             http_status(500),
             http_status(502),
             http_status(503),
         ] {
             assert!(
                 is_retryable_failure(&error),
-                "сетевые ошибки и 5xx должны ретраиться: {error:?}"
+                "сетевые ошибки, 429 и 5xx должны ретраиться: {error:?}"
             );
         }
     }
@@ -160,7 +181,7 @@ mod retry_classification_tests {
         for error in [
             http_status(404),
             http_status(403),
-            http_status(429),
+            http_status(401),
             LauncherError::HashMismatch("хеш не совпал".to_string()).into(),
             LauncherError::DiskIo("диск переполнен".to_string()).into(),
             LauncherError::ManifestParse("битый манифест".to_string()).into(),
@@ -186,6 +207,48 @@ mod retry_classification_tests {
         let wrapped_network = anyhow!(LauncherError::Download("таймаут".to_string()))
             .context("Не удалось скачать файл");
         assert!(is_retryable_failure(&wrapped_network));
+
+        let wrapped_rate_limit = anyhow!(LauncherError::HttpStatus {
+            status: 429,
+            message: "слишком много запросов".to_string()
+        })
+        .context("Не удалось скачать файл");
+        assert!(is_retryable_failure(&wrapped_rate_limit));
+    }
+
+    #[test]
+    fn retry_delay_stays_within_half_base_bounds() {
+        for url in [
+            "mods/a.jar",
+            "configs/settings.json",
+            "assets/indexes/1.json",
+        ] {
+            for attempt in 1..=3 {
+                let base_ms = 1000_u64 * 2_u64.pow(attempt as u32);
+                let delay = retry_delay(attempt, url);
+                assert!(
+                    delay.as_millis() >= u128::from(base_ms / 2)
+                        && delay.as_millis() < u128::from(base_ms),
+                    "задержка {attempt} для {url} должна быть в [base/2, base): {delay:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn retry_delay_jitter_spreads_across_urls() {
+        let urls: Vec<String> = (0..24)
+            .map(|index| format!("mods/file-{index}.jar"))
+            .collect();
+        let delays: Vec<u64> = urls
+            .iter()
+            .map(|url| retry_delay(1, url).as_millis() as u64)
+            .collect();
+        let distinct: std::collections::HashSet<u64> = delays.iter().copied().collect();
+        assert!(
+            distinct.len() > 1,
+            "джиттер должен разводить одновременные повторы, а не давать одну задержку: {delays:?}"
+        );
     }
 }
 

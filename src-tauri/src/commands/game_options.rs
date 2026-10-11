@@ -570,7 +570,7 @@ mod tests {
         get_game_options_inner, merge_options, parse_options, save_game_options_inner,
         write_options_file,
     };
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{part_files_in, LauncherDirGuard};
 
     #[test]
     fn merge_replaces_owned_keys_and_keeps_others() {
@@ -768,7 +768,11 @@ mod tests {
             .await
             .expect("повторная запись options.txt");
         assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "fov:90\n");
-        assert!(!part.exists(), ".part не должен оставаться после записи");
+        assert_eq!(
+            part_files_in(path.parent().expect("родительская директория")),
+            vec![part],
+            "успешная запись не должна оставлять своих .part — чужой убирает стартовая чистка"
+        );
     }
 
     #[tokio::test]

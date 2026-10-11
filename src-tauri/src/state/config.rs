@@ -143,7 +143,7 @@ mod tests {
         validate_project_name,
     };
     use crate::state::dto::{GlobalState, ProjectConfig};
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{part_files_in, LauncherDirGuard};
     use tokio::sync::Mutex;
 
     #[test]
@@ -264,7 +264,7 @@ mod tests {
         let path = guard.root().join("project/config/Atomic.toml");
         assert!(path.exists(), "конфиг должен быть записан");
         assert!(
-            !path.with_extension("toml.part").exists(),
+            part_files_in(path.parent().expect("родительская директория")).is_empty(),
             "временный файл .part не должен оставаться после успешной записи"
         );
 
@@ -299,7 +299,11 @@ mod tests {
             .save_config()
             .await
             .expect("повторное сохранение");
-        assert!(!part.exists(), ".part должен быть убран успешной записью");
+        assert_eq!(
+            part_files_in(path.parent().expect("родительская директория")),
+            vec![part],
+            "повторная запись не должна оставлять своих .part — чужой убирает стартовая чистка"
+        );
 
         let again = load_config("Interrupted")
             .await

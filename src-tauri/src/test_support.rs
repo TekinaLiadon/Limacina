@@ -63,6 +63,19 @@ pub fn sha1_hex(data: &[u8]) -> String {
     crate::utils::hex::digest_hex(hasher.finalize())
 }
 
+pub fn part_files_in(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("part"))
+        })
+        .collect()
+}
+
 pub fn library_mod(name: &str, path: &str) -> LibraryMod {
     LibraryMod {
         name: name.to_string(),
@@ -70,6 +83,17 @@ pub fn library_mod(name: &str, path: &str) -> LibraryMod {
         url: String::new(),
         hash: String::new(),
         size: 1,
+    }
+}
+
+pub fn cpm_model_entry(id: Option<i64>, file: &str, offline: bool) -> crate::cpm::CpmModelEntry {
+    crate::cpm::CpmModelEntry {
+        id,
+        file: file.to_string(),
+        name: file.to_string(),
+        url: None,
+        skin_type: None,
+        offline,
     }
 }
 

@@ -5,6 +5,8 @@ import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
 import ModrinthProjectPopup from './ModrinthProjectPopup.vue'
 import ModrinthIcon from './ModrinthIcon.vue'
+import ModrinthInstallActions from './ModrinthInstallActions.vue'
+import ModrinthUpdateBadge from './ModrinthUpdateBadge.vue'
 
 const coreStore = useCoreStore()
 const notificationStore = useNotificationStore()
@@ -29,6 +31,11 @@ const {
   isOpeningFolder,
   actionError,
   installedError,
+  activeHit,
+  isPopupVisible,
+  popupDetails,
+  isPopupLoading,
+  popupError,
   search,
   loadPage,
   loadInstalled,
@@ -36,13 +43,13 @@ const {
   install,
   uninstall,
   openFolder,
+  openDetails,
+  closeDetails,
 } = modrinth
 
 type ModsView = 'catalog' | 'installed'
 
 const activeView = ref<ModsView>('catalog')
-const popupVisible = ref(false)
-const activeHit = ref<ModrinthSearchHit | null>(null)
 
 const sortOptions = MODRINTH_SORTS.map((option) => ({
   title: option.label,
@@ -140,11 +147,6 @@ async function handleUninstall(projectId: string): Promise<void> {
   const confirmed = await notificationStore.confirm('Удалить этот мод из профиля?')
   if (!confirmed) return
   await uninstall(projectId)
-}
-
-function openDetails(hit: ModrinthSearchHit): void {
-  activeHit.value = hit
-  popupVisible.value = true
 }
 
 const popupIsInstalled = computed((): boolean => {
@@ -262,22 +264,21 @@ onMounted(() => {
             <div class="modrinth-tab__row-head">
               <span class="modrinth-tab__row-title">{{ mod.title }}</span>
               <span class="modrinth-tab__badge">{{ mod.version_number }}</span>
-              <span v-if="availableUpdate(mod.project_id)" class="modrinth-tab__badge modrinth-tab__badge--update">
-                Доступно: {{ availableUpdate(mod.project_id) }}
-              </span>
+              <ModrinthUpdateBadge
+                v-if="availableUpdate(mod.project_id)"
+                :version="availableUpdate(mod.project_id) ?? ''"
+              />
             </div>
             <span class="modrinth-tab__row-meta">{{ mod.filename }}</span>
           </div>
           <div class="modrinth-tab__row-actions">
-            <Button
-              v-if="availableUpdate(mod.project_id)"
-              class="btn-primary"
-              :is-loading="isBusy(mod.project_id)"
-              :is-disabled="installingId !== null"
-              @click="handleUpdate(mod.project_id)"
-            >
-              Обновить
-            </Button>
+            <ModrinthInstallActions
+              :is-installed="true"
+              :update-version="availableUpdate(mod.project_id) ?? ''"
+              :is-busy="isBusy(mod.project_id)"
+              :is-busy-any="installingId !== null"
+              @update="handleUpdate(mod.project_id)"
+            />
             <Button
               class="btn-danger"
               :is-loading="isBusy(mod.project_id)"
@@ -359,33 +360,23 @@ onMounted(() => {
             <div class="modrinth-tab__row-head">
               <span class="modrinth-tab__row-title">{{ hit.title }}</span>
               <span v-if="versionText(hit)" class="modrinth-tab__badge">{{ versionText(hit) }}</span>
-              <span v-if="availableUpdate(hit.project_id)" class="modrinth-tab__badge modrinth-tab__badge--update">
-                Доступно: {{ availableUpdate(hit.project_id) }}
-              </span>
+              <ModrinthUpdateBadge
+                v-if="availableUpdate(hit.project_id)"
+                :version="availableUpdate(hit.project_id) ?? ''"
+              />
             </div>
             <p class="modrinth-tab__row-description">{{ hit.description }}</p>
             <span class="modrinth-tab__row-meta">{{ formatNumber(hit.downloads) }} загрузок · {{ hit.author }}</span>
           </div>
           <div class="modrinth-tab__row-actions">
-            <Button
-              v-if="availableUpdate(hit.project_id)"
-              class="btn-primary"
-              :is-loading="isBusy(hit.project_id)"
-              :is-disabled="installingId !== null"
-              @click="handleUpdate(hit.project_id)"
-            >
-              Обновить
-            </Button>
-            <Button
-              v-else-if="!isInstalled(hit)"
-              class="btn-primary"
-              :is-loading="isBusy(hit.project_id)"
-              :is-disabled="installingId !== null"
-              @click="handleInstall(hit)"
-            >
-              Скачать
-            </Button>
-            <span v-else class="modrinth-tab__badge modrinth-tab__badge--installed">Установлен</span>
+            <ModrinthInstallActions
+              :is-installed="isInstalled(hit)"
+              :update-version="availableUpdate(hit.project_id) ?? ''"
+              :is-busy="isBusy(hit.project_id)"
+              :is-busy-any="installingId !== null"
+              @update="handleUpdate(hit.project_id)"
+              @install="handleInstall(hit)"
+            />
             <Button class="btn-secondary" @click="openDetails(hit)">Подробнее</Button>
           </div>
         </article>
@@ -425,15 +416,18 @@ onMounted(() => {
     </section>
 
     <ModrinthProjectPopup
-      :visible="popupVisible"
+      :visible="isPopupVisible"
       :hit="activeHit"
+      :details="popupDetails"
+      :is-loading="isPopupLoading"
+      :load-error="popupError"
       :is-installed="popupIsInstalled"
       :update-version="popupUpdateVersion"
       :is-busy="popupIsBusy"
       :is-busy-any="popupIsBusyAny"
       @install="handlePopupInstall"
       @update="handlePopupUpdate"
-      @close="popupVisible = false"
+      @close="closeDetails"
     />
   </div>
 </template>
@@ -575,14 +569,6 @@ onMounted(() => {
 
   &__badge {
     @include mixins.badge;
-
-    &--update {
-      color: var(--accent-text);
-    }
-
-    &--installed {
-      color: var(--accent-text);
-    }
   }
 
   &__row-actions {

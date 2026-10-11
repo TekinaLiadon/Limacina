@@ -28,7 +28,8 @@ pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
+    crate::minecraft::process::ensure_no_live_game()?;
     start_minecraft_inner(app, state).await
 }
 

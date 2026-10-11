@@ -22,7 +22,7 @@ use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
 pub async fn download_minecraft(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
     download_minecraft_inner(state).await
 }
 
@@ -88,7 +88,7 @@ async fn download_minecraft_inner(
 pub async fn download_server_file(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
     let project_name = state.lock().await.project_config.project_name.clone();
     download_all_files(project_name, &state).await?;
     Ok(())
@@ -96,7 +96,7 @@ pub async fn download_server_file(
 
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
     let project_config = state.lock().await.project_config.clone();
     let (java_path, java_version) =
         LauncherError::classify(install_java(&project_config).await, LauncherError::Java)?;
@@ -113,7 +113,7 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
 pub async fn download_server_mods(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
     let project_name = state.lock().await.project_config.project_name.clone();
     download_mods(project_name, &state).await?;
     Ok(())

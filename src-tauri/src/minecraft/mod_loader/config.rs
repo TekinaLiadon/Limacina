@@ -18,18 +18,12 @@ use crate::{
 };
 use anyhow::Result;
 
-pub(crate) enum LoaderMainClass {
-    FromVersion,
-    FromManifest,
-}
-
 pub(crate) enum VanillaClientJar {
     Keep,
     Drop,
 }
 
 pub(crate) struct LoaderConfigOptions {
-    pub main_class: LoaderMainClass,
     pub vanilla_client_jar: VanillaClientJar,
 }
 
@@ -84,14 +78,21 @@ pub(crate) async fn build_loader_config(
         &loader_jvm_args(&args_map, &manifest)[..],
     ]
     .concat();
-    let main_class = match options.main_class {
-        LoaderMainClass::FromVersion => version.main_class.clone(),
-        LoaderMainClass::FromManifest => manifest.main_class.clone(),
-    };
+    let main_class = require_main_class(def.name, &manifest.main_class)?;
 
     Ok(vanilla_config
         .with_args(jvm_args, game_args)
         .with_loader(clean_classpath, main_class))
+}
+
+pub(crate) fn require_main_class(loader_name: &str, main_class: &str) -> Result<String> {
+    if main_class.is_empty() {
+        return Err(LauncherError::LoaderSetup(format!(
+            "Манифест {loader_name} не содержит mainClass"
+        ))
+        .into());
+    }
+    Ok(main_class.to_string())
 }
 
 async fn merge_loader_classpath(
@@ -114,15 +115,31 @@ async fn merge_loader_classpath(
         VanillaClientJar::Drop => {
             let mut classpath =
                 merge_classpath(&state.project_name, &version.id, libraries, &[]).await?;
-            let client_jar = format!("{}.jar", state.mc_version);
-            classpath.extend(
-                vanilla_classpath
-                    .iter()
-                    .filter(|p| !p.ends_with(&client_jar))
-                    .cloned(),
-            );
+            let client_jar = launcher_path(Some(&state.project_name))
+                .map_err(|e| {
+                    LauncherError::LoaderSetup(format!(
+                        "Не удалось определить путь к файлам проекта: {e:#}"
+                    ))
+                })?
+                .join(format!("{}.jar", state.mc_version));
+            for entry in vanilla_classpath {
+                if is_vanilla_client_jar(entry, &client_jar).await {
+                    continue;
+                }
+                classpath.push(entry.clone());
+            }
             Ok(classpath)
         }
+    }
+}
+
+async fn is_vanilla_client_jar(entry: &str, client_jar: &Path) -> bool {
+    match (
+        tokio::fs::canonicalize(entry).await,
+        tokio::fs::canonicalize(client_jar).await,
+    ) {
+        (Ok(entry_path), Ok(client_path)) => entry_path == client_path,
+        _ => entry.replace('\\', "/") == client_jar.to_string_lossy().replace('\\', "/"),
     }
 }
 

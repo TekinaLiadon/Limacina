@@ -52,6 +52,9 @@
         "languages": [
           "Russian"
         ],
+        "customLanguageFiles": {
+          "Russian": "./windows/languages/Russian.nsh"
+        },
         "compression": "lzma"
       }
     }

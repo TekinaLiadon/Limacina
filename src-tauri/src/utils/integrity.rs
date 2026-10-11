@@ -8,7 +8,7 @@ use crate::log_info;
 use crate::utils::download_file::{download_file, file_sha1};
 use crate::utils::errors::LauncherError;
 use crate::utils::install_manifest::{
-    load_install_manifest, merge_installed, save_install_manifest, InstallManifest,
+    load_install_manifest, manifest_lock, merge_installed, save_install_manifest, InstallManifest,
 };
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 use crate::utils::step_events::{StepChannel, StepHandle};
@@ -264,7 +264,11 @@ where
     .await;
 
     if broken.is_empty() {
-        step.finish(true);
+        if failed.is_empty() {
+            step.finish(true);
+        } else {
+            step.fail(format!("Не удалось прочитать файлов: {}", failed.len()));
+        }
         return Ok(IntegrityReport {
             total,
             missing,
@@ -315,6 +319,8 @@ pub async fn ensure_files(
         return Ok(IntegrityReport::default());
     }
 
+    let manifest_mutex = manifest_lock(project_name).await;
+    let _manifest_guard = manifest_mutex.lock().await;
     let mut installed = load_install_manifest(project_name).await.map_err(|e| {
         LauncherError::ManifestParse(format!(
             "Не удалось загрузить манифест установленных файлов: {e:#}"
@@ -339,7 +345,6 @@ pub async fn ensure_files(
     .await;
 
     if broken.is_empty() {
-        step.clone().finish(true);
         log_info!("[install] Все файлы на месте: {}", total);
         return Ok(IntegrityReport {
             total,
@@ -375,11 +380,8 @@ pub async fn ensure_files(
                     "Не удалось сохранить манифест установленных файлов: {e:#}"
                 ))
             })?;
-        step.clone().finish(false);
     } else {
         let _ = save_install_manifest(project_name, &installed).await;
-        step.clone()
-            .fail(format!("Не удалось скачать файлов: {}", failed.len()));
     }
 
     log_info!(
@@ -398,6 +400,16 @@ pub async fn ensure_files(
     })
 }
 
+pub(crate) fn settle_install_step(step: &StepHandle, report: &IntegrityReport) -> Result<()> {
+    if !report.failed.is_empty() {
+        let message = format!("Не удалось скачать файлов: {}", report.failed.len());
+        step.clone().fail(message.clone());
+        return Err(anyhow::Error::msg(message));
+    }
+    step.clone().finish(report.broken == 0);
+    Ok(())
+}
+
 pub async fn record_installed_hash(
     project_name: &str,
     base_path: &Path,
@@ -408,6 +420,8 @@ pub async fn record_installed_hash(
         return Err(LauncherError::DiskIo(format!("Файл не существует: {file_path:?}")).into());
     }
     let hash = file_sha1(&file_path).await?;
+    let manifest_mutex = manifest_lock(project_name).await;
+    let _manifest_guard = manifest_mutex.lock().await;
     let mut manifest = load_install_manifest(project_name).await.map_err(|e| {
         LauncherError::ManifestParse(format!(
             "Не удалось загрузить манифест установленных файлов: {e:#}"
@@ -662,6 +676,239 @@ mod ensure_files_tests {
             Some(&sha1_hex(&body))
         );
     }
+
+    #[tokio::test]
+    async fn parallel_writers_keep_all_hashes_and_manifest_valid() {
+        let dir = LauncherDirGuard::acquire("manifest_race").await;
+        let mut server = Server::new_async().await;
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("каталог libraries");
+        std::fs::create_dir_all(base.join("mods")).expect("каталог mods");
+
+        let mut records = Vec::new();
+        for i in 0..6u32 {
+            let rel = format!("libraries/lib{i}.jar");
+            std::fs::write(base.join(&rel), format!("lib{i} bytes")).expect("файл библиотеки");
+            let record_base = base.clone();
+            records.push(tokio::spawn(async move {
+                record_installed_hash("Cordelia", &record_base, Path::new(&rel)).await
+            }));
+        }
+
+        let mut targets = Vec::new();
+        for m in 0..2u32 {
+            let body = format!("mod{m} bytes");
+            server
+                .mock("GET", format!("/mods/m{m}.jar").as_str())
+                .with_status(200)
+                .with_body(body.clone())
+                .create_async()
+                .await;
+            targets.push(url_target(
+                &format!("mods/m{m}.jar"),
+                &sha1_hex(body.as_bytes()),
+                format!("{}/mods/m{m}.jar", server.url()),
+            ));
+        }
+        let ensure_base = base.clone();
+        let ensure = tokio::spawn(async move {
+            ensure_files(
+                &StepHandle::start("install", "Тест"),
+                &ensure_base,
+                "Cordelia",
+                targets,
+            )
+            .await
+        });
+
+        for record in records {
+            record
+                .await
+                .expect("задача записи хеша")
+                .expect("параллельная запись хеша");
+        }
+        let report = ensure
+            .await
+            .expect("задача установки")
+            .expect("параллельная установка файлов");
+        assert!(
+            report.failed.is_empty(),
+            "все загрузки должны были пройти: {:?}",
+            report.failed
+        );
+
+        let installed = load_install_manifest("Cordelia")
+            .await
+            .expect("манифест после гонки");
+        for i in 0..6u32 {
+            assert_eq!(
+                installed
+                    .files
+                    .get(&format!("libraries/lib{i}.jar"))
+                    .map(String::as_str),
+                Some(sha1_hex(format!("lib{i} bytes").as_bytes()).as_str()),
+                "хеш lib{i} потерян в гонке записей"
+            );
+        }
+        for m in 0..2u32 {
+            assert_eq!(
+                installed
+                    .files
+                    .get(&format!("mods/m{m}.jar"))
+                    .map(String::as_str),
+                Some(sha1_hex(format!("mod{m} bytes").as_bytes()).as_str()),
+                "хеш m{m} потерян в гонке записей"
+            );
+        }
+
+        let raw =
+            std::fs::read_to_string(dir.root().join("manifest").join("installed_Cordelia.json"))
+                .expect("чтение манифеста с диска");
+        assert!(
+            serde_json::from_str::<InstallManifest>(&raw).is_ok(),
+            "манифест не должен быть torn-файлом: {raw}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_files_emits_no_terminal_events() {
+        use crate::utils::step_events::test_capture;
+        use crate::utils::step_events::StepEvent;
+
+        let dir = LauncherDirGuard::acquire("ensure_no_terminal").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
+        std::fs::write(base.join("libraries/a.jar"), b"content").expect("целый файл");
+
+        let intact_report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![url_target(
+                "libraries/a.jar",
+                &sha1_hex(b"content"),
+                "http://127.0.0.1:1/a".to_string(),
+            )],
+        )
+        .await
+        .expect("отчёт по целым файлам");
+        assert!(intact_report.failed.is_empty());
+
+        std::fs::remove_file(base.join("libraries/a.jar")).expect("удаление файла");
+        std::fs::create_dir(base.join("libraries/a.jar")).expect("нечитаемый файл-каталог");
+
+        let unreadable_report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![url_target(
+                "libraries/a.jar",
+                ZERO_SHA1,
+                "http://127.0.0.1:1/a".to_string(),
+            )],
+        )
+        .await
+        .expect("отчёт по нечитаемым файлам");
+        assert_eq!(
+            unreadable_report.failed,
+            vec!["libraries/a.jar".to_string()]
+        );
+
+        let terminals = test_capture::captured()
+            .into_iter()
+            .filter(|(_, event)| match event {
+                StepEvent::Finished { id, .. } | StepEvent::Failed { id, .. } => id == "install",
+                _ => false,
+            })
+            .count();
+        assert_eq!(
+            terminals, 0,
+            "ensure_files не должен эмитить терминальные события — они за владельцем шага"
+        );
+    }
+
+    #[tokio::test]
+    async fn settle_install_step_fails_on_failed_and_finishes_as_skipped_when_intact() {
+        use crate::utils::step_events::test_capture;
+        use crate::utils::step_events::StepEvent;
+
+        let _capture = test_capture::CaptureGuard::new();
+
+        let failed_report = IntegrityReport {
+            failed: vec!["a.jar".to_string()],
+            ..IntegrityReport::default()
+        };
+        let error =
+            settle_install_step(&StepHandle::start("settle.failed", "Тест"), &failed_report)
+                .expect_err("неудачные скачивания должны фейлить шаг");
+        assert!(
+            error.to_string().contains("Не удалось скачать файлов"),
+            "неожиданная ошибка: {error}"
+        );
+
+        let intact_report = IntegrityReport::default();
+        settle_install_step(&StepHandle::start("settle.skipped", "Тест"), &intact_report)
+            .expect("целые файлы финишируют шаг");
+        let repaired_report = IntegrityReport {
+            broken: 2,
+            ..IntegrityReport::default()
+        };
+        settle_install_step(&StepHandle::start("settle.done", "Тест"), &repaired_report)
+            .expect("отремонтированные файлы финишируют шаг");
+
+        let events = crate::utils::step_events::test_capture::captured();
+        for (id, expected) in [
+            ("settle.failed", false),
+            ("settle.skipped", true),
+            ("settle.done", false),
+        ] {
+            let terminals: Vec<_> = events
+                .iter()
+                .filter(|(_, event)| event_id(event) == id)
+                .filter(|(_, event)| {
+                    matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+                })
+                .collect();
+            assert_eq!(
+                terminals.len(),
+                1,
+                "для шага {id} ожидается ровно одно терминальное событие"
+            );
+            if expected {
+                assert!(
+                    matches!(
+                        terminals.first(),
+                        Some((_, StepEvent::Finished { skipped: true, .. }))
+                    ),
+                    "шаг {id} должен финишировать как пропущенный"
+                );
+            } else if id == "settle.failed" {
+                assert!(
+                    matches!(terminals.first(), Some((_, StepEvent::Failed { .. }))),
+                    "шаг {id} должен фейлиться"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        terminals.first(),
+                        Some((_, StepEvent::Finished { skipped: false, .. }))
+                    ),
+                    "шаг {id} должен финишировать без пропуска"
+                );
+            }
+        }
+
+        fn event_id(event: &crate::utils::step_events::StepEvent) -> &str {
+            match event {
+                crate::utils::step_events::StepEvent::Started { id, .. }
+                | crate::utils::step_events::StepEvent::Progress { id, .. }
+                | crate::utils::step_events::StepEvent::Detail { id, .. }
+                | crate::utils::step_events::StepEvent::Finished { id, .. }
+                | crate::utils::step_events::StepEvent::Failed { id, .. } => id,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -847,5 +1094,52 @@ mod check_integrity_tests {
         assert_eq!(report.broken, 1);
         assert_eq!(report.repaired, 0);
         assert_eq!(report.failed, vec!["a.txt".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn unreadable_files_fail_step_when_nothing_to_repair() {
+        use crate::utils::step_events::test_capture;
+        use crate::utils::step_events::StepEvent;
+
+        let dir = LauncherDirGuard::acquire("integrity_unreadable_early").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries/a.jar")).expect("нечитаемый файл-каталог");
+
+        let report = check_integrity(
+            &base,
+            vec![url_target(
+                "libraries/a.jar",
+                &sha1_hex(b"good jar"),
+                "http://127.0.0.1:1/a".to_string(),
+            )],
+            "files.check",
+            "Файлы сервера",
+            |_url, _dest| async move { Ok(()) },
+        )
+        .await
+        .expect("отчёт проверки");
+
+        assert_eq!(report.failed, vec!["libraries/a.jar".to_string()]);
+        assert_eq!(report.broken, 0);
+
+        let terminals: Vec<_> = test_capture::captured()
+            .into_iter()
+            .filter(|(_, event)| match event {
+                StepEvent::Finished { id, .. } | StepEvent::Failed { id, .. } => {
+                    id == "files.check"
+                }
+                _ => false,
+            })
+            .collect();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "ожидается ровно одно терминальное событие: {terminals:?}"
+        );
+        assert!(
+            matches!(terminals.first(), Some((_, StepEvent::Failed { .. }))),
+            "нечитаемые файлы должны фейлить шаг, а не помечать его пропущенным"
+        );
     }
 }

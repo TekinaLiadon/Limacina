@@ -1,7 +1,7 @@
 use crate::{
     minecraft::{
         mod_loader::{
-            config::{build_loader_config, LoaderConfigOptions, LoaderMainClass, VanillaClientJar},
+            config::{build_loader_config, LoaderConfigOptions, VanillaClientJar},
             installer::setup_loader,
             manifest::{latest_list_version, versions_with_installed, FORGE},
         },
@@ -47,7 +47,6 @@ impl ModLoader for Forge {
             vanilla_config,
             version,
             LoaderConfigOptions {
-                main_class: LoaderMainClass::FromVersion,
                 vanilla_client_jar: VanillaClientJar::Keep,
             },
         )
@@ -138,7 +137,7 @@ mod config_tests {
         assert!(config.game_args.contains(&"--username".to_string()));
         assert!(config.game_args.contains(&"Cordelia".to_string()));
         assert!(config.game_args.contains(&"--fml.forgeVersion".to_string()));
-        assert_eq!(config.main_class, "LoaderMain");
+        assert_eq!(config.main_class, "net.minecraftforge.bootstrap.Bootstrap");
     }
 
     #[tokio::test]
@@ -358,7 +357,10 @@ mod config_tests {
             .iter()
             .chain(config.game_args.iter())
             .any(|arg| arg.contains("${")));
-        assert_eq!(config.main_class, "LoaderMain");
+        assert_eq!(
+            config.main_class,
+            "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        );
     }
 
     #[tokio::test]
@@ -445,6 +447,70 @@ mod config_tests {
         );
         assert!(!config.game_args.iter().any(|arg| arg.contains("${")));
         assert_eq!(config.main_class, "net.minecraft.launchwrapper.Launch");
+    }
+
+    #[tokio::test]
+    async fn forge_config_resolves_main_class_from_installed_manifest_when_list_unpatched() {
+        let dir = LauncherDirGuard::acquire("forge_main_class_manifest").await;
+
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-0.16.9",
+            "net.minecraftforge.bootstrap.Bootstrap",
+            "1.20.1",
+            json!({
+                "game": ["--fml.forgeVersion", "0.16.9"],
+                "jvm": ["-cp", "${classpath}"]
+            }),
+            json!([]),
+        );
+        write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
+
+        let state = loader_project("ForgeMainManifest", "1.20.1", "0.16.9");
+        let version = loader_version_mod("1.20.1-0.16.9", "");
+        let game_root = dir.project_dir("ForgeMainManifest");
+        let vanilla_config = loader_vanilla_config(&game_root, "/game/libraries/vanilla.jar");
+
+        let config = Forge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг Forge");
+
+        assert_eq!(
+            config.main_class, "net.minecraftforge.bootstrap.Bootstrap",
+            "main_class должен браться из установленного манифеста, а не из непропатченной записи списка версий"
+        );
+    }
+
+    #[tokio::test]
+    async fn forge_config_errors_on_empty_manifest_main_class() {
+        let dir = LauncherDirGuard::acquire("forge_main_class_empty").await;
+
+        let manifest_json = loader_manifest(
+            "1.20.1-forge-0.16.9",
+            "",
+            "1.20.1",
+            json!({
+                "game": [],
+                "jvm": []
+            }),
+            json!([]),
+        );
+        write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
+
+        let state = loader_project("ForgeMainEmpty", "1.20.1", "0.16.9");
+        let version = loader_version_mod("1.20.1-0.16.9", "");
+        let game_root = dir.project_dir("ForgeMainEmpty");
+        let vanilla_config = loader_vanilla_config(&game_root, "/game/libraries/vanilla.jar");
+
+        let error = Forge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect_err("пустой mainClass манифеста должен давать явную ошибку");
+
+        assert!(
+            error.to_string().contains("mainClass"),
+            "ошибка должна объяснять проблему с mainClass: {error}"
+        );
     }
 
     #[tokio::test]

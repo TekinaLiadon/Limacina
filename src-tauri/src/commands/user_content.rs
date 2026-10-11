@@ -11,6 +11,7 @@ use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
 use crate::state::config::load_config_or_default;
 use crate::state::dto::{GlobalState, SessionTokens};
+use crate::utils::allowlisted_read::AllowlistedRead;
 use crate::utils::download_file::{download_file, write_atomic};
 use crate::utils::env_info::{ensure_safe_relative_path, launcher_path};
 use crate::utils::hex::digest_hex;
@@ -71,7 +72,6 @@ pub async fn get_session_info(
 
 #[tauri::command]
 pub async fn clear_session(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    crate::state::launch_state::force_release();
     let mut state = state.lock().await;
     state.session = None;
     Ok(())
@@ -143,23 +143,59 @@ fn skin_cache_name(uuid: &str, url: &str) -> Result<String> {
     Ok(name)
 }
 
+fn ensure_skin_origin(url: &str, server_url: Option<&str>) -> Result<()> {
+    let Some(server_url) = server_url else {
+        return Err(LauncherError::InvalidInput(
+            "Скин можно получить только с сервера профиля".to_string(),
+        )
+        .into());
+    };
+    let skin = url::Url::parse(url)
+        .map_err(|_| LauncherError::InvalidInput("Некорректная ссылка на скин".to_string()))?;
+    if !matches!(skin.scheme(), "http" | "https") {
+        return Err(LauncherError::InvalidInput(
+            "Скин можно получить только по http(s)-ссылке".to_string(),
+        )
+        .into());
+    }
+    let origin = url::Url::parse(server_url).map_err(|_| {
+        LauncherError::LauncherServer("Не удалось разобрать адрес сервера профиля".to_string())
+    })?;
+    if skin.scheme() != origin.scheme()
+        || skin.host() != origin.host()
+        || skin.port_or_known_default() != origin.port_or_known_default()
+    {
+        return Err(LauncherError::InvalidInput(
+            "Скин можно получить только с сервера профиля".to_string(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 async fn get_profile_skin_inner(
     state: &State<'_, Mutex<GlobalState>>,
     url: &str,
 ) -> Result<Vec<u8>> {
-    let (project_name, uuid) = {
+    let (project_name, uuid, server_url) = {
         let guard = state.lock().await;
         let uuid = guard
             .session
             .as_ref()
             .map(|s| s.uuid.clone())
             .ok_or(LauncherError::NoSession)?;
-        (guard.project_config.project_name.clone(), uuid)
+        (
+            guard.project_config.project_name.clone(),
+            uuid,
+            guard.project_config.resolved_server_url(),
+        )
     };
 
     if project_name.trim().is_empty() {
         bail!(LauncherError::ProjectNotSelected);
     }
+
+    ensure_skin_origin(url, server_url.as_deref())?;
 
     let cache_dir = launcher_path(Some(&project_name))?.join("profile_skins");
     let file_name = skin_cache_name(&uuid, url)?;
@@ -213,6 +249,8 @@ pub async fn get_profile_skin(
 
 const SKIN_EXT: &str = "png";
 const SKIN_MAX_BYTES: u64 = 256 * 1024;
+const SKIN_FILE_READ: AllowlistedRead =
+    AllowlistedRead::new(SKIN_EXT, SKIN_MAX_BYTES, 1024, "КБ", "скина");
 
 fn ensure_skin_size(len: u64) -> Result<()> {
     if len > SKIN_MAX_BYTES {
@@ -226,30 +264,9 @@ fn ensure_skin_size(len: u64) -> Result<()> {
     Ok(())
 }
 
-fn is_skin_path(path: &str) -> bool {
-    std::path::Path::new(path)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case(SKIN_EXT))
-}
-
 #[tauri::command]
 pub async fn read_skin_file(path: String) -> CommandResult<tauri::ipc::Response> {
-    if !is_skin_path(&path) {
-        return Err(LauncherError::InvalidInput(
-            "Открывать можно только файлы с расширением .png".to_string(),
-        )
-        .into());
-    }
-    let metadata = LauncherError::classify(
-        tokio::fs::metadata(&path)
-            .await
-            .with_context(|| format!("Не удалось прочитать файл скина {:?}", path)),
-        LauncherError::DiskIo,
-    )?;
-    ensure_skin_size(metadata.len())?;
-    let bytes = tokio::fs::read(&path)
-        .await
-        .with_context(|| format!("Не удалось прочитать файл скина {:?}", path))?;
+    let bytes = SKIN_FILE_READ.read(&path).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -434,6 +451,86 @@ mod skin_cache_name_tests {
                 "069a79f4-44e9-4726-a5be-fca90e38aaf5_{}.png",
                 digest_hex(hash)
             )
+        );
+    }
+}
+
+#[cfg(test)]
+mod skin_origin_tests {
+    use super::ensure_skin_origin;
+    use crate::utils::errors::LauncherError;
+
+    const SERVER: &str = "https://mc.example.com";
+
+    #[test]
+    fn same_origin_url_is_allowed() {
+        ensure_skin_origin("https://mc.example.com/skins/1.png", Some(SERVER))
+            .expect("совпадающий origin должен проходить");
+        ensure_skin_origin("https://mc.example.com:443/skins/1.png", Some(SERVER))
+            .expect("порт по умолчанию эквивалентен отсутствию порта");
+    }
+
+    #[test]
+    fn foreign_host_is_rejected() {
+        let error = ensure_skin_origin("https://evil.example/skins/1.png", Some(SERVER))
+            .expect_err("чужой хост должен отклоняться");
+        assert!(
+            error.to_string().contains("только с сервера профиля"),
+            "ошибка должна объяснять причину: {error}"
+        );
+    }
+
+    #[test]
+    fn localhost_ssrf_target_is_rejected() {
+        for url in [
+            "http://127.0.0.1:8080/admin",
+            "http://localhost/metadata",
+            "http://169.254.169.254/latest/meta-data",
+        ] {
+            assert!(
+                ensure_skin_origin(url, Some(SERVER)).is_err(),
+                "внутренний адрес не должен скачиваться: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn different_port_and_scheme_are_rejected() {
+        assert!(ensure_skin_origin("https://mc.example.com:8443/skin.png", Some(SERVER)).is_err());
+        assert!(ensure_skin_origin("http://mc.example.com/skin.png", Some(SERVER)).is_err());
+    }
+
+    #[test]
+    fn non_http_scheme_is_rejected() {
+        for url in [
+            "file:///etc/passwd",
+            "ftp://mc.example.com/skin.png",
+            "\\\\server\\share\\skin.png",
+        ] {
+            let error = ensure_skin_origin(url, Some(SERVER))
+                .expect_err("не-http схема должна отклоняться: {url}");
+            assert!(
+                matches!(
+                    error.downcast_ref::<LauncherError>(),
+                    Some(LauncherError::InvalidInput(_))
+                ),
+                "ожидается InvalidInput для {url}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn unparseable_url_is_rejected() {
+        assert!(ensure_skin_origin("not a url", Some(SERVER)).is_err());
+    }
+
+    #[test]
+    fn missing_server_url_is_rejected() {
+        let error = ensure_skin_origin("https://mc.example.com/skins/1.png", None)
+            .expect_err("без адреса сервера скачивание запрещено");
+        assert!(
+            error.to_string().contains("только с сервера профиля"),
+            "ошибка должна объяснять причину: {error}"
         );
     }
 }

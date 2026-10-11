@@ -7,14 +7,3 @@ export interface TabItem {
   label: string
 }
 
-export interface LauncherBehaviorForm {
-  discordActivity: boolean
-  autoUpdate: boolean
-  keepOldConfigs: boolean
-  startWithSystem: boolean
-  closeAfterLaunch: boolean
-  minimizeToTray: boolean
-  systemNotifications: boolean
-  debugMode: boolean
-  downloadSpeedLimit: string
-}

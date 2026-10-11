@@ -1,4 +1,4 @@
-import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
+import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, reportError } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
 import {
@@ -20,18 +20,20 @@ export interface CpmLayer {
   empty: boolean
 }
 
+const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
+
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
 function collectLayers(children: CPMChild[] | undefined, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
     const empty = child.size !== undefined && isZeroVec(child.size)
-    result.push(reactive({
+    result.push({
       storeId: child.storeID ?? null,
       name: child.name,
       visible: !empty,
       empty,
-    }))
+    })
     collectLayers(child.children, result)
   }
 }
@@ -41,12 +43,13 @@ export function useCpmSettings() {
   const content = useModelUserContent()
   const notification = useNotificationStore()
 
-  const cpmData = ref<CPMData | null>(null)
+  const cpmData = shallowRef<CPMData | null>(null)
   const cpmFileBytes = ref<Uint8Array | null>(null)
   const cpmFileName = ref<string>('')
   const isSaving = ref<boolean>(false)
   const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
+  const hiddenLayerIds = ref<Set<number>>(new Set())
   const modelsLimit = ref<number | null>(null)
   const isLimitLoading = ref<boolean>(false)
   const limitLoadError = ref<string>('')
@@ -62,7 +65,10 @@ export function useCpmSettings() {
     cpmData.value.config.elements.forEach((element) => {
       collectLayers(element.children, layers)
     })
-    return layers
+    return layers.map((layer) => ({
+      ...layer,
+      visible: !layer.empty && !(layer.storeId !== null && hiddenLayerIds.value.has(layer.storeId)),
+    }))
   })
 
   const displayLayers = computed((): CpmLayer[] =>
@@ -75,6 +81,33 @@ export function useCpmSettings() {
       .map((layer) => layer.storeId)
       .filter((storeId): storeId is number => storeId !== null),
   )
+
+  const toggleLayer = (storeId: number | null): void => {
+    if (storeId === null) return
+    const next = new Set(hiddenLayerIds.value)
+    if (next.has(storeId)) {
+      next.delete(storeId)
+    } else {
+      next.add(storeId)
+    }
+    hiddenLayerIds.value = next
+  }
+
+  const setTextureError = (): void => {
+    content.errorMessage.value = TEXTURE_LOAD_ERROR
+  }
+
+  watch(cpmData, (data): void => {
+    if (!data) {
+      hiddenLayerIds.value = new Set()
+      return
+    }
+    const known = new Set<number>()
+    allLayers.value.forEach((layer) => {
+      if (layer.storeId !== null) known.add(layer.storeId)
+    })
+    hiddenLayerIds.value = new Set([...hiddenLayerIds.value].filter((id) => known.has(id)))
+  })
 
   function applyCpmProject(project: CpmProject, bytes: Uint8Array, name: string): void {
     const textureUrl = URL.createObjectURL(project.textureBlob)
@@ -112,6 +145,7 @@ export function useCpmSettings() {
     cpmData.value = null
     cpmFileBytes.value = null
     cpmFileName.value = ''
+    hiddenLayerIds.value = new Set()
     content.errorMessage.value = ''
   }
 
@@ -229,6 +263,8 @@ export function useCpmSettings() {
     showEmptyLayers,
     displayLayers,
     activeLayerIds,
+    toggleLayer,
+    setTextureError,
     isUploading,
     isSaving,
     isOffline: content.isOffline,

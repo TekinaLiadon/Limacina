@@ -10,12 +10,13 @@ use crate::{
     minecraft::{
         manifest::get_manifest_index,
         mod_loader::{
-            config::merge_classpath,
+            config::{merge_classpath, require_main_class},
             fabric::{manifest::transform_fabric_manifest, structs::FabricManifest},
             installer::{find_loader_version, install_version_files},
             manifest::loader_version_or_err,
         },
         structs::{GameConfig, ModLoader, VersionMod},
+        vanilla::config::filter_classpath,
     },
     state::dto::ProjectConfig,
     utils::{compare_versions, env_info::ensure_safe_relative_path},
@@ -91,15 +92,18 @@ impl ModLoader for Fabric {
         version: &VersionMod,
     ) -> Result<GameConfig> {
         log_info!("Соединение classpath");
-        let classpath = merge_classpath(
-            &state.project_name,
-            &version.id,
-            &version.library,
-            &vanilla_config.classpath,
-        )
-        .await?;
+        let classpath = filter_classpath(
+            merge_classpath(
+                &state.project_name,
+                &version.id,
+                &version.library,
+                &vanilla_config.classpath,
+            )
+            .await?,
+        );
+        let main_class = require_main_class("Fabric", &version.main_class)?;
 
-        Ok(vanilla_config.with_loader(classpath, version.main_class.clone()))
+        Ok(vanilla_config.with_loader(classpath, main_class))
     }
 }
 
@@ -224,6 +228,64 @@ mod config_tests {
         assert!(
             error.to_string().contains("-javaagent:evil.jar"),
             "ошибка должна называть аргумент: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fabric_config_filters_shadowed_vanilla_library() {
+        let dir = LauncherDirGuard::acquire("fabric_config_filter").await;
+        let game_root = dir.project_dir("FabFilter");
+        let old_lib = game_root.join("libraries/org/ow2/asm/asm/9.1/asm-9.1.jar");
+        fs::create_dir_all(old_lib.parent().unwrap()).unwrap();
+        fs::write(&old_lib, b"old").unwrap();
+        let new_lib = game_root.join("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar");
+        fs::create_dir_all(new_lib.parent().unwrap()).unwrap();
+        fs::write(&new_lib, b"new").unwrap();
+
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec![],
+            vec![],
+            vec![old_lib.to_string_lossy().into_owned()],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root.clone(),
+        );
+        let version = VersionMod {
+            url: String::new(),
+            id: "1.20.1-fabric0.16.9".to_string(),
+            main_class: "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
+            library: vec![LibraryMod {
+                name: "org.ow2.asm:asm:9.7".to_string(),
+                path: "org/ow2/asm/asm/9.7/asm-9.7.jar".to_string(),
+                url: String::new(),
+                hash: String::new(),
+                size: 1,
+            }],
+        };
+        let state = ProjectConfig {
+            project_name: "FabFilter".to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+
+        let config = Fabric
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг Fabric");
+
+        assert!(
+            config
+                .classpath
+                .contains(&new_lib.to_string_lossy().into_owned()),
+            "новая библиотека лоадера должна остаться: {:?}",
+            config.classpath
+        );
+        assert!(
+            !config
+                .classpath
+                .contains(&old_lib.to_string_lossy().into_owned()),
+            "ванильная запись того же артефакта затеняет новую при first-wins и должна отфильтровываться: {:?}",
+            config.classpath
         );
     }
 

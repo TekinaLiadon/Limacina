@@ -1,7 +1,7 @@
 use crate::{
     minecraft::{
         mod_loader::{
-            config::{build_loader_config, LoaderConfigOptions, LoaderMainClass, VanillaClientJar},
+            config::{build_loader_config, LoaderConfigOptions, VanillaClientJar},
             installer::setup_loader,
             manifest::{latest_list_version, versions_with_installed, NEOFORGE},
         },
@@ -47,7 +47,6 @@ impl ModLoader for NeoForge {
             vanilla_config,
             version,
             LoaderConfigOptions {
-                main_class: LoaderMainClass::FromManifest,
                 vanilla_client_jar: VanillaClientJar::Drop,
             },
         )
@@ -207,6 +206,65 @@ mod tests {
                 .to_string_lossy()
                 .into_owned()
         ));
+    }
+
+    #[tokio::test]
+    async fn neoforge_config_keeps_library_whose_name_ends_with_mc_version() {
+        let dir = LauncherDirGuard::acquire("neoforge_suffix_lib").await;
+
+        let manifest_json = loader_manifest(
+            "neoforge-20.4.237",
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "1.20.4",
+            json!({
+                "game": ["--launchTarget", "forgeclient"],
+                "jvm": ["-cp", "${classpath}"]
+            }),
+            json!([]),
+        );
+        write_loader_manifest(dir.root(), "neoforge_20.4.237", &manifest_json);
+
+        let state = loader_project("NeoSuffix", "1.20.4", "20.4.237");
+        let version = loader_version_mod("1.20.4-20.4.237", "");
+
+        let game_root = dir.project_dir("NeoSuffix");
+        let suffixed_lib = game_root.join("libraries/com/example/oldlib/1.20.4/oldlib-1.20.4.jar");
+        fs::create_dir_all(suffixed_lib.parent().unwrap()).unwrap();
+        fs::write(&suffixed_lib, b"lib").unwrap();
+        let client_jar = game_root.join("1.20.4.jar");
+        fs::write(&client_jar, b"client").unwrap();
+
+        let vanilla_config = GameConfig::new(
+            PathBuf::from("java"),
+            vec![],
+            vec![],
+            vec![
+                client_jar.to_string_lossy().into_owned(),
+                suffixed_lib.to_string_lossy().into_owned(),
+            ],
+            "net.minecraft.client.main.Main".to_string(),
+            game_root.clone(),
+        );
+
+        let config = NeoForge
+            .config(&state, vanilla_config, &version)
+            .await
+            .expect("конфиг NeoForge");
+
+        assert!(
+            !config
+                .classpath
+                .contains(&client_jar.to_string_lossy().into_owned()),
+            "ванильный клиентский jar должен отфильтровываться: {:?}",
+            config.classpath
+        );
+        assert!(
+            config
+                .classpath
+                .contains(&suffixed_lib.to_string_lossy().into_owned()),
+            "библиотека, чей файл оканчивается на версию MC, не должна выпадать из classpath: {:?}",
+            config.classpath
+        );
     }
 
     #[tokio::test]

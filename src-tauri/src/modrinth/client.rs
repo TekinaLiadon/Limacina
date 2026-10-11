@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use super::structs::{ModrinthProject, ModrinthVersion, SearchResponse};
 use crate::log_err;
 use crate::utils::errors::LauncherError;
+use crate::utils::http::request_json;
 
 pub const USER_AGENT: &str = concat!(
     "TekinaLiadon/Limacina/",
@@ -128,15 +129,6 @@ fn cache_insert(cache_key: String, value: serde_json::Value) {
     guard.insert(cache_key, (std::time::Instant::now(), value, size));
 }
 
-async fn send_and_check(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
-    let response = request.send().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось отправить запрос на {url}: {e:#}"))
-    })?;
-    let response = response
-        .error_for_status()
-        .map_err(|e| LauncherError::Modrinth(format!("Modrinth вернул ошибку для {url}: {e:#}")))?;
-    Ok(response)
-}
 async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
     let url = format!("{}{}", api_base(), path);
     let cache_key = build_cache_key(path, query);
@@ -146,7 +138,7 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
             if stored_at.elapsed() < CACHE_TTL {
                 return serde_json::from_value(value).map_err(|e| {
                     LauncherError::Modrinth(format!(
-                        "Не удалось разобрать кешированный ответ от {url}: {e:#}"
+                        "Не удалось разобрать кешированный ответ от {url}: {e}"
                     ))
                     .into()
                 });
@@ -155,16 +147,18 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
     }
 
     let client = modrinth_client()?;
-    let response = send_and_check(client.get(&url).query(query), &url).await?;
-    let value: serde_json::Value = response.json().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}"))
+    let value: serde_json::Value = request_json(
+        client.get(&url).query(query),
+        &format!("Не удалось отправить запрос на {url}"),
+        &format!("Не удалось прочитать ответ от {url}"),
+    )
+    .await?;
+
+    let parsed = serde_json::from_value::<T>(value.clone()).map_err(|e| {
+        LauncherError::Modrinth(format!("Не удалось разобрать ответ от {url}: {e}"))
     })?;
-
-    cache_insert(cache_key, value.clone());
-
-    serde_json::from_value(value).map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось разобрать ответ от {url}: {e:#}")).into()
-    })
+    cache_insert(cache_key, value);
+    Ok(parsed)
 }
 
 fn build_cache_key(path: &str, query: &[(&str, String)]) -> String {
@@ -257,10 +251,12 @@ async fn post_version_files(
     };
     let url = format!("{}{}", api_base(), path);
     let client = modrinth_client()?;
-    let response = send_and_check(client.post(&url).json(&body), &url).await?;
-    response.json().await.map_err(|e| {
-        LauncherError::Modrinth(format!("Не удалось прочитать ответ от {url}: {e:#}")).into()
-    })
+    request_json(
+        client.post(&url).json(&body),
+        &format!("Не удалось отправить запрос на {url}"),
+        &format!("Не удалось прочитать ответ от {url}"),
+    )
+    .await
 }
 
 pub async fn get_versions_from_hashes(
@@ -321,6 +317,58 @@ mod tests {
             project.date_modified.as_deref(),
             Some("2026-09-12T22:49:42.621484Z")
         );
+    }
+
+    #[tokio::test]
+    async fn schema_invalid_response_is_not_cached() {
+        let _dir = LauncherDirGuard::acquire("modrinth_cache_parse_fail").await;
+        let mut server = Server::new_async().await;
+        override_api_base_for_tests(format!("{}/v2", server.url()));
+        clear_cache();
+
+        let mock = server
+            .mock("GET", "/v2/project/Broken")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("<html>not json</html>")
+            .expect(2)
+            .create_async()
+            .await;
+
+        assert!(
+            get_project("Broken").await.is_err(),
+            "html вместо json должен давать ошибку парса"
+        );
+        assert!(
+            get_project("Broken").await.is_err(),
+            "повторный вызов не должен попадать в кеш с битым ответом"
+        );
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn schema_valid_response_is_cached() {
+        let _dir = LauncherDirGuard::acquire("modrinth_cache_parse_ok").await;
+        let mut server = Server::new_async().await;
+        override_api_base_for_tests(format!("{}/v2", server.url()));
+        clear_cache();
+
+        let mock = server
+            .mock("GET", "/v2/project/Ok")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_body(json!({"id": "Ok", "project_type": "mod", "title": "Fine"}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+
+        get_project("Ok").await.expect("первый вызов");
+        let second = get_project("Ok").await.expect("второй вызов из кеша");
+        assert_eq!(second.title, "Fine");
+
+        mock.assert_async().await;
     }
 
     #[test]

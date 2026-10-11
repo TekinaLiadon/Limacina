@@ -303,6 +303,104 @@ describe('useCpmSettings', () => {
     expect(cpm.displayLayers.value.map((layer) => layer.name)).toContain('Expression Happy')
   })
 
+  it('keeps layer visibility choices across the cpm data reload', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [
+          makeElement([
+            makeChild({ name: 'Body', storeID: 5 }),
+            makeChild({ name: 'Cloak', storeID: 7 }),
+          ]),
+        ],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    cpm.toggleLayer(5)
+    expect(cpm.activeLayerIds.value).toEqual([7])
+
+    core.pendingCpmProjectPath = '/models/hero-reload.cpmproject'
+    await vi.waitFor(() => {
+      const body = cpm.displayLayers.value.find((layer) => layer.name === 'Body')
+      expect(body?.visible).toBe(false)
+    })
+
+    expect(cpm.displayLayers.value.map((layer) => layer.name)).toEqual(['Body', 'Cloak'])
+    expect(cpm.activeLayerIds.value).toEqual([7])
+  })
+
+  it('drops hidden layer ids missing from the reloaded model', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [makeElement([makeChild({ name: 'Body', storeID: 5 })])],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    cpm.toggleLayer(5)
+    expect(cpm.activeLayerIds.value).toEqual([])
+
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [makeElement([makeChild({ name: 'Cape', storeID: 9 })])],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    core.pendingCpmProjectPath = '/models/other.cpmproject'
+    await vi.waitFor(() => expect(cpm.activeLayerIds.value).toEqual([9]))
+  })
+
+  it('ignores toggles for layers without a store id', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [makeElement([makeChild({ name: 'Body', storeID: 5 })])],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    cpm.toggleLayer(null)
+    expect(cpm.activeLayerIds.value).toEqual([5])
+  })
+
+  it('sets the texture load error through the composable action', async () => {
+    const cpm = setupCpm()
+    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
+
+    expect(cpm.errorMessage.value).toBe('')
+    cpm.setTextureError()
+
+    expect(cpm.errorMessage.value).toBe('Не удалось загрузить текстуру модели')
+  })
+
   it('uploads the model as a link and registers it in the game', async () => {
     const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)

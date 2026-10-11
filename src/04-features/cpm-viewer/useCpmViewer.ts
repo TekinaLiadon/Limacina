@@ -274,7 +274,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
       const element = node as CPMElement
       const isVanillaRoot = element.customPart !== true && element.dup !== true
       group.userData.storeID = isVanillaRoot
-        ? PLAYER_PART_IDS[element.id]
+        ? (PLAYER_PART_IDS[element.id] ?? element.storeID)
         : element.storeID
       group.userData.isRoot = true
       group.userData.isVanillaPart = isVanillaRoot

@@ -1,3 +1,4 @@
+pub mod allowlisted_read;
 pub mod bandwidth;
 pub mod desktop_entry;
 pub mod download_file;

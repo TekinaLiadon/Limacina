@@ -31,6 +31,8 @@ fn valid_version(version: &str) -> bool {
         && version
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
+        && version.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && version.split('.').all(|segment| !segment.is_empty())
 }
 
 fn update_endpoint(server_url: &str, version: Option<&str>) -> Result<url::Url> {
@@ -152,7 +154,19 @@ mod tests {
                 "версия {version:?} должна проходить чарсет-гейт"
             );
         }
-        for version in ["", "../evil", "a b", "1.2.3/evil", "версия", "%31"] {
+        for version in [
+            "",
+            "..",
+            ".",
+            ".1",
+            "1.",
+            "1..2",
+            "../evil",
+            "a b",
+            "1.2.3/evil",
+            "версия",
+            "%31",
+        ] {
             assert!(
                 !valid_version(version),
                 "версия {version:?} должна отклоняться"
@@ -184,6 +198,8 @@ mod tests {
             error.to_string().contains("Некорректная версия"),
             "ошибка должна называть причину: {error}"
         );
+        assert!(update_endpoint("https://mc.example.com", Some("..")).is_err());
+        assert!(update_endpoint("https://mc.example.com", Some("1..2")).is_err());
         assert!(update_endpoint("https://mc.example.com", Some("a b")).is_err());
         assert!(update_endpoint("https://mc.example.com", Some("")).is_err());
     }

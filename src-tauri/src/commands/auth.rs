@@ -982,7 +982,6 @@ mod account_flow_tests {
 mod restore_session_tests {
     use super::{restore_and_persist_session, restore_session, wipe_project_credentials};
     use crate::auth::storage;
-    use crate::state::dto::ProjectConfig;
     use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
     use mockito::{Matcher, Server};
     use serde_json::json;

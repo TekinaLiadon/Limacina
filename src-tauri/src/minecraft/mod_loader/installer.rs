@@ -21,7 +21,8 @@ use crate::{
         download_file::{download_file, download_json, write_atomic},
         env_info::{ensure_safe_relative_path, launcher_path},
         integrity::{
-            ensure_files, record_installed_hash, HashKind, IntegrityTarget, TargetDownload,
+            ensure_files, record_installed_hash, settle_install_step, HashKind, IntegrityTarget,
+            TargetDownload,
         },
         step_events::StepHandle,
     },
@@ -294,7 +295,8 @@ pub(crate) async fn install_loader_files(
         hash_kind: HashKind::Sha1,
         download: TargetDownload::Url(installer_url.to_string()),
     });
-    step_try!(step, ensure_files(&step, base, project, targets).await);
+    let report = step_try!(step, ensure_files(&step, base, project, targets).await);
+    settle_install_step(&step, &report)?;
     step_try!(
         step,
         record_installed_hash(

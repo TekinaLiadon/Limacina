@@ -25,18 +25,30 @@ async fn save_project_settings(
     state: &Mutex<GlobalState>,
     config: ProjectConfig,
 ) -> Result<ProjectConfig> {
-    let saved = update_project_config(state, async |stored: &mut ProjectConfig| {
-        let mut incoming = config;
-        incoming.java_version = if stored.java_path == incoming.java_path {
+    update_project_config(state, async |stored: &mut ProjectConfig| {
+        if config.project_name != stored.project_name {
+            bail!(LauncherError::ProjectSettingsMismatch(
+                config.project_name.clone(),
+                stored.project_name.clone(),
+            ));
+        }
+        let java_version = if stored.java_path == config.java_path {
             stored.java_version
         } else {
             None
         };
+        let online = stored.online;
+        let server_url = stored.server_url.clone();
+        let initialized = stored.initialized;
+        let mut incoming = config;
+        incoming.java_version = java_version;
+        incoming.online = online;
+        incoming.server_url = server_url;
+        incoming.initialized = initialized;
         *stored = incoming;
         Ok(())
     })
-    .await?;
-    Ok(saved)
+    .await
 }
 
 fn extract_java_major(output: &str) -> Option<u32> {
@@ -55,10 +67,24 @@ fn extract_java_major(output: &str) -> Option<u32> {
 
 #[tauri::command]
 pub async fn probe_java_version(path: String) -> CommandResult<Option<u32>> {
-    let dir = PathBuf::from(&path);
-    if !dir.is_dir() {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(LauncherError::Java("Не указана папка с Java".to_string()).into());
+    }
+    let dir = PathBuf::from(trimmed);
+    if !dir.is_absolute() {
+        return Err(LauncherError::Java(format!(
+            "Путь к папке Java должен быть абсолютным: {trimmed}"
+        ))
+        .into());
+    }
+    let is_dir = tokio::fs::metadata(&dir)
+        .await
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false);
+    if !is_dir {
         return Err(
-            LauncherError::Java(format!("Папка {path} не существует или недоступна")).into(),
+            LauncherError::Java(format!("Папка {trimmed} не существует или недоступна")).into(),
         );
     }
     let executable = blocking(
@@ -199,6 +225,64 @@ async fn clear_minecraft_config_inner(
 }
 
 #[cfg(test)]
+mod probe_java_tests {
+    use super::probe_java_version;
+
+    #[tokio::test]
+    async fn empty_path_is_rejected() {
+        let error = probe_java_version("   ".to_string())
+            .await
+            .expect_err("пустой путь должен отклоняться");
+
+        assert!(
+            error.message.contains("Не указана папка"),
+            "ошибка должна объяснять причину: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn relative_path_is_rejected_before_disk_access() {
+        let error = probe_java_version("java/jdk-21".to_string())
+            .await
+            .expect_err("относительный путь должен отклоняться");
+
+        assert!(
+            error.message.contains("должен быть абсолютным"),
+            "ошибка должна объяснять причину: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_folder_is_rejected() {
+        let missing = std::env::temp_dir().join("limacina_probe_java_missing");
+        let error = probe_java_version(missing.to_string_lossy().into_owned())
+            .await
+            .expect_err("несуществующая папка должна отклоняться");
+
+        assert!(
+            error.message.contains("не существует или недоступна"),
+            "ошибка должна объяснять причину: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_instead_of_folder_is_rejected() {
+        let dir = crate::test_support::TempDir::new("probe_java_file");
+        let file = dir.0.join("java.txt");
+        std::fs::write(&file, b"not a dir").expect("файл-заглушка");
+
+        let error = probe_java_version(file.to_string_lossy().into_owned())
+            .await
+            .expect_err("файл вместо папки должен отклоняться");
+
+        assert!(
+            error.message.contains("не существует или недоступна"),
+            "ошибка должна объяснять причину: {error:?}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod save_settings_tests {
     use super::{
         clear_minecraft_config_inner, extract_java_major, load_settings_project_inner,
@@ -207,6 +291,7 @@ mod save_settings_tests {
     use crate::state::config::{load_config, update_project_config};
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
     use std::time::Duration;
     use tokio::sync::Mutex;
 
@@ -400,6 +485,114 @@ mod save_settings_tests {
         assert_eq!(
             saved.java_version, None,
             "смена java_path сбрасывает версию до нового прогона"
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_save_rejects_project_name_substitution() {
+        let guard = LauncherDirGuard::acquire("settings_name_substitution").await;
+        let base = ProjectConfig {
+            project_name: "Alpha".to_string(),
+            mc_version: "1.20.1".to_string(),
+            max_memory: "-Xmx4G".to_string(),
+            ..ProjectConfig::default()
+        };
+        base.save_config()
+            .await
+            .expect("сохранение базового конфига");
+        let state = Mutex::new(GlobalState {
+            project_config: base,
+            ..Default::default()
+        });
+
+        let payload = ProjectConfig {
+            project_name: "Beta".to_string(),
+            mc_version: "1.20.1".to_string(),
+            max_memory: "-Xmx8G".to_string(),
+            ..ProjectConfig::default()
+        };
+        let error = save_project_settings(&state, payload)
+            .await
+            .expect_err("подмена имени проекта должна отклоняться");
+
+        let typed = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<LauncherError>());
+        assert!(
+            matches!(typed, Some(LauncherError::ProjectSettingsMismatch(..))),
+            "ошибка должна быть типизированной: {error:?}"
+        );
+
+        let config_dir = guard.root().join("project").join("config");
+        assert!(
+            !config_dir.join("Beta.toml").exists(),
+            "TOML чужого проекта не должен создаваться"
+        );
+        let stored = load_config("Alpha").await.expect("чтение конфига Alpha");
+        assert_eq!(
+            stored.max_memory, "-Xmx4G",
+            "исходный конфиг не должен перезаписываться"
+        );
+        let active = state.lock().await.project_config.clone();
+        assert_eq!(
+            active.project_name, "Alpha",
+            "активный проект не должен подменяться в памяти"
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_save_preserves_server_fields_of_online_profile() {
+        let _guard = LauncherDirGuard::acquire("settings_server_fields").await;
+        let base = ProjectConfig {
+            project_name: "Online".to_string(),
+            mc_version: "1.20.1".to_string(),
+            online: true,
+            initialized: true,
+            server_url: Some("https://real.example.com".to_string()),
+            ..ProjectConfig::default()
+        };
+        base.save_config()
+            .await
+            .expect("сохранение базового конфига");
+        let state = Mutex::new(GlobalState {
+            project_config: base,
+            ..Default::default()
+        });
+
+        let payload = ProjectConfig {
+            project_name: "Online".to_string(),
+            mc_version: "1.20.1".to_string(),
+            online: false,
+            initialized: false,
+            server_url: Some("https://evil.example.com".to_string()),
+            max_memory: "-Xmx8G".to_string(),
+            ..ProjectConfig::default()
+        };
+        let saved = save_project_settings(&state, payload)
+            .await
+            .expect("сохранение настроек");
+
+        assert_eq!(
+            saved.max_memory, "-Xmx8G",
+            "пользовательские настройки применяются"
+        );
+        assert!(saved.online, "online не должен перезаписываться входом");
+        assert!(
+            saved.initialized,
+            "initialized не должен перезаписываться входом"
+        );
+        assert_eq!(
+            saved.server_url.as_deref(),
+            Some("https://real.example.com"),
+            "server_url не должен перезаписываться входом"
+        );
+
+        let from_disk = load_config("Online").await.expect("чтение конфига с диска");
+        assert!(from_disk.online);
+        assert!(from_disk.initialized);
+        assert_eq!(
+            from_disk.server_url.as_deref(),
+            Some("https://real.example.com")
         );
     }
 }

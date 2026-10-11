@@ -1,23 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useLauncherSettings } from '@/04-features'
-import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar, LoadErrorRow, type LauncherBehaviorForm } from '@/03-widgets'
+import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar, LoadErrorRow } from '@/03-widgets'
 import { Skeleton } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
 
 const {
+  behaviorForm,
   launcherPath,
-  discordActivity,
-  autoUpdate,
-  keepOldConfigs,
-  startWithSystem,
-  closeAfterLaunch,
-  minimizeToTray,
-  systemNotifications,
-  debugMode,
-  downloadSpeedLimitInput,
   isLoading,
   loadError,
   isSaving,
@@ -26,31 +17,6 @@ const {
   handleSave,
   retryLoad,
 } = useLauncherSettings()
-
-const behaviorForm = computed<LauncherBehaviorForm>({
-  get: () => ({
-    discordActivity: discordActivity.value,
-    autoUpdate: autoUpdate.value,
-    keepOldConfigs: keepOldConfigs.value,
-    startWithSystem: startWithSystem.value,
-    closeAfterLaunch: closeAfterLaunch.value,
-    minimizeToTray: minimizeToTray.value,
-    systemNotifications: systemNotifications.value,
-    debugMode: debugMode.value,
-    downloadSpeedLimit: downloadSpeedLimitInput.value,
-  }),
-  set: (value) => {
-    discordActivity.value = value.discordActivity
-    autoUpdate.value = value.autoUpdate
-    keepOldConfigs.value = value.keepOldConfigs
-    startWithSystem.value = value.startWithSystem
-    closeAfterLaunch.value = value.closeAfterLaunch
-    minimizeToTray.value = value.minimizeToTray
-    systemNotifications.value = value.systemNotifications
-    debugMode.value = value.debugMode
-    downloadSpeedLimitInput.value = value.downloadSpeedLimit
-  },
-})
 </script>
 
 <template>

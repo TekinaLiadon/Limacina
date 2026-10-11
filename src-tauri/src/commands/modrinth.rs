@@ -1,20 +1,34 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use tokio::sync::Mutex;
 
 use crate::modrinth::client;
 use crate::modrinth::install::{
-    check_updates, install_project, sync_installed_from_hashes, uninstall_project, InstallContext,
+    check_updates, install_project, sync_installed_from_scan, uninstall_project, InstallContext,
 };
 use crate::modrinth::structs::{ModrinthManifest, ModrinthProject, ModrinthVersion, SearchHit};
 use crate::state::dto::{GlobalState, ModLoader};
-use crate::utils::download_file::file_sha1;
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 
 const SEARCH_PAGE_LIMIT: u32 = 20;
+const MODRINTH_ID_MAX_LEN: usize = 128;
+
+fn ensure_modrinth_id(id: &str) -> Result<()> {
+    let valid = !id.is_empty()
+        && id.len() <= MODRINTH_ID_MAX_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if valid {
+        return Ok(());
+    }
+    bail!(LauncherError::InvalidInput(format!(
+        "Некорректный идентификатор мода: {id}"
+    )))
+}
 
 #[derive(Serialize)]
 pub struct SearchDto {
@@ -103,64 +117,6 @@ async fn install_context(state: &Mutex<GlobalState>) -> Result<InstallContext> {
     })
 }
 
-async fn collect_installed_hashes(
-    mods_dir: &std::path::Path,
-) -> std::collections::HashMap<String, String> {
-    let mut local_hashes: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-
-    let mut entries = match tokio::fs::read_dir(mods_dir).await {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return local_hashes,
-        Err(e) => {
-            log_err!(
-                "[modrinth] Не удалось прочитать папку модов {:?}: {}",
-                mods_dir,
-                e
-            );
-            return local_hashes;
-        }
-    };
-
-    loop {
-        let entry = match entries.next_entry().await {
-            Ok(Some(entry)) => entry,
-            Ok(None) => break,
-            Err(e) => {
-                log_err!(
-                    "[modrinth] Не удалось прочитать запись в папке модов: {}",
-                    e
-                );
-                break;
-            }
-        };
-
-        if !entry
-            .file_type()
-            .await
-            .map(|t| t.is_file())
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "part") {
-            continue;
-        }
-        let filename = entry.file_name().to_string_lossy().to_string();
-        match file_sha1(&path).await {
-            Ok(hash) => {
-                local_hashes.insert(filename, hash);
-            }
-            Err(e) => {
-                log_err!("[modrinth] Не удалось вычислить хеш {:?}: {}", path, e);
-            }
-        }
-    }
-
-    local_hashes
-}
-
 #[tauri::command]
 pub async fn modrinth_search(
     query: Option<String>,
@@ -191,14 +147,17 @@ pub async fn modrinth_search(
         );
     }
 
-    let result = client::search(
-        query.as_deref().unwrap_or(""),
-        &facets,
-        index.as_deref().unwrap_or("relevance"),
-        offset,
-        SEARCH_PAGE_LIMIT,
-    )
-    .await?;
+    let result = LauncherError::classify(
+        client::search(
+            query.as_deref().unwrap_or(""),
+            &facets,
+            index.as_deref().unwrap_or("relevance"),
+            offset,
+            SEARCH_PAGE_LIMIT,
+        )
+        .await,
+        LauncherError::Modrinth,
+    )?;
 
     let version_ids: Vec<String> = result
         .hits
@@ -234,6 +193,7 @@ pub async fn modrinth_project(
     id: String,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ProjectDetails> {
+    ensure_modrinth_id(&id)?;
     profile_context(&state).await?;
     let project = LauncherError::classify(
         client::get_project(&id)
@@ -256,10 +216,9 @@ pub async fn modrinth_installed(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Vec<InstalledMod>> {
     let ctx = install_context(&state).await?;
-    let local_hashes = collect_installed_hashes(&ctx.mods_dir).await;
 
     let manifest: ModrinthManifest = LauncherError::classify(
-        sync_installed_from_hashes(&ctx, local_hashes).await,
+        sync_installed_from_scan(&ctx).await,
         LauncherError::Modrinth,
     )?;
     let mut mods: Vec<InstalledMod> = manifest
@@ -300,6 +259,7 @@ pub async fn modrinth_install(
     project_id: String,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<InstallResult> {
+    ensure_modrinth_id(&project_id)?;
     let ctx = install_context(&state).await?;
     let report = LauncherError::classify(
         install_project(&ctx, &project_id).await,
@@ -321,12 +281,71 @@ pub async fn modrinth_uninstall(
     project_id: String,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
+    ensure_modrinth_id(&project_id)?;
     let ctx = install_context(&state).await?;
     LauncherError::classify(
         uninstall_project(&ctx, &project_id).await,
         LauncherError::Modrinth,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod modrinth_id_tests {
+    use super::ensure_modrinth_id;
+    use crate::utils::errors::LauncherError;
+
+    #[test]
+    fn plain_ids_and_slugs_pass() {
+        for id in [
+            "AANobbMI",
+            "sodium",
+            "fabric-api_2",
+            "create-1-20-1",
+            "0123456789",
+        ] {
+            ensure_modrinth_id(id)
+                .unwrap_or_else(|e| panic!("корректный идентификатор {id} отклонён: {e:#}"));
+        }
+    }
+
+    #[test]
+    fn url_shaped_and_traversal_ids_are_rejected() {
+        for id in [
+            "",
+            "../evil",
+            "mods/../../escape",
+            "sodium?facet=x",
+            "sodium#fragment",
+            "sodium&other=1",
+            "two words",
+            "id:colon",
+            "id%20encoded",
+        ] {
+            let error = ensure_modrinth_id(id)
+                .err()
+                .unwrap_or_else(|| panic!("некорректный идентификатор {id:?} прошёл проверку"));
+            assert!(
+                matches!(
+                    error.downcast_ref::<LauncherError>(),
+                    Some(LauncherError::InvalidInput(_))
+                ),
+                "ожидается InvalidInput для {id:?}: {error:#}"
+            );
+            assert!(
+                error.to_string().contains("идентификатор мода"),
+                "ошибка должна называть проблему: {error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_id_is_rejected() {
+        let long = "a".repeat(129);
+        assert!(ensure_modrinth_id(&long).is_err());
+        let boundary = "a".repeat(128);
+        ensure_modrinth_id(&boundary).expect("граничная длина допустима");
+    }
 }
 
 #[cfg(test)]
@@ -374,47 +393,5 @@ mod profile_context_tests {
                 loader
             );
         }
-    }
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::collect_installed_hashes;
-    use crate::test_support::LauncherDirGuard;
-
-    #[tokio::test]
-    async fn collect_installed_hashes_skips_entries_with_read_error() {
-        let guard = LauncherDirGuard::acquire("modrinth_installed_scan").await;
-        let mods_dir = guard.project_dir("Proj").join("mods");
-        tokio::fs::create_dir_all(&mods_dir)
-            .await
-            .expect("создание папки модов");
-        tokio::fs::write(mods_dir.join("good.jar"), b"jar-content")
-            .await
-            .expect("запись мода");
-
-        let unreadable = mods_dir.join("broken.jar");
-        tokio::fs::write(&unreadable, b"broken")
-            .await
-            .expect("запись проблемного мода");
-        deny_read_permission(&unreadable);
-
-        let hashes = collect_installed_hashes(&mods_dir).await;
-        assert_eq!(
-            hashes.len(),
-            1,
-            "скан должен продолжиться после ошибки чтения"
-        );
-        assert!(hashes.contains_key("good.jar"));
-    }
-
-    fn deny_read_permission(path: &std::path::Path) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut permissions = std::fs::metadata(path)
-            .expect("метаданные проблемного мода")
-            .permissions();
-        permissions.set_mode(0o000);
-        std::fs::set_permissions(path, permissions).expect("права на проблемный мод");
     }
 }

@@ -14,6 +14,7 @@ use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_se
 use crate::utils::errors::LauncherError;
 use crate::utils::http::{http_client, with_launcher_id};
 
+#[derive(Debug)]
 pub struct InitPaths {
     pub base: PathBuf,
     pub project: PathBuf,
@@ -25,8 +26,7 @@ pub struct InitPaths {
 impl InitPaths {
     pub fn new(parent_path: &str) -> Result<Self> {
         let name = get_launcher_name();
-        let base =
-            PathBuf::from(parent_path.replace('/', std::path::MAIN_SEPARATOR_STR)).join(&name);
+        let base = crate::utils::env_info::canonicalize_parent_path(parent_path)?.join(&name);
         Ok(Self {
             project: base.join("project"),
             config: base.join("project").join("config"),
@@ -182,8 +182,10 @@ mod tests {
     use crate::state::dto::GlobalState;
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use crate::utils::env_info::get_launcher_name;
     use mockito::Server;
     use std::fs;
+    use std::path::PathBuf;
     use tokio::sync::Mutex;
 
     use super::{init_launcher, init_project_config, InitPaths};
@@ -241,6 +243,27 @@ mod tests {
             .map(|entries| entries.count())
             .unwrap_or(0);
         assert_eq!(written, 0, "в config не должно быть записей");
+    }
+
+    #[test]
+    fn init_paths_reject_traversal_parent() {
+        let error = InitPaths::new("/tmp/limacina_test/../etc")
+            .expect_err("обход «..» в родительском пути должен отклоняться");
+        assert!(
+            error.to_string().contains("«..»"),
+            "ошибка должна называть причину: {error}"
+        );
+    }
+
+    #[test]
+    fn init_paths_normalize_separators_and_keep_tail() {
+        let paths = InitPaths::new("/tmp/limacina_init_paths_probe/selected")
+            .expect("несуществующий хвост допустим");
+
+        assert_eq!(
+            paths.base,
+            PathBuf::from("/tmp/limacina_init_paths_probe/selected").join(get_launcher_name())
+        );
     }
 
     #[tokio::test]

@@ -944,7 +944,7 @@ Function PageWelcome
   SendMessage $0 ${WM_SETFONT} $FontText 1
   IntOp $2 $BodyTop + $1
   IntOp $2 $2 + $1
-  ${NSD_CreateLabel} $ContentX $2 $ContentW $1 "Перед продолжением рекомендуем закрыть другие приложения."
+  ${NSD_CreateLabel} $ContentX $2 $ContentW $1 "Перед продолжением рекомендуется закрыть другие приложения."
   Pop $0
   SetCtlColors $0 ${COLOR_BODY} ${COLOR_BG}
   SendMessage $0 ${WM_SETFONT} $FontText 1
@@ -996,12 +996,13 @@ Function PageReinstall
   ${IfThen} "$R0$R1" == "" ${|} Abort ${|}
 
   compare_version:
+  StrCpy $R4 "$(older)"
   ${If} $WixMode = 1
     ReadRegStr $R0 HKLM "$R6" "DisplayVersion"
   ${Else}
     ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${EndIf}
-  ${IfThen} $R0 == "" ${|} StrCpy $R4 "unknown" ${|}
+  ${IfThen} $R0 == "" ${|} StrCpy $R4 "$(unknown)" ${|}
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
@@ -1037,7 +1038,7 @@ Function PageReinstall
     SetCtlColors $DIALOG "" ${COLOR_BG}
     ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
 
-    !insertmacro DrawSidebar 1 "Приветствие" "Папка установки" "Установка" "Завершение" 0
+    !insertmacro DrawSidebar 1 "Приветствие" "Папка установки" "Установка" "Завершение" 1
     !insertmacro PageHeading 1 "$(alreadyInstalled)" "$R1" $SubH2
 
     !insertmacro ScaleTo $1 44
@@ -1608,7 +1609,7 @@ Function un.PageConfirm
   !insertmacro PageHeading 1 "Удаление ${PRODUCTNAME}" "Приложение будет удалено с этого компьютера" $SubH
 
   !insertmacro ScaleTo $1 18
-  ${NSD_CreateLabel} $ContentX $BodyTop $ContentW $1 "Папка, из которой будет удалён ${PRODUCTNAME}:"
+  ${NSD_CreateLabel} $ContentX $BodyTop $ContentW $1 "Папка установки ${PRODUCTNAME}:"
   Pop $0
   SetCtlColors $0 ${COLOR_BODY} ${COLOR_BG}
   SendMessage $0 ${WM_SETFONT} $FontText 1
@@ -1626,7 +1627,7 @@ Function un.PageConfirm
   !insertmacro ScaleTo $2 14
   IntOp $3 $3 + 44
   IntOp $3 $3 + $2
-  ${NSD_CreateCheckbox} $ContentX $3 $ContentW $1 "Удалить настройки и данные пользователя"
+  ${NSD_CreateCheckbox} $ContentX $3 $ContentW $1 "Удалить настройки и данные игр"
   Pop $UserDataCheckbox
   System::Call 'uxtheme::SetWindowTheme(p $UserDataCheckbox, w "", w "")'
   SendMessage $UserDataCheckbox ${WM_SETFONT} $FontText 1

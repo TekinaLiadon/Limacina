@@ -13,6 +13,8 @@ const {
   showEmptyLayers,
   displayLayers,
   activeLayerIds,
+  toggleLayer,
+  setTextureError,
   isUploading,
   isSaving,
   isOffline,
@@ -99,7 +101,7 @@ const applyLimitInput = async (): Promise<void> => {
         :is-animation-looped="isAnimationLooped"
         @playing-changed="setPlaying"
         @animation-finished="setPlaying(false)"
-        @load-error="errorMessage = 'Не удалось загрузить текстуру модели'"
+        @load-error="setTextureError"
       />
       <template #bottom>
         <CpmAnimationBar
@@ -134,8 +136,10 @@ const applyLimitInput = async (): Promise<void> => {
         <Checkbox
           v-for="layer in displayLayers"
           :key="layer.storeId ?? layer.name"
-          v-model="layer.visible"
+          :model-value="layer.visible"
+          :disabled="layer.storeId === null"
           :label="layer.name"
+          @update:model-value="toggleLayer(layer.storeId)"
         />
       </div>
     </div>

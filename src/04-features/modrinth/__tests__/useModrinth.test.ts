@@ -14,6 +14,7 @@ import {
   useCoreStore,
   type ModrinthInstallResult,
   type ModrinthInstalledMod,
+  type ModrinthProjectDetails,
   type ModrinthSearchHit,
   type ModrinthSearchResult,
   type ModrinthUpdateCheck,
@@ -392,6 +393,92 @@ describe('useModrinth', () => {
     await fetchModrinthProjectDetails('a')
 
     expect(modrinthProject).toHaveBeenCalledWith('a')
+  })
+
+  it('opens the details popup and loads the project details', async () => {
+    const details = { project: { id: 'a' }, versions: [] } as never
+    vi.mocked(modrinthProject).mockResolvedValue(details)
+    const mods = useModrinth()
+
+    mods.openDetails(makeHit('a'))
+
+    expect(mods.isPopupVisible.value).toBe(true)
+    expect(mods.activeHit.value?.project_id).toBe('a')
+    expect(mods.isPopupLoading.value).toBe(true)
+
+    await vi.waitFor(() => expect(mods.popupDetails.value).toStrictEqual(details))
+    expect(mods.isPopupLoading.value).toBe(false)
+    expect(mods.popupError.value).toBe('')
+  })
+
+  it('closes the popup without wiping the loaded details', async () => {
+    const details = { project: { id: 'a' }, versions: [] } as never
+    vi.mocked(modrinthProject).mockResolvedValue(details)
+    const mods = useModrinth()
+    mods.openDetails(makeHit('a'))
+    await vi.waitFor(() => expect(mods.popupDetails.value).toStrictEqual(details))
+
+    mods.closeDetails()
+
+    expect(mods.isPopupVisible.value).toBe(false)
+    expect(mods.popupDetails.value).toStrictEqual(details)
+  })
+
+  it('surfaces the details error in the popup', async () => {
+    vi.mocked(modrinthProject).mockRejectedValue(new Error('api недоступен'))
+    const mods = useModrinth()
+
+    mods.openDetails(makeHit('a'))
+
+    await vi.waitFor(() => expect(mods.popupError.value).toBe('api недоступен'))
+    expect(mods.isPopupLoading.value).toBe(false)
+    expect(mods.popupDetails.value).toBeNull()
+  })
+
+  it('drops the stale details response after another hit opens', async () => {
+    const firstDetails = { project: { id: 'first' }, versions: [] } as never
+    const secondDetails = { project: { id: 'second' }, versions: [] } as never
+    let releaseFirst: (details: ModrinthProjectDetails) => void = () => {}
+    vi.mocked(modrinthProject)
+      .mockImplementationOnce(
+        () =>
+          new Promise<ModrinthProjectDetails>((resolve) => {
+            releaseFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce(secondDetails)
+    const mods = useModrinth()
+
+    mods.openDetails(makeHit('first'))
+    mods.openDetails(makeHit('second'))
+    await vi.waitFor(() => expect(mods.popupDetails.value).toStrictEqual(secondDetails))
+
+    releaseFirst(firstDetails)
+    await vi.waitFor(() => expect(mods.isPopupLoading.value).toBe(false))
+
+    expect(mods.popupDetails.value).toStrictEqual(secondDetails)
+    expect(mods.popupError.value).toBe('')
+  })
+
+  it('resets the popup state when the project switches', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    vi.mocked(modrinthProject).mockImplementation(() => new Promise(() => {}))
+    vi.mocked(modrinthInstalled).mockResolvedValue([])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult())
+    const mods = useModrinth()
+
+    mods.openDetails(makeHit('a'))
+    expect(mods.isPopupVisible.value).toBe(true)
+
+    core.currentProject = 'new'
+    await nextTick()
+
+    expect(mods.isPopupVisible.value).toBe(false)
+    expect(mods.activeHit.value).toBeNull()
+    expect(mods.popupDetails.value).toBeNull()
+    expect(mods.isPopupLoading.value).toBe(false)
+    expect(mods.popupError.value).toBe('')
   })
 
   it('reloads the tab state when the project switches', async () => {

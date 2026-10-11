@@ -1,5 +1,6 @@
 mod auth;
 mod commands;
+mod cpm;
 mod discord;
 mod init;
 mod java;

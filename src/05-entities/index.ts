@@ -51,7 +51,7 @@ export { useSettingsStore } from './settings/settingsStore'
 export { useSettingsDirtyStore, bindSettingsDirtyTab } from './settings/settingsDirtyStore'
 export type { SettingsDirtyTab } from './settings/settingsDirtyStore'
 export { THEME_FAMILIES, parseThemeId, normalizeTheme } from './settings/themes'
-export type { ThemeFamily, ThemeMode, ThemePreview } from './settings/types'
+export type { ThemeFamily, ThemeMode, ThemePreview, LauncherBehaviorForm } from './settings/types'
 
 export { useNotificationStore } from './notification/notificationStore'
 

@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::path::PathBuf;
 use sysinfo::System;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -184,27 +183,24 @@ pub async fn save_launcher_config(
     state: State<'_, Mutex<GlobalState>>,
     parent_path: String,
 ) -> CommandResult<LauncherConfig> {
+    Ok(save_launcher_config_inner(&state, parent_path).await?)
+}
+
+async fn save_launcher_config_inner(
+    state: &Mutex<GlobalState>,
+    parent_path: String,
+) -> anyhow::Result<LauncherConfig> {
     let name = get_launcher_name();
-    let launcher_path = PathBuf::from(&parent_path)
-        .join(&name)
-        .to_string_lossy()
-        .to_string();
-
-    let config = update_launcher_config(&state, |config| {
-        config.launcher_path = launcher_path.clone();
-    })
-    .await?;
-
-    let base = PathBuf::from(&config.launcher_path);
-    let dirs_to_create = [
-        base.clone(),
-        base.join("project"),
-        base.join("manifest"),
-        base.join("java"),
-    ];
-    blocking(
+    let launcher_path = blocking(
         "Не удалось выполнить создание папок",
-        move || {
+        move || -> anyhow::Result<String> {
+            let base = crate::utils::env_info::canonicalize_parent_path(&parent_path)?.join(&name);
+            let dirs_to_create = [
+                base.clone(),
+                base.join("project"),
+                base.join("manifest"),
+                base.join("java"),
+            ];
             for dir in dirs_to_create {
                 std::fs::create_dir_all(&dir).map_err(|e| {
                     anyhow::Error::new(LauncherError::DiskIo(format!(
@@ -214,10 +210,15 @@ pub async fn save_launcher_config(
                     )))
                 })?;
             }
-            Ok::<(), anyhow::Error>(())
+            Ok(base.to_string_lossy().to_string())
         },
     )
     .await??;
+
+    let config = update_launcher_config(state, |config| {
+        config.launcher_path = launcher_path.clone();
+    })
+    .await?;
 
     Ok(config)
 }
@@ -461,5 +462,64 @@ mod update_flow_tests {
             data.launcher_config.is_none(),
             "при нечитаемом конфиге инициализация продолжает работу без него"
         );
+    }
+
+    #[tokio::test]
+    async fn save_config_rejects_traversal_parent_without_touching_disk() {
+        let dir_guard = LauncherDirGuard::acquire("launcher_config_traversal").await;
+        let _path_guard = ConfigFileGuard::acquire(dir_guard.root(), "config.json");
+        let state = Mutex::new(GlobalState::default());
+        let parent = dir_guard
+            .root()
+            .join("selected")
+            .join("..")
+            .join("..")
+            .join("escape");
+
+        let error = save_launcher_config_inner(&state, parent.to_string_lossy().into_owned())
+            .await
+            .expect_err("обход «..» в пути установки должен отклоняться");
+
+        assert!(
+            error.to_string().contains("«..»"),
+            "ошибка должна называть причину: {error}"
+        );
+        assert!(
+            state.lock().await.launcher_config.is_none(),
+            "конфиг не должен сохраняться при некорректном пути"
+        );
+        assert!(
+            !dir_guard.root().join("escape").exists(),
+            "папки за пределами выбранного каталога не должны создаваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_config_creates_dirs_and_persists_canonical_path() {
+        let dir_guard = LauncherDirGuard::acquire("launcher_config_save").await;
+        let _path_guard = ConfigFileGuard::acquire(dir_guard.root(), "config.json");
+        let state = Mutex::new(GlobalState::default());
+        let parent = dir_guard.root().join("selected");
+
+        let config = save_launcher_config_inner(&state, parent.to_string_lossy().into_owned())
+            .await
+            .expect("валидный путь установки");
+
+        let expected_base = parent.join(crate::utils::env_info::get_launcher_name());
+        assert_eq!(
+            std::path::PathBuf::from(&config.launcher_path),
+            expected_base
+        );
+        for dir in ["project", "manifest", "java"] {
+            assert!(
+                expected_base.join(dir).is_dir(),
+                "папка {dir} должна быть создана"
+            );
+        }
+
+        let saved = LauncherConfig::load()
+            .expect("чтение сохраненного конфига")
+            .expect("конфиг должен быть записан");
+        assert_eq!(saved.launcher_path, config.launcher_path);
     }
 }

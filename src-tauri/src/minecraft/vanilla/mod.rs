@@ -28,7 +28,7 @@ use crate::{
         blocking,
         env_info::launcher_path,
         errors::LauncherError,
-        integrity::{ensure_files, IntegrityTarget},
+        integrity::{ensure_files, settle_install_step, IntegrityTarget},
         java::find_java,
         step_events::StepHandle,
     },
@@ -49,12 +49,11 @@ impl VanillaPhaseExecutor for InstallPhases {
         targets: Vec<IntegrityTarget>,
     ) -> Result<()> {
         let step = StepHandle::start(phase.id, phase.label);
-        step_try!(
+        let report = step_try!(
             step,
             ensure_files(&step, &self.base_path, &self.project_name, targets).await
         );
-        step.finish(false);
-        Ok(())
+        settle_install_step(&step, &report)
     }
 
     async fn natives(
@@ -80,10 +79,11 @@ impl VanillaPhaseExecutor for InstallPhases {
     async fn asset_index(&mut self, target: IntegrityTarget) -> Result<AssetIndexContent> {
         let step = StepHandle::start(PHASE_ASSET_INDEX.id, PHASE_ASSET_INDEX.label);
         let index_rel = target.rel_path.clone();
-        step_try!(
+        let report = step_try!(
             step,
             ensure_files(&step, &self.base_path, &self.project_name, vec![target]).await
         );
+        settle_install_step(&step, &report)?;
 
         let index_path = self.base_path.join(&index_rel);
         let asset_index = match read_asset_index(&index_path).await {
@@ -190,5 +190,133 @@ impl MinecraftLoader for Vanilla {
             manifest_version.main_class,
             game_dir,
         ))
+    }
+}
+
+#[cfg(test)]
+mod install_phases_tests {
+    use super::InstallPhases;
+    use crate::minecraft::vanilla::download::PHASE_CLIENT;
+    use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
+    use crate::utils::step_events::test_capture;
+    use crate::utils::step_events::StepEvent;
+    use mockito::Server;
+    use std::path::PathBuf;
+
+    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+        IntegrityTarget {
+            rel_path: PathBuf::from(rel),
+            hash: hash.to_string(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(url),
+        }
+    }
+
+    fn event_id(event: &StepEvent) -> &str {
+        match event {
+            StepEvent::Started { id, .. }
+            | StepEvent::Progress { id, .. }
+            | StepEvent::Detail { id, .. }
+            | StepEvent::Finished { id, .. }
+            | StepEvent::Failed { id, .. } => id,
+        }
+    }
+
+    fn terminals(id: &str) -> Vec<StepEvent> {
+        test_capture::captured()
+            .into_iter()
+            .filter(|(_, event)| event_id(event) == id)
+            .filter(|(_, event)| {
+                matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+            })
+            .map(|(_, event)| event)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn fetch_intact_files_finish_step_once_as_skipped() {
+        let dir = LauncherDirGuard::acquire("vanilla_fetch_intact").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
+        std::fs::write(base.join("libraries/a.jar"), b"content").expect("целый файл");
+
+        let mut phases = InstallPhases {
+            base_path: base,
+            project_name: "Cordelia".to_string(),
+        };
+
+        phases
+            .fetch(
+                &PHASE_CLIENT,
+                vec![url_target(
+                    "libraries/a.jar",
+                    &sha1_hex(b"content"),
+                    "http://127.0.0.1:1/a".to_string(),
+                )],
+            )
+            .await
+            .expect("фаза с целыми файлами");
+
+        let step_terminals = terminals(PHASE_CLIENT.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие на шаг: {step_terminals:?}"
+        );
+        assert!(
+            matches!(
+                step_terminals.first(),
+                Some(StepEvent::Finished { skipped: true, .. })
+            ),
+            "шаг без скачиваний должен финишировать как пропущенный: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_failed_download_fails_step_once() {
+        let dir = LauncherDirGuard::acquire("vanilla_fetch_failed").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(404)
+            .create_async()
+            .await;
+        let base = dir.project_dir("Cordelia");
+
+        let mut phases = InstallPhases {
+            base_path: base,
+            project_name: "Cordelia".to_string(),
+        };
+
+        let error = phases
+            .fetch(
+                &PHASE_CLIENT,
+                vec![url_target(
+                    "libraries/a.jar",
+                    &sha1_hex(b"good jar"),
+                    format!("{}/libs/a.jar", server.url()),
+                )],
+            )
+            .await
+            .expect_err("неудачное скачивание должно прерывать фазу");
+
+        assert!(
+            error.to_string().contains("Не удалось скачать файлов"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = terminals(PHASE_CLIENT.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться, а не финишировать: {step_terminals:?}"
+        );
     }
 }

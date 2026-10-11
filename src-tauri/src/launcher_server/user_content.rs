@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::launcher_server::with_session_retry;
 use crate::log_info;
 use crate::state::dto::GlobalState;
 use crate::utils::errors::LauncherError;
@@ -18,42 +19,32 @@ pub struct UserContentItem {
 }
 
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {
-    LauncherError::classify(
-        request_json(
-            with_launcher_id(
-                crate::utils::http::http_client()
-                    .get(url)
-                    .bearer_auth(token),
-            ),
-            "Не удалось подключиться к серверу",
-            "Не удалось распарсить ответ сервера",
-        )
-        .await,
-        LauncherError::LauncherServer,
+    request_json(
+        with_launcher_id(
+            crate::utils::http::http_client()
+                .get(url)
+                .bearer_auth(token),
+        ),
+        "Не удалось подключиться к серверу",
+        "Не удалось распарсить ответ сервера",
     )
+    .await
 }
 
 async fn api_delete(url: &str, token: &str) -> Result<()> {
-    let result = async {
-        let client = crate::utils::http::http_client();
-        let response = require_success(
-            with_launcher_id(client.delete(url).bearer_auth(token))
-                .send()
-                .await
-                .map_err(|e| {
-                    LauncherError::LauncherServer(format!(
-                        "Не удалось подключиться к серверу: {e:#}"
-                    ))
-                })?,
-        )
-        .await?;
+    let client = crate::utils::http::http_client();
+    let response = require_success(
+        with_launcher_id(client.delete(url).bearer_auth(token))
+            .send()
+            .await
+            .map_err(|e| {
+                LauncherError::LauncherServer(format!("Не удалось подключиться к серверу: {e:#}"))
+            })?,
+    )
+    .await?;
 
-        let _ = response;
-        Ok(())
-    }
-    .await;
-
-    LauncherError::classify(result, LauncherError::LauncherServer)
+    let _ = response;
+    Ok(())
 }
 
 async fn upload_multipart(
@@ -65,34 +56,29 @@ async fn upload_multipart(
     send_context: &'static str,
     parse_context: &'static str,
 ) -> Result<UserContentItem> {
-    let result = async {
-        let part = reqwest::multipart::Part::bytes(file_data)
-            .file_name(file_name.to_string())
-            .mime_str(mime)
-            .map_err(|e| {
-                LauncherError::LauncherServer(format!("Не удалось создать multipart part: {e:#}"))
-            })?;
+    let part = reqwest::multipart::Part::bytes(file_data)
+        .file_name(file_name.to_string())
+        .mime_str(mime)
+        .map_err(|e| {
+            LauncherError::LauncherServer(format!("Не удалось создать multipart part: {e:#}"))
+        })?;
 
-        let form = reqwest::multipart::Form::new().part("file", part);
+    let form = reqwest::multipart::Form::new().part("file", part);
 
-        let client = crate::utils::http::http_client();
-        let response = require_success(
-            with_launcher_id(client.post(url).bearer_auth(token).multipart(form))
-                .send()
-                .await
-                .map_err(|e| LauncherError::LauncherServer(format!("{send_context}: {e:#}")))?,
-        )
-        .await?;
-
-        let item: UserContentItem = response
-            .json()
+    let client = crate::utils::http::http_client();
+    let response = require_success(
+        with_launcher_id(client.post(url).bearer_auth(token).multipart(form))
+            .send()
             .await
-            .map_err(|e| LauncherError::LauncherServer(format!("{parse_context}: {e:#}")))?;
-        Ok(item)
-    }
-    .await;
+            .map_err(|e| LauncherError::LauncherServer(format!("{send_context}: {e:#}")))?,
+    )
+    .await?;
 
-    LauncherError::classify(result, LauncherError::LauncherServer)
+    let item: UserContentItem = response
+        .json()
+        .await
+        .map_err(|e| LauncherError::LauncherServer(format!("{parse_context}: {e:#}")))?;
+    Ok(item)
 }
 
 pub async fn upload_skin(
@@ -100,27 +86,35 @@ pub async fn upload_skin(
     file_data: Vec<u8>,
     model: Option<&str>,
 ) -> Result<UserContentItem> {
-    let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let mut url = format!("{}/v1/common/content/skins", server_url);
-    if let Some(model) = model {
-        url.push_str("?model=");
-        url.push_str(model);
-    }
+    let result = with_session_retry(state, || {
+        let file_data = file_data.clone();
+        async {
+            let (token, server_url) = crate::launcher_server::api_context(state).await?;
+            let mut url = format!("{}/v1/common/content/skins", server_url);
+            if let Some(model) = model {
+                url.push_str("?model=");
+                url.push_str(model);
+            }
 
-    let item = upload_multipart(
-        &url,
-        &token,
-        file_data,
-        "skin.png",
-        "image/png",
-        "Не удалось загрузить скин",
-        "Не удалось распарсить ответ загрузки скина",
-    )
-    .await?;
+            let item = upload_multipart(
+                &url,
+                &token,
+                file_data,
+                "skin.png",
+                "image/png",
+                "Не удалось загрузить скин",
+                "Не удалось распарсить ответ загрузки скина",
+            )
+            .await?;
 
-    log_info!("Скин загружен: {:?}", item.url);
+            log_info!("Скин загружен: {:?}", item.url);
 
-    Ok(item)
+            Ok(item)
+        }
+    })
+    .await;
+
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 async fn list_content(
@@ -147,18 +141,21 @@ async fn delete_content(
 }
 
 pub async fn list_skins(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
-    list_content(state, "skins", uuid).await
+    let result = with_session_retry(state, || list_content(state, "skins", uuid.clone())).await;
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn delete_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    delete_content(state, "skins", id, "Скин удалён").await
+    let result =
+        with_session_retry(state, || delete_content(state, "skins", id, "Скин удалён")).await;
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let url = format!("{}/v1/common/content/skins/active", server_url);
+    let result = with_session_retry(state, || async {
+        let (token, server_url) = crate::launcher_server::api_context(state).await?;
+        let url = format!("{}/v1/common/content/skins/active", server_url);
 
-    let result = async {
         let client = crate::utils::http::http_client();
         let response = require_success(
             with_launcher_id(
@@ -179,7 +176,7 @@ pub async fn set_active_skin(state: &Mutex<GlobalState>, id: i64) -> Result<()> 
         log_info!("Активный скин изменён: id={}", id);
 
         Ok(())
-    }
+    })
     .await;
 
     LauncherError::classify(result, LauncherError::LauncherServer)
@@ -189,38 +186,54 @@ pub async fn upload_model(
     state: &Mutex<GlobalState>,
     file_content: String,
 ) -> Result<UserContentItem> {
-    let (token, server_url) = crate::launcher_server::api_context(state).await?;
-    let url = format!("{}/v1/common/content/models", server_url);
+    let result = with_session_retry(state, || {
+        let file_content = file_content.clone();
+        async {
+            let (token, server_url) = crate::launcher_server::api_context(state).await?;
+            let url = format!("{}/v1/common/content/models", server_url);
 
-    let item = upload_multipart(
-        &url,
-        &token,
-        file_content.into_bytes(),
-        "model.txt",
-        "text/plain",
-        "Не удалось загрузить модель",
-        "Не удалось распарсить ответ загрузки модели",
-    )
-    .await?;
+            let item = upload_multipart(
+                &url,
+                &token,
+                file_content.into_bytes(),
+                "model.txt",
+                "text/plain",
+                "Не удалось загрузить модель",
+                "Не удалось распарсить ответ загрузки модели",
+            )
+            .await?;
 
-    log_info!("Модель загружена: {:?}", item.url);
+            log_info!("Модель загружена: {:?}", item.url);
 
-    Ok(item)
+            Ok(item)
+        }
+    })
+    .await;
+
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn list_models(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec<UserContentItem>> {
-    list_content(state, "models", uuid).await
+    let result = with_session_retry(state, || list_content(state, "models", uuid.clone())).await;
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 pub async fn delete_model(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
-    delete_content(state, "models", id, "Модель удалёна").await
+    let result = with_session_retry(state, || {
+        delete_content(state, "models", id, "Модель удалёна")
+    })
+    .await;
+    LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::storage;
+    use crate::commands::auth::wipe_project_credentials;
     use crate::state::dto::{ProjectConfig, SessionTokens};
-    use mockito::Server;
+    use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
+    use mockito::{Matcher, Server};
 
     fn state_with(server_url: &str) -> Mutex<GlobalState> {
         Mutex::new(GlobalState {
@@ -408,5 +421,70 @@ mod tests {
 
         assert_eq!(item.id, Some(5));
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn list_skins_retries_after_401_with_rotated_token() {
+        let _dir = LauncherDirGuard::acquire("user_content_auth_retry").await;
+        let mut server = Server::new_async().await;
+
+        let items = serde_json::json!([
+            {"id": 3, "url": "https://cdn.example.com/skin.png", "active": true}
+        ])
+        .to_string();
+
+        let expired = server
+            .mock("GET", "/v1/common/content/skins/uuid-1")
+            .match_header("authorization", "Bearer token-1")
+            .with_status(401)
+            .with_body("expired")
+            .create_async()
+            .await;
+        let refresh_mock = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"refresh_token": "tok-old"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-2", "tok-new"))
+            .create_async()
+            .await;
+        let rotated = server
+            .mock("GET", "/v1/common/content/skins/uuid-1")
+            .match_header("authorization", "Bearer access-2")
+            .with_status(200)
+            .with_body(items)
+            .create_async()
+            .await;
+
+        seed_online_project("Proj", &server.url()).await;
+        storage::save_fallback("Proj", "Cordelia", "refresh_token", "tok-old")
+            .expect("сохранение refresh-токена");
+
+        let state = state_with(&server.url());
+        let skins = list_skins(&state, "uuid-1".to_string())
+            .await
+            .expect("список скинов после ротации токена");
+
+        assert_eq!(skins.len(), 1);
+        assert_eq!(
+            state
+                .lock()
+                .await
+                .session
+                .as_ref()
+                .expect("сессия")
+                .access_token,
+            "access-2",
+            "токен сессии должен обновиться после ротации"
+        );
+
+        expired.assert_async().await;
+        refresh_mock.assert_async().await;
+        rotated.assert_async().await;
+
+        wipe_project_credentials("Proj", &["Cordelia".to_string()])
+            .await
+            .expect("очистка хранилища");
     }
 }

@@ -96,6 +96,13 @@ export function useModrinth() {
   const actionError = ref('')
   const installedError = ref('')
 
+  const activeHit = ref<ModrinthSearchHit | null>(null)
+  const isPopupVisible = ref(false)
+  const popupDetails = ref<ModrinthProjectDetails | null>(null)
+  const isPopupLoading = ref(false)
+  const popupError = ref('')
+  const detailsGuard = useAsyncRaceGuard()
+
   const totalPages = computed((): number => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
   const installedIds = computed((): Set<string> => {
@@ -154,6 +161,34 @@ export function useModrinth() {
   }
 
   const updatesGuard = useAsyncRaceGuard()
+
+  const loadProjectDetails = async (projectId: string): Promise<void> => {
+    const scope = captureProjectScope((): string => coreStore.currentProject)
+    const generation = detailsGuard.next()
+    isPopupLoading.value = true
+    popupDetails.value = null
+    popupError.value = ''
+    try {
+      const result = await fetchModrinthProjectDetails(projectId)
+      if (!detailsGuard.isCurrent(generation) || !scope.isCurrent()) return
+      popupDetails.value = result
+    } catch (e: unknown) {
+      if (!detailsGuard.isCurrent(generation) || !scope.isCurrent()) return
+      popupError.value = getErrorMessage(e)
+    } finally {
+      if (detailsGuard.isCurrent(generation) && scope.isCurrent()) isPopupLoading.value = false
+    }
+  }
+
+  const openDetails = (hit: ModrinthSearchHit): void => {
+    activeHit.value = hit
+    isPopupVisible.value = true
+    void loadProjectDetails(hit.project_id)
+  }
+
+  const closeDetails = (): void => {
+    isPopupVisible.value = false
+  }
 
   const checkForUpdates = async (): Promise<void> => {
     const generation = updatesGuard.next()
@@ -237,6 +272,7 @@ export function useModrinth() {
     searchGuard.cancel()
     installedGuard.cancel()
     updatesGuard.cancel()
+    detailsGuard.cancel()
     query.value = ''
     sort.value = 'relevance'
     categories.value = []
@@ -254,6 +290,11 @@ export function useModrinth() {
     isOpeningFolder.value = false
     actionError.value = ''
     installedError.value = ''
+    activeHit.value = null
+    isPopupVisible.value = false
+    popupDetails.value = null
+    isPopupLoading.value = false
+    popupError.value = ''
   }
 
   watch((): string => coreStore.currentProject, (projectName: string): void => {
@@ -283,6 +324,11 @@ export function useModrinth() {
     isOpeningFolder,
     actionError,
     installedError,
+    activeHit,
+    isPopupVisible,
+    popupDetails,
+    isPopupLoading,
+    popupError,
     search,
     loadPage,
     loadInstalled,
@@ -290,5 +336,7 @@ export function useModrinth() {
     install,
     uninstall,
     openFolder,
+    openDetails,
+    closeDetails,
   }
 }

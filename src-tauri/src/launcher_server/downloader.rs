@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::launcher_server::api_context;
+use crate::launcher_server::{api_context, with_session_retry};
 use crate::state::dto::GlobalState;
 use crate::utils::download_file::{file_sha1, write_stream_to_atomic};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
@@ -181,10 +181,13 @@ async fn fetch_hash_map(
         let body = response.text().await.unwrap_or_default();
         log_err!("{} Сервер вернул {}: {}", source.log_prefix, status, body);
         list_step.fail(format!("Сервер {} вернул {}", source.noun, status));
-        return Err(LauncherError::LauncherServer(format!(
-            "Сервер {} вернул {status} (проект: {project_name}): {body}",
-            source.noun
-        ))
+        return Err(LauncherError::HttpStatus {
+            status: status.as_u16(),
+            message: format!(
+                "Сервер {} вернул {status} (проект: {project_name}): {body}",
+                source.noun
+            ),
+        }
         .into());
     }
 
@@ -204,6 +207,16 @@ async fn fetch_hash_map(
             ))
         })
     );
+
+    for (key, hash) in &list {
+        if hash.trim().is_empty() {
+            let message = format!("Сервер передал пустой хеш для {key} (проект: {project_name})");
+            log_err!("{} {}", source.log_prefix, message);
+            list_step.fail("Сервер передал пустой хеш файла");
+            return Err(LauncherError::LauncherServer(message).into());
+        }
+    }
+
     log_info!(
         "{} Получено {}: {}",
         source.log_prefix,
@@ -421,7 +434,7 @@ pub async fn download_all_files(
     project_name: String,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
-    let result = async {
+    let result = with_session_retry(state, || async {
         let Some((ctx, file_list)) = fetch_online_list(&project_name, state, &FILES_SOURCE).await?
         else {
             return Ok(FilesSyncReport::default());
@@ -445,7 +458,7 @@ pub async fn download_all_files(
             |key: &str| PathBuf::from(key),
         )
         .await
-    }
+    })
     .await;
 
     LauncherError::classify(result, LauncherError::LauncherServer)
@@ -455,7 +468,7 @@ pub async fn download_mods(
     project_name: String,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
-    let result = async {
+    let result = with_session_retry(state, || async {
         let Some((ctx, mods)) = fetch_online_list(&project_name, state, &MODS_SOURCE).await? else {
             return Ok(FilesSyncReport::default());
         };
@@ -496,7 +509,7 @@ pub async fn download_mods(
         cleanup_extra_mods(&mods_dir, &server_mods).await?;
         clean_step.finish(false);
         Ok(report)
-    }
+    })
     .await;
 
     LauncherError::classify(result, LauncherError::LauncherServer)
@@ -549,8 +562,10 @@ async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Res
 #[cfg(test)]
 mod mock_server_tests {
     use super::*;
+    use crate::auth::storage;
+    use crate::commands::auth::wipe_project_credentials;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{rotation_payload, seed_online_project, sha1_hex, LauncherDirGuard};
     use crate::utils::http::http_client;
     use mockito::{Matcher, Server};
     use serde_json::json;
@@ -819,6 +834,123 @@ mod mock_server_tests {
             .expect_err("сервер вернул 500");
 
         assert!(error.to_string().contains("500"), "{}", error);
+    }
+
+    #[tokio::test]
+    async fn fetch_file_list_rejects_empty_hash() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/files/list")
+            .with_status(200)
+            .with_body(json!({"mods/a.jar": "", "config.json": "   "}).to_string())
+            .create_async()
+            .await;
+
+        let ctx = api_context(&server).await;
+        let error = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+            .await
+            .expect_err("пустой хеш должен отклоняться");
+
+        assert!(
+            error.to_string().contains("пустой хеш"),
+            "ошибка должна называть пустой хеш: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_all_files_retries_after_401_with_rotated_token() {
+        let dir = LauncherDirGuard::acquire("files_auth_retry").await;
+        let mut server = Server::new_async().await;
+
+        let fresh = b"fresh config".to_vec();
+
+        let expired_list = server
+            .mock("GET", "/v1/launcher/files/list")
+            .match_header("authorization", "Bearer access-stale")
+            .with_status(401)
+            .with_body("expired")
+            .create_async()
+            .await;
+        let refresh_mock = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-old"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-2", "tok-new"))
+            .create_async()
+            .await;
+        let rotated_list = server
+            .mock("GET", "/v1/launcher/files/list")
+            .match_header("authorization", "Bearer access-2")
+            .with_status(200)
+            .with_body(json!({"configs/settings.json": sha1_hex(&fresh)}).to_string())
+            .create_async()
+            .await;
+        let download_mock = server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_header("authorization", "Bearer access-2")
+            .with_status(200)
+            .with_body(fresh.clone())
+            .create_async()
+            .await;
+
+        seed_online_project("Cordelia", &server.url()).await;
+        storage::save_fallback("Cordelia", "tester", "refresh_token", "tok-old")
+            .expect("сохранение refresh-токена");
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server.url()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "access-stale".to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        });
+
+        let report = download_all_files("Cordelia".to_string(), &state)
+            .await
+            .expect("синхронизация после ротации токена");
+
+        assert_eq!(report.downloaded, 1);
+        assert!(!report.skipped);
+        assert_eq!(
+            std::fs::read(dir.project_dir("Cordelia").join("configs/settings.json")).unwrap(),
+            fresh
+        );
+        assert_eq!(
+            state
+                .lock()
+                .await
+                .session
+                .as_ref()
+                .expect("сессия")
+                .access_token,
+            "access-2",
+            "токен сессии должен обновиться после ротации"
+        );
+        assert_eq!(
+            storage::get_credential("Cordelia", "tester", "refresh_token")
+                .await
+                .expect("токен хранилища"),
+            "tok-new",
+            "refresh-токен должен перезаписаться ротацией"
+        );
+
+        expired_list.assert_async().await;
+        refresh_mock.assert_async().await;
+        rotated_list.assert_async().await;
+        download_mock.assert_async().await;
+
+        wipe_project_credentials("Cordelia", &["tester".to_string()])
+            .await
+            .expect("очистка хранилища");
     }
 
     #[tokio::test]

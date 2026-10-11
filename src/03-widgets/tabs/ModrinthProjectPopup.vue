@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Button, MarkdownText, Preloader, useFocusTrap, useAsyncRaceGuard, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
+import { Button, MarkdownText, Preloader, useFocusTrap, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
-import { fetchModrinthProjectDetails, MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
+import ModrinthInstallActions from './ModrinthInstallActions.vue'
+import { MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
 
 const props = defineProps<{
   visible: boolean
   hit: ModrinthSearchHit | null
+  details: ModrinthProjectDetails | null
+  isLoading: boolean
+  loadError: string
   isInstalled: boolean
   updateVersion: string
   isBusy: boolean
@@ -26,11 +30,7 @@ const popupRef = ref<HTMLDivElement | null>(null)
 
 useFocusTrap(popupRef, (): boolean => props.visible)
 
-const details = ref<ModrinthProjectDetails | null>(null)
-const isLoading = ref(false)
-const loadError = ref('')
 const expandedChangelogs = ref<Set<string>>(new Set())
-const detailsGuard = useAsyncRaceGuard()
 
 const sideLabels: Record<ModrinthSide, string> = {
   required: 'обязателен',
@@ -57,7 +57,7 @@ const statText = computed((): string => {
 })
 
 const sideText = computed((): string => {
-  const project = details.value?.project
+  const project = props.details?.project
   if (!project) return ''
   const sideLabel = (side: ModrinthSide | null): string =>
     side === null ? 'неизвестно' : sideLabels[side]
@@ -65,7 +65,7 @@ const sideText = computed((): string => {
 })
 
 const links = computed((): Array<{ label: string; url: string }> => {
-  const project = details.value?.project
+  const project = props.details?.project
   if (!project) return []
   const result: Array<{ label: string; url: string }> = []
   if (project.source_url) result.push({ label: 'Исходный код', url: project.source_url })
@@ -76,30 +76,10 @@ const links = computed((): Array<{ label: string; url: string }> => {
 })
 
 const licenseText = computed((): string => {
-  const license = details.value?.project.license
+  const license = props.details?.project.license
   if (!license) return ''
   return license.name ?? license.id
 })
-
-async function loadDetails(): Promise<void> {
-  const { hit } = props
-  if (hit === null) return
-  const generation = detailsGuard.next()
-  isLoading.value = true
-  details.value = null
-  loadError.value = ''
-  expandedChangelogs.value = new Set()
-  try {
-    const result = await fetchModrinthProjectDetails(hit.project_id)
-    if (!detailsGuard.isCurrent(generation)) return
-    details.value = result
-  } catch (e: unknown) {
-    if (!detailsGuard.isCurrent(generation)) return
-    loadError.value = getErrorMessage(e)
-  } finally {
-    if (detailsGuard.isCurrent(generation)) isLoading.value = false
-  }
-}
 
 function hasChangelog(version: ModrinthVersion): boolean {
   return version.changelog !== null && version.changelog !== ''
@@ -115,12 +95,10 @@ function toggleChangelog(versionId: string): void {
   expandedChangelogs.value = next
 }
 
-watch(
-  () => props.visible,
-  (visible) => {
-    if (visible) void loadDetails()
-  },
-)
+watch((): string => props.hit?.project_id ?? '', (projectId: string): void => {
+  expandedChangelogs.value = new Set()
+  if (projectId === '') return
+})
 
 function handleEsc(e: KeyboardEvent): void {
   if (props.visible && e.key === 'Escape') emit('close')
@@ -155,25 +133,15 @@ async function handleLink(url: string): Promise<void> {
               <p v-if="authorText" class="modrinth-popup__meta">{{ authorText }}</p>
               <p v-if="statText" class="modrinth-popup__meta">{{ statText }}</p>
             </div>
-            <Button
-              v-if="updateVersion"
-              class="btn-primary modrinth-popup__action"
-              :is-loading="isBusy"
-              :is-disabled="isBusyAny"
-              @click="emit('update')"
-            >
-              Обновить
-            </Button>
-            <Button
-              v-else-if="!isInstalled"
-              class="btn-primary modrinth-popup__action"
-              :is-loading="isBusy"
-              :is-disabled="isBusyAny"
-              @click="emit('install')"
-            >
-              Скачать
-            </Button>
-            <span v-else class="modrinth-popup__installed-badge">Установлен</span>
+            <ModrinthInstallActions
+              class="modrinth-popup__action"
+              :is-installed="isInstalled"
+              :update-version="updateVersion"
+              :is-busy="isBusy"
+              :is-busy-any="isBusyAny"
+              @update="emit('update')"
+              @install="emit('install')"
+            />
             <Button v-focus class="btn-quiet modrinth-popup__close" @click="emit('close')">
               Закрыть
             </Button>
@@ -303,12 +271,6 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__action {
-    flex-shrink: 0;
-  }
-
-  &__installed-badge {
-    @include mixins.badge($color: var(--accent-text));
-
     flex-shrink: 0;
   }
 
