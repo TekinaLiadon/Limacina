@@ -249,6 +249,25 @@ impl LauncherConfig {
         Ok(())
     }
 
+    #[cfg(any(test, all(target_os = "windows", not(debug_assertions))))]
+    pub(crate) fn seed_from_install_dir(install_dir: &Path) -> Result<Self> {
+        let mut config = Self::default();
+        config.apply_default_project();
+        config.launcher_path = install_dir.to_string_lossy().to_string();
+        for dir in ["project", "manifest", "java"] {
+            let path = install_dir.join(dir);
+            fs::create_dir_all(&path).map_err(|e| {
+                anyhow::Error::new(LauncherError::DiskIo(format!(
+                    "Не удалось создать папку \"{}\": {}",
+                    path.display(),
+                    e
+                )))
+            })?;
+        }
+        config.save()?;
+        Ok(config)
+    }
+
     pub fn add_login(&mut self, project: &str, username: &str) {
         let project_config = self.projects.entry(project.to_string()).or_default();
         project_config.logins.retain(|l| l.username != username);
@@ -307,6 +326,29 @@ impl LauncherConfig {
         }
         true
     }
+}
+
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
+pub(crate) fn try_seed_from_installed_exe() -> Option<LauncherConfig> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()));
+    let Some(exe_dir) = exe_dir else {
+        log_err!("Не удалось определить папку установки для создания конфига");
+        return None;
+    };
+    match LauncherConfig::seed_from_install_dir(&exe_dir) {
+        Ok(config) => Some(config),
+        Err(e) => {
+            log_err!("Не удалось создать конфиг из папки установки: {e:#}");
+            None
+        }
+    }
+}
+
+#[cfg(not(all(target_os = "windows", not(debug_assertions))))]
+pub(crate) fn try_seed_from_installed_exe() -> Option<LauncherConfig> {
+    None
 }
 
 fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
@@ -613,6 +655,45 @@ mod tests {
         assert!(!kept.apply_default_project());
         assert_eq!(kept.project_names, vec!["Her"]);
         assert!(kept.current_project.is_none());
+    }
+
+    #[tokio::test]
+    async fn seed_from_install_dir_creates_dirs_and_persists_config() {
+        let dir = LauncherDirGuard::acquire("seed_install_dir").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let install = dir.root().join("install");
+
+        let config =
+            LauncherConfig::seed_from_install_dir(&install).expect("конфиг из папки установки");
+
+        assert_eq!(PathBuf::from(&config.launcher_path), install);
+        for sub in ["project", "manifest", "java"] {
+            assert!(install.join(sub).is_dir(), "папка {sub} должна быть создана");
+        }
+        let saved = LauncherConfig::load()
+            .expect("чтение конфига")
+            .expect("конфиг должен быть записан");
+        assert_eq!(saved.launcher_path, config.launcher_path);
+    }
+
+    #[tokio::test]
+    async fn seed_from_install_dir_fails_before_config_write() {
+        let dir = LauncherDirGuard::acquire("seed_install_dir_fail").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let blocked = dir.root().join("blocked");
+        std::fs::write(&blocked, b"not a directory").expect("файл-заглушка вместо папки");
+
+        let error = LauncherConfig::seed_from_install_dir(&blocked)
+            .expect_err("создание папок под файлом-заглушкой должно падать");
+
+        assert!(
+            error.to_string().contains("os error"),
+            "ожидается ошибка создания папок, получено: {error}"
+        );
+        assert!(
+            !dir.root().join("config.json").exists(),
+            "конфиг не должен записываться при неудачном создании папок"
+        );
     }
 
     #[test]

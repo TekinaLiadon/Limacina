@@ -174,9 +174,6 @@ Var DirField
 Var ShortcutCheckbox
 Var ShortcutWanted
 Var RunAppCheckbox
-Var UserDataCheckbox
-Var DeleteUserData
-Var DataStateLabel
 Var ConfirmDataPath
 Var InstOverlay
 Var InstProgress
@@ -1535,7 +1532,6 @@ Function un.onInit
     StrCpy $UpdateMode 1
   ${EndIf}
 
-  StrCpy $DeleteUserData 0
   Call un.InitWizardFonts
 FunctionEnd
 
@@ -1573,18 +1569,6 @@ Function un.InitWizardFonts
   ${EndIf}
 FunctionEnd
 
-Function un.PageConfirmToggle
-  ${NSD_GetState} $UserDataCheckbox $0
-  StrCpy $DeleteUserData $0
-  ${If} $DeleteUserData = 1
-    ${NSD_SetText} $DataStateLabel "Настройки и данные игр (БУДУТ УДАЛЕНЫ): $ConfirmDataPath"
-    SetCtlColors $DataStateLabel ${COLOR_ACCENT} ${COLOR_BG}
-  ${Else}
-    ${NSD_SetText} $DataStateLabel "Настройки и данные игр (будут сохранены): $ConfirmDataPath"
-    SetCtlColors $DataStateLabel ${COLOR_MUTED} ${COLOR_BG}
-  ${EndIf}
-FunctionEnd
-
 Function un.PageConfirm
   ${If} $PassiveMode = 1
     Abort
@@ -1599,11 +1583,6 @@ Function un.PageConfirm
   Pop $DIALOG
   System::Call 'user32::SetWindowPos(p $DIALOG, p 0, i 0, i 0, i $WinW, i $WinH, i ${SWP_ZSIZE})'
   SetCtlColors $DIALOG "" ${COLOR_BG}
-
-  ReadRegStr $ConfirmDataPath SHCTX "${MANUPRODUCTKEY}" "DataPath"
-  ${If} $ConfirmDataPath == ""
-    StrCpy $ConfirmDataPath "$PROFILE\${PRODUCTNAME}"
-  ${EndIf}
 
   !insertmacro DrawSidebar 1 "Подтверждение" "Удаление" "Завершение" "" 1
   !insertmacro PageHeading 1 "Удаление ${PRODUCTNAME}" "Приложение будет удалено с этого компьютера" $SubH
@@ -1623,25 +1602,6 @@ Function un.PageConfirm
   ${NSD_AddStyle} $0 ${SS_CENTERIMAGE}
   SetCtlColors $0 ${COLOR_TEXT} ${COLOR_INPUT}
   SendMessage $0 ${WM_SETFONT} $FontText 1
-
-  !insertmacro ScaleTo $2 14
-  IntOp $3 $3 + 44
-  IntOp $3 $3 + $2
-  ${NSD_CreateCheckbox} $ContentX $3 $ContentW $1 "Удалить настройки и данные игр"
-  Pop $UserDataCheckbox
-  System::Call 'uxtheme::SetWindowTheme(p $UserDataCheckbox, w "", w "")'
-  SendMessage $UserDataCheckbox ${WM_SETFONT} $FontText 1
-  SetCtlColors $UserDataCheckbox ${COLOR_BODY} ${COLOR_BG}
-  ${NSD_OnClick} $UserDataCheckbox un.PageConfirmToggle
-
-  !insertmacro ScaleTo $1 16
-  !insertmacro ScaleTo $2 10
-  IntOp $3 $3 + 44
-  IntOp $3 $3 + $2
-  ${NSD_CreateLabel} $ContentX $3 $ContentW $1 "Настройки и данные игр (будут сохранены): $ConfirmDataPath"
-  Pop $DataStateLabel
-  SetCtlColors $DataStateLabel ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $DataStateLabel ${WM_SETFONT} $FontCap 1
 
   IntOp $FooterX $WinW - $PadR
   !insertmacro FooterLine
@@ -2064,12 +2024,8 @@ Section Uninstall
     ${If} $ConfirmDataPath == ""
       StrCpy $ConfirmDataPath "$PROFILE\${PRODUCTNAME}"
     ${EndIf}
-    ${If} $DeleteUserData = 1
-      DetailPrint "Удаление настроек и данных игр: $ConfirmDataPath"
-      RmDir /r "$ConfirmDataPath"
-    ${Else}
-      DetailPrint "Настройки и данные игр сохранены: $ConfirmDataPath"
-    ${EndIf}
+    DetailPrint "Удаление настроек и данных игр: $ConfirmDataPath"
+    RmDir /r "$ConfirmDataPath"
 
     DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty SHCTX "${MANUKEY}"

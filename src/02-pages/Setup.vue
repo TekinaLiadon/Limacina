@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { useSetup } from '@/04-features'
+import { useSetup, useOfflineSetup } from '@/04-features'
 import { Button, Input } from '@/06-shared'
 import { AddProfileTab } from '@/03-widgets'
 
 const {
   selectedPath,
   isLoading,
-  step,
-  needsProfile,
   fullDisplayPath,
   selectFolder,
   save,
 } = useSetup()
+
+const { step, needsProfile } = useOfflineSetup()
 </script>
 
 <template>

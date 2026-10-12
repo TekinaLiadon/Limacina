@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Button, Checkbox, Input, type InputOptions } from '@/06-shared'
-import { useCpmSettings, useCpmAnimations } from '@/04-features'
+import { useCpmSettings, useCpmAnimations, useOfflineCpmModel } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
 import UserContentList from './UserContentList.vue'
@@ -9,6 +9,8 @@ import Viewer3D from './Viewer3D.vue'
 
 const {
   cpmData,
+  cpmFileBytes,
+  modelName,
   errorMessage,
   showEmptyLayers,
   displayLayers,
@@ -16,7 +18,6 @@ const {
   toggleLayer,
   setTextureError,
   isUploading,
-  isSaving,
   isOffline,
   uploadedModels,
   isListLoading,
@@ -31,11 +32,17 @@ const {
   selectCpmFile,
   resetCpm,
   handleUploadModel,
-  handleSaveModelOffline,
   handleDeleteModel,
   handleCopyUrl,
   handleSaveModelsLimit,
 } = useCpmSettings()
+
+const { isSaving, handleSaveModelOffline } = useOfflineCpmModel({
+  cpmFileBytes,
+  cpmData,
+  modelName,
+  errorMessage,
+})
 
 const {
   animationOptions,

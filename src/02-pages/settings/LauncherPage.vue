@@ -47,7 +47,7 @@ const {
       <ThemeSelector />
     </SettingsSection>
 
-    <SettingsSection v-if="!coreStore.offlineBuild" title="Обновление лаунчера" storage-key="launcher-update">
+    <SettingsSection v-if="coreStore.isServerBuild" title="Обновление лаунчера" storage-key="launcher-update">
       <LauncherUpdate />
     </SettingsSection>
     </template>

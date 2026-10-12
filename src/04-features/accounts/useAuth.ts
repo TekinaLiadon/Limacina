@@ -20,12 +20,10 @@ export function useAuth() {
     isPasswordConfirmed(store.registerFormData.password, store.registerFormData.confirmPassword)
   )
 
-  const isOffline = computed((): boolean => coreStore.isOfflineProject)
-
   const isLoginValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
     if (store.loginFormData.username.length < MIN_LOGIN_LENGTH) return false
-    return isOffline.value || store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
+    return store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
   })
 
   const isRegisterValid = computed((): boolean => {
@@ -68,8 +66,8 @@ export function useAuth() {
     errorMessage.value = getErrorMessage(e)
   }
 
-  const handleLogin = async (): Promise<void> => {
-    if (!isLoginValid.value || isLoading.value) return
+  const submitLogin = async (): Promise<void> => {
+    if (isLoading.value) return
 
     isLoading.value = true
     errorMessage.value = ''
@@ -101,6 +99,11 @@ export function useAuth() {
     } finally {
       isLoading.value = false
     }
+  }
+
+  const handleLogin = async (): Promise<void> => {
+    if (!isLoginValid.value) return
+    await submitLogin()
   }
 
   const handleRegister = async (): Promise<void> => {
@@ -146,11 +149,11 @@ export function useAuth() {
     loginFormData,
     registerFormData,
     passwordsMatch,
-    isOffline,
     isLoginValid,
     isRegisterValid,
     registerLoginHint,
     registerPasswordHint,
+    submitLogin,
     handleLogin,
     handleRegister,
   }

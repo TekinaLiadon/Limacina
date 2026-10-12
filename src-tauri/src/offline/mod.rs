@@ -13,9 +13,11 @@ use crate::utils::env_info::launcher_path;
 use crate::utils::hex::digest_hex;
 use crate::{log_err, log_info};
 
-pub use server::SkinServer;
-
+mod launch;
 mod server;
+
+pub use launch::AuthlibLaunch;
+use server::SkinServer;
 
 const AUTHLIB_LATEST_URL: &str = "https://authlib-injector.yushi.moe/artifact/latest.json";
 const AUTHLIB_LATEST_TTL: Duration = Duration::from_secs(6 * 60 * 60);
@@ -64,7 +66,7 @@ pub async fn delete_offline_skin_files(project_name: &str) -> Result<()> {
     .await
 }
 
-pub async fn start_offline_skin_server(
+async fn start_offline_skin_server(
     project_name: &str,
     username: &str,
     uuid: &str,

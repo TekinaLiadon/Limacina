@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button, Preloader } from '@/06-shared'
-import { useSkinSettings } from '@/04-features'
+import { useOfflineSkinSettings } from '@/04-features'
 import SkinViewer from './SkinViewer.vue'
 import UserContentList from './UserContentList.vue'
 import Viewer3D from './Viewer3D.vue'
@@ -25,7 +25,7 @@ const {
   handleDelete,
   handleCopyUrl,
   resetSkin,
-} = useSkinSettings()
+} = useOfflineSkinSettings()
 
 const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   { value: 'classic', label: 'Классик' },

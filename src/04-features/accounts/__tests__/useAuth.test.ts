@@ -10,7 +10,6 @@ import {
   useNotificationStore,
   MIN_LOGIN_LENGTH,
   MIN_PASSWORD_LENGTH,
-  type ProjectConfig,
 } from '@/05-entities'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -20,22 +19,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   authLogins: vi.fn(),
   getSessionInfo: vi.fn(),
 }))
-
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 const setupAuth = () => {
   const { result, unmount } = withSetup(() => useAuth())
@@ -72,16 +55,6 @@ describe('useAuth', () => {
     expect(auth.isLoginValid.value).toBe(false)
 
     useAccountsStore().loginFormData.password = 'password'
-    expect(auth.isLoginValid.value).toBe(true)
-    unmount()
-  })
-
-  it('does not require a password for an offline project', () => {
-    useCoreStore().currentProject = 'proj'
-    useCoreStore().projectConfig = makeProjectConfig(false)
-    useAccountsStore().loginFormData.username = 'user'
-    const { auth, unmount } = setupAuth()
-    expect(auth.isOffline.value).toBe(true)
     expect(auth.isLoginValid.value).toBe(true)
     unmount()
   })

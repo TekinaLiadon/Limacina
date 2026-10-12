@@ -1,8 +1,6 @@
-import { ref, computed, watch, onMounted, onScopeDispose, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
 import { getErrorMessage, reportError, useAsyncRaceGuard } from '@/06-shared'
-import {
-  getProfileSkin, readSkinFile, saveOfflineSkin, getOfflineSkin, getOfflineSkinModel, deleteOfflineSkin,
-} from '@/06-shared/api'
+import { getProfileSkin, readSkinFile } from '@/06-shared/api'
 import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
@@ -36,9 +34,10 @@ export function useSkinSettings() {
 
   const skinUrl = ref<string>('')
   const skinFileBytes = ref<Uint8Array>(new Uint8Array())
-  const isSkinLoading = ref<boolean>(false)
+  const skinLoadCount = ref<number>(0)
   const modelMode = ref<SkinModelMode>('classic')
-  let restoringOfflineModel = false
+
+  const isSkinLoading = computed<boolean>(() => skinLoadCount.value > 0)
 
   const hasSkin = computed((): boolean => skinUrl.value !== '')
 
@@ -92,31 +91,16 @@ export function useSkinSettings() {
     skinUrl.value = url
   }
 
-  let persistQueue: Promise<void> = Promise.resolve()
-
-  const persistOfflineSkin = async (notify: boolean): Promise<void> => {
-    if (!content.isOffline.value || skinFileBytes.value.length === 0) return
-    const previous = persistQueue
-    const run = async (): Promise<void> => {
-      await previous
-      try {
-        await saveOfflineSkin(skinFileBytes.value, modelMode.value)
-        if (notify) notification.show('Скин сохранён')
-      } catch (e: unknown) {
-        content.errorMessage.value = 'Не удалось сохранить скин на диск'
-        reportError('Не удалось сохранить локальный скин', e)
-      }
-    }
-    persistQueue = run()
-    await persistQueue
-  }
-
-  watch(modelMode, () => {
-    if (restoringOfflineModel) return
-    void persistOfflineSkin(false)
-  })
-
   const skinPreviewGuard = useAsyncRaceGuard()
+
+  const runSkinLoad = async (load: () => Promise<void>): Promise<void> => {
+    skinLoadCount.value += 1
+    try {
+      await load()
+    } finally {
+      skinLoadCount.value -= 1
+    }
+  }
 
   const fetchActiveSkinPreview = async (generation: number): Promise<void> => {
     const current = activeSkin.value
@@ -142,46 +126,11 @@ export function useSkinSettings() {
     await fetchActiveSkinPreview(skinPreviewGuard.next())
   }
 
-  const loadOfflineSkin = async (): Promise<void> => {
-    const generation = skinPreviewGuard.next()
-    let dataUrl: string | null = null
-    try {
-      const bytes = await getOfflineSkin()
-      if (!skinPreviewGuard.isCurrent(generation)) return
-      if (bytes.length === 0) return
-      dataUrl = await createPreviewUrl(bytes)
-      if (!skinPreviewGuard.isCurrent(generation)) {
-        discardPreviewUrl(dataUrl)
-        return
-      }
-      skinFileBytes.value = bytes
-      restoringOfflineModel = true
-      const model = await getOfflineSkinModel()
-      if (!skinPreviewGuard.isCurrent(generation)) {
-        restoringOfflineModel = false
-        discardPreviewUrl(dataUrl)
-        return
-      }
-      if (model === 'slim' || model === 'classic') modelMode.value = model
-      await nextTick()
-      restoringOfflineModel = false
-      adoptPreviewUrl(dataUrl)
-    } catch (e: unknown) {
-      restoringOfflineModel = false
-      if (dataUrl !== null) discardPreviewUrl(dataUrl)
-      content.errorMessage.value = getErrorMessage(e)
-      reportError('Не удалось загрузить локальный скин', e)
-    }
-  }
-
   watch((): string => coreStore.currentProject, (): void => {
     skinPreviewGuard.cancel()
     resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
     content.errorMessage.value = ''
-    if (content.isOffline.value) {
-      void loadOfflineSkin()
-    }
   })
 
   const { isDragOver, openFileDialog: selectSkin } = useUserContentFile({
@@ -193,9 +142,6 @@ export function useSkinSettings() {
       const dataUrl = await createPreviewUrl(skinBytes)
       skinFileBytes.value = skinBytes
       adoptPreviewUrl(dataUrl)
-      if (content.isOffline.value) {
-        await persistOfflineSkin(true)
-      }
     },
     errorMessage: content.errorMessage,
   })
@@ -209,13 +155,6 @@ export function useSkinSettings() {
     resetSkinUrl()
     skinFileBytes.value = new Uint8Array()
     content.errorMessage.value = ''
-    if (content.isOffline.value) {
-      try {
-        await deleteOfflineSkin()
-      } catch (e: unknown) {
-        reportError('Не удалось удалить локальный скин', e)
-      }
-    }
   }
 
   const resetSkin = (): Promise<void> =>
@@ -240,18 +179,11 @@ export function useSkinSettings() {
       await reloadSkinPreview()
     })
 
-  onMounted(async (): Promise<void> => {
-    isSkinLoading.value = true
-    try {
+  onMounted((): void => {
+    void runSkinLoad(async (): Promise<void> => {
       await content.loadItems()
-      if (content.isOffline.value) {
-        await loadOfflineSkin()
-      } else {
-        await loadCurrentSkin()
-      }
-    } finally {
-      isSkinLoading.value = false
-    }
+      await loadCurrentSkin()
+    })
   })
 
   onScopeDispose((): void => {
@@ -274,11 +206,18 @@ export function useSkinSettings() {
     isSkinLoading,
     isDragOver,
     modelMode,
+    skinFileBytes,
     selectSkin,
     handleUpload,
     handleActivate,
     handleDelete,
     handleCopyUrl: content.handleCopyUrl,
     resetSkin,
+    resetSkinState,
+    createPreviewUrl,
+    adoptPreviewUrl,
+    discardPreviewUrl,
+    skinPreviewGuard,
+    runSkinLoad,
   }
 }

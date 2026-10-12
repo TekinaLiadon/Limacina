@@ -33,7 +33,7 @@ export function useAccountsPage() {
   const { resetLaunchSteps } = useLaunchStepsStream()
 
   const isServerOffline = computed((): boolean =>
-    coreStore.isOnlineProject && serverStore.isServerReachable === false
+    coreStore.isServerBuild && coreStore.isOnlineProject && serverStore.isServerReachable === false
   )
 
   const handleLaunch = async (): Promise<void> => {

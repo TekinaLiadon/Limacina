@@ -57,6 +57,19 @@ pub async fn seed_online_project(project_name: &str, server_url: &str) {
         .expect("сохранение конфига проекта");
 }
 
+pub async fn seed_offline_project(project_name: &str) {
+    let config = ProjectConfig {
+        project_name: project_name.to_string(),
+        mc_version: "1.20.1".to_string(),
+        online: false,
+        ..ProjectConfig::default()
+    };
+    config
+        .save_config()
+        .await
+        .expect("сохранение конфига проекта");
+}
+
 pub fn sha1_hex(data: &[u8]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(data);

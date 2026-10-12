@@ -68,6 +68,30 @@ describe('useDropdownPanel', () => {
     expect(panel.shown.value).toBe(false)
   })
 
+  it('opens and measures the panel via open() and closes via toggle()', async () => {
+    const { root, panel: panelElement } = buildDom()
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef)
+    panel.panelRef.value = panelElement
+
+    await panel.open()
+    expect(panel.shown.value).toBe(true)
+    expect(panel.maxHeight.value).toBe('12px')
+
+    await panel.toggle()
+    expect(panel.shown.value).toBe(false)
+  })
+
+  it('keeps the panel closed on open() while disabled', async () => {
+    const { root } = buildDom()
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef, () => true)
+
+    await panel.open()
+
+    expect(panel.shown.value).toBe(false)
+  })
+
   it('closes on an outside click and on escape', async () => {
     const { root } = buildDom()
     const rootRef = ref<HTMLDivElement | null>(root)

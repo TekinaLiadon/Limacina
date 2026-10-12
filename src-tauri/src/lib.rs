@@ -100,9 +100,12 @@ pub fn run() {
                 log_err!("Не удалось обновить запись в меню приложений: {e:#}");
             }
 
-            let launcher_config = crate::state::launcher_config::LauncherConfig::load()
+            let mut launcher_config = crate::state::launcher_config::LauncherConfig::load()
                 .ok()
                 .flatten();
+            if launcher_config.is_none() {
+                launcher_config = crate::state::launcher_config::try_seed_from_installed_exe();
+            }
             if let Some(id) = launcher_config
                 .as_ref()
                 .and_then(|c| c.install_id.as_deref())

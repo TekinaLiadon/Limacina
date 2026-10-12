@@ -15,11 +15,6 @@ const shared = vi.hoisted(() => ({
   selectDirectory: vi.fn(),
 }))
 
-const router = vi.hoisted(() => ({
-  replace: vi.fn(),
-  push: vi.fn(),
-}))
-
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   initializeLauncher: vi.fn(),
@@ -30,10 +25,6 @@ vi.mock('@/06-shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared')>()),
   prefersReducedMotion: shared.prefersReducedMotion,
   selectDirectory: shared.selectDirectory,
-}))
-
-vi.mock('vue-router', () => ({
-  useRouter: (): { replace: (route: unknown) => void; push: (route: unknown) => void } => router,
 }))
 
 const makeLauncherConfig = (overrides: Partial<LauncherConfig> = {}): LauncherConfig => ({
@@ -96,28 +87,6 @@ describe('useSetup', () => {
     expect(setup.fullDisplayPath.value).toBe('')
   })
 
-  it('routes home when the config already exists and no profile is needed', () => {
-    const core = useCoreStore()
-    core.offlineBuild = false
-    core.applyLauncherConfig(makeLauncherConfig())
-
-    setupWizard()
-
-    expect(router.replace).toHaveBeenCalledWith('/')
-  })
-
-  it('moves to the profile step for an offline build without projects', () => {
-    const core = useCoreStore()
-    core.offlineBuild = true
-    core.applyLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
-
-    const setup = setupWizard()
-
-    expect(setup.needsProfile.value).toBe(true)
-    expect(setup.step.value).toBe(2)
-    expect(router.replace).not.toHaveBeenCalled()
-  })
-
   it('updates the folder from the directory dialog', async () => {
     shared.selectDirectory.mockResolvedValueOnce('/other/games')
     shared.selectDirectory.mockResolvedValueOnce(null)
@@ -131,7 +100,7 @@ describe('useSetup', () => {
     expect(setup.selectedPath.value).toBe('/other/games')
   })
 
-  it('initializes the launcher and routes home', async () => {
+  it('initializes the launcher and applies the config', async () => {
     vi.mocked(initializeLauncher).mockResolvedValue(makeLauncherConfig())
     const core = useCoreStore()
     core.defaultParentPath = '/games'
@@ -144,11 +113,10 @@ describe('useSetup', () => {
     expect(core.launcherConfig).toEqual(makeLauncherConfig())
     expect(core.hasLauncherConfig).toBe(true)
     expect(core.projects).toEqual(['proj'])
-    expect(router.push).toHaveBeenCalledWith('/')
     expect(setup.isLoading.value).toBe(false)
   })
 
-  it('keeps the profile step and disables animations for reduced motion', async () => {
+  it('disables animations for reduced motion after the init', async () => {
     shared.prefersReducedMotion.mockReturnValue(true)
     vi.mocked(initializeLauncher).mockResolvedValue(
       makeLauncherConfig({ projectNames: [], currentProject: null }),
@@ -157,19 +125,16 @@ describe('useSetup', () => {
       makeLauncherConfig({ projectNames: [], currentProject: null }),
     )
     const core = useCoreStore()
-    core.offlineBuild = true
     core.defaultParentPath = '/games'
     const setup = setupWizard()
 
     await setup.save()
 
-    expect(setup.step.value).toBe(2)
-    expect(router.push).not.toHaveBeenCalled()
     expect(useSettingsStore().animationsEnabled).toBe(false)
     expect(saveAnimationsEnabled).toHaveBeenCalledWith(false)
   })
 
-  it('shows the error and stays on the step when initialization fails', async () => {
+  it('shows the error when initialization fails', async () => {
     vi.mocked(initializeLauncher).mockRejectedValue(new Error('disk error'))
     useCoreStore().defaultParentPath = '/games'
     const setup = setupWizard()
@@ -178,7 +143,6 @@ describe('useSetup', () => {
 
     expect(useNotificationStore().message).toBe('disk error')
     expect(setup.isLoading.value).toBe(false)
-    expect(router.push).not.toHaveBeenCalled()
     expect(useCoreStore().hasLauncherConfig).not.toBe(true)
   })
 

@@ -20,10 +20,9 @@ export const useCoreStore = defineStore('core', () => {
     () => offlineBuild.value && projects.value.length === 0,
   )
   const hasLauncherConfig = computed<boolean>(() => launcherConfig.value !== null)
+  const isServerBuild = computed<boolean>(() => !offlineBuild.value)
   const isOfflineProject = computed<boolean>(() => projectConfig.value?.online === false)
-  const isOnlineProject = computed<boolean>(
-    () => !offlineBuild.value && projectConfig.value?.online === true,
-  )
+  const isOnlineProject = computed<boolean>(() => projectConfig.value?.online === true)
 
   function applyLauncherConfig(config: LauncherConfig): void {
     launcherConfig.value = config
@@ -57,6 +56,7 @@ export const useCoreStore = defineStore('core', () => {
     pendingCpmProjectPath,
     needsOfflineSetup,
     hasLauncherConfig,
+    isServerBuild,
     isOfflineProject,
     isOnlineProject,
     applyLauncherConfig,

@@ -6,7 +6,7 @@ const coreStore = useCoreStore()
 const serverStore = useServerStore()
 
 const isVisible = computed((): boolean =>
-  coreStore.isOnlineProject && serverStore.isServerReachable === false
+  coreStore.isServerBuild && coreStore.isOnlineProject && serverStore.isServerReachable === false
 )
 </script>
 

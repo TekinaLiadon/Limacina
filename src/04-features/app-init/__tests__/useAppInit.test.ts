@@ -181,17 +181,6 @@ describe('useAppInit', () => {
     expect(useCoreStore().isLoading).toBe(false)
   })
 
-  it('routes to the offline profile setup for an empty offline build', async () => {
-    api.getAppInitData.mockResolvedValue(
-      makeInitData({ offlineBuild: true, launcherConfig: makeLauncherConfig({ projectNames: [], currentProject: null }) }),
-    )
-
-    setupApp()
-    await runInit()
-
-    expect(router.replace).toHaveBeenCalledWith({ name: 'Setup' })
-  })
-
   it('applies the auto-update and rehydrates from fresh init data', async () => {
     api.getAppInitData
       .mockResolvedValueOnce(

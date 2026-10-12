@@ -63,7 +63,7 @@ export function useAppInit() {
       applyInitData(initData)
 
       const autoUpdate = initData.launcherConfig?.autoUpdate ?? false
-      const isUpdateCheckEnabled = autoUpdate && !coreStore.offlineBuild
+      const isUpdateCheckEnabled = autoUpdate && coreStore.isServerBuild
 
       const loadedProject: string | null = coreStore.currentProject
       let projectLoad: Promise<void> = loadedProject ? loadProject(loadedProject) : Promise.resolve()
@@ -97,11 +97,6 @@ export function useAppInit() {
 
       if (!coreStore.launcherConfig) {
         router.replace('/setup')
-        return
-      }
-
-      if (coreStore.needsOfflineSetup) {
-        router.replace({ name: 'Setup' })
         return
       }
 

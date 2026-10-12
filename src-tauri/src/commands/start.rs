@@ -1,6 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
@@ -50,8 +48,7 @@ async fn start_minecraft_inner(
     let (ctx, mut project_config) = read_launch_context(&state, config_step.clone()).await?;
     project_config = repair_stale_java_path(&state, project_config).await;
 
-    let (mut skin_server, authlib_server_url) =
-        start_offline_skin_server_if_needed(&project_config, &ctx.username, &ctx.uuid).await;
+    let authlib = offline::AuthlibLaunch::resolve(&project_config, &ctx.username, &ctx.uuid).await;
     if project_config.online {
         if let Err(e) = crate::commands::cpm_models::sync_player_models(&state).await {
             log_err!("Не удалось синхронизировать модели CPM: {}", e);
@@ -69,20 +66,12 @@ async fn start_minecraft_inner(
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
     let process = step_try!(
         process_step,
-        spawn_game_step(
-            &app,
-            game_config,
-            authlib_server_url.as_deref(),
-            &ctx,
-            &mut skin_server
-        )
+        spawn_game_step(&app, game_config, authlib.server_url(), &ctx)
     );
     process_step.finish(false);
     let _ = app.emit("game-started", ctx.username.clone());
 
-    if let Some(server) = skin_server.take() {
-        spawn_skin_server_stop_monitor(server, process.exited_flag());
-    }
+    authlib.stop_on_game_exit(process.exited_flag());
 
     wait_for_game_window(&process, &ctx.project).await?;
     notify_game_activity(&process, &ctx);
@@ -157,27 +146,23 @@ async fn read_launch_context(
     ))
 }
 
-async fn start_offline_skin_server_if_needed(
-    project_config: &ProjectConfig,
-    username: &str,
-    uuid: &str,
-) -> (Option<offline::SkinServer>, Option<String>) {
-    if project_config.online {
-        return (None, project_config.resolved_server_url());
-    }
-    match offline::start_offline_skin_server(&project_config.project_name, username, uuid).await {
-        Ok(Some(server)) => {
-            let url = server.url().to_string();
-            (Some(server), Some(url))
-        }
-        Ok(None) => (None, None),
+fn spawn_game_step(
+    app: &AppHandle,
+    game_config: GameConfig,
+    authlib_server_url: Option<&str>,
+    ctx: &LaunchContext,
+) -> anyhow::Result<GameProcess> {
+    crate::tray::set_game_state(app, true, &ctx.username);
+    let spawn_result = LauncherError::classify(
+        spawn_game_process(app.clone(), game_config, authlib_server_url)
+            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
+        LauncherError::GameProcess,
+    );
+    match spawn_result {
+        Ok(process) => Ok(process),
         Err(e) => {
-            log_err!(
-                "[start] Офлайн-скин недоступен, запуск без скина ({}): {}",
-                project_config.project_name,
-                e
-            );
-            (None, None)
+            crate::tray::set_game_state(app, false, "");
+            Err(e)
         }
     }
 }
@@ -296,43 +281,6 @@ async fn apply_auto_join(
         game_config.game_args.extend(join_args);
     }
     Ok(())
-}
-
-fn spawn_game_step(
-    app: &AppHandle,
-    game_config: GameConfig,
-    authlib_server_url: Option<&str>,
-    ctx: &LaunchContext,
-    skin_server: &mut Option<offline::SkinServer>,
-) -> anyhow::Result<GameProcess> {
-    crate::tray::set_game_state(app, true, &ctx.username);
-    let spawn_result = LauncherError::classify(
-        spawn_game_process(app.clone(), game_config, authlib_server_url)
-            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
-        LauncherError::GameProcess,
-    );
-    match spawn_result {
-        Ok(process) => Ok(process),
-        Err(e) => {
-            crate::tray::set_game_state(app, false, "");
-            if let Some(server) = skin_server.take() {
-                server.stop();
-            }
-            Err(e)
-        }
-    }
-}
-
-fn spawn_skin_server_stop_monitor(server: offline::SkinServer, exited: Arc<AtomicBool>) {
-    tauri::async_runtime::spawn_blocking(move || {
-        loop {
-            if exited.load(Ordering::Relaxed) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        server.stop();
-    });
 }
 
 async fn wait_for_game_window(process: &GameProcess, project: &str) -> CommandResult<()> {

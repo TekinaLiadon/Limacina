@@ -8,7 +8,7 @@ import {
   savePlayerModel,
   setPlayerModelsLimit,
 } from '@/06-shared/api'
-import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
+import { cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
@@ -46,7 +46,6 @@ export function useCpmSettings() {
   const cpmData = shallowRef<CPMData | null>(null)
   const cpmFileBytes = ref<Uint8Array | null>(null)
   const cpmFileName = ref<string>('')
-  const isSaving = ref<boolean>(false)
   const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
   const hiddenLayerIds = ref<Set<number>>(new Set())
@@ -184,28 +183,6 @@ export function useCpmSettings() {
     }
   }
 
-  const handleSaveModelOffline = async (): Promise<void> => {
-    if (!cpmFileBytes.value || !cpmData.value) return
-
-    isSaving.value = true
-    content.errorMessage.value = ''
-    try {
-      const bytes = await cpmProjectToBytes(cpmFileBytes.value)
-      await savePlayerModel({
-        name: modelName.value,
-        url: null,
-        modelId: null,
-        slim: cpmData.value.config.skinType === 'slim',
-        data: Array.from(bytes),
-      })
-      notification.show('Модель сохранена в игру')
-    } catch (e: unknown) {
-      content.errorMessage.value = getErrorMessage(e)
-    } finally {
-      isSaving.value = false
-    }
-  }
-
   const loadModelsLimit = async (): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     isLimitLoading.value = true
@@ -259,6 +236,8 @@ export function useCpmSettings() {
 
   return {
     cpmData,
+    cpmFileBytes,
+    modelName,
     errorMessage: content.errorMessage,
     showEmptyLayers,
     displayLayers,
@@ -266,7 +245,6 @@ export function useCpmSettings() {
     toggleLayer,
     setTextureError,
     isUploading,
-    isSaving,
     isOffline: content.isOffline,
     uploadedModels: content.items,
     isListLoading: content.isListLoading,
@@ -282,7 +260,6 @@ export function useCpmSettings() {
     resetCpm,
     loadFromPath,
     handleUploadModel,
-    handleSaveModelOffline,
     handleDeleteModel,
     handleCopyUrl: content.handleCopyUrl,
     handleSaveModelsLimit,

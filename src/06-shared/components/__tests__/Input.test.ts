@@ -1,6 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import Input from '../Input.vue'
+
+const scrollIntoViewCalls: Element[] = []
+const originalScrollIntoView = Element.prototype.scrollIntoView
+
+beforeAll((): void => {
+  Element.prototype.scrollIntoView = function scrollIntoViewStub(this: Element): void {
+    scrollIntoViewCalls.push(this)
+  }
+})
+
+afterAll((): void => {
+  Element.prototype.scrollIntoView = originalScrollIntoView
+  vi.restoreAllMocks()
+})
 
 const mountInput = (modelValue = '') =>
   mount(Input, {
@@ -47,5 +62,108 @@ describe('Input', () => {
     const emissions = wrapper.emitted('update:modelValue')
     const lastEmission = emissions?.[emissions.length - 1]
     expect(lastEmission).toEqual(['alpha'])
+  })
+
+  it('moves the active suggest with arrows and wraps at the ends', async () => {
+    const wrapper = mountInput()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    let items = wrapper.findAll('.input__dropdown-item')
+    expect(items[1]?.classes()).toContain('input__dropdown-item--active')
+
+    await input.trigger('keydown', { key: 'ArrowUp' })
+    await input.trigger('keydown', { key: 'ArrowUp' })
+    items = wrapper.findAll('.input__dropdown-item')
+    expect(items[2]?.classes()).toContain('input__dropdown-item--active')
+    expect(input.attributes('aria-activedescendant')).toMatch(/-opt-2$/)
+  })
+
+  it('selects the active suggest on Enter after arrow navigation', async () => {
+    const wrapper = mountInput()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    await input.trigger('keydown', { key: 'Enter' })
+
+    const emissions = wrapper.emitted('update:modelValue')
+    const lastEmission = emissions?.[emissions.length - 1]
+    expect(lastEmission).toEqual(['beta'])
+  })
+
+  it('prevents the default action for a handled key', async () => {
+    const wrapper = mountInput()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+
+    const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('scrolls the active suggest into view on arrow navigation', async () => {
+    const wrapper = mountInput()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await nextTick()
+    scrollIntoViewCalls.length = 0
+
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+
+    const items = wrapper.findAll('.input__dropdown-item')
+    expect(scrollIntoViewCalls).toEqual([items[1]?.element])
+  })
+})
+
+describe('Input near the bottom edge', () => {
+  const originalInnerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+
+  beforeAll((): void => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      (): DOMRect =>
+        ({
+          top: 700,
+          bottom: 780,
+          left: 0,
+          right: 300,
+          width: 300,
+          height: 80,
+          x: 0,
+          y: 700,
+          toJSON: (): DOMRect => ({}) as DOMRect,
+        }) as DOMRect,
+    )
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(
+      (): CSSStyleDeclaration =>
+        ({
+          paddingTop: '4px',
+          paddingBottom: '6px',
+          rowGap: '2px',
+        }) as CSSStyleDeclaration,
+    )
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: (): number => 40 })
+  })
+
+  afterAll((): void => {
+    if (originalInnerHeight) Object.defineProperty(window, 'innerHeight', originalInnerHeight)
+    if (originalOffsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalOffsetHeight)
+  })
+
+  it('flips the dropdown above and binds the measured max-height', async () => {
+    const wrapper = mountInput()
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await nextTick()
+
+    const dropdown = wrapper.find('.input__dropdown')
+    expect(dropdown.classes()).toContain('input__dropdown--up')
+    expect(dropdown.attributes('style')).toContain('max-height: 302px')
   })
 })

@@ -22,7 +22,6 @@ import { useCpmSettings } from '../useCpmSettings'
 import { withSetup } from '@/test-support/withSetup'
 
 const exporter = vi.hoisted(() => ({
-  cpmProjectToBytes: vi.fn(),
   cpmProjectToLinkBase64: vi.fn(),
 }))
 
@@ -43,7 +42,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 
 vi.mock('@/04-features/cpm-convert/cpmProjectExporter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/04-features/cpm-convert/cpmProjectExporter')>()),
-  cpmProjectToBytes: exporter.cpmProjectToBytes,
   cpmProjectToLinkBase64: exporter.cpmProjectToLinkBase64,
 }))
 
@@ -104,7 +102,6 @@ describe('useCpmSettings', () => {
     vi.mocked(uploadModel).mockReset()
     vi.mocked(listModels).mockResolvedValue([])
     vi.mocked(getPlayerModelsLimit).mockResolvedValue(null)
-    exporter.cpmProjectToBytes.mockReset()
     exporter.cpmProjectToLinkBase64.mockReset()
     parser.parseCpmProjectFile.mockReset()
     createObjectURLMock.mockClear()
@@ -453,31 +450,6 @@ describe('useCpmSettings', () => {
     await cpm.handleUploadModel()
 
     expect(uploadModel).not.toHaveBeenCalled()
-  })
-
-  it('saves the model into the game as raw bytes', async () => {
-    const bytes = new Uint8Array(8)
-    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
-    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
-    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
-    exporter.cpmProjectToBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-    const core = useCoreStore()
-    const cpm = setupCpm()
-
-    core.pendingCpmProjectPath = '/models/hero.cpmproject'
-    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
-
-    await cpm.handleSaveModelOffline()
-
-    expect(exporter.cpmProjectToBytes).toHaveBeenCalledWith(bytes)
-    expect(savePlayerModel).toHaveBeenCalledWith({
-      name: 'hero',
-      url: null,
-      modelId: null,
-      slim: false,
-      data: [1, 2, 3],
-    })
-    expect(useNotificationStore().message).toBe('Модель сохранена в игру')
   })
 
   it('resets the model after confirmation', async () => {

@@ -69,23 +69,36 @@ describe('useCoreStore', () => {
     expect(store.hasLauncherConfig).toBe(false)
   })
 
-  it('isOfflineProject and isOnlineProject reflect the project config', () => {
+  it('isOfflineProject and isOnlineProject reflect only the project config', () => {
     const store = useCoreStore()
     expect(store.isOfflineProject).toBe(false)
     expect(store.isOnlineProject).toBe(false)
 
-    store.offlineBuild = true
     store.projectConfig = makeProjectConfig({ online: true })
-    expect(store.isOfflineProject).toBe(false)
-    expect(store.isOnlineProject).toBe(false)
-
-    store.offlineBuild = false
     expect(store.isOnlineProject).toBe(true)
     expect(store.isOfflineProject).toBe(false)
 
     store.projectConfig = makeProjectConfig({ online: false })
     expect(store.isOnlineProject).toBe(false)
     expect(store.isOfflineProject).toBe(true)
+
+    store.projectConfig = null
+    expect(store.isOnlineProject).toBe(false)
+    expect(store.isOfflineProject).toBe(false)
+  })
+
+  it('isServerBuild mirrors the offline build flag regardless of the project config', () => {
+    const store = useCoreStore()
+    expect(store.isServerBuild).toBe(true)
+
+    store.offlineBuild = true
+    expect(store.isServerBuild).toBe(false)
+
+    store.projectConfig = makeProjectConfig({ online: true })
+    expect(store.isServerBuild).toBe(false)
+
+    store.offlineBuild = false
+    expect(store.isServerBuild).toBe(true)
   })
 
   it('applyLauncherProjects copies the project list and prefers the saved project', () => {

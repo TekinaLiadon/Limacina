@@ -2,9 +2,10 @@
 import { computed, ref, useAttrs, watch } from 'vue'
 import { randomId } from '@/06-shared/utils/utils'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
+import { useListboxNavigation } from '@/06-shared/utils/useListboxNavigation'
 import type { InputOptions } from '@/06-shared/types'
-import OpenEye from "@/06-shared/components/svg/OpenEye.vue";
-import ClosedEye from "@/06-shared/components/svg/ClosedEye.vue";
+import OpenEye from '@/06-shared/components/svg/OpenEye.vue'
+import ClosedEye from '@/06-shared/components/svg/ClosedEye.vue'
 
 const props = defineProps<{
   modelValue: string
@@ -32,73 +33,72 @@ const inputAttrs = computed((): Record<string, unknown> => {
 const id = randomId()
 const showPassword = ref(false)
 const inputRef = ref<HTMLDivElement | null>(null)
-const { shown: showDropdown, close: closeDropdown } = useDropdownPanel(
+const {
+  shown: showDropdown,
+  open: openDropdown,
+  openUp,
+  maxHeight,
+  panelRef,
+  close: closeDropdown,
+} = useDropdownPanel(
   inputRef,
   (): boolean => false,
-  (): number => 10,
+  (): number => 7,
 )
 
 const listboxId = randomId()
 
-const inputType = computed(() => {
+const inputType = computed((): string => {
   if (props.options?.type === 'password') return showPassword.value ? 'text' : 'password'
 
   return props.options?.type || 'text'
 })
 
-const filteredList = computed(() => {
+const filteredList = computed((): string[] => {
   if (!props.options?.list?.length) return []
 
-  const val = (data.value || '').toLowerCase()
-  return props.options.list.filter(item =>
-    item.toLowerCase().includes(val)
-  )
+  const val = (props.modelValue || '').toLowerCase()
+  return props.options.list.filter(item => item.toLowerCase().includes(val))
 })
 
 const data = computed({
-  get: () => props.modelValue,
-  set: (value) =>  {
+  get: (): string => props.modelValue,
+  set: (value: string): void => {
     emit('update:modelValue', value)
-    if (props.options?.list?.length) {
-      showDropdown.value = true
-    }
+    if (props.options?.list?.length) void openDropdown()
   },
 })
+
+const openList = (): void => {
+  if (!props.options?.list?.length) return
+  void openDropdown()
+}
 
 const selectItem = (item: string): void => {
   emit('update:modelValue', item)
   closeDropdown()
 }
 
-const activeSuggest = ref(0)
+const { activeIndex, resetActive, navigationActions } = useListboxNavigation(
+  (): number => filteredList.value.length,
+  panelRef,
+  (index: number): void => {
+    const item = filteredList.value[index]
+    if (item !== undefined) selectItem(item)
+  },
+)
 
 watch(showDropdown, (shown: boolean): void => {
-  if (shown) activeSuggest.value = 0
+  if (shown) resetActive(0)
 })
 
 watch(filteredList, (): void => {
-  activeSuggest.value = 0
+  resetActive(0)
 })
-
-const moveActive = (delta: number): void => {
-  const count = filteredList.value.length
-  activeSuggest.value = (activeSuggest.value + delta + count) % count
-}
-
-const confirmActive = (): void => {
-  const item = filteredList.value[activeSuggest.value]
-  if (item !== undefined) selectItem(item)
-}
-
-const suggestActions: Record<string, () => void> = {
-  ArrowDown: (): void => moveActive(1),
-  ArrowUp: (): void => moveActive(-1),
-  Enter: confirmActive,
-}
 
 const handleInputKeydown = (event: KeyboardEvent): void => {
   if (!showDropdown.value || filteredList.value.length === 0) return
-  const action = suggestActions[event.key]
+  const action = navigationActions[event.key]
   if (!action) return
   event.preventDefault()
   action()
@@ -128,23 +128,31 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
                :aria-expanded="showDropdown && filteredList.length > 0"
                aria-haspopup="listbox"
                :aria-controls="listboxId"
-               :aria-activedescendant="showDropdown && filteredList.length > 0 ? `${listboxId}-opt-${activeSuggest}` : undefined"
-               @focus="options?.list?.length && (showDropdown = true)"
-               @input="options?.list?.length && (showDropdown = true)"
+               :aria-activedescendant="showDropdown && filteredList.length > 0 ? `${listboxId}-opt-${activeIndex}` : undefined"
+               @focus="openList"
+               @input="openList"
                @keydown="handleInputKeydown"
                @focusout="closeDropdown"
         />
-        <div v-if="showDropdown && filteredList.length" :id="listboxId" class="input__dropdown" role="listbox">
+        <div
+          v-if="showDropdown && filteredList.length"
+          ref="panelRef"
+          :id="listboxId"
+          class="input__dropdown"
+          :class="{ 'input__dropdown--up': openUp }"
+          role="listbox"
+          :style="{ maxHeight }"
+        >
           <div
             v-for="(item, index) in filteredList"
             :key="item"
             :id="`${listboxId}-opt-${index}`"
             class="input__dropdown-item"
-            :class="{ 'input__dropdown-item--active': index === activeSuggest }"
+            :class="{ 'input__dropdown-item--active': index === activeIndex }"
             role="option"
             :aria-selected="item === data"
             @mousedown.prevent="selectItem(item)"
-            @mousemove="activeSuggest = index"
+            @mousemove="activeIndex = index"
           >
             {{ item }}
           </div>
@@ -274,10 +282,16 @@ $input-row-container: 420px;
     background: var(--login-bg-form);
     border-radius: var(--radius-input);
     padding: var(--space-4) 0;
-    max-height: var(--options-max-height);
     overflow-y: auto;
     z-index: var(--z-dropdown);
     box-shadow: var(--elevation-modal);
+  }
+
+  &__dropdown--up {
+    @include mixins.options-panel-up;
+
+    margin-top: 0;
+    margin-bottom: var(--space-4);
   }
 
   &__dropdown-item {

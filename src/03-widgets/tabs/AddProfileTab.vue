@@ -2,7 +2,7 @@
 import { computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/06-shared'
-import { useAddProfile } from '@/04-features'
+import { useAddProfile, useOfflineProfileForm } from '@/04-features'
 import ServerProfileForm from '@/03-widgets/tabs/profile/ServerProfileForm.vue'
 import OfflineProfileForm from '@/03-widgets/tabs/profile/OfflineProfileForm.vue'
 import type { ProfileKind, ProjectConfig } from '@/05-entities'
@@ -14,10 +14,15 @@ const props = defineProps<{
 const router = useRouter()
 
 const {
-  kind,
   isSubmitting,
   errorMessage,
   serverForm,
+  isServerValid,
+  submitServer,
+} = useAddProfile()
+
+const {
+  kind,
   offlineForm,
   mcVersionOptions,
   loaderOptions,
@@ -25,12 +30,10 @@ const {
   needsLoaderVersion,
   isLoadingMcVersions,
   isLoadingLoaderVersions,
-  isServerValid,
   isOfflineValid,
   selectKind,
-  submitServer,
   submitOffline,
-} = useAddProfile()
+} = useOfflineProfileForm({ isSubmitting, errorMessage })
 
 const kindTabs: Array<{ key: ProfileKind; label: string }> = [
   { key: 'server', label: 'Сервер' },

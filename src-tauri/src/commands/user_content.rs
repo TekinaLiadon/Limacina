@@ -5,8 +5,8 @@ use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth;
 use crate::commands::auth::restore_and_persist_session;
+use crate::commands::auth_offline;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
 use crate::state::config::load_config_or_default;
@@ -30,16 +30,25 @@ pub async fn select_account(
     project_name: String,
     username: String,
 ) -> CommandResult<SessionInfo> {
-    let project = load_config_or_default(&project_name).await?;
+    let info = select_account_flow(state.inner(), &project_name, &username).await?;
+    Ok(info)
+}
+
+async fn select_account_flow(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+    username: &str,
+) -> Result<SessionInfo> {
+    let project = load_config_or_default(project_name).await?;
 
     let auth_data = if project.online {
-        restore_and_persist_session(&project_name, &username, None).await?
+        restore_and_persist_session(project_name, username, None).await?
     } else {
-        auth::offline(&username)
+        auth_offline::select(username)
     };
 
     let uuid = auth_data.uuid();
-    let username_str = auth_data.username(&username);
+    let username_str = auth_data.username(username);
 
     {
         let mut state = state.lock().await;
@@ -47,7 +56,7 @@ pub async fn select_account(
             access_token: auth_data.tokens.access_token.clone(),
             uuid: uuid.clone(),
             username: username_str.clone(),
-            project_name: project_name.clone(),
+            project_name: project_name.to_string(),
         });
     }
 
@@ -397,6 +406,89 @@ pub async fn delete_offline_skin(state: State<'_, Mutex<GlobalState>>) -> Comman
     let project_name = current_project_name(&state).await?;
     delete_offline_skin_files(&project_name).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod select_account_tests {
+    use super::select_account_flow;
+    use crate::auth::storage;
+    use crate::auth::{generate_offline_uuid, OFFLINE_ACCESS_TOKEN};
+    use crate::commands::auth::wipe_project_credentials;
+    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::state::launcher_config::LauncherConfig;
+    use crate::test_support::{
+        rotation_payload, seed_offline_project, seed_online_project, LauncherDirGuard,
+    };
+    use mockito::Server;
+    use tokio::sync::Mutex;
+
+    fn state_for(project_name: &str) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: project_name.to_string(),
+                ..ProjectConfig::default()
+            },
+            session: None,
+            launcher_config: Some(LauncherConfig::default()),
+            app_version: String::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn offline_project_selects_offline_session_without_server() {
+        let _guard = LauncherDirGuard::acquire("select_account_offline").await;
+        seed_offline_project("OffProj").await;
+        let state = state_for("OffProj");
+
+        let info = select_account_flow(&state, "OffProj", "Steve")
+            .await
+            .expect("офлайн-выбор аккаунта");
+
+        assert_eq!(info.uuid, generate_offline_uuid("Steve"));
+        assert_eq!(info.username, "Steve");
+        let guard = state.lock().await;
+        let session = guard
+            .session
+            .as_ref()
+            .expect("сессия должна быть сохранена");
+        assert_eq!(session.access_token, OFFLINE_ACCESS_TOKEN);
+        assert_eq!(session.uuid, generate_offline_uuid("Steve"));
+    }
+
+    #[tokio::test]
+    async fn online_project_restores_session_from_refresh_token() {
+        let _guard = LauncherDirGuard::acquire("select_account_online").await;
+        let mut server = Server::new_async().await;
+        let refresh = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .with_status(200)
+            .with_body(rotation_payload("access-2", "tok-2"))
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-1")
+            .expect("сохранение токена");
+        let state = state_for("TestProj");
+
+        let info = select_account_flow(&state, "TestProj", "Steve")
+            .await
+            .expect("онлайн-выбор аккаунта");
+
+        refresh.assert_async().await;
+        assert_eq!(info.uuid, "uuid-1");
+        assert_eq!(info.username, "Steve");
+        let guard = state.lock().await;
+        let session = guard
+            .session
+            .as_ref()
+            .expect("сессия должна быть сохранена");
+        assert_eq!(session.access_token, "access-2");
+
+        wipe_project_credentials("TestProj", &["Steve".to_string()])
+            .await
+            .expect("очистка хранилища после теста");
+    }
 }
 
 #[cfg(test)]
