@@ -3,6 +3,7 @@ name = "Limacina"
 version = "0.6.0"
 description = "Limacina — Minecraft launcher"
 authors = ["Tekina"]
+license = "MIT"
 edition = "2021"
 
 [lib]

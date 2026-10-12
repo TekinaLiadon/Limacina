@@ -79,3 +79,7 @@ bunx tauri build
 ```
 
 > `.env` встраивается в бинарник на этапе компиляции через `include_str!` в `lib.rs`. При изменении значений cargo пересобирает crate автоматически, поэтому `cargo clean` не нужен.
+
+## Лицензия
+
+[MIT](LICENSE) © Tekina
