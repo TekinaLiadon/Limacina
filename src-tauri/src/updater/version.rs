@@ -72,15 +72,16 @@ async fn fetch_releases(server_url: &str) -> Result<Vec<UpdateRelease>> {
     Ok(data.releases)
 }
 
-pub fn retain_current_platform(releases: &mut Vec<UpdateRelease>) {
+pub fn retain_current_platform(releases: &mut Vec<UpdateRelease>) -> Result<()> {
     let os = get_current_os();
-    let arch = get_arch();
+    let arch = get_arch()?;
     releases.retain(|release| {
         release
             .platforms
             .iter()
             .any(|key| platform_key_matches(key, os, arch))
     });
+    Ok(())
 }
 
 pub fn is_timeout_error(error: &anyhow::Error) -> bool {
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn retain_current_platform_keeps_only_matching_platforms() {
         let os = get_current_os();
-        let arch = get_arch();
+        let arch = get_arch().expect("поддерживаемая архитектура");
         let matches_current = |key: &str| platform_key_matches(key, os, arch);
         let all_platform_keys = [
             "linux-x86_64",
@@ -229,7 +230,7 @@ mod tests {
                 platforms: vec![],
             },
         ];
-        retain_current_platform(&mut releases);
+        retain_current_platform(&mut releases).expect("фильтр платформ");
 
         assert_eq!(releases.len(), 1);
         assert_eq!(releases[0].version, "multi");

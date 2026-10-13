@@ -242,4 +242,33 @@ describe('useLaunchStore', () => {
 
     expect(launch.gameUsername).toBeNull()
   })
+
+  it('restores the session view when a new launch begins after dismissing it', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.sessionViewDismissed = true
+
+    launch.beginLaunch()
+
+    expect(launch.sessionViewDismissed).toBe(false)
+  })
+
+  it('clears the dismissed session view on reset', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.sessionViewDismissed = true
+
+    launch.reset()
+
+    expect(launch.sessionViewDismissed).toBe(false)
+  })
+
+  it('keeps the dismissed session view while no new launch begins', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.sessionViewDismissed = true
+    launch.gameUsername = null
+
+    expect(launch.sessionViewDismissed).toBe(true)
+  })
 })

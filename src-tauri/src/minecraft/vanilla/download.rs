@@ -114,21 +114,21 @@ pub fn collect_natives_to_extract(
             continue;
         }
 
-        if let Some(downloads) = &lib.downloads {
-            if let Some(artifact) = &downloads.artifact {
-                if !artifact.url.is_empty() && (lib.natives.is_some() || is_native_jar(&lib.name)) {
-                    ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
-                    let rel_path = PathBuf::from("libraries").join(&artifact.path);
-                    if queued.insert(rel_path.clone()) {
-                        natives_to_extract.push((
-                            rel_path,
-                            lib.extract.as_ref().and_then(|e| e.exclude.clone()),
-                        ));
+        if is_native_jar(&lib.name) {
+            if let Some(downloads) = &lib.downloads {
+                if let Some(artifact) = &downloads.artifact {
+                    if !artifact.url.is_empty() {
+                        ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
+                        let rel_path = PathBuf::from("libraries").join(&artifact.path);
+                        if queued.insert(rel_path.clone()) {
+                            natives_to_extract.push((
+                                rel_path,
+                                lib.extract.as_ref().and_then(|e| e.exclude.clone()),
+                            ));
+                        }
                     }
                 }
             }
-        }
-        if is_native_jar(&lib.name) {
             continue;
         }
 
@@ -402,11 +402,18 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Result<Vec<
             if let Some(artifact) = &downloads.artifact {
                 let rel_path = PathBuf::from(format!("libraries/{}", artifact.path));
                 if !artifact.url.is_empty()
-                    && !artifact.sha1.is_empty()
                     && should_download_library(&lib.name)
-                    && queued.insert(rel_path.clone())
+                    && !queued.contains(&rel_path)
                 {
                     ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
+                    if artifact.sha1.is_empty() {
+                        return Err(LauncherError::ManifestParse(format!(
+                            "У библиотеки {} в манифесте нет SHA1 хеша",
+                            lib.name
+                        ))
+                        .into());
+                    }
+                    queued.insert(rel_path.clone());
                     targets.push(IntegrityTarget {
                         rel_path,
                         hash: artifact.sha1.clone(),
@@ -418,20 +425,23 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Result<Vec<
         }
 
         if let Some(native_artifact) = native_artifact_for_os(lib, current_os) {
-            if !native_artifact.sha1.is_empty() {
-                let rel_path = PathBuf::from(format!("libraries/{}", native_artifact.path));
-                if queued.insert(rel_path.clone()) {
-                    ensure_safe_relative_path(
-                        &native_artifact.path,
-                        "пути библиотеки в манифесте",
-                    )?;
-                    targets.push(IntegrityTarget {
-                        rel_path,
-                        hash: native_artifact.sha1.clone(),
-                        hash_kind: HashKind::Sha1,
-                        download: TargetDownload::Url(native_artifact.url.clone()),
-                    });
+            let rel_path = PathBuf::from(format!("libraries/{}", native_artifact.path));
+            if !queued.contains(&rel_path) {
+                ensure_safe_relative_path(&native_artifact.path, "пути библиотеки в манифесте")?;
+                if native_artifact.sha1.is_empty() {
+                    return Err(LauncherError::ManifestParse(format!(
+                        "У библиотеки {} нет SHA1 хеша у natives-артефакта",
+                        lib.name
+                    ))
+                    .into());
                 }
+                queued.insert(rel_path.clone());
+                targets.push(IntegrityTarget {
+                    rel_path,
+                    hash: native_artifact.sha1.clone(),
+                    hash_kind: HashKind::Sha1,
+                    download: TargetDownload::Url(native_artifact.url.clone()),
+                });
             }
         }
     }
@@ -467,13 +477,90 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<Inte
     Ok(targets)
 }
 
+pub async fn preflight_asset_disk_space(
+    base_path: &Path,
+    asset_index: &AssetIndexContent,
+) -> Result<()> {
+    let mut needed: u64 = 0;
+    for asset in asset_index.objects.values() {
+        let Some(hash_prefix) = asset.hash.get(..2) else {
+            continue;
+        };
+        let rel_path = PathBuf::from(format!("assets/objects/{hash_prefix}/{}", asset.hash));
+        let present = tokio::fs::try_exists(base_path.join(&rel_path))
+            .await
+            .unwrap_or(false);
+        if !present {
+            needed += asset.size;
+        }
+    }
+    if needed == 0 {
+        return Ok(());
+    }
+    let Some(available) = crate::utils::disk_space::available_bytes(base_path) else {
+        log_info!(
+            "[preflight] Не удалось определить диск для {:?} — проверка свободного места пропущена",
+            base_path
+        );
+        return Ok(());
+    };
+    if available < needed {
+        return Err(LauncherError::DiskIo(format!(
+            "Недостаточно свободного места на диске: для ресурсов игры требуется ещё {}, доступно {}",
+            crate::utils::disk_space::format_bytes(needed),
+            crate::utils::disk_space::format_bytes(available)
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
         collect_library_targets, collect_natives_to_extract, extract_natives, get_current_os,
-        natives_match_version, AssetIndexContent,
+        natives_match_version, preflight_asset_disk_space, AssetIndexContent,
     };
+    #[tokio::test]
+    async fn preflight_passes_when_assets_already_present() {
+        let dir = LauncherDirGuard::acquire("preflight_present").await;
+        let base = dir.project_dir("Cordelia");
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "abcdef1234567890abcdef1234567890abcdef12", "size": 1024 } }
+        }))
+        .unwrap();
+        std_fs::create_dir_all(base.join("assets/objects/ab")).unwrap();
+        std_fs::write(
+            base.join("assets/objects/ab/abcdef1234567890abcdef1234567890abcdef12"),
+            b"x",
+        )
+        .unwrap();
+
+        preflight_asset_disk_space(&base, &index)
+            .await
+            .expect("все ассеты на месте — проверка свободного места проходит");
+    }
+
+    #[tokio::test]
+    async fn preflight_errors_when_not_enough_space() {
+        let dir = LauncherDirGuard::acquire("preflight_tight").await;
+        let base = dir.project_dir("Cordelia");
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": { "a.png": { "hash": "abcdef1234567890abcdef1234567890abcdef12", "size": u64::MAX } }
+        }))
+        .unwrap();
+
+        let error = preflight_asset_disk_space(&base, &index)
+            .await
+            .expect_err("непомерный размер ассетов должен выявлять нехватку места");
+
+        assert!(
+            error.to_string().contains("Недостаточно свободного места"),
+            "ошибка должна сообщать о нехватке места: {error}"
+        );
+    }
+
     #[test]
     fn asset_targets_reject_short_hashes() {
         let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
@@ -706,6 +793,44 @@ mod tests {
     }
 
     #[test]
+    fn library_targets_error_on_url_without_sha1() {
+        let mut value = manifest_1_18_2();
+        value["libraries"][2]["downloads"]["artifact"]["sha1"] = json!("");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let error = collect_library_targets(&manifest)
+            .expect_err("библиотека с url, но без SHA1 должна давать явную ошибку");
+
+        assert!(
+            error.to_string().contains("SHA1"),
+            "ошибка должна называть отсутствующий хеш: {error}"
+        );
+    }
+
+    #[test]
+    fn library_targets_error_on_native_classifier_without_sha1() {
+        if get_current_os() == "osx" {
+            return;
+        }
+        let suffix = if get_current_os() == "windows" {
+            "natives-windows"
+        } else {
+            "natives-linux"
+        };
+        let mut value = manifest_1_18_2();
+        value["libraries"][5]["downloads"]["classifiers"][suffix]["sha1"] = json!("");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let error = collect_library_targets(&manifest)
+            .expect_err("natives-классификатор без SHA1 должен давать явную ошибку");
+
+        assert!(
+            error.to_string().contains("SHA1"),
+            "ошибка должна называть отсутствующий хеш: {error}"
+        );
+    }
+
+    #[test]
     fn library_targets_reject_traversal_artifact_path() {
         let mut value = manifest_1_18_2();
         value["libraries"][5]["downloads"]["artifact"]["path"] = json!("../evil/text2speech.jar");
@@ -768,10 +893,9 @@ mod tests {
         );
 
         if get_current_os() == "osx" {
-            assert_eq!(
-                rel_paths,
-                vec!["libraries/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar".to_string()],
-                "на osx остаётся только main-артефакт text2speech (natives map), без обычных jar"
+            assert!(
+                rel_paths.is_empty(),
+                "на osx ни один артефакт не распаковывается: natives map без osx-ключа не даёт распаковку main jar: {rel_paths:?}"
             );
             return;
         }
@@ -794,14 +918,16 @@ mod tests {
             rel_paths.contains(&text2speech_classifier),
             "natives-классификатор text2speech должен распаковываться: {rel_paths:?}"
         );
-        for plain in [
+        for main in [
+            "libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+            "libraries/com/mojang/text2speech/1.12.4/text2speech-1.12.4.jar",
             "libraries/com/mojang/logging/1.0.0/logging-1.0.0.jar",
             "libraries/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
             "libraries/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar",
         ] {
             assert!(
-                !rel_paths.contains(&plain.to_string()),
-                "обычный jar не должен уходить на распаковку: {plain}"
+                !rel_paths.contains(&main.to_string()),
+                "main-артефакт без natives в имени не должен распаковываться: {main}"
             );
         }
         assert_eq!(

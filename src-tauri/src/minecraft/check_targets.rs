@@ -9,8 +9,8 @@ use crate::{
         manifest::get_manifest_version,
         vanilla::{
             download::{
-                extract_natives, read_asset_index, VanillaPhaseInfo, PHASE_ASSET_INDEX,
-                PHASE_NATIVES,
+                extract_natives, natives_match_version, preflight_asset_disk_space,
+                read_asset_index, VanillaPhaseInfo, PHASE_ASSET_INDEX, PHASE_NATIVES,
             },
             manifest::load_vanilla_index,
             pipeline::{run_vanilla_phases, VanillaPhaseExecutor},
@@ -118,6 +118,7 @@ impl VanillaPhaseExecutor for IntegrityPhases {
         let asset_index = read_asset_index(&index_path).await.map_err(|e| {
             LauncherError::GameDownload(format!("Не удалось прочитать индекс ассетов: {e:#}"))
         })?;
+        preflight_asset_disk_space(&self.base_path, &asset_index).await?;
         Ok(asset_index)
     }
 }
@@ -168,15 +169,22 @@ async fn check_natives_integrity(
         PHASE_NATIVES.id,
         PHASE_NATIVES.label,
     );
-    let total = natives_rel.len() as u64;
-    step.set_total(total);
-    step.detail("Распаковка");
+    step.set_total(1);
+    let natives_dir = base_path.join("natives");
+    if natives_match_version(&natives_dir, mc_version).await {
+        step.finish(true);
+        return Ok(IntegrityReport {
+            total: 1,
+            ..IntegrityReport::default()
+        });
+    }
 
+    step.detail("Распаковка");
     match extract_natives(base_path, natives_rel, mc_version).await {
         Ok(()) => {
             step.finish(false);
             Ok(IntegrityReport {
-                total,
+                total: 1,
                 ..IntegrityReport::default()
             })
         }
@@ -184,7 +192,7 @@ async fn check_natives_integrity(
             log_err!("[integrity] Не удалось распаковать нативные библиотеки: {e:?}");
             step.fail("Не удалось распаковать нативные библиотеки");
             Ok(IntegrityReport {
-                total,
+                total: 1,
                 broken: 1,
                 failed: vec!["natives".to_string()],
                 ..IntegrityReport::default()
@@ -284,6 +292,7 @@ mod tests {
         .expect("фаза natives проверки целостности");
 
         assert!(report.failed.is_empty());
+        assert_eq!(report.total, 1);
         assert_eq!(
             std::fs::read(base.join("natives/liblwjgl.so")).unwrap(),
             b"so bytes"
@@ -297,9 +306,34 @@ mod tests {
             &manifest.id,
         )
         .await
-        .expect("отчёт фазы natives при сбое");
+        .expect("отчёт фазы natives при совпадающей версии");
+
+        assert!(
+            report.failed.is_empty(),
+            "при совпадающем маркере версии распаковка пропускается: {report:?}"
+        );
+        assert_eq!(
+            std::fs::read(base.join("natives/liblwjgl.so")).unwrap(),
+            b"so bytes"
+        );
+
+        let report = check_natives_integrity(
+            &base,
+            collect_natives_to_extract(&manifest).expect("список natives"),
+            "1.20.1",
+        )
+        .await
+        .expect("отчёт фазы natives при смене версии");
 
         assert_eq!(report.failed, vec!["natives".to_string()]);
+        assert_eq!(
+            report.total, 1,
+            "фаза natives считается одной единицей отчёта"
+        );
+        assert_eq!(
+            report.broken, 1,
+            "числа отчёта должны быть согласованы: total == broken при полном сбое фазы"
+        );
         let natives_clean = std::fs::read_dir(base.join("natives"))
             .map(|mut entries| entries.next().is_none())
             .unwrap_or(true);

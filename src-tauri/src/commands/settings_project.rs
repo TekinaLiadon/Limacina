@@ -160,21 +160,24 @@ pub async fn clear_minecraft_config(
         .map_err(Into::into)
 }
 
+static CLEAR_CONFIG_LOCK: Mutex<()> = Mutex::const_new(());
+
 async fn clear_minecraft_config_inner(
     project_name: &str,
     keep_old_configs: bool,
 ) -> Result<String> {
+    let _guard = CLEAR_CONFIG_LOCK.lock().await;
     ensure_project_selected(project_name)?;
 
     let game_dir = launcher_path(Some(project_name))?;
     let config_dir = game_dir.join("config");
 
-    if !config_dir.exists() {
+    if !tokio::fs::try_exists(&config_dir).await.unwrap_or(false) {
         let staging_dir = game_dir.join("old_config.part");
-        if staging_dir.exists() {
+        if tokio::fs::try_exists(&staging_dir).await.unwrap_or(false) {
             if keep_old_configs {
                 let old_dir = game_dir.join("old_config");
-                if old_dir.exists() {
+                if tokio::fs::try_exists(&old_dir).await.unwrap_or(false) {
                     tokio::fs::remove_dir_all(&old_dir).await.with_context(|| {
                         format!("Не удалось удалить старую папку {:?}", old_dir)
                     })?;
@@ -203,7 +206,7 @@ async fn clear_minecraft_config_inner(
         tokio::fs::rename(&config_dir, &staging_dir)
             .await
             .with_context(|| format!("Не удалось переименовать папку {:?}", config_dir))?;
-        if old_dir.exists() {
+        if tokio::fs::try_exists(&old_dir).await.unwrap_or(false) {
             tokio::fs::remove_dir_all(&old_dir)
                 .await
                 .with_context(|| format!("Не удалось удалить старую папку {:?}", old_dir))?;
@@ -340,6 +343,36 @@ mod save_settings_tests {
             !game_dir.join("old_config").exists(),
             "old_config не должен создаваться без keep_old_configs"
         );
+    }
+
+    #[tokio::test]
+    async fn parallel_clears_are_serialized_and_both_succeed() {
+        let dir = LauncherDirGuard::acquire("clear_minecraft_parallel").await;
+        let game_dir = dir.project_dir("Cordelia");
+        let config = game_dir.join("config");
+        std::fs::create_dir_all(&config).expect("создание config");
+        std::fs::write(config.join("options.txt"), b"fov:90").expect("создание options.txt");
+
+        let (first, second) = tokio::join!(
+            clear_minecraft_config_inner("Cordelia", true),
+            clear_minecraft_config_inner("Cordelia", true),
+        );
+
+        let first = first.expect("первая очистка должна пройти");
+        let second = second.expect("параллельная очистка должна ждать лок, а не падать");
+        assert!(
+            first.contains("резервную копию") || second.contains("резервную копию"),
+            "ровно одна из очисток должна переносить конфиги: {first} / {second}"
+        );
+        assert!(
+            game_dir.join("old_config").join("options.txt").exists(),
+            "конфиги должны оказаться в old_config"
+        );
+        assert!(
+            !game_dir.join("old_config.part").exists(),
+            "staging не должен оставаться после параллельных очисток"
+        );
+        assert!(!config.exists(), "исходная папка config должна исчезнуть");
     }
 
     #[tokio::test]

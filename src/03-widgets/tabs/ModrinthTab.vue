@@ -20,6 +20,7 @@ const {
   totalPages,
   currentPage,
   versionNumbers,
+  searchVersionsFailed,
   isSearching,
   searchError,
   installed,
@@ -330,6 +331,9 @@ onMounted(() => {
       <div v-if="searchError" class="modrinth-tab__error">{{ searchError }}</div>
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
       <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
+      <p v-if="searchVersionsFailed && !searchError" class="modrinth-tab__versions-hint">
+        Версии модов не загрузились — значки версий могут отсутствовать
+      </p>
 
       <div v-if="isCatalogSearching" class="modrinth-tab__summary" aria-hidden="true">
         <Skeleton
@@ -608,6 +612,13 @@ onMounted(() => {
 
   &__error {
     @include mixins.error-box;
+  }
+
+  &__versions-hint {
+    @include mixins.caption-hint;
+
+    margin: 0;
+    text-align: left;
   }
 
   @include breakpoints.media-under-md {

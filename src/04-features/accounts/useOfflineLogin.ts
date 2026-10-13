@@ -19,7 +19,7 @@ export function useOfflineLogin({ isLoginValid: serverLoginValid, submitLogin }:
   const isLoginValid = computed((): boolean => {
     if (!isOffline.value) return serverLoginValid.value
     if (!coreStore.currentProject) return false
-    return store.loginFormData.username.length >= MIN_LOGIN_LENGTH
+    return store.loginFormData.username.trim().length >= MIN_LOGIN_LENGTH
   })
 
   const handleLogin = async (): Promise<void> => {

@@ -62,6 +62,8 @@
   --indicator-dot-size-lg: 12px;
   --step-indicator-size: 24px;
   --menu-action-size: 28px;
+  --avatar-size-sm: 28px;
+  --avatar-size-lg: 64px;
   --modrinth-icon-size-sm: 48px;
   --modrinth-icon-size-lg: 56px;
   --modrinth-popup-width: min(720px, calc(100vw - var(--space-16) * 2));
@@ -90,6 +92,10 @@
 
   --switch-glow: rgba(108, 127, 216, 0.5);
   --switch-glow-invert: rgba(255, 255, 255, 0.4);
+  --switch-glow-offset: 4px;
+  --switch-glow-blur: 16px;
+  --switch-girl-drop: 80px;
+  --switch-girl-rise: 30px;
 
   --duration-fast: 150ms;
   --duration-base: 250ms;

@@ -46,10 +46,15 @@ pub fn game_username() -> Option<String> {
 pub fn set_minimize_to_tray<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     MINIMIZE_TO_TRAY.store(enabled, Ordering::Relaxed);
     if game_username().is_none() {
-        if let Some(tray) = app.tray_by_id(TRAY_ID) {
-            if let Err(e) = tray.set_visible(enabled) {
-                log_err!("Не удалось обновить видимость иконки в трее: {}", e);
+        let dispatch = app.clone();
+        if let Err(e) = app.run_on_main_thread(move || {
+            if let Some(tray) = dispatch.tray_by_id(TRAY_ID) {
+                if let Err(e) = tray.set_visible(enabled) {
+                    log_err!("Не удалось обновить видимость иконки в трее: {}", e);
+                }
             }
+        }) {
+            log_err!("Не удалось обновить трей в главном потоке: {}", e);
         }
     }
 }
@@ -57,7 +62,23 @@ pub fn set_minimize_to_tray<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
 pub fn set_game_state<R: Runtime>(app: &AppHandle<R>, running: bool, username: &str) {
     store_game_state(running, username);
 
+    let dispatch = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        apply_game_state_to_tray(&dispatch);
+    }) {
+        log_err!("Не удалось обновить трей в главном потоке: {}", e);
+    }
+
+    if running {
+        log_info!("Игра запущена ({}), состояние трея обновлено", username);
+    } else {
+        log_info!("Игра завершена, состояние трея обновлено");
+    }
+}
+
+fn apply_game_state_to_tray<R: Runtime>(app: &AppHandle<R>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let running = GAME_RUNNING.load(Ordering::Relaxed);
         let visible = running || minimize_to_tray_enabled();
         if let Err(e) = tray.set_visible(visible) {
             log_err!("Не удалось обновить видимость иконки в трее: {}", e);
@@ -88,12 +109,6 @@ pub fn set_game_state<R: Runtime>(app: &AppHandle<R>, running: bool, username: &
             }
             Err(e) => log_err!("Не удалось собрать меню трея: {}", e),
         }
-    }
-
-    if running {
-        log_info!("Игра запущена ({}), состояние трея обновлено", username);
-    } else {
-        log_info!("Игра завершена, состояние трея обновлено");
     }
 }
 

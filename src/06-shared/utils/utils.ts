@@ -14,3 +14,8 @@ export function stripPathSuffix(path: string, suffix: string): string {
   const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return path.replace(new RegExp(`[\\\\/]${escaped}$`), '')
 }
+
+export function matchesExtension(name: string, accept: readonly string[]): boolean {
+  const extension = name.split('.').pop()?.toLowerCase() ?? ''
+  return accept.some((token) => token.trim().replace(/^\./, '').toLowerCase() === extension)
+}

@@ -215,10 +215,6 @@ const handleDownload = async (): Promise<void> => {
 <style lang="scss">
 @use '@/01-app/assets/mixins';
 
-.project-settings__danger-button {
-  width: 100%;
-}
-
 .project-settings {
   display: flex;
   flex-direction: column;
@@ -261,6 +257,10 @@ const handleDownload = async (): Promise<void> => {
     display: flex;
     flex-direction: column;
     gap: var(--space-12);
+  }
+
+  &__danger-button {
+    width: 100%;
   }
 }
 </style>

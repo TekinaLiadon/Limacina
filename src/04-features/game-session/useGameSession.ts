@@ -1,5 +1,5 @@
 import { useLaunchStore } from '@/05-entities'
-import { getGameState, hideMainWindow, listenGameExit, listenGameStarted } from '@/06-shared/api'
+import { getGameState, listenGameExit, listenGameStarted } from '@/06-shared/api'
 import { createSingletonListeners, reportError } from '@/06-shared'
 
 let syncGameSessionPromise: Promise<void> | null = null
@@ -42,16 +42,8 @@ export const syncGameSession = (): Promise<void> => {
 
 export function useGameSession(): {
   startGameSessionSync: () => Promise<void>
-  minimizeToTray: () => Promise<void>
 } {
   return {
     startGameSessionSync: syncGameSession,
-    minimizeToTray: async (): Promise<void> => {
-      try {
-        await hideMainWindow()
-      } catch (e: unknown) {
-        reportError('Не удалось свернуть окно в трей', e)
-      }
-    },
   }
 }

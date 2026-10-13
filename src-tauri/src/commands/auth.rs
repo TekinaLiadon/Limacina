@@ -56,7 +56,9 @@ pub(crate) async fn persist_session_credentials(
 ) -> Result<()> {
     let uuid = data.uuid();
     if !uuid.is_empty() {
-        let _ = storage::save_credential(project_name, username, "uuid", &uuid).await;
+        if let Err(e) = storage::save_credential(project_name, username, "uuid", &uuid).await {
+            log_err!("Не удалось сохранить uuid аккаунта «{username}»: {e:#}");
+        }
     }
     storage::save_credential(
         project_name,
@@ -271,8 +273,8 @@ async fn login_account(
 
     let data = login_online_session(project_name, username, password, remember_me).await?;
 
-    store_session(state, &data, username, project_name).await;
     remember_login(state, project_name, username, remember_me).await?;
+    store_session(state, &data, username, project_name).await;
 
     Ok(())
 }

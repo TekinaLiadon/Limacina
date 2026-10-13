@@ -84,7 +84,7 @@ pub(crate) fn parse_java_major(version: &str) -> Result<u32> {
 
 async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf> {
     let os = get_current_os();
-    let arch = match get_arch() {
+    let arch = match get_arch()? {
         "x86_64" => "x64",
         other => other,
     };
@@ -213,18 +213,21 @@ pub(crate) async fn rename_java_dir(java_path: &PathBuf, vendor: &str) -> Result
     }
 
     let mut entries = fs::read_dir(java_path).await?;
+    let mut candidates = Vec::new();
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_dir() {
-            let folder_name = entry.file_name();
-            let folder_name_str = folder_name.to_string_lossy();
-
+            let folder_name_str = entry.file_name().to_string_lossy().into_owned();
             if folder_name_str != vendor && !folder_name_str.starts_with("archive") {
-                fs::rename(&path, &new_path).await?;
-                break;
+                candidates.push(path);
             }
         }
+    }
+    candidates.sort();
+
+    if let Some(source) = candidates.first() {
+        fs::rename(source, &new_path).await?;
     }
 
     Ok(())

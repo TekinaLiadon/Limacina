@@ -2,7 +2,7 @@ import { watch, type Ref } from 'vue'
 import * as THREE from 'three'
 import type { ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
-import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
+import { fitToView } from '@/04-features/viewer/useViewerCamera'
 
 interface BodyPart {
   w: number
@@ -170,13 +170,8 @@ export function useSkinViewer(
     controls,
     {
       build: (texture: THREE.Texture): THREE.Group => buildPlayerModel(texture, slim.value),
-      onModelShown: (group, _texture, api): void => {
-        const perspectiveCamera = api.camera.value
-        if (!perspectiveCamera) return
-
-        const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3())
-        const maxDim = Math.max(size.x, size.y, size.z)
-        api.setFitDistance((maxDim / 2) / Math.tan(fitFovRadians(perspectiveCamera) / 2) * 1.2)
+      onModelShown: (_group, _texture, api): void => {
+        fitToView(api)
       },
       onTextureError: (url: string): void => {
         options.onTextureError?.(url)

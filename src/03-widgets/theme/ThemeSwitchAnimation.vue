@@ -34,15 +34,16 @@ defineProps<{
 
 .theme-switch-overlay__girl {
   padding: var(--space-40);
+  filter: drop-shadow(0 var(--switch-glow-offset) var(--switch-glow-blur) var(--switch-girl-glow));
   animation: theme-switch-girl-pop var(--switch-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .theme-switch-overlay__girl--to-dark {
-  filter: drop-shadow(0 4px 16px var(--switch-glow));
+  --switch-girl-glow: var(--switch-glow);
 }
 
 .theme-switch-overlay__girl--to-light {
-  filter: drop-shadow(0 4px 16px var(--switch-glow-invert));
+  --switch-girl-glow: var(--switch-glow-invert);
 }
 
 .theme-switch-overlay__girl--to-dark .theme-switch-overlay__girl-anim {
@@ -60,7 +61,7 @@ defineProps<{
 
 @keyframes theme-switch-girl-pop {
   0% {
-    transform: scale(0.2) translateY(80px);
+    transform: scale(0.2) translateY(var(--switch-girl-drop));
     opacity: 0;
     animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -74,7 +75,7 @@ defineProps<{
     animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
   }
   100% {
-    transform: scale(1.2) translateY(-30px);
+    transform: scale(1.2) translateY(calc(-1 * var(--switch-girl-rise)));
     opacity: 0;
   }
 }

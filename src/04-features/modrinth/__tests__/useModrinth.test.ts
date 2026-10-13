@@ -57,6 +57,7 @@ const makeResult = (overrides: Partial<ModrinthSearchResult> = {}): ModrinthSear
   offset: 0,
   limit: PAGE_SIZE,
   version_numbers: {},
+  version_numbers_failed: false,
   ...overrides,
 })
 
@@ -168,6 +169,20 @@ describe('useModrinth', () => {
     await mods.search()
 
     expect(mods.versionNumbers.value).toEqual({ b: '1.0' })
+  })
+
+  it('flags failed version numbers separately from the search results', async () => {
+    vi.mocked(modrinthSearch)
+      .mockResolvedValueOnce(makeResult({ version_numbers_failed: true }))
+      .mockResolvedValueOnce(makeResult())
+    const mods = useModrinth()
+
+    await mods.search()
+    expect(mods.searchVersionsFailed.value).toBe(true)
+    expect(mods.searchError.value).toBe('')
+
+    await mods.search()
+    expect(mods.searchVersionsFailed.value).toBe(false)
   })
 
   it('loads the installed list and reports load failures', async () => {

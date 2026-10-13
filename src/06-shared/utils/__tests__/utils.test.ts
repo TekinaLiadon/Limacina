@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { copyToClipboard, joinPath, randomId, stripPathSuffix } from '../utils'
+import { copyToClipboard, joinPath, matchesExtension, randomId, stripPathSuffix } from '../utils'
 
 describe('joinPath', () => {
   it('joins with the forward separator for a posix parent', () => {
@@ -32,6 +32,33 @@ describe('stripPathSuffix', () => {
 
   it('keeps the path when the suffix is not at the end', () => {
     expect(stripPathSuffix('/home/user/java/bin', 'java')).toBe('/home/user/java/bin')
+  })
+})
+
+describe('matchesExtension', () => {
+  it('matches a plain extension token regardless of the file name case', () => {
+    expect(matchesExtension('Hero.PNG', ['png', 'cpmproject'])).toBe(true)
+    expect(matchesExtension('model.cpmproject', ['png', 'cpmproject'])).toBe(true)
+  })
+
+  it('matches dotted extension tokens from a comma-joined accept string', () => {
+    expect(matchesExtension('skin.png', '.png,image/png'.split(','))).toBe(true)
+    expect(matchesExtension('skin.jpg', '.png,image/png'.split(','))).toBe(false)
+  })
+
+  it('normalizes token case and surrounding spaces', () => {
+    expect(matchesExtension('skin.png', ['.PNG', ' jpg '])).toBe(true)
+    expect(matchesExtension('skin.jpg', ['.PNG', ' jpg '])).toBe(true)
+    expect(matchesExtension('skin.txt', ['.PNG', ' jpg '])).toBe(false)
+  })
+
+  it('never matches a mime token against the file extension', () => {
+    expect(matchesExtension('skin.png', ['image/png'])).toBe(false)
+  })
+
+  it('rejects names without a matching extension', () => {
+    expect(matchesExtension('archive.zip', ['png'])).toBe(false)
+    expect(matchesExtension('README', ['png'])).toBe(false)
   })
 })
 

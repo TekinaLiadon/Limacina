@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { useAccountsPage, useGameSession, useProjectConfig, useProjectSwitch } from '@/04-features'
+import { useAccountsPage, useProjectConfig, useProjectSwitch } from '@/04-features'
 import { useAccountsStore, useCoreStore, useLaunchStore } from '@/05-entities'
 import { Preloader } from '@/06-shared'
 import { LaunchScene, NoProjectsState } from '@/03-widgets'
@@ -11,7 +11,6 @@ const router = useRouter()
 const coreStore = useCoreStore()
 const accountsStore = useAccountsStore()
 const launchStore = useLaunchStore()
-const { minimizeToTray } = useGameSession()
 const { isSwitching } = useProjectSwitch()
 const {
   isLoading,
@@ -31,6 +30,8 @@ const {
   sceneUsername,
   isCancelPending,
   isServerOffline,
+  sessionViewDismissed,
+  dismissSessionView,
   handleLaunch,
   showLoginForm,
   goToAccounts,
@@ -59,6 +60,7 @@ const {
       :progress="activeProgress"
       :steps="launchSteps"
       :session-username="launchStore.gameUsername"
+      :session-view-dismissed="sessionViewDismissed"
       :server-offline="isServerOffline"
       :login-error="loginError"
       :select-error="errorMessage"
@@ -72,7 +74,7 @@ const {
       @retry-logins="loadAccounts"
       @cancel="goToAccounts"
       @auth-back="goToAccounts"
-      @minimize="minimizeToTray"
+      @back-to-accounts="dismissSessionView"
     />
   </div>
 </template>

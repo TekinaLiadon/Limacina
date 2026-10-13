@@ -141,6 +141,12 @@ pub fn write_loader_manifest(
     path
 }
 
+pub static BANDWIDTH_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub async fn lock_bandwidth_tests() -> tokio::sync::MutexGuard<'static, ()> {
+    BANDWIDTH_TEST_LOCK.lock().await
+}
+
 pub static LAUNCHER_DIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub struct LauncherDirGuard {

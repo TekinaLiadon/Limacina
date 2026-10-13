@@ -139,6 +139,16 @@ describe('useSystemNotifications', () => {
       expect(notification.message).toBe('Игра завершилась с ошибкой (код 1)')
     })
 
+    it('falls back to the crash toast when neither reason nor code is reported', async () => {
+      await start()
+      const notification = useNotificationStore()
+
+      await emitExit?.(exitInfo({ code: null }))
+
+      expect(notification.visible).toBe(true)
+      expect(notification.message).toBe('Игра была аварийно завершена')
+    })
+
     it('ignores successful exits while the window is visible', async () => {
       await start()
       const notification = useNotificationStore()
@@ -172,6 +182,18 @@ describe('useSystemNotifications', () => {
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершилась с ошибкой',
         body: 'Процесс игры завершился с кодом -1',
+      })
+    })
+
+    it('falls back to the crash body in OS notifications without a code', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await emitExit?.(exitInfo({ code: null }))
+
+      expect(api.sendOsNotification).toHaveBeenCalledWith({
+        title: 'Игра завершилась с ошибкой',
+        body: 'Процесс игры был аварийно завершён',
       })
     })
 

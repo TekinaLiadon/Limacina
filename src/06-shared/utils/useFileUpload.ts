@@ -1,3 +1,5 @@
+import { matchesExtension } from './utils'
+
 interface FileUploadOptions {
   accept: string
   maxBytes: number
@@ -23,9 +25,7 @@ export function selectFile(options: FileUploadOptions): void {
     const file = input.files?.[0]
     if (!file) return
 
-    const ext = accept.split(',').map(s => s.trim().replace('.', ''))
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || ''
-    if (!ext.includes(fileExt)) {
+    if (!matchesExtension(file.name, accept.split(','))) {
       onError(`Допустимый формат — ${accept}`)
       return
     }

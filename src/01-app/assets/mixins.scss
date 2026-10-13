@@ -154,14 +154,14 @@
   font-size: var(--text-body-sm);
 }
 
-@mixin options-panel {
+@mixin options-panel-box($floating: false) {
   position: absolute;
-  top: 100%;
+  top: if($floating, calc(100% + var(--space-4)), 100%);
   left: 0;
   right: 0;
   background-color: var(--login-bg-form);
-  border-radius: 0 0 var(--radius-input) var(--radius-input);
-  padding: var(--space-4) 0;
+  border-radius: if($floating, var(--radius-input), 0 0 var(--radius-input) var(--radius-input));
+  padding: var(--space-4) if($floating, var(--space-4), 0);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -169,6 +169,10 @@
   box-shadow: var(--elevation-modal);
   overflow-y: auto;
   transform-origin: top center;
+}
+
+@mixin options-panel {
+  @include options-panel-box;
 
   &__item {
     cursor: pointer;
@@ -206,10 +210,10 @@
   }
 }
 
-@mixin options-panel-up {
+@mixin options-panel-up($floating: false) {
   top: auto;
-  bottom: 100%;
-  border-radius: var(--radius-input) var(--radius-input) 0 0;
+  bottom: if($floating, calc(100% + var(--space-4)), 100%);
+  border-radius: if($floating, var(--radius-input), var(--radius-input) var(--radius-input) 0 0);
   transform-origin: bottom center;
 }
 

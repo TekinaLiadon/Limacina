@@ -4,13 +4,14 @@ use quick_xml::de::from_str;
 use serde::de::DeserializeOwned;
 use sha1::Sha1;
 use std::future::Future;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs;
 use walkdir::WalkDir;
 
 use super::bandwidth;
+use super::blocking;
 use super::hex;
 use super::http::http_client;
 use crate::log_info;
@@ -57,39 +58,61 @@ async fn fetch_response(url: &str) -> Result<reqwest::Response> {
 }
 
 pub async fn write_atomic(dest: &Path, content: &[u8]) -> Result<()> {
-    let tmp = part_path(dest);
-    fs::write(&tmp, content).await.map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось записать файл во {tmp:?}: {e:#}"))
-    })?;
-    tokio::fs::rename(&tmp, dest).await.map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e:#}"))
-    })?;
-    Ok(())
+    let dest = dest.to_path_buf();
+    let content = content.to_vec();
+    blocking(
+        &format!("Не удалось записать файл {dest:?}"),
+        move || write_atomic_sync(&dest, &content),
+    )
+    .await?
 }
 
 pub fn write_atomic_sync(dest: &Path, content: &[u8]) -> Result<()> {
-    let tmp = part_path(dest);
-    std::fs::write(&tmp, content).map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось записать файл во {tmp:?}: {e:#}"))
-    })?;
-    std::fs::rename(&tmp, dest).map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e}"))
-    })?;
-    Ok(())
+    write_content_atomic(dest, content, false)
 }
 
 pub fn write_atomic_sync_private(dest: &Path, content: &[u8]) -> Result<()> {
+    write_content_atomic(dest, content, true)
+}
+
+fn write_content_atomic(dest: &Path, content: &[u8], private: bool) -> Result<()> {
     let tmp = part_path(dest);
-    write_file_private(&tmp, content)?;
-    std::fs::rename(&tmp, dest).map_err(|e| {
-        LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e}"))
+    let result = write_content(&tmp, content, private).and_then(|()| {
+        std::fs::rename(&tmp, dest)
+            .map_err(|e| {
+                LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e:#}"))
+            })
+            .map_err(Into::into)
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn write_content(path: &Path, content: &[u8], private: bool) -> Result<()> {
+    if private {
+        write_file_private(path, content)
+    } else {
+        write_file_sync(path, content)
+    }
+}
+
+fn write_file_sync(path: &Path, content: &[u8]) -> Result<()> {
+    let mut file = std::fs::File::create(path)
+        .map_err(|e| LauncherError::DiskIo(format!("Не удалось создать файл {path:?}: {e:#}")))?;
+    file.write_all(content)
+        .map_err(|e| LauncherError::DiskIo(format!("Не удалось записать файл {path:?}: {e:#}")))?;
+    file.sync_all().map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось синхронизировать {path:?} с диском: {e:#}"
+        ))
     })?;
     Ok(())
 }
 
 #[cfg(unix)]
 fn write_file_private(path: &Path, content: &[u8]) -> Result<()> {
-    use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
     let mut file = std::fs::OpenOptions::new()
@@ -104,13 +127,17 @@ fn write_file_private(path: &Path, content: &[u8]) -> Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
         LauncherError::DiskIo(format!("Не удалось ограничить права файла {path:?}: {e}"))
     })?;
+    file.sync_all().map_err(|e| {
+        LauncherError::DiskIo(format!(
+            "Не удалось синхронизировать {path:?} с диском: {e}"
+        ))
+    })?;
     Ok(())
 }
 
 #[cfg(not(unix))]
 fn write_file_private(path: &Path, content: &[u8]) -> Result<()> {
-    std::fs::write(path, content)
-        .map_err(|e| LauncherError::DiskIo(format!("Не удалось записать файл во {path:?}: {e:#}")))
+    write_file_sync(path, content)
 }
 
 pub async fn read_to_string_opt(path: &Path) -> Result<Option<String>> {
@@ -201,12 +228,16 @@ pub(crate) async fn write_stream_to_atomic_limited(
     .await;
 
     match result {
-        Ok(total_bytes) => {
-            tokio::fs::rename(&tmp, dest).await.map_err(|e| {
-                LauncherError::DiskIo(format!("Не удалось переместить {tmp:?} в {dest:?}: {e:#}"))
-            })?;
-            Ok(total_bytes)
-        }
+        Ok(total_bytes) => match tokio::fs::rename(&tmp, dest).await {
+            Ok(()) => Ok(total_bytes),
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&tmp).await;
+                Err(LauncherError::DiskIo(format!(
+                    "Не удалось переместить {tmp:?} в {dest:?}: {e:#}"
+                ))
+                .into())
+            }
+        },
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp).await;
             Err(e)
@@ -220,22 +251,8 @@ pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) 
     loop {
         if let Some(url_json) = url {
             if !dest.exists() {
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent).await.map_err(|e| {
-                        LauncherError::DiskIo(format!(
-                            "Не удалось создать директорию для {dest:?}: {e:#}"
-                        ))
-                    })?;
-                }
-
                 let response = fetch_response(url_json).await?;
-                let content = response.bytes().await.map_err(|e| {
-                    LauncherError::Download(format!(
-                        "Не удалось прочитать ответ от {url_json}: {e:#}"
-                    ))
-                })?;
-
-                write_atomic(dest, &content).await?;
+                write_stream_to_atomic(response, dest, url_json).await?;
             }
         }
 
@@ -266,13 +283,28 @@ pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) 
 }
 
 pub async fn download_xml<T: DeserializeOwned>(url: &str) -> Result<T> {
-    let xml = fetch_response(url).await?.text().await.map_err(|e| {
-        LauncherError::Download(format!("Не удалось прочитать ответ от {url}: {e:#}"))
+    let response = fetch_response(url).await?;
+    let body = read_body_through_bucket(response, url).await?;
+    let xml = String::from_utf8(body).map_err(|e| {
+        LauncherError::Download(format!("Некорректная кодировка ответа от {url}: {e}"))
     })?;
     let xml_struct: T = from_str(&xml).map_err(|e| {
         LauncherError::ManifestParse(format!("Не удалось разобрать XML от {url}: {e:#}"))
     })?;
     Ok(xml_struct)
+}
+
+async fn read_body_through_bucket(response: reqwest::Response, url: &str) -> Result<Vec<u8>> {
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| {
+            LauncherError::Download(format!("Ошибка чтения потока при скачивании {url}: {e:#}"))
+        })?;
+        bandwidth::acquire(chunk.len() as u64).await;
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 pub async fn download_and_verify_with<F, Fut>(
@@ -330,7 +362,7 @@ where
     Ok(true)
 }
 
-fn hash_file_blocking<D: md5::Digest>(path: &Path) -> Result<String> {
+fn hash_file_blocking<D: sha1::Digest>(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)
         .map_err(|e| LauncherError::DiskIo(format!("Не удалось открыть {path:?}: {e:#}")))?;
     let mut hasher = D::new();
@@ -725,7 +757,7 @@ mod private_write_tests {
 
 #[cfg(test)]
 mod write_atomic_race_tests {
-    use super::{part_path, write_atomic};
+    use super::{part_path, write_atomic, write_atomic_sync};
     use crate::test_support::{part_files_in, TempDir};
     use serde_json::Value;
 
@@ -775,6 +807,36 @@ mod write_atomic_race_tests {
             part_path(dest),
             part_path(dest),
             "каждая запись должна получать собственное временное имя"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_rename_leaves_no_part_file() {
+        let dir = TempDir::new("atomic_rename_fail");
+        let dest = dir.0.join("state.json");
+        std::fs::create_dir_all(&dest).expect("директория-заглушка на месте назначения");
+
+        let result = write_atomic(&dest, b"payload").await;
+
+        assert!(result.is_err(), "запись поверх директории должна падать");
+        assert!(
+            part_files_in(dir.0.as_path()).is_empty(),
+            "неудачная запись не должна оставлять .part-файл"
+        );
+    }
+
+    #[test]
+    fn failed_sync_rename_leaves_no_part_file() {
+        let dir = TempDir::new("atomic_sync_rename_fail");
+        let dest = dir.0.join("state.json");
+        std::fs::create_dir_all(&dest).expect("директория-заглушка на месте назначения");
+
+        let result = write_atomic_sync(&dest, b"payload");
+
+        assert!(result.is_err(), "запись поверх директории должна падать");
+        assert!(
+            part_files_in(dir.0.as_path()).is_empty(),
+            "неудачная запись не должна оставлять .part-файл"
         );
     }
 }
@@ -848,5 +910,49 @@ mod download_json_tests {
             std::fs::read_to_string(&dest).expect("файл без url не должен удаляться"),
             "{ not json"
         );
+    }
+
+    #[tokio::test]
+    async fn download_json_counts_bytes_toward_bandwidth_limit() {
+        use std::time::{Duration, Instant};
+
+        use crate::test_support::lock_bandwidth_tests;
+        use crate::utils::bandwidth::{acquire, set_limit};
+
+        let _guard = lock_bandwidth_tests().await;
+        set_limit(Some(8192));
+        acquire(8192 * 1024).await;
+
+        let dir = TempDir::new("json_bandwidth");
+        let filler = "x".repeat(1024 * 1024);
+        let body = format!("{{\"filler\": \"{filler}\"}}");
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/manifest.json")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+
+        let start = Instant::now();
+        let parsed: Value = download_json(
+            Some(&format!("{}/manifest.json", server.url())),
+            &dir.0.join("manifest.json"),
+        )
+        .await
+        .expect("загрузка манифеста");
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            parsed["filler"].as_str().expect("поле filler").len(),
+            1024 * 1024,
+            "манифест должен скачать целиком, без обрезки"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(100),
+            "байты манифеста должны учитываться в лимите скорости: {elapsed:?}"
+        );
+
+        set_limit(None);
     }
 }

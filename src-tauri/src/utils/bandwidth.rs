@@ -87,20 +87,11 @@ pub async fn acquire(bytes: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::OnceLock;
-
-    static TEST_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-
-    async fn lock_tests() -> tokio::sync::MutexGuard<'static, ()> {
-        TEST_LOCK
-            .get_or_init(|| tokio::sync::Mutex::new(()))
-            .lock()
-            .await
-    }
+    use crate::test_support::lock_bandwidth_tests;
 
     #[tokio::test]
     async fn unlimited_acquire_is_instant() {
-        let _guard = lock_tests().await;
+        let _guard = lock_bandwidth_tests().await;
         set_limit(None);
 
         let start = Instant::now();
@@ -112,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn acquire_blocks_after_bucket_drained() {
-        let _guard = lock_tests().await;
+        let _guard = lock_bandwidth_tests().await;
         set_limit(Some(8192));
 
         acquire(8192 * BYTES_PER_KB).await;
@@ -126,7 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_acquire_does_not_hang() {
-        let _guard = lock_tests().await;
+        let _guard = lock_bandwidth_tests().await;
         set_limit(Some(32));
 
         let start = Instant::now();
@@ -140,7 +131,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_acquire_drains_bucket_for_next_acquire() {
-        let _guard = lock_tests().await;
+        let _guard = lock_bandwidth_tests().await;
         set_limit(Some(8192));
 
         tokio::time::timeout(Duration::from_secs(5), acquire(16_384 * BYTES_PER_KB))
@@ -156,7 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn zero_limit_disables_throttling() {
-        let _guard = lock_tests().await;
+        let _guard = lock_bandwidth_tests().await;
         set_limit(Some(1024));
         set_limit(Some(0));
 

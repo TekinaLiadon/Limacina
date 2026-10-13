@@ -1,5 +1,5 @@
 use crate::minecraft::vanilla::structs::Rule;
-use crate::utils::env_info::{get_arch, get_current_os};
+use crate::utils::env_info::{get_arch_label, get_current_os};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -23,7 +23,10 @@ impl RuleCore {
             .os
             .as_deref()
             .is_none_or(|name| name == get_current_os());
-        let arch_ok = self.arch.as_deref().is_none_or(|arch| arch == get_arch());
+        let arch_ok = self
+            .arch
+            .as_deref()
+            .is_none_or(|arch| arch == get_arch_label());
         name_ok && arch_ok
     }
 
@@ -97,7 +100,7 @@ fn json_rule_to_core(rule: &Value) -> RuleCore {
 #[cfg(test)]
 mod tests {
     use super::is_json_rules_allowed;
-    use crate::utils::env_info::get_arch;
+    use crate::utils::env_info::get_arch_label;
     use serde_json::json;
 
     fn allow_with_os(os: serde_json::Value) -> bool {
@@ -106,12 +109,16 @@ mod tests {
 
     #[test]
     fn matching_arch_is_allowed() {
-        assert!(allow_with_os(json!({ "arch": get_arch() })));
+        assert!(allow_with_os(json!({ "arch": get_arch_label() })));
     }
 
     #[test]
     fn mismatched_arch_is_ignored() {
-        let other = if get_arch() == "x86" { "x86_64" } else { "x86" };
+        let other = if get_arch_label() == "x86" {
+            "x86_64"
+        } else {
+            "x86"
+        };
         assert!(
             !allow_with_os(json!({ "arch": other })),
             "правило с чужой архитектурой не должно пропускаться"

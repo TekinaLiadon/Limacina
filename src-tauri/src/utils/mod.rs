@@ -1,6 +1,7 @@
 pub mod allowlisted_read;
 pub mod bandwidth;
 pub mod desktop_entry;
+pub mod disk_space;
 pub mod download_file;
 pub mod env_info;
 pub mod errors;

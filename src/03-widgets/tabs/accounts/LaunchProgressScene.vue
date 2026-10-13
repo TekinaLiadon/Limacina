@@ -4,12 +4,15 @@ import { Button, ProgressBar } from '@/06-shared'
 import StepProgress from '@/03-widgets/tabs/login/StepProgress.vue'
 import type { StepProgressItem } from '@/05-entities'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   progress: number
   steps: StepProgressItem[]
   isCancelPending: boolean
   isInterrupted: boolean
-}>()
+  isGameStarted?: boolean
+}>(), {
+  isGameStarted: false,
+})
 
 const emit = defineEmits<{
   cancel: []
@@ -43,6 +46,7 @@ const progressLabel = computed((): string =>
     </p>
 
     <Button
+      v-if="!isGameStarted"
       class="btn-quiet btn-block"
       :is-disabled="isCancelPending"
       @click="emit('cancel')"

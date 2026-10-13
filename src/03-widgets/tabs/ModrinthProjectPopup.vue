@@ -159,7 +159,10 @@ async function handleLink(url: string): Promise<void> {
       />
 
       <h4 class="modrinth-popup__versions-title">Версии ({{ details.versions.length }})</h4>
-      <div class="modrinth-popup__versions">
+      <p v-if="details.versions_failed" class="modrinth-popup__versions-warning">
+        Список версий не загрузился — проверьте соединение и откройте мод ещё раз
+      </p>
+      <div v-if="details.versions.length > 0" class="modrinth-popup__versions">
         <div v-for="version in details.versions" :key="version.id" class="modrinth-popup__version">
           <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
           <span class="modrinth-popup__version-meta">
@@ -314,6 +317,14 @@ async function handleLink(url: string): Promise<void> {
   &__versions-title {
     margin: 0;
     font-size: var(--text-subheading);
+  }
+
+  &__versions-warning {
+    @include mixins.caption-hint;
+
+    margin: 0;
+    color: var(--error);
+    text-align: left;
   }
 
   &__versions {

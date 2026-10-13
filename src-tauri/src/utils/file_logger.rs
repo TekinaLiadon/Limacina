@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::state::launcher_config::LauncherConfig;
-use crate::utils::env_info::{get_arch, get_current_os};
+use crate::utils::env_info::{get_arch_label, get_current_os};
 
 const LOGS_DIR_NAME: &str = "logs";
 const RETENTION_DAYS: i64 = 30;
@@ -85,7 +85,7 @@ fn launcher_label() -> String {
         "v{} {}-{}",
         env!("CARGO_PKG_VERSION"),
         get_current_os(),
-        get_arch()
+        get_arch_label()
     )
 }
 

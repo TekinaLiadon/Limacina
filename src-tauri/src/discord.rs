@@ -1,11 +1,15 @@
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock as StdRwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::timeout;
 
 use crate::log_err;
+
+const IPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct GameActivity {
     details: String,
@@ -85,6 +89,12 @@ fn override_client_factory_for_tests(factory: Option<ClientFactory>) {
         .unwrap_or_else(|e| e.into_inner()) = factory;
 }
 
+static IPC_TIMEOUT_OVERRIDE: OnceLock<Duration> = OnceLock::new();
+
+fn ipc_timeout() -> Duration {
+    IPC_TIMEOUT_OVERRIDE.get().copied().unwrap_or(IPC_TIMEOUT)
+}
+
 struct DiscordState {
     enabled: bool,
     game: Option<GameActivity>,
@@ -92,6 +102,7 @@ struct DiscordState {
 }
 
 static DISCORD_STATE: OnceLock<StdMutex<DiscordState>> = OnceLock::new();
+static APPLY_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 
 fn discord_state() -> &'static StdMutex<DiscordState> {
     DISCORD_STATE.get_or_init(|| {
@@ -101,6 +112,10 @@ fn discord_state() -> &'static StdMutex<DiscordState> {
             client: None,
         })
     })
+}
+
+fn apply_lock() -> &'static AsyncMutex<()> {
+    APPLY_LOCK.get_or_init(|| AsyncMutex::new(()))
 }
 
 fn client_id() -> Option<String> {
@@ -117,43 +132,8 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-fn disconnect(state: &mut DiscordState) {
-    if let Some(mut client) = state.client.take() {
-        client.close();
-    }
-}
-
-fn apply(state: &mut DiscordState) {
-    if !state.enabled {
-        disconnect(state);
-        return;
-    }
-
-    let Some(client_id) = client_id() else {
-        disconnect(state);
-        return;
-    };
-
-    if state.client.is_none() {
-        let mut client = match make_client(&client_id) {
-            Ok(client) => client,
-            Err(e) => {
-                log_err!("Не удалось подключиться к Discord: {}", e);
-                return;
-            }
-        };
-        match client.connect() {
-            Ok(()) => {
-                state.client = Some(client);
-            }
-            Err(e) => {
-                log_err!("Не удалось подключиться к Discord: {}", e);
-                return;
-            }
-        }
-    }
-
-    let presence = match &state.game {
+fn presence_of(state: &DiscordState) -> PresenceActivity {
+    match &state.game {
         Some(game) => PresenceActivity {
             details: game.details.clone(),
             state: game.state.clone(),
@@ -164,66 +144,158 @@ fn apply(state: &mut DiscordState) {
             state: env!("CARGO_PKG_NAME").to_string(),
             started_at: None,
         },
-    };
-
-    let result = match state.client.as_mut() {
-        Some(client) => client.set_activity(presence),
-        None => Ok(()),
-    };
-    if let Err(e) = result {
-        log_err!("Не удалось обновить Discord-статус: {}", e);
-        disconnect(state);
     }
 }
 
-pub fn init(enabled: bool) {
-    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
-    state.enabled = enabled;
-    apply(&mut state);
+enum PendingIpc {
+    Close(Option<Box<dyn DiscordIpcTransport>>),
+    Activity {
+        client_id: String,
+        presence: PresenceActivity,
+        client: Option<Box<dyn DiscordIpcTransport>>,
+    },
 }
 
-pub fn set_game_activity(
+fn take_pending_ipc(state: &mut DiscordState) -> PendingIpc {
+    if !state.enabled {
+        return PendingIpc::Close(state.client.take());
+    }
+    match client_id() {
+        Some(client_id) => PendingIpc::Activity {
+            client_id,
+            presence: presence_of(state),
+            client: state.client.take(),
+        },
+        None => PendingIpc::Close(state.client.take()),
+    }
+}
+
+async fn apply() {
+    let _serialization = apply_lock().lock().await;
+    let pending = {
+        let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
+        take_pending_ipc(&mut state)
+    };
+
+    match pending {
+        PendingIpc::Close(client) => {
+            if let Some(mut client) = client {
+                let _ = timeout(
+                    ipc_timeout(),
+                    tokio::task::spawn_blocking(move || client.close()),
+                )
+                .await;
+            }
+        }
+        PendingIpc::Activity {
+            client_id,
+            presence,
+            client,
+        } => {
+            let already_connected = client.is_some();
+            let task = tokio::task::spawn_blocking(
+                move || -> Result<Box<dyn DiscordIpcTransport>, String> {
+                    let mut client = match client {
+                        Some(client) => client,
+                        None => match make_client(&client_id) {
+                            Ok(client) => client,
+                            Err(e) => {
+                                return Err(format!("Не удалось подключиться к Discord: {}", e))
+                            }
+                        },
+                    };
+                    if !already_connected {
+                        if let Err(e) = client.connect() {
+                            return Err(format!("Не удалось подключиться к Discord: {}", e));
+                        }
+                    }
+                    match client.set_activity(presence) {
+                        Ok(()) => Ok(client),
+                        Err(e) => {
+                            client.close();
+                            Err(format!("Не удалось обновить Discord-статус: {}", e))
+                        }
+                    }
+                },
+            );
+            match timeout(ipc_timeout(), task).await {
+                Err(_) => log_err!(
+                    "Discord IPC не ответил за {:?} — статус не обновлён",
+                    ipc_timeout()
+                ),
+                Ok(joined) => match joined {
+                    Err(e) => log_err!("Поток Discord IPC прерван: {}", e),
+                    Ok(Err(message)) => log_err!("{}", message),
+                    Ok(Ok(client)) => {
+                        discord_state()
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .client = Some(client);
+                    }
+                },
+            }
+        }
+    }
+}
+
+pub async fn init(enabled: bool) {
+    {
+        let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
+        state.enabled = enabled;
+    }
+    apply().await;
+}
+
+pub async fn set_game_activity(
     enabled: bool,
     mc_version: &str,
     project_name: &str,
     exited: Option<Arc<AtomicBool>>,
 ) {
-    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
-    if exited
-        .as_ref()
-        .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
     {
-        return;
+        let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
+        if exited
+            .as_ref()
+            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
+        {
+            return;
+        }
+        state.enabled = enabled;
+        state.game = Some(GameActivity {
+            details: format!("Minecraft {}", mc_version),
+            state: project_name.to_string(),
+            started_at: now_unix(),
+        });
     }
-    state.enabled = enabled;
-    state.game = Some(GameActivity {
-        details: format!("Minecraft {}", mc_version),
-        state: project_name.to_string(),
-        started_at: now_unix(),
-    });
-    apply(&mut state);
+    apply().await;
 }
 
-pub fn on_game_exit() {
-    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
-    state.game.take();
-    apply(&mut state);
+pub async fn on_game_exit() {
+    {
+        let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
+        state.game.take();
+    }
+    apply().await;
 }
 
-pub fn on_settings_saved(enabled: bool) {
-    let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
-    state.enabled = enabled;
-    apply(&mut state);
+pub async fn on_settings_saved(enabled: bool) {
+    {
+        let mut state = discord_state().lock().unwrap_or_else(|e| e.into_inner());
+        state.enabled = enabled;
+    }
+    apply().await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     struct MockClient {
         log: Arc<StdMutex<Vec<String>>>,
         fail_set_activity: Arc<AtomicBool>,
+        hang_set_activity_once: Arc<AtomicBool>,
+        hang_millis: Arc<AtomicU64>,
     }
 
     impl DiscordIpcTransport for MockClient {
@@ -237,6 +309,10 @@ mod tests {
 
         fn set_activity(&mut self, presence: PresenceActivity) -> Result<(), String> {
             let entry = format!("set:{}|{}", presence.details, presence.state);
+            if self.hang_set_activity_once.swap(false, Ordering::SeqCst) {
+                let millis = self.hang_millis.load(Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(millis));
+            }
             self.log
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -258,46 +334,61 @@ mod tests {
 
     static TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
-    fn mock_factory() -> (ClientFactory, Arc<StdMutex<Vec<String>>>, Arc<AtomicBool>) {
+    struct MockHandles {
+        log: Arc<StdMutex<Vec<String>>>,
+        fail_set: Arc<AtomicBool>,
+        hang_once: Arc<AtomicBool>,
+        hang_millis: Arc<AtomicU64>,
+    }
+
+    fn mock_factory() -> (ClientFactory, MockHandles) {
         let log = Arc::new(StdMutex::new(Vec::new()));
         let fail_set = Arc::new(AtomicBool::new(false));
-        let factory_log = Arc::clone(&log);
-        let factory_fail = Arc::clone(&fail_set);
+        let hang_once = Arc::new(AtomicBool::new(false));
+        let hang_millis = Arc::new(AtomicU64::new(0));
+        let handles = MockHandles {
+            log: Arc::clone(&log),
+            fail_set: Arc::clone(&fail_set),
+            hang_once: Arc::clone(&hang_once),
+            hang_millis: Arc::clone(&hang_millis),
+        };
         let factory: ClientFactory = Arc::new(move |_client_id| {
             Ok(Box::new(MockClient {
-                log: Arc::clone(&factory_log),
-                fail_set_activity: Arc::clone(&factory_fail),
+                log: Arc::clone(&log),
+                fail_set_activity: Arc::clone(&fail_set),
+                hang_set_activity_once: Arc::clone(&hang_once),
+                hang_millis: Arc::clone(&hang_millis),
             }))
         });
-        (factory, log, fail_set)
+        (factory, handles)
     }
 
     fn calls(log: &Arc<StdMutex<Vec<String>>>) -> Vec<String> {
         log.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    fn reset(factory: Option<ClientFactory>) {
+    async fn reset(factory: Option<ClientFactory>) {
         env::set_var("DISCORD_CLIENT_ID", "test-client-id");
         override_client_factory_for_tests(factory);
-        init(false);
-        on_game_exit();
+        init(false).await;
+        on_game_exit().await;
     }
 
-    #[test]
-    fn disabled_presence_records_game_and_restores_on_enable() {
+    #[tokio::test]
+    async fn disabled_presence_records_game_and_restores_on_enable() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let (factory, log, _fail) = mock_factory();
-        reset(Some(factory));
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
 
-        set_game_activity(false, "1.20.1", "Avelmor", None);
+        set_game_activity(false, "1.20.1", "Avelmor", None).await;
         assert!(
-            calls(&log).is_empty(),
+            calls(&handles.log).is_empty(),
             "выключенный presence не должен подключаться к IPC"
         );
 
-        on_settings_saved(true);
+        on_settings_saved(true).await;
         assert_eq!(
-            calls(&log),
+            calls(&handles.log),
             vec![
                 "connect".to_string(),
                 "set:Minecraft 1.20.1|Avelmor".to_string()
@@ -308,18 +399,18 @@ mod tests {
         override_client_factory_for_tests(None);
     }
 
-    #[test]
-    fn game_exit_returns_to_launcher_presence() {
+    #[tokio::test]
+    async fn game_exit_returns_to_launcher_presence() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let (factory, log, _fail) = mock_factory();
-        reset(Some(factory));
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
 
-        init(true);
-        set_game_activity(true, "1.21.1", "Proj", None);
-        on_game_exit();
+        init(true).await;
+        set_game_activity(true, "1.21.1", "Proj", None).await;
+        on_game_exit().await;
 
         assert_eq!(
-            calls(&log),
+            calls(&handles.log),
             vec![
                 "connect".to_string(),
                 "set:В лаунчере|Limacina".to_string(),
@@ -331,39 +422,39 @@ mod tests {
         override_client_factory_for_tests(None);
     }
 
-    #[test]
-    fn missing_client_id_keeps_presence_disconnected() {
+    #[tokio::test]
+    async fn missing_client_id_keeps_presence_disconnected() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let (factory, log, _fail) = mock_factory();
-        reset(Some(factory));
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
 
         env::remove_var("DISCORD_CLIENT_ID");
-        init(true);
+        init(true).await;
         assert!(
-            calls(&log).is_empty(),
+            calls(&handles.log).is_empty(),
             "без client id подключение невозможно"
         );
 
         env::set_var("DISCORD_CLIENT_ID", "test-client-id");
-        on_settings_saved(true);
+        on_settings_saved(true).await;
         assert_eq!(
-            calls(&log),
+            calls(&handles.log),
             vec!["connect".to_string(), "set:В лаунчере|Limacina".to_string()]
         );
 
         override_client_factory_for_tests(None);
     }
 
-    #[test]
-    fn set_activity_failure_disconnects_and_next_apply_reconnects() {
+    #[tokio::test]
+    async fn set_activity_failure_disconnects_and_next_apply_reconnects() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let (factory, log, fail_set) = mock_factory();
-        reset(Some(factory));
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
 
-        fail_set.store(true, Ordering::Relaxed);
-        init(true);
+        handles.fail_set.store(true, Ordering::Relaxed);
+        init(true).await;
         assert_eq!(
-            calls(&log),
+            calls(&handles.log),
             vec![
                 "connect".to_string(),
                 "set:В лаунчере|Limacina".to_string(),
@@ -372,10 +463,10 @@ mod tests {
             "сбой set_activity должен закрывать клиент"
         );
 
-        fail_set.store(false, Ordering::Relaxed);
-        on_game_exit();
+        handles.fail_set.store(false, Ordering::Relaxed);
+        on_game_exit().await;
         assert_eq!(
-            calls(&log)[3..],
+            calls(&handles.log)[3..],
             ["connect".to_string(), "set:В лаунчере|Limacina".to_string()],
             "после сбоя следующий переход должен переподключиться"
         );
@@ -383,20 +474,57 @@ mod tests {
         override_client_factory_for_tests(None);
     }
 
-    #[test]
-    fn exited_game_flag_skips_activity_recording() {
+    #[tokio::test]
+    async fn exited_game_flag_skips_activity_recording() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let (factory, log, _fail) = mock_factory();
-        reset(Some(factory));
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
 
-        init(true);
+        init(true).await;
         let exited = Arc::new(AtomicBool::new(true));
-        set_game_activity(true, "1.21.1", "Proj", Some(Arc::clone(&exited)));
+        set_game_activity(true, "1.21.1", "Proj", Some(Arc::clone(&exited))).await;
 
         assert_eq!(
-            calls(&log),
+            calls(&handles.log),
             vec!["connect".to_string(), "set:В лаунчере|Limacina".to_string()],
             "завершённая игра не должна записывать активность"
+        );
+
+        override_client_factory_for_tests(None);
+    }
+
+    #[tokio::test]
+    async fn slow_ipc_times_out_client_is_not_restored_and_next_apply_recovers() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
+        let _ = IPC_TIMEOUT_OVERRIDE.set(Duration::from_millis(50));
+
+        handles.hang_millis.store(250, Ordering::SeqCst);
+        handles.hang_once.store(true, Ordering::SeqCst);
+        init(true).await;
+
+        assert!(
+            discord_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .client
+                .is_none(),
+            "зависший IPC не должен возвращать клиент в состояние"
+        );
+
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        on_game_exit().await;
+
+        assert_eq!(
+            calls(&handles.log),
+            vec![
+                "connect".to_string(),
+                "set:В лаунчере|Limacina".to_string(),
+                "connect".to_string(),
+                "set:В лаунчере|Limacina".to_string(),
+            ],
+            "после таймаута следующий переход должен создать новый клиент"
         );
 
         override_client_factory_for_tests(None);

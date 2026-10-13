@@ -176,9 +176,7 @@ pub fn run() {
             };
             app.manage(Mutex::new(gs));
 
-            tauri::async_runtime::spawn_blocking(move || {
-                discord::init(discord_enabled);
-            });
+            tauri::async_runtime::spawn(discord::init(discord_enabled));
 
             if let Some(path) =
                 commands::cpm_models::extract_cpm_project_path(std::env::args().skip(1))

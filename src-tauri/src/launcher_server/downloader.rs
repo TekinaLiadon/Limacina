@@ -5,6 +5,7 @@ use reqwest::Client;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex as StdMutex, OnceLock};
 
 use crate::launcher_server::{api_context, with_session_retry};
 use crate::state::dto::GlobalState;
@@ -14,7 +15,48 @@ use crate::utils::semaphore::{semaphore_core, SemaphoreInfo, MAX_CONCURRENT_DOWN
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
 
+static AUTH_CLIENT_CACHE: OnceLock<StdMutex<HashMap<String, Client>>> = OnceLock::new();
+
+#[cfg(test)]
+static AUTH_CLIENT_BUILD_COUNTS: OnceLock<StdMutex<HashMap<String, usize>>> = OnceLock::new();
+
 pub(crate) fn build_auth_client(token: &str) -> Result<Client> {
+    let cache = AUTH_CLIENT_CACHE.get_or_init(|| StdMutex::new(HashMap::new()));
+    {
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(client) = guard.get(token) {
+            return Ok(client.clone());
+        }
+    }
+    let client = build_auth_client_uncached(token)?;
+    #[cfg(test)]
+    record_build_for_tests(token);
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(token.to_string(), client.clone());
+    Ok(client)
+}
+
+#[cfg(test)]
+fn record_build_for_tests(token: &str) {
+    let counts = AUTH_CLIENT_BUILD_COUNTS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut guard = counts.lock().unwrap_or_else(|e| e.into_inner());
+    *guard.entry(token.to_string()).or_insert(0) += 1;
+}
+
+#[cfg(test)]
+fn auth_client_builds(token: &str) -> usize {
+    AUTH_CLIENT_BUILD_COUNTS
+        .get_or_init(|| StdMutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(token)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn build_auth_client_uncached(token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -1049,5 +1091,30 @@ mod mock_server_tests {
 
         let dest = dir.project_dir("Cordelia").join("mods/a.jar");
         assert_eq!(std::fs::read(&dest).unwrap(), b"any bytes");
+    }
+}
+
+#[cfg(test)]
+mod auth_client_cache_tests {
+    use super::{auth_client_builds, build_auth_client};
+
+    #[test]
+    fn auth_client_is_rebuilt_only_for_new_tokens() {
+        build_auth_client("cache-probe-token-a").expect("клиент для первого токена");
+        let before = auth_client_builds("cache-probe-token-a");
+
+        build_auth_client("cache-probe-token-a").expect("клиент для того же токена");
+        assert_eq!(
+            auth_client_builds("cache-probe-token-a"),
+            before,
+            "повторный вызов с тем же токеном должен переиспользовать клиент"
+        );
+
+        build_auth_client("cache-probe-token-b").expect("клиент для нового токена");
+        assert_eq!(
+            auth_client_builds("cache-probe-token-b"),
+            1,
+            "новый токен должен собирать отдельный клиент"
+        );
     }
 }

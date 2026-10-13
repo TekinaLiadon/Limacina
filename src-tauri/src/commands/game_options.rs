@@ -433,10 +433,13 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
         LauncherError::DiskIo,
     )? {
         let path = entry.path();
-        let is_pack = if path.is_file() {
-            true
-        } else {
-            path.is_dir() && path.join("pack.mcmeta").is_file()
+        let is_pack = match fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => true,
+            Ok(metadata) if metadata.is_dir() => fs::metadata(path.join("pack.mcmeta"))
+                .await
+                .map(|meta| meta.is_file())
+                .unwrap_or(false),
+            _ => false,
         };
         if is_pack {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {

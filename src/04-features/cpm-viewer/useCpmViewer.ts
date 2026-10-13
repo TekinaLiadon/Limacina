@@ -2,7 +2,7 @@ import { watch, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
 import { DEFAULT_RGB, parseHexColor, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
-import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
+import { fitToView } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type SharedClock } from './cpmAnimationPlayer'
 import { computeMeshVisible } from './meshVisibility'
@@ -437,12 +437,7 @@ export function useCpmViewer(
 
         updateVisibility()
         syncAnimationTick()
-
-        const radius = api.modelBoundingSphereRadius()
-        const perspectiveCamera = api.camera.value
-        if (radius !== null && perspectiveCamera) {
-          api.setFitDistance((radius / Math.sin(fitFovRadians(perspectiveCamera) / 2)) * 1.08)
-        }
+        fitToView(api)
       },
       onModelCleared: (): void => {
         player?.dispose()

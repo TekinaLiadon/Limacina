@@ -6,7 +6,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  minimize: []
+  back: []
 }>()
 </script>
 
@@ -18,12 +18,9 @@ const emit = defineEmits<{
       <p class="launch-scene__name">{{ sessionUsername }}</p>
     </div>
   </div>
-  <p class="launch-scene__hint">
-    Лаунчер можно свернуть в трей — игра продолжит работать
-  </p>
   <div class="launch-scene__actions">
-    <Button class="btn-secondary btn-lg btn-block" @click="emit('minimize')">
-      Свернуть в трей
+    <Button class="btn-secondary btn-lg btn-block" @click="emit('back')">
+      Назад к аккаунтам
     </Button>
   </div>
 </template>

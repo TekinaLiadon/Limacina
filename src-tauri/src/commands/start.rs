@@ -310,8 +310,8 @@ fn notify_game_activity(process: &GameProcess, ctx: &LaunchContext) {
     let mc_version = ctx.mc_version.clone();
     let project = ctx.project.clone();
     let discord_enabled = ctx.discord_enabled;
-    tauri::async_runtime::spawn_blocking(move || {
-        discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited));
+    tauri::async_runtime::spawn(async move {
+        discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited)).await;
     });
 }
 
@@ -378,7 +378,7 @@ async fn repair_stale_java_path(
         return config;
     };
     let stored_path = PathBuf::from(&stored);
-    if stored_path.exists() {
+    if tokio::fs::try_exists(&stored_path).await.unwrap_or(false) {
         return config;
     }
     let Some(repaired) = repair_java_path(&stored_path) else {

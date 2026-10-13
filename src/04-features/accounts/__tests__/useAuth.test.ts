@@ -59,6 +59,20 @@ describe('useAuth', () => {
     unmount()
   })
 
+  it('validates the login by its trimmed length', () => {
+    useCoreStore().currentProject = 'proj'
+    const store = useAccountsStore()
+    const { auth, unmount } = setupAuth()
+
+    store.loginFormData.username = '  abc  '
+    store.loginFormData.password = 'password'
+    expect(auth.isLoginValid.value).toBe(false)
+
+    store.loginFormData.username = '  user  '
+    expect(auth.isLoginValid.value).toBe(true)
+    unmount()
+  })
+
   it('requires matching filled passwords for registration', () => {
     useCoreStore().currentProject = 'proj'
     const store = useAccountsStore()
@@ -89,6 +103,19 @@ describe('useAuth', () => {
     expect(auth.registerLoginHint.value).toContain(String(MIN_LOGIN_LENGTH))
 
     store.registerFormData.login = 'user'
+    expect(auth.registerLoginHint.value).toBeNull()
+    unmount()
+  })
+
+  it('explains the login requirement for a space-padded registration login', () => {
+    useCoreStore().currentProject = 'proj'
+    const store = useAccountsStore()
+    const { auth, unmount } = setupAuth()
+
+    store.registerFormData.login = '  abc  '
+    expect(auth.registerLoginHint.value).toBe(`Логин — минимум ${MIN_LOGIN_LENGTH} символа`)
+
+    store.registerFormData.login = '  user  '
     expect(auth.registerLoginHint.value).toBeNull()
     unmount()
   })
@@ -179,6 +206,24 @@ describe('useAuth', () => {
     expect(store.showAuthForm).toBe(false)
     expect(store.loginFormData.password).toBe('')
     expect(store.loginFormData.username).toBe('user')
+    unmount()
+  })
+
+  it('trims the username before sending it to the backend', async () => {
+    useCoreStore().currentProject = 'proj'
+    useAccountsStore().loginFormData = {
+      username: '  user  ',
+      password: 'password',
+      rememberMe: true,
+    }
+    vi.mocked(getSessionInfo).mockResolvedValue(null)
+    vi.mocked(authLogins).mockResolvedValue([])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(authLogin).toHaveBeenCalledWith('proj', 'user', 'password', true)
+    expect(useAccountsStore().loginFormData.username).toBe('user')
     unmount()
   })
 
@@ -350,6 +395,22 @@ describe('useAuth', () => {
     expect(store.activeSubTab).toBe('login')
     expect(useNotificationStore().message).toContain('Аккаунт успешно создан')
     expect(auth.isLoading.value).toBe(false)
+    unmount()
+  })
+
+  it('trims the registration login before sending it to the backend', async () => {
+    useCoreStore().currentProject = 'proj'
+    useAccountsStore().registerFormData = {
+      login: '  user  ',
+      password: 'password',
+      confirmPassword: 'password',
+    }
+    vi.mocked(authLogins).mockResolvedValue([])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleRegister()
+
+    expect(authRegister).toHaveBeenCalledWith('proj', 'user', 'password')
     unmount()
   })
 

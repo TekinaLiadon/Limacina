@@ -328,10 +328,6 @@ export async function listenGameStarted(
   })
 }
 
-export async function hideMainWindow(): Promise<void> {
-  await getCurrentWebviewWindow().hide()
-}
-
 export async function isWindowMinimized(): Promise<boolean> {
   return getCurrentWindow().isMinimized()
 }

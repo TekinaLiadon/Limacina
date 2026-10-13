@@ -18,12 +18,14 @@ use crate::{
     state::dto::ProjectConfig,
     step_try,
     utils::{
+        blocking,
         download_file::{download_file, download_json, write_atomic},
         env_info::{ensure_safe_relative_path, launcher_path},
         integrity::{
             ensure_files, record_installed_hash, settle_install_step, HashKind, IntegrityTarget,
             TargetDownload,
         },
+        java::find_java,
         step_events::StepHandle,
     },
 };
@@ -71,7 +73,12 @@ pub async fn run_loader_installer(
     vanilla_dir: &Path,
     state_project: &ProjectConfig,
 ) -> Result<()> {
-    let java_cmd = state_project.java_path.as_deref().unwrap_or("java");
+    let java_config = state_project.java_path.clone();
+    let java_cmd = blocking(
+        "Поиск Java для инсталлера лоадера",
+        move || find_java(java_config),
+    )
+    .await??;
     let mut command = Command::new(java_cmd);
     command
         .arg("-jar")
@@ -98,10 +105,14 @@ pub async fn run_loader_installer(
                 "Не удалось запустить {loader_name} installer: {e:#}"
             ))
         })?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
+    if !stdout.is_empty() {
+        log_info!("Stdout инсталлера {loader_name}: {}", stdout);
+    }
     if !stderr.is_empty() {
-        log_err!("Stderr: {}", stderr);
+        log_err!("Stderr инсталлера {loader_name}: {}", stderr);
     }
 
     if !output.status.success() {
@@ -159,6 +170,7 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
             inner_candidates.push(candidate);
         }
     }
+    inner_candidates.sort();
 
     let source = inner_candidates.first().cloned().ok_or_else(|| {
         LauncherError::LoaderSetup(format!(
@@ -244,21 +256,7 @@ pub async fn start_installer(
     let (loader_manifest, base_url) = manifest_paths(state_project, manifest_prefix)?;
     let versions_dir = base_url.join("versions");
 
-    let fast_name = format!(
-        "{}_{}_{}",
-        state_project.mc_version,
-        manifest_prefix,
-        state_project.loader_version.as_deref().unwrap_or_default()
-    );
-    let fast_manifest = versions_dir
-        .join(&fast_name)
-        .join(format!("{}.json", fast_name));
-
-    let source = if tokio::fs::try_exists(&fast_manifest).await.unwrap_or(false) {
-        fast_manifest
-    } else {
-        locate_installed_manifest(&versions_dir, &state_project.mc_version).await?
-    };
+    let source = locate_installed_manifest(&versions_dir, &state_project.mc_version).await?;
 
     move_version_jar(&base_url, &state_project.mc_version).await?;
 
@@ -679,6 +677,32 @@ mod loader_install_tests {
 
         assert_eq!(fs::read(base.join("1.20.1.jar")).unwrap(), b"jar");
         assert!(!base.join("versions/1.20.1/1.20.1.jar").exists());
+    }
+
+    #[tokio::test]
+    async fn move_version_jar_picks_candidate_deterministically() {
+        let dir = LauncherDirGuard::acquire("move_jar_deterministic").await;
+        let base = dir.root().join("game");
+
+        for _ in 0..3 {
+            fs::create_dir_all(base.join("versions/zzz-other")).unwrap();
+            fs::create_dir_all(base.join("versions/aaa-fix")).unwrap();
+            fs::write(base.join("versions/zzz-other/1.20.1.jar"), b"zzz").unwrap();
+            fs::write(base.join("versions/aaa-fix/1.20.1.jar"), b"aaa").unwrap();
+
+            move_version_jar(&base, "1.20.1")
+                .await
+                .expect("перенос jar из нескольких кандидатов");
+
+            assert_eq!(
+                fs::read(base.join("1.20.1.jar")).unwrap(),
+                b"aaa",
+                "переносится лексикографически первый кандидат независимо от порядка read_dir"
+            );
+            assert!(base.join("versions/zzz-other/1.20.1.jar").exists());
+            assert!(!base.join("versions/aaa-fix/1.20.1.jar").exists());
+            fs::remove_file(base.join("1.20.1.jar")).unwrap();
+        }
     }
 
     #[tokio::test]

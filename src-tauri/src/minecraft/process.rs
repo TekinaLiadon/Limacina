@@ -464,7 +464,7 @@ pub fn spawn_game_process(
         remove_game_child(&shared_child);
         let _ = app.emit("game-exit", payload);
         crate::tray::set_game_state(&app, false, "");
-        crate::discord::on_game_exit();
+        tauri::async_runtime::spawn(crate::discord::on_game_exit());
         panic_guard.disarm();
     });
 
@@ -500,7 +500,7 @@ impl Drop for GameExitPanicGuard {
             },
         );
         crate::tray::set_game_state(&self.app, false, "");
-        crate::discord::on_game_exit();
+        tauri::async_runtime::spawn(crate::discord::on_game_exit());
     }
 }
 

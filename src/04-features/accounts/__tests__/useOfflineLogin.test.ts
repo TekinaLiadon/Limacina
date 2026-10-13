@@ -69,6 +69,19 @@ describe('useOfflineLogin', () => {
     unmount()
   })
 
+  it('validates the offline login by its trimmed length', () => {
+    useCoreStore().currentProject = 'proj'
+    useCoreStore().projectConfig = makeProjectConfig(false)
+    useAccountsStore().loginFormData.username = '  ab  '
+    const { offline, unmount } = setupAuth()
+
+    expect(offline.isLoginValid.value).toBe(false)
+
+    useAccountsStore().loginFormData.username = '  user  '
+    expect(offline.isLoginValid.value).toBe(true)
+    unmount()
+  })
+
   it('requires a project for the offline login', () => {
     useCoreStore().projectConfig = makeProjectConfig(false)
     useAccountsStore().loginFormData.username = 'user'
@@ -114,6 +127,19 @@ describe('useOfflineLogin', () => {
     expect(authLogin).toHaveBeenCalledWith('proj', 'user', '', false)
     expect(useAccountsStore().showAuthForm).toBe(false)
     expect(useNotificationStore().message).toBe('Авторизация прошла успешно')
+    unmount()
+  })
+
+  it('trims the nickname before an offline login', async () => {
+    vi.mocked(getSessionInfo).mockResolvedValue(null)
+    useCoreStore().currentProject = 'proj'
+    useCoreStore().projectConfig = makeProjectConfig(false)
+    useAccountsStore().loginFormData.username = '  user  '
+    const { offline, unmount } = setupAuth()
+
+    await offline.handleLogin()
+
+    expect(authLogin).toHaveBeenCalledWith('proj', 'user', '', false)
     unmount()
   })
 })

@@ -96,6 +96,11 @@ export function useAccountsPage() {
 
   const launchInterrupted = computed((): boolean => launch.launchInterrupted)
   const isCancelPending = computed((): boolean => launch.isCancelPending)
+  const sessionViewDismissed = computed((): boolean => launch.sessionViewDismissed)
+
+  const dismissSessionView = (): void => {
+    launch.sessionViewDismissed = true
+  }
 
   const showLoginForm = (): void => {
     store.showAuthForm = true
@@ -167,6 +172,8 @@ export function useAccountsPage() {
     sceneUsername,
     isCancelPending,
     isServerOffline,
+    sessionViewDismissed,
+    dismissSessionView,
     handleLaunch,
     showLoginForm,
     goToAccounts,

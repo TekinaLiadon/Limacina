@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import anime from 'animejs'
-import { isAnimationsEnabled } from '@/06-shared'
+import { cssDurationMs, isAnimationsEnabled } from '@/06-shared'
 import type { StepProgressItem } from '@/05-entities'
 import StepCounter from './StepCounter.vue'
 
@@ -23,7 +23,7 @@ watch(() => props.steps.map(s => s.status).join(','), () => {
   anime({
     targets: indicator,
     scale: [1, 1.3, 1],
-    duration: 600,
+    duration: cssDurationMs('--duration-slow', 400),
     easing: 'easeInOutQuad',
   })
 }, { flush: 'post' })

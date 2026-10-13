@@ -38,12 +38,14 @@ pub struct SearchDto {
     pub offset: u32,
     pub limit: u32,
     pub version_numbers: std::collections::HashMap<String, String>,
+    pub version_numbers_failed: bool,
 }
 
 #[derive(Serialize)]
 pub struct ProjectDetails {
     pub project: ModrinthProject,
     pub versions: Vec<ModrinthVersion>,
+    pub versions_failed: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -165,6 +167,7 @@ pub async fn modrinth_search(
         .iter()
         .filter_map(|h| h.latest_version.clone())
         .collect();
+    let mut version_numbers_failed = false;
     let version_numbers: std::collections::HashMap<String, String> = if version_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
@@ -175,6 +178,7 @@ pub async fn modrinth_search(
                 .collect(),
             Err(e) => {
                 log_err!("[modrinth] Не удалось определить версии из поиска: {}", e);
+                version_numbers_failed = true;
                 std::collections::HashMap::new()
             }
         }
@@ -186,6 +190,7 @@ pub async fn modrinth_search(
         offset: result.offset,
         limit: result.limit,
         version_numbers,
+        version_numbers_failed,
     })
 }
 
@@ -202,14 +207,20 @@ pub async fn modrinth_project(
             .context("Не удалось получить информацию о моде"),
         LauncherError::Modrinth,
     )?;
+    let mut versions_failed = false;
     let versions = match client::get_project_versions(&id, &[], &[]).await {
         Ok(versions) => versions,
         Err(e) => {
             log_err!("[modrinth] Не удалось получить версии мода {}: {}", id, e);
+            versions_failed = true;
             Vec::new()
         }
     };
-    Ok(ProjectDetails { project, versions })
+    Ok(ProjectDetails {
+        project,
+        versions,
+        versions_failed,
+    })
 }
 
 #[tauri::command]

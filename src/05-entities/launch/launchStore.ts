@@ -11,11 +11,13 @@ export const useLaunchStore = defineStore('launch', () => {
   const activeProgress = ref<number>(0)
   const loginError = ref<string>('')
   const gameUsername = ref<string | null>(null)
+  const sessionViewDismissed = ref<boolean>(false)
 
   function beginLaunch(): number {
     isCancelPending.value = false
     launchGeneration.value += 1
     isLaunching.value = true
+    sessionViewDismissed.value = false
     return launchGeneration.value
   }
 
@@ -116,6 +118,7 @@ export const useLaunchStore = defineStore('launch', () => {
     activeProgress.value = 0
     loginError.value = ''
     gameUsername.value = null
+    sessionViewDismissed.value = false
   }
 
   return {
@@ -127,6 +130,7 @@ export const useLaunchStore = defineStore('launch', () => {
     activeProgress,
     loginError,
     gameUsername,
+    sessionViewDismissed,
     beginLaunch,
     invalidateGeneration,
     isCurrent,

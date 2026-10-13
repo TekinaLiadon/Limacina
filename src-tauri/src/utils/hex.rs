@@ -16,17 +16,36 @@ pub fn digest_hex(digest: impl AsRef<[u8]>) -> String {
 }
 
 pub fn from_hex(s: &str) -> Result<Vec<u8>> {
-    let mut result = Vec::with_capacity(s.len() / 2);
-    let mut chars = s.chars();
-    while let Some(hi) = chars.next() {
-        let lo = chars.next().ok_or(LauncherError::CredentialsStorage(
-            "Нечётная длина hex строки".to_string(),
-        ))?;
-        let byte = u8::from_str_radix(&format!("{}{}", hi, lo), 16)
-            .map_err(|e| LauncherError::CredentialsStorage(format!("Неверный hex символ: {e}")))?;
-        result.push(byte);
+    let bytes = s.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return Err(
+            LauncherError::CredentialsStorage("Нечётная длина hex строки".to_string()).into(),
+        );
+    }
+    let mut result = Vec::with_capacity(bytes.len() / 2);
+    for pair in bytes.chunks_exact(2) {
+        let hi = hex_digit(pair[0]);
+        let lo = hex_digit(pair[1]);
+        match (hi, lo) {
+            (Some(hi), Some(lo)) => result.push((hi << 4) | lo),
+            _ => {
+                return Err(LauncherError::CredentialsStorage(format!(
+                    "Неверный hex символ в строке: {s}"
+                ))
+                .into())
+            }
+        }
     }
     Ok(result)
+}
+
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

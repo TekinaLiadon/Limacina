@@ -4,7 +4,7 @@ import { generateIdenticon } from '@/06-shared'
 
 const props = defineProps<{
   username: string
-  size: number
+  size: 'sm' | 'lg'
 }>()
 
 const src = computed((): string => generateIdenticon(props.username))
@@ -14,9 +14,9 @@ const src = computed((): string => generateIdenticon(props.username))
   <img
     v-if="src"
     class="identicon"
+    :class="`identicon--${size}`"
     :src="src"
     alt=""
-    :style="{ width: `${size}px`, height: `${size}px` }"
   >
 </template>
 
@@ -26,5 +26,15 @@ const src = computed((): string => generateIdenticon(props.username))
   flex-shrink: 0;
   border-radius: var(--radius-circle);
   image-rendering: pixelated;
+
+  &--sm {
+    width: var(--avatar-size-sm);
+    height: var(--avatar-size-sm);
+  }
+
+  &--lg {
+    width: var(--avatar-size-lg);
+    height: var(--avatar-size-lg);
+  }
 }
 </style>

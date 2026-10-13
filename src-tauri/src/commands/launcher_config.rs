@@ -260,8 +260,8 @@ pub async fn save_launcher_settings(
     crate::tray::set_minimize_to_tray(&app, config.minimize_to_tray);
 
     let discord_enabled = config.discord_activity;
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::discord::on_settings_saved(discord_enabled);
+    tauri::async_runtime::spawn(async move {
+        crate::discord::on_settings_saved(discord_enabled).await;
     });
 
     Ok(config)

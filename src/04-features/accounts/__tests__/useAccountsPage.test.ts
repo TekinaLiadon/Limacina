@@ -180,6 +180,22 @@ describe('useAccountsPage', () => {
     expect(useNotificationStore().message).toBe('Не удалось проверить состояние игры, запуск заблокирован')
   })
 
+  it('returns to the accounts view and restores the session screen on the next launch', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsername = 'alice'
+    const page = setupPage()
+
+    page.dismissSessionView()
+    expect(page.sessionViewDismissed.value).toBe(true)
+    expect(launch.sessionViewDismissed).toBe(true)
+
+    launch.gameUsername = null
+    stubs.executeSteps.mockResolvedValueOnce(undefined)
+    await page.handleLaunch()
+
+    expect(page.sessionViewDismissed.value).toBe(false)
+  })
+
   it('blocks the launch while a project switch is in flight', async () => {
     const core = useCoreStore()
     core.projects = ['proj', 'beta']

@@ -22,14 +22,14 @@ export function useAuth() {
 
   const isLoginValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
-    if (store.loginFormData.username.length < MIN_LOGIN_LENGTH) return false
+    if (store.loginFormData.username.trim().length < MIN_LOGIN_LENGTH) return false
     return store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
   })
 
   const isRegisterValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
     return (
-      store.registerFormData.login.length >= MIN_LOGIN_LENGTH &&
+      store.registerFormData.login.trim().length >= MIN_LOGIN_LENGTH &&
       store.registerFormData.password.length >= MIN_PASSWORD_LENGTH &&
       store.registerFormData.confirmPassword.length > 0 &&
       passwordsMatch.value
@@ -38,7 +38,7 @@ export function useAuth() {
 
   const registerLoginHint = computed((): string | null => {
     const { login } = store.registerFormData
-    if (!login || login.length >= MIN_LOGIN_LENGTH) return null
+    if (!login || login.trim().length >= MIN_LOGIN_LENGTH) return null
     return `Логин — ${minLengthMessage(MIN_LOGIN_LENGTH)}`
   })
 
@@ -72,11 +72,13 @@ export function useAuth() {
     isLoading.value = true
     errorMessage.value = ''
     const scope = captureProjectScope((): string => coreStore.currentProject)
+    const username = store.loginFormData.username.trim()
+    store.loginFormData.username = username
 
     try {
       await authLogin(
         scope.project,
-        store.loginFormData.username,
+        username,
         store.loginFormData.password,
         store.loginFormData.rememberMe
       )
@@ -114,8 +116,9 @@ export function useAuth() {
     errorMessage.value = ''
     const scope = captureProjectScope((): string => coreStore.currentProject)
 
-    const {login} = store.registerFormData
-    const {password} = store.registerFormData
+    const { login: rawLogin, password } = store.registerFormData
+    const login = rawLogin.trim()
+    store.registerFormData.login = login
 
     try {
       await authRegister(

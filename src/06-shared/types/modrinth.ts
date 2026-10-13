@@ -27,6 +27,7 @@ export interface ModrinthSearchResult {
   offset: number
   limit: number
   version_numbers: Record<string, string>
+  version_numbers_failed: boolean
 }
 
 export interface ModrinthLicense {
@@ -92,6 +93,7 @@ export interface ModrinthVersion {
 export interface ModrinthProjectDetails {
   project: ModrinthProject
   versions: ModrinthVersion[]
+  versions_failed: boolean
 }
 
 export interface ModrinthInstalledMod {

@@ -106,18 +106,26 @@ async fn fetch_package(
     os: &str,
     package_type: &str,
 ) -> Result<Option<(String, String)>> {
-    let url = format!(
-        "https://api.foojay.io/disco/v3.0/packages?distribution={}&version={}&architecture={}&operating_system={}&package_type={}&release_status=ga&latest=per_version&directly_downloadable=true",
-        distribution, version, arch, os, package_type
-    );
+    let url = reqwest::Url::parse_with_params(
+        "https://api.foojay.io/disco/v3.0/packages",
+        &[
+            ("distribution", distribution),
+            ("version", version),
+            ("architecture", arch),
+            ("operating_system", os),
+            ("package_type", package_type),
+            ("release_status", "ga"),
+            ("latest", "per_version"),
+            ("directly_downloadable", "true"),
+        ],
+    )
+    .map_err(|e| LauncherError::Java(format!("Не удалось собрать запрос к Foojay API: {e}")))?;
 
     let response = client
-        .get(&url)
+        .get(url)
         .send()
         .await
-        .map_err(|e| {
-            LauncherError::Java(format!("Не удалось запросить пакеты у Foojay API: {e:#}"))
-        })?
+        .map_err(|e| LauncherError::Java(format!("Не удалось запросить пакеты у Foojay API: {e}")))?
         .error_for_status()
         .map_err(|e| LauncherError::Java(format!("Foojay API вернул ошибку: {e:#}")))?;
 
@@ -172,7 +180,7 @@ pub async fn download_alt_java(
     ensure_safe_relative_path(&version, "версии Java")?;
 
     let os = get_current_os();
-    let arch = match get_arch() {
+    let arch = match get_arch()? {
         "x86_64" => "x64",
         other => other,
     };

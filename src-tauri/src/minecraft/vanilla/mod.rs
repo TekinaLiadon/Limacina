@@ -13,8 +13,8 @@ use crate::minecraft::manifest::get_manifest_version;
 use crate::minecraft::vanilla::config::get_classpath;
 use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
 use crate::minecraft::vanilla::download::{
-    extract_natives, natives_match_version, read_asset_index, VanillaPhaseInfo, PHASE_ASSET_INDEX,
-    PHASE_NATIVES,
+    extract_natives, natives_match_version, preflight_asset_disk_space, read_asset_index,
+    VanillaPhaseInfo, PHASE_ASSET_INDEX, PHASE_NATIVES,
 };
 use crate::minecraft::vanilla::manifest::load_vanilla_index;
 use crate::minecraft::vanilla::pipeline::{run_vanilla_phases, VanillaPhaseExecutor};
@@ -93,6 +93,10 @@ impl VanillaPhaseExecutor for InstallPhases {
                 return Err(e);
             }
         };
+        if let Err(e) = preflight_asset_disk_space(&self.base_path, &asset_index).await {
+            step.fail(e.to_string());
+            return Err(e);
+        }
         step.finish(false);
         Ok(asset_index)
     }

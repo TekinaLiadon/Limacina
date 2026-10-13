@@ -4,7 +4,6 @@ import { useLaunchStore } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   getGameState: vi.fn(),
-  hideMainWindow: vi.fn(),
   listenGameExit: vi.fn(),
   listenGameStarted: vi.fn(),
 }))
@@ -12,14 +11,12 @@ const api = vi.hoisted(() => ({
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   getGameState: api.getGameState,
-  hideMainWindow: api.hideMainWindow,
   listenGameExit: api.listenGameExit,
   listenGameStarted: api.listenGameStarted,
 }))
 
 interface GameSessionApi {
   startGameSessionSync: () => Promise<void>
-  minimizeToTray: () => Promise<void>
 }
 
 describe('useGameSession', () => {
@@ -33,7 +30,6 @@ describe('useGameSession', () => {
     emitStarted = undefined
     emitExit = undefined
     api.getGameState.mockReset()
-    api.hideMainWindow.mockReset()
     api.listenGameExit.mockReset()
     api.listenGameStarted.mockReset()
     api.listenGameStarted.mockImplementation(async (handler: (username: string) => void) => {
@@ -173,25 +169,5 @@ describe('useGameSession', () => {
 
     expect(useLaunchStore().gameUsername).toBe('alice')
     expect(api.getGameState).toHaveBeenCalledTimes(1)
-  })
-
-  it('minimizes the window to tray', async () => {
-    const session = await loadSession()
-
-    await session.minimizeToTray()
-
-    expect(api.hideMainWindow).toHaveBeenCalledTimes(1)
-  })
-
-  it('survives a failed hide when minimizing to tray', async () => {
-    api.hideMainWindow.mockRejectedValue(new Error('tray gone'))
-    const session = await loadSession()
-
-    await expect(session.minimizeToTray()).resolves.toBeUndefined()
-
-    expect(console.error).toHaveBeenCalledWith(
-      'Не удалось свернуть окно в трей',
-      expect.any(Error),
-    )
   })
 })

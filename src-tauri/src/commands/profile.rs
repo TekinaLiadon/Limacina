@@ -282,10 +282,12 @@ pub async fn save_current_project(
 
 async fn delete_project_files(project_name: &str) -> Result<()> {
     let config_path = launcher_path(Some("config"))?.join(format!("{}.toml", project_name));
-    if config_path.exists() {
-        fs::remove_file(&config_path)
-            .await
-            .with_context(|| format!("Не удалось удалить конфиг проекта {:?}", config_path))?;
+    match fs::remove_file(&config_path).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(e)
+                .with_context(|| format!("Не удалось удалить конфиг проекта {:?}", config_path));
+        }
+        _ => {}
     }
 
     let aux_paths = [
@@ -309,14 +311,13 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
     }
 
     let project_dir = launcher_path(Some(project_name))?;
-    if project_dir.exists() {
-        LauncherError::classify(
-            fs::remove_dir_all(&project_dir)
-                .await
-                .with_context(|| format!("Не удалось удалить папку проекта {:?}", project_dir)),
-            LauncherError::DiskIo,
-        )?;
-    }
+    let removal = match fs::remove_dir_all(&project_dir).await {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        outcome => {
+            outcome.with_context(|| format!("Не удалось удалить папку проекта {:?}", project_dir))
+        }
+    };
+    LauncherError::classify(removal, LauncherError::DiskIo)?;
 
     Ok(())
 }
@@ -393,7 +394,7 @@ pub async fn refresh_manifests() -> CommandResult<String> {
     let manifest_dir = launcher_path(None)?.join("manifest");
     let mut removed = 0usize;
 
-    if manifest_dir.exists() {
+    if tokio::fs::try_exists(&manifest_dir).await.unwrap_or(false) {
         let mut entries = LauncherError::classify(
             fs::read_dir(&manifest_dir)
                 .await
@@ -773,5 +774,14 @@ mod tests {
         assert!(!manifest_dir.join("installed_Test.json").exists());
         assert!(config_dir.exists());
         assert!(config_dir.join("Other.toml").exists());
+    }
+
+    #[tokio::test]
+    async fn delete_project_files_treats_missing_artifacts_as_success() {
+        let _guard = LauncherDirGuard::acquire("delete_project_files_missing").await;
+
+        delete_project_files("Ghost")
+            .await
+            .expect("удаление несуществующих артефактов должно быть успехом");
     }
 }

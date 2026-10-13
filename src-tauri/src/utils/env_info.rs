@@ -175,12 +175,18 @@ pub fn get_current_os() -> &'static str {
     }
 }
 
-pub fn get_arch() -> &'static str {
+pub fn get_arch() -> Result<&'static str> {
     match consts::ARCH {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        _ => "x86_64",
+        "x86_64" | "aarch64" => Ok(consts::ARCH),
+        other => Err(LauncherError::GameDownload(format!(
+            "Неподдерживаемая архитектура процессора: {other}"
+        ))
+        .into()),
     }
+}
+
+pub fn get_arch_label() -> &'static str {
+    consts::ARCH
 }
 
 #[cfg(test)]
