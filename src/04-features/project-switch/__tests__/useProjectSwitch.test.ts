@@ -140,7 +140,7 @@ describe('useProjectSwitch', () => {
   it('blocks the switch while a game session is active', async () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     const ps = setup()
 
     await ps.selectProject('beta')
@@ -154,7 +154,7 @@ describe('useProjectSwitch', () => {
     core.currentProject = 'alpha'
     core.projects = ['alpha', 'beta']
     const launch = useLaunchStore()
-    launch.gameUsername = 'alice'
+    launch.gameUsernames = ['alice']
     const ps = setup()
 
     await ps.selectProject('beta')
@@ -163,7 +163,7 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).not.toHaveBeenCalled()
 
     ps.resetAccountsState()
-    expect(launch.gameUsername).toBeNull()
+    expect(launch.gameUsernames).toEqual([])
 
     vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
     vi.mocked(authLogins).mockResolvedValue(['carol'])

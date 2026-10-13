@@ -180,7 +180,7 @@ export function useProjectSettings(): {
     if (isDeleting.value) return
     const projectName = coreStore.currentProject
     if (!projectName) return
-    if (launchStore.gameUsername) {
+    if (launchStore.gameUsernames.length > 0) {
       notification.show('Нельзя удалить проект, пока запущена игра')
       return
     }

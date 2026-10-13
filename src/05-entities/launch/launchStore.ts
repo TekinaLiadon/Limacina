@@ -10,8 +10,18 @@ export const useLaunchStore = defineStore('launch', () => {
   const launchSteps = ref<StepProgressItem[]>([])
   const activeProgress = ref<number>(0)
   const loginError = ref<string>('')
-  const gameUsername = ref<string | null>(null)
+  const gameUsernames = ref<string[]>([])
   const sessionViewDismissed = ref<boolean>(false)
+
+  function addGameSession(username: string): void {
+    if (!gameUsernames.value.includes(username)) {
+      gameUsernames.value = [...gameUsernames.value, username]
+    }
+  }
+
+  function removeGameSession(username: string): void {
+    gameUsernames.value = gameUsernames.value.filter((name: string): boolean => name !== username)
+  }
 
   function beginLaunch(): number {
     isCancelPending.value = false
@@ -117,7 +127,7 @@ export const useLaunchStore = defineStore('launch', () => {
     launchSteps.value = []
     activeProgress.value = 0
     loginError.value = ''
-    gameUsername.value = null
+    gameUsernames.value = []
     sessionViewDismissed.value = false
   }
 
@@ -129,7 +139,7 @@ export const useLaunchStore = defineStore('launch', () => {
     launchSteps,
     activeProgress,
     loginError,
-    gameUsername,
+    gameUsernames,
     sessionViewDismissed,
     beginLaunch,
     invalidateGeneration,
@@ -147,6 +157,8 @@ export const useLaunchStore = defineStore('launch', () => {
     recomputeProgress,
     resetSteps,
     clearLoginError,
+    addGameSession,
+    removeGameSession,
     reset,
   }
 })

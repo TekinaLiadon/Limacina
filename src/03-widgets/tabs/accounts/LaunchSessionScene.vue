@@ -1,21 +1,34 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Button } from '@/06-shared'
 
-defineProps<{
-  sessionUsername: string
+const props = defineProps<{
+  sessionUsernames: string[]
 }>()
 
 const emit = defineEmits<{
   back: []
 }>()
+
+const sessionEyebrow = computed((): string =>
+  props.sessionUsernames.length > 1
+    ? `Игры запущены (${props.sessionUsernames.length})`
+    : 'Игра запущена',
+)
 </script>
 
 <template>
   <div class="launch-scene__session">
     <span class="launch-scene__session-dot"></span>
     <div class="launch-scene__account-info">
-      <span class="eyebrow">Игра запущена</span>
-      <p class="launch-scene__name">{{ sessionUsername }}</p>
+      <span class="eyebrow">{{ sessionEyebrow }}</span>
+      <p
+        v-for="name in sessionUsernames"
+        :key="name"
+        class="launch-scene__name"
+      >
+        {{ name }}
+      </p>
     </div>
   </div>
   <div class="launch-scene__actions">

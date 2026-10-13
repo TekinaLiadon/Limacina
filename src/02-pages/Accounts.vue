@@ -59,7 +59,7 @@ const {
       :is-interrupted="launchInterrupted"
       :progress="activeProgress"
       :steps="launchSteps"
-      :session-username="launchStore.gameUsername"
+      :session-usernames="launchStore.gameUsernames"
       :session-view-dismissed="sessionViewDismissed"
       :server-offline="isServerOffline"
       :login-error="loginError"

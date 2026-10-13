@@ -40,8 +40,9 @@ export function useAccountsPage() {
 
   const handleLaunch = async (): Promise<void> => {
     if (launch.isLaunching) return
-    if (launch.gameUsername !== null) {
-      notificationStore.show('Игра уже запущена')
+    const activeUsername = store.session?.username ?? null
+    if (activeUsername !== null && launch.gameUsernames.includes(activeUsername)) {
+      notificationStore.show('Этот аккаунт уже в игре')
       return
     }
     if (isServerOffline.value) {
@@ -57,11 +58,11 @@ export function useAccountsPage() {
       return
     }
     try {
-      const username = await getGameState()
+      const usernames = await getGameState()
       if (launch.isLaunching || isSwitching.value) return
-      if (username !== null) {
-        launch.gameUsername = username
-        notificationStore.show('Игра уже запущена')
+      if (activeUsername !== null && usernames.includes(activeUsername)) {
+        launch.gameUsernames = usernames
+        notificationStore.show('Этот аккаунт уже в игре')
         return
       }
     } catch (e: unknown) {

@@ -502,11 +502,11 @@ describe('useProjectSettings', () => {
     const settings = await loadReady()
     const launch = useLaunchStore()
 
-    launch.gameUsername = 'alice'
+    launch.gameUsernames = ['alice']
     await settings.handleDeleteProject()
     expect(useNotificationStore().message).toBe('Нельзя удалить проект, пока запущена игра')
 
-    launch.gameUsername = null
+    launch.gameUsernames = []
     launch.isLaunching = true
     await settings.handleDeleteProject()
     expect(useNotificationStore().message).toBe('Дождитесь завершения запуска игры')

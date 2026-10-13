@@ -96,7 +96,7 @@ describe('useLaunchStepsStream', () => {
 
   it('skips the interrupted marker when a session is already running', async () => {
     api.getLaunchState.mockResolvedValue(true)
-    useLaunchStore().gameUsername = 'user'
+    useLaunchStore().gameUsernames = ['user']
     await startStream()
 
     expect(useLaunchStore().isLaunching).toBe(false)
@@ -128,7 +128,7 @@ describe('useLaunchStepsStream', () => {
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useLaunchStore().launchInterrupted).toBe(false)
 
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     resolveSync()
     await pending
 

@@ -86,7 +86,7 @@ describe('useAccountsPage', () => {
     vi.mocked(saveCurrentProject).mockReset()
     vi.mocked(authLogins).mockResolvedValue([])
     vi.mocked(getSessionInfo).mockResolvedValue(null)
-    vi.mocked(getGameState).mockResolvedValue(null)
+    vi.mocked(getGameState).mockResolvedValue([])
     useCoreStore().currentProject = 'proj'
   })
 
@@ -145,28 +145,42 @@ describe('useAccountsPage', () => {
     expect(useNotificationStore().message).toBe('Идёт проверка целостности, запуск невозможен')
   })
 
-  it('blocks the launch while a game session is already active', async () => {
-    useLaunchStore().gameUsername = 'alice'
+  it('blocks the launch while the current account already has a running game', async () => {
+    useAccountsStore().session = { username: 'alice', uuid: 'uuid-alice' }
+    useLaunchStore().gameUsernames = ['alice', 'bob']
     const page = setupPage()
 
     await page.handleLaunch()
 
     expect(stubs.executeSteps).not.toHaveBeenCalled()
     expect(useLaunchStore().isLaunching).toBe(false)
-    expect(useNotificationStore().message).toBe('Игра уже запущена')
+    expect(useNotificationStore().message).toBe('Этот аккаунт уже в игре')
+  })
+
+  it('allows the launch while another account has a running game', async () => {
+    useAccountsStore().session = { username: 'carol', uuid: 'uuid-carol' }
+    useLaunchStore().gameUsernames = ['alice', 'bob']
+    stubs.executeSteps.mockResolvedValueOnce(undefined)
+    const page = setupPage()
+
+    await page.handleLaunch()
+
+    expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
+    expect(useLaunchStore().isLaunching).toBe(false)
   })
 
   it('blocks the launch when the backend reports a session the store missed', async () => {
     const launch = useLaunchStore()
-    vi.mocked(getGameState).mockResolvedValue('alice')
+    useAccountsStore().session = { username: 'alice', uuid: 'uuid-alice' }
+    vi.mocked(getGameState).mockResolvedValue(['bob', 'alice'])
     const page = setupPage()
 
     await page.handleLaunch()
 
     expect(stubs.executeSteps).not.toHaveBeenCalled()
     expect(useLaunchStore().isLaunching).toBe(false)
-    expect(launch.gameUsername).toBe('alice')
-    expect(useNotificationStore().message).toBe('Игра уже запущена')
+    expect(launch.gameUsernames).toEqual(['bob', 'alice'])
+    expect(useNotificationStore().message).toBe('Этот аккаунт уже в игре')
   })
 
   it('blocks the launch when the session check fails', async () => {
@@ -182,14 +196,14 @@ describe('useAccountsPage', () => {
 
   it('returns to the accounts view and restores the session screen on the next launch', async () => {
     const launch = useLaunchStore()
-    launch.gameUsername = 'alice'
+    launch.gameUsernames = ['alice']
     const page = setupPage()
 
     page.dismissSessionView()
     expect(page.sessionViewDismissed.value).toBe(true)
     expect(launch.sessionViewDismissed).toBe(true)
 
-    launch.gameUsername = null
+    launch.gameUsernames = []
     stubs.executeSteps.mockResolvedValueOnce(undefined)
     await page.handleLaunch()
 
@@ -256,10 +270,10 @@ describe('useAccountsPage', () => {
   })
 
   it('ignores a parallel second launch while the session check is pending', async () => {
-    const resolveSessionChecks: Array<(username: string | null) => void> = []
+    const resolveSessionChecks: Array<(usernames: string[]) => void> = []
     vi.mocked(getGameState).mockImplementation(
       () =>
-        new Promise<string | null>((resolve) => {
+        new Promise<string[]>((resolve) => {
           resolveSessionChecks.push(resolve)
         }),
     )
@@ -267,7 +281,7 @@ describe('useAccountsPage', () => {
 
     const first = page.handleLaunch()
     const second = page.handleLaunch()
-    for (const resolve of resolveSessionChecks) resolve(null)
+    for (const resolve of resolveSessionChecks) resolve([])
     await Promise.all([first, second])
 
     expect(getGameState).toHaveBeenCalledTimes(2)

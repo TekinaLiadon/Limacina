@@ -93,88 +93,111 @@ pub struct GameExitPayload {
     pub success: bool,
     pub code: Option<i32>,
     pub reason: Option<String>,
+    pub username: String,
 }
 
 type SharedGameChild = Arc<StdMutex<std::process::Child>>;
 
-static GAME_CHILD: StdMutex<Option<SharedGameChild>> = StdMutex::new(None);
-
-pub fn game_running() -> bool {
-    GAME_CHILD
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .is_some()
+struct RegisteredGame {
+    child: SharedGameChild,
+    username: String,
 }
 
-pub fn ensure_no_live_game() -> Result<()> {
-    if game_running() {
-        return Err(LauncherError::GameProcess(
-            "Игра уже запущена — завершите текущую сессию перед новым запуском".to_string(),
-        )
+static GAME_SESSIONS: StdMutex<Vec<RegisteredGame>> = StdMutex::new(Vec::new());
+
+pub fn game_running() -> bool {
+    !GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
+}
+
+pub fn game_usernames() -> Vec<String> {
+    GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|game| game.username.clone())
+        .collect()
+}
+
+pub fn ensure_session_free(username: &str) -> Result<()> {
+    let taken = GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|game| game.username == username);
+    if taken {
+        return Err(LauncherError::GameProcess(format!(
+            "Игра уже запущена с аккаунта {username} — завершите его сессию перед новым запуском"
+        ))
         .into());
     }
     Ok(())
 }
 
-fn register_game_child(
+fn register_game_session(
     child: std::process::Child,
+    username: &str,
 ) -> std::result::Result<SharedGameChild, std::process::Child> {
-    let mut registry = GAME_CHILD.lock().unwrap_or_else(|e| e.into_inner());
-    if registry.is_some() {
+    let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    if registry.iter().any(|game| game.username == username) {
         return Err(child);
     }
     let shared = Arc::new(StdMutex::new(child));
-    *registry = Some(Arc::clone(&shared));
+    registry.push(RegisteredGame {
+        child: Arc::clone(&shared),
+        username: username.to_string(),
+    });
     Ok(shared)
 }
 
-fn remove_game_child(child: &SharedGameChild) {
-    let mut registry = GAME_CHILD.lock().unwrap_or_else(|e| e.into_inner());
-    if registry
-        .as_ref()
-        .is_some_and(|registered| Arc::ptr_eq(registered, child))
-    {
-        *registry = None;
-    }
+fn remove_game_session(child: &SharedGameChild) {
+    let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    registry.retain(|game| !Arc::ptr_eq(&game.child, child));
 }
 
 fn mark_game_finalized(exited: &AtomicBool, child: &SharedGameChild) {
     exited.store(true, AtomicOrdering::Relaxed);
-    remove_game_child(child);
+    remove_game_session(child);
 }
 
 pub fn kill_game_process() -> Result<()> {
-    let child = GAME_CHILD
+    let children = GAME_SESSIONS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .map(Arc::clone);
-    let Some(child) = child else {
+        .iter()
+        .map(|game| Arc::clone(&game.child))
+        .collect::<Vec<_>>();
+    if children.is_empty() {
         return Err(LauncherError::InvalidInput("Игра не запущена".to_string()).into());
-    };
-    let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
-    match guard.try_wait() {
-        Ok(Some(_)) => {
-            log_info!("Игра уже завершилась — принудительное завершение не требуется");
-            Ok(())
-        }
-        Ok(None) => {
-            let pid = guard.id();
-            if let Err(e) = guard.kill() {
-                return Err(LauncherError::GameProcess(format!(
-                    "Не удалось завершить процесс игры (PID {pid}): {e}"
-                ))
-                .into());
-            }
-            log_info!("Процесс игры принудительно завершён (PID {pid})");
-            Ok(())
-        }
-        Err(e) => Err(LauncherError::GameProcess(format!(
-            "Не удалось получить статус процесса игры (PID {}): {e}",
-            guard.id()
-        ))
-        .into()),
     }
+    for child in children {
+        let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.try_wait() {
+            Ok(Some(_)) => {
+                log_info!("Игра уже завершилась — принудительное завершение не требуется");
+            }
+            Ok(None) => {
+                let pid = guard.id();
+                if let Err(e) = guard.kill() {
+                    return Err(LauncherError::GameProcess(format!(
+                        "Не удалось завершить процесс игры (PID {pid}): {e}"
+                    ))
+                    .into());
+                }
+                log_info!("Процесс игры принудительно завершён (PID {pid})");
+            }
+            Err(e) => {
+                return Err(LauncherError::GameProcess(format!(
+                    "Не удалось получить статус процесса игры (PID {}): {e}",
+                    guard.id()
+                ))
+                .into())
+            }
+        }
+    }
+    Ok(())
 }
 
 pub struct GameProcess {
@@ -265,6 +288,7 @@ fn spawn_output_reader(
     last_output: Arc<StdMutex<VecDeque<String>>>,
     window_opened: Arc<AtomicBool>,
     is_error: bool,
+    username: String,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut reader = BufReader::new(stream);
@@ -279,10 +303,10 @@ fn spawn_output_reader(
             }
             let lossy = String::from_utf8_lossy(&buffer);
             let line = lossy.trim_end_matches(['\r', '\n']);
-            send_game_output(format!("[MC] {}", line), is_error);
+            send_game_output(format!("[MC|{username}] {line}"), is_error, &username);
             track_output(&last_output, line);
             if !window_opened.load(AtomicOrdering::Relaxed) && is_window_open_marker(line) {
-                log_info!("Обнаружено открытие окна игры");
+                log_info!("Обнаружено открытие окна игры ({username})");
                 window_opened.store(true, AtomicOrdering::Relaxed);
             }
         }
@@ -303,6 +327,7 @@ pub fn spawn_game_process(
     app: AppHandle,
     config: GameConfig,
     server_url: Option<&str>,
+    username: String,
 ) -> Result<GameProcess> {
     log_info!("\n▶ Запуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
@@ -376,13 +401,13 @@ pub fn spawn_game_process(
     let stderr = child.stderr.take().ok_or(LauncherError::GameProcess(
         "Не удалось получить stderr процесса".to_string(),
     ))?;
-    let shared_child = match register_game_child(child) {
+    let shared_child = match register_game_session(child, &username) {
         Ok(shared) => shared,
         Err(mut orphan) => {
             let _ = orphan.kill();
-            return Err(LauncherError::GameProcess(
-                "Игра уже запущена — повторный запуск невозможен".to_string(),
-            )
+            return Err(LauncherError::GameProcess(format!(
+                "Игра уже запущена с аккаунта {username} — повторный запуск невозможен"
+            ))
             .into());
         }
     };
@@ -399,6 +424,7 @@ pub fn spawn_game_process(
         Arc::clone(&process.last_output),
         Arc::clone(&process.window_opened),
         false,
+        username.clone(),
     );
 
     let stderr_reader = spawn_output_reader(
@@ -406,16 +432,19 @@ pub fn spawn_game_process(
         Arc::clone(&process.last_output),
         Arc::clone(&process.window_opened),
         true,
+        username.clone(),
     );
 
     let exited = Arc::clone(&process.exited);
     let exit_status = Arc::clone(&process.exit_status);
     let last_output = Arc::clone(&process.last_output);
+    let exit_username = username.clone();
     thread::spawn(move || {
         let mut panic_guard = GameExitPanicGuard {
             app: app.clone(),
             exited: Arc::clone(&exited),
             child: Arc::clone(&shared_child),
+            username: exit_username.clone(),
             armed: true,
         };
         let status = loop {
@@ -434,7 +463,7 @@ pub fn spawn_game_process(
             Ok(status) => {
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
-                log_info!("Minecraft завершился: {:?}", status);
+                log_info!("Minecraft завершился ({}): {:?}", exit_username, status);
                 let reason = if status.success() {
                     None
                 } else {
@@ -444,6 +473,7 @@ pub fn spawn_game_process(
                     success: status.success(),
                     code: status.code(),
                     reason,
+                    username: exit_username.clone(),
                 };
                 (Some(status.to_string()), payload)
             }
@@ -455,26 +485,34 @@ pub fn spawn_game_process(
                         success: false,
                         code: None,
                         reason: None,
+                        username: exit_username.clone(),
                     },
                 )
             }
         };
         *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
         exited.store(true, AtomicOrdering::Relaxed);
-        remove_game_child(&shared_child);
+        remove_game_session(&shared_child);
         let _ = app.emit("game-exit", payload);
-        crate::tray::set_game_state(&app, false, "");
-        tauri::async_runtime::spawn(crate::discord::on_game_exit());
+        after_game_exit(&app, &exit_username);
         panic_guard.disarm();
     });
 
     Ok(process)
 }
 
+fn after_game_exit(app: &AppHandle, username: &str) {
+    crate::tray::remove_game_session(app, username);
+    if !game_running() {
+        tauri::async_runtime::spawn(crate::discord::on_game_exit());
+    }
+}
+
 struct GameExitPanicGuard {
     app: AppHandle,
     exited: Arc<AtomicBool>,
     child: SharedGameChild,
+    username: String,
     armed: bool,
 }
 
@@ -497,10 +535,10 @@ impl Drop for GameExitPanicGuard {
                 success: false,
                 code: None,
                 reason: None,
+                username: self.username.clone(),
             },
         );
-        crate::tray::set_game_state(&self.app, false, "");
-        tauri::async_runtime::spawn(crate::discord::on_game_exit());
+        after_game_exit(&self.app, &self.username);
     }
 }
 
@@ -712,6 +750,7 @@ mod spawn_output_reader_tests {
             Arc::clone(&last_output),
             Arc::clone(&window_opened),
             false,
+            "Steve".to_string(),
         );
         handle
             .join()
@@ -947,6 +986,7 @@ mod process_helpers_tests {
             Arc::clone(&last_output),
             Arc::clone(&window_opened),
             false,
+            "Steve".to_string(),
         );
         handle.join().expect("ридер не должен паниковать");
 
@@ -979,8 +1019,8 @@ mod process_helpers_tests {
 #[cfg(test)]
 mod kill_process_tests {
     use super::{
-        ensure_no_live_game, game_running, kill_game_process, mark_game_finalized,
-        register_game_child, remove_game_child, GAME_CHILD,
+        ensure_session_free, game_running, game_usernames, kill_game_process, mark_game_finalized,
+        register_game_session, remove_game_session, GAME_SESSIONS,
     };
     use crate::utils::errors::LauncherError;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -990,7 +1030,10 @@ mod kill_process_tests {
     static KILL_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     fn reset_registry() {
-        *GAME_CHILD.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        GAME_SESSIONS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     fn lock_child(
@@ -1023,18 +1066,17 @@ mod kill_process_tests {
 
     #[cfg(unix)]
     #[test]
-    fn ensure_no_live_game_follows_registry() {
+    fn session_free_guard_is_per_account() {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         reset_registry();
 
-        ensure_no_live_game().expect("без игры запуск разрешён");
+        ensure_session_free("Steve").expect("без сессий запуск разрешён любому аккаунту");
 
-        let exited = AtomicBool::new(false);
-        let child = register_game_child(spawn_helper()).expect("регистрация");
+        let first = register_game_session(spawn_helper(), "Steve").expect("регистрация");
         assert!(game_running());
 
-        let error = ensure_no_live_game()
-            .expect_err("второй start_minecraft при живой игре отклоняется на бекенде");
+        let error = ensure_session_free("Steve")
+            .expect_err("повторный запуск того же аккаунта отклоняется");
         assert!(
             matches!(
                 error.downcast_ref::<LauncherError>(),
@@ -1043,16 +1085,49 @@ mod kill_process_tests {
             "ожидается GameProcess: {error}"
         );
         assert!(
-            error.to_string().contains("уже запущена"),
-            "ошибка должна объяснять причину: {error}"
+            error.to_string().contains("с аккаунта Steve"),
+            "ошибка должна называть аккаунт: {error}"
         );
 
-        mark_game_finalized(&exited, &child);
+        ensure_session_free("Alex").expect("другой аккаунт запускается параллельно");
+
+        let exited = AtomicBool::new(false);
+        mark_game_finalized(&exited, &first);
         assert!(exited.load(Ordering::Relaxed));
         assert!(!game_running());
-        ensure_no_live_game().expect("после очистки реестра запуск снова разрешён");
+        ensure_session_free("Steve").expect("после выхода сессия аккаунта снова свободна");
 
-        let _ = lock_child(&child).kill();
+        let _ = lock_child(&first).kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn usernames_list_all_registered_sessions() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let first = register_game_session(spawn_helper(), "Steve").expect("регистрация Steve");
+        let second = register_game_session(spawn_helper(), "Alex").expect("регистрация Alex");
+
+        assert_eq!(
+            game_usernames(),
+            vec!["Steve".to_string(), "Alex".to_string()]
+        );
+
+        remove_game_session(&first);
+        assert_eq!(
+            game_usernames(),
+            vec!["Alex".to_string()],
+            "выход первой игры не трогает вторую"
+        );
+        assert!(game_running(), "реестр держит вторую сессию");
+
+        remove_game_session(&second);
+        assert!(game_usernames().is_empty());
+        assert!(!game_running());
+
+        let _ = lock_child(&first).kill();
+        let _ = lock_child(&second).kill();
     }
 
     #[cfg(unix)]
@@ -1061,13 +1136,14 @@ mod kill_process_tests {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         reset_registry();
 
-        let registered = register_game_child(spawn_helper()).expect("первая регистрация");
+        let registered =
+            register_game_session(spawn_helper(), "Steve").expect("первая регистрация");
         let foreign = Arc::new(StdMutex::new(spawn_helper()));
 
-        remove_game_child(&foreign);
+        remove_game_session(&foreign);
         assert!(game_running(), "чужой хендл не должен очищать реестр");
 
-        remove_game_child(&registered);
+        remove_game_session(&registered);
         assert!(!game_running(), "свой хендл очищает реестр");
 
         let _ = lock_child(&registered).kill();
@@ -1076,48 +1152,65 @@ mod kill_process_tests {
 
     #[cfg(unix)]
     #[test]
-    fn second_registration_returns_orphan_for_cleanup() {
+    fn same_username_registration_returns_orphan_for_cleanup() {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         reset_registry();
 
-        let first = register_game_child(spawn_helper()).expect("первая регистрация");
+        let first = register_game_session(spawn_helper(), "Steve").expect("первая регистрация");
 
-        let mut orphan =
-            register_game_child(spawn_helper()).expect_err("вторая регистрация должна отклоняться");
+        let mut orphan = register_game_session(spawn_helper(), "Steve")
+            .expect_err("второй процесс того же аккаунта должен отклоняться");
         let _ = orphan.kill();
         let _ = orphan.wait();
 
-        assert!(game_running(), "реестр сохраняет первую игру");
+        let second =
+            register_game_session(spawn_helper(), "Alex").expect("другой аккаунт регистрируется");
 
-        remove_game_child(&first);
+        assert_eq!(game_usernames().len(), 2, "реестр держит обе сессии");
+
         let _ = lock_child(&first).kill();
+        let _ = lock_child(&second).kill();
     }
 
     #[cfg(unix)]
     #[test]
-    fn kill_terminates_registered_process() {
+    fn kill_terminates_all_registered_processes() {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         reset_registry();
 
-        let shared = register_game_child(spawn_helper()).expect("регистрация");
+        let first = Arc::new(StdMutex::new(spawn_helper()));
+        let second = Arc::new(StdMutex::new(spawn_helper()));
+        {
+            let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+            registry.push(super::RegisteredGame {
+                child: Arc::clone(&first),
+                username: "Steve".to_string(),
+            });
+            registry.push(super::RegisteredGame {
+                child: Arc::clone(&second),
+                username: "Alex".to_string(),
+            });
+        }
 
         kill_game_process().expect("принудительное завершение должно срабатывать");
 
-        let mut exited = false;
-        for _ in 0..50 {
-            let status = lock_child(&shared)
-                .try_wait()
-                .expect("опрос статуса процесса");
-            if status.is_some() {
-                exited = true;
-                break;
+        for child in [&first, &second] {
+            let mut exited = false;
+            for _ in 0..50 {
+                let status = lock_child(child)
+                    .try_wait()
+                    .expect("опрос статуса процесса");
+                if status.is_some() {
+                    exited = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
-            std::thread::sleep(Duration::from_millis(100));
+            assert!(exited, "оба процесса должны завершиться после kill");
         }
-        assert!(exited, "процесс должен завершиться после kill");
-        assert!(game_running(), "реестр очищает wait-поток, а не сам kill");
+        assert!(game_running(), "реестр очищают wait-потоки, а не сам kill");
 
-        remove_game_child(&shared);
+        reset_registry();
     }
 
     #[cfg(unix)]
@@ -1126,11 +1219,12 @@ mod kill_process_tests {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         reset_registry();
 
-        let shared = register_game_child(
+        let shared = register_game_session(
             std::process::Command::new("sleep")
                 .arg("0")
                 .spawn()
                 .expect("запуск короткоживущего процесса"),
+            "Steve",
         )
         .expect("регистрация");
 
@@ -1143,6 +1237,6 @@ mod kill_process_tests {
             "kill по уже завершившейся игре не должен давать ошибку и не должен бить по чужому процессу",
         );
 
-        remove_game_child(&shared);
+        remove_game_session(&shared);
     }
 }

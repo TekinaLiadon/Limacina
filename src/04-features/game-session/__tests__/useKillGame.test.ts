@@ -16,7 +16,7 @@ describe('useKillGame', () => {
   })
 
   it('kills the running game without a toast', async () => {
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     vi.mocked(killGameProcess).mockResolvedValue(undefined)
     const { killGame, isKilling, isGameRunning } = useKillGame()
 
@@ -34,7 +34,7 @@ describe('useKillGame', () => {
 
     expect(isGameRunning.value).toBe(false)
 
-    useLaunchStore().gameUsername = 'bob'
+    useLaunchStore().gameUsernames = ['bob']
 
     expect(isGameRunning.value).toBe(true)
   })
@@ -51,7 +51,7 @@ describe('useKillGame', () => {
   })
 
   it('surfaces the kill failure as a toast with the command message', async () => {
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     vi.mocked(killGameProcess).mockRejectedValue(new Error('отказано в доступе'))
     const { killGame, isKilling } = useKillGame()
 
@@ -65,7 +65,7 @@ describe('useKillGame', () => {
   })
 
   it('ignores a repeated click while a kill is in flight', async () => {
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     let resolveKill: () => void = () => {}
     vi.mocked(killGameProcess).mockImplementationOnce(
       () =>

@@ -11,7 +11,7 @@ export function useKillGame(): {
   const notificationStore = useNotificationStore()
   const isKilling = ref<boolean>(false)
 
-  const isGameRunning = computed((): boolean => launchStore.gameUsername !== null)
+  const isGameRunning = computed((): boolean => launchStore.gameUsernames.length > 0)
 
   const killGame = async (): Promise<void> => {
     if (isKilling.value) return

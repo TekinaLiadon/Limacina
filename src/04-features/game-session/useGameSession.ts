@@ -1,4 +1,4 @@
-import { useLaunchStore } from '@/05-entities'
+import { useLaunchStore, type GameExitInfo } from '@/05-entities'
 import { getGameState, listenGameExit, listenGameStarted } from '@/06-shared/api'
 import { createSingletonListeners, reportError } from '@/06-shared'
 
@@ -14,11 +14,11 @@ const runSessionSync = async (): Promise<void> => {
     await gameSessionListeners.start(async (track): Promise<void> => {
       track(await listenGameStarted((username: string): void => {
         eventBeforeHydrate = true
-        launchStore.gameUsername = username
+        launchStore.addGameSession(username)
       }))
-      track(await listenGameExit((): void => {
+      track(await listenGameExit((info: GameExitInfo): void => {
         eventBeforeHydrate = true
-        launchStore.gameUsername = null
+        launchStore.removeGameSession(info.username)
       }))
     })
   } catch (e: unknown) {
@@ -28,8 +28,8 @@ const runSessionSync = async (): Promise<void> => {
   }
 
   try {
-    const username = await getGameState()
-    if (!eventBeforeHydrate) launchStore.gameUsername = username
+    const usernames = await getGameState()
+    if (!eventBeforeHydrate) launchStore.gameUsernames = usernames
   } catch (e: unknown) {
     reportError('Не удалось получить состояние игровой сессии', e)
   }

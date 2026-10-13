@@ -40,7 +40,7 @@ export function useProjectSwitch() {
   const isSwitching = computed((): boolean => isProjectSwitching.value)
 
   const switchBlockReason = (): string | null => {
-    if (launchStore.gameUsername) return 'Нельзя переключить проект, пока запущена игра'
+    if (launchStore.gameUsernames.length > 0) return 'Нельзя переключить проект, пока запущена игра'
     if (launchStore.isLaunching) return 'Дождитесь завершения запуска игры'
     if (accountsStore.authLoading || accountsStore.isLoading) return 'Дождитесь завершения авторизации'
     return null

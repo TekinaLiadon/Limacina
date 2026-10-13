@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useLaunchStore } from '@/05-entities'
+import { useLaunchStore, type GameExitInfo } from '@/05-entities'
 
 const api = vi.hoisted(() => ({
   getGameState: vi.fn(),
@@ -21,7 +21,7 @@ interface GameSessionApi {
 
 describe('useGameSession', () => {
   let emitStarted: ((username: string) => void) | undefined
-  let emitExit: (() => void) | undefined
+  let emitExit: ((info: GameExitInfo) => void) | undefined
 
   beforeEach(() => {
     vi.resetModules()
@@ -36,7 +36,7 @@ describe('useGameSession', () => {
       emitStarted = handler
       return () => {}
     })
-    api.listenGameExit.mockImplementation(async (handler: () => void) => {
+    api.listenGameExit.mockImplementation(async (handler: (info: GameExitInfo) => void) => {
       emitExit = handler
       return () => {}
     })
@@ -51,20 +51,71 @@ describe('useGameSession', () => {
     return useGameSession()
   }
 
-  it('hydrates the username from the game state command', async () => {
-    api.getGameState.mockResolvedValue('alice')
+  const exitInfo = (username: string): GameExitInfo => ({
+    success: true,
+    code: 0,
+    reason: null,
+    username,
+  })
+
+  it('hydrates the running usernames from the game state command', async () => {
+    api.getGameState.mockResolvedValue(['alice', 'bob'])
     const session = await loadSession()
 
     await session.startGameSessionSync()
 
-    expect(useLaunchStore().gameUsername).toBe('alice')
+    expect(useLaunchStore().gameUsernames).toEqual(['alice', 'bob'])
+  })
+
+  it('adds the started session and keeps the running ones', async () => {
+    api.getGameState.mockResolvedValue(['alice'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    emitStarted?.('bob')
+
+    expect(useLaunchStore().gameUsernames).toEqual(['alice', 'bob'])
+  })
+
+  it('does not duplicate a repeated started event for the same account', async () => {
+    api.getGameState.mockResolvedValue(['alice'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    emitStarted?.('alice')
+
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
+  })
+
+  it('removes only the exited account from the running set', async () => {
+    api.getGameState.mockResolvedValue(['alice', 'bob'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    emitExit?.(exitInfo('alice'))
+
+    expect(useLaunchStore().gameUsernames).toEqual(['bob'])
+
+    emitExit?.(exitInfo('bob'))
+
+    expect(useLaunchStore().gameUsernames).toEqual([])
+  })
+
+  it('ignores an exit event for an unknown account', async () => {
+    api.getGameState.mockResolvedValue(['alice'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    emitExit?.(exitInfo('carol'))
+
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
   })
 
   it('keeps the started event over a slow hydration', async () => {
-    let resolveState: (username: string | null) => void = () => {}
+    let resolveState: (usernames: string[]) => void = () => {}
     api.getGameState.mockImplementationOnce(
       () =>
-        new Promise<string | null>((resolve) => {
+        new Promise<string[]>((resolve) => {
           resolveState = resolve
         }),
     )
@@ -73,18 +124,18 @@ describe('useGameSession', () => {
     await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(1))
 
     emitStarted?.('alice')
-    resolveState('bob')
+    resolveState(['bob'])
     await pending
 
-    expect(useLaunchStore().gameUsername).toBe('alice')
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
   })
 
   it('keeps the exit event over a slow hydration', async () => {
-    useLaunchStore().gameUsername = 'alice'
-    let resolveState: (username: string | null) => void = () => {}
+    useLaunchStore().gameUsernames = ['alice', 'bob']
+    let resolveState: (usernames: string[]) => void = () => {}
     api.getGameState.mockImplementationOnce(
       () =>
-        new Promise<string | null>((resolve) => {
+        new Promise<string[]>((resolve) => {
           resolveState = resolve
         }),
     )
@@ -92,21 +143,11 @@ describe('useGameSession', () => {
     const pending = session.startGameSessionSync()
     await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(1))
 
-    emitExit?.()
-    resolveState('alice')
+    emitExit?.(exitInfo('alice'))
+    resolveState(['bob'])
     await pending
 
-    expect(useLaunchStore().gameUsername).toBeNull()
-  })
-
-  it('clears the username on the exit event after hydration', async () => {
-    api.getGameState.mockResolvedValue('alice')
-    const session = await loadSession()
-    await session.startGameSessionSync()
-
-    emitExit?.()
-
-    expect(useLaunchStore().gameUsername).toBeNull()
+    expect(useLaunchStore().gameUsernames).toEqual(['bob'])
   })
 
   it('reports a hydration failure without touching the state', async () => {
@@ -115,7 +156,7 @@ describe('useGameSession', () => {
 
     await session.startGameSessionSync()
 
-    expect(useLaunchStore().gameUsername).toBeNull()
+    expect(useLaunchStore().gameUsernames).toEqual([])
     expect(console.error).toHaveBeenCalledWith(
       'Не удалось получить состояние игровой сессии',
       expect.any(Error),
@@ -139,7 +180,7 @@ describe('useGameSession', () => {
   })
 
   it('starts the sync only once', async () => {
-    api.getGameState.mockResolvedValue(null)
+    api.getGameState.mockResolvedValue([])
     const session = await loadSession()
 
     await session.startGameSessionSync()
@@ -150,10 +191,10 @@ describe('useGameSession', () => {
   })
 
   it('shares one in-flight sync across callers', async () => {
-    let resolveState: (username: string | null) => void = () => {}
+    let resolveState: (usernames: string[]) => void = () => {}
     api.getGameState.mockImplementationOnce(
       () =>
-        new Promise<string | null>((resolve) => {
+        new Promise<string[]>((resolve) => {
           resolveState = resolve
         }),
     )
@@ -164,10 +205,10 @@ describe('useGameSession', () => {
     expect(first).toBe(second)
 
     await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(1))
-    resolveState('alice')
+    resolveState(['alice'])
     await Promise.all([first, second])
 
-    expect(useLaunchStore().gameUsername).toBe('alice')
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
     expect(api.getGameState).toHaveBeenCalledTimes(1)
   })
 })

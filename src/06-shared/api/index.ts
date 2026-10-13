@@ -308,8 +308,8 @@ export async function getSessionInfo(): Promise<SessionInfo | null> {
   return invoke<SessionInfo | null>('get_session_info')
 }
 
-export async function getGameState(): Promise<string | null> {
-  return invoke<string | null>('get_game_state')
+export async function getGameState(): Promise<string[]> {
+  return invoke<string[]>('get_game_state')
 }
 
 export async function getLaunchState(): Promise<boolean> {

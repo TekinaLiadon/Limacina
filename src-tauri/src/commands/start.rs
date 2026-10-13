@@ -27,7 +27,15 @@ pub async fn start_minecraft(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
     let _guard = crate::state::launch_state::try_acquire_launch_step()?;
-    crate::minecraft::process::ensure_no_live_game()?;
+    let username = {
+        let state = state.lock().await;
+        let session = state
+            .session
+            .as_ref()
+            .ok_or_else(|| anyhow!(LauncherError::NoSession))?;
+        session.username.clone()
+    };
+    crate::minecraft::process::ensure_session_free(&username)?;
     start_minecraft_inner(app, state).await
 }
 
@@ -152,16 +160,21 @@ fn spawn_game_step(
     authlib_server_url: Option<&str>,
     ctx: &LaunchContext,
 ) -> anyhow::Result<GameProcess> {
-    crate::tray::set_game_state(app, true, &ctx.username);
+    crate::tray::add_game_session(app, &ctx.username);
     let spawn_result = LauncherError::classify(
-        spawn_game_process(app.clone(), game_config, authlib_server_url)
-            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
+        spawn_game_process(
+            app.clone(),
+            game_config,
+            authlib_server_url,
+            ctx.username.clone(),
+        )
+        .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
         LauncherError::GameProcess,
     );
     match spawn_result {
         Ok(process) => Ok(process),
         Err(e) => {
-            crate::tray::set_game_state(app, false, "");
+            crate::tray::remove_game_session(app, &ctx.username);
             Err(e)
         }
     }
@@ -351,8 +364,8 @@ pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
 }
 
 #[tauri::command]
-pub async fn get_game_state() -> CommandResult<Option<String>> {
-    Ok(crate::tray::game_username())
+pub async fn get_game_state() -> CommandResult<Vec<String>> {
+    Ok(crate::minecraft::process::game_usernames())
 }
 
 #[tauri::command]

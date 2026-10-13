@@ -69,6 +69,7 @@ export interface SessionInfo {
 export interface ConsoleLog {
   line: string
   isError: boolean
+  session: string | null
 }
 
 export interface ProjectConfig {
@@ -98,6 +99,7 @@ export interface GameExitInfo {
   success: boolean
   code: number | null
   reason: string | null
+  username: string
 }
 
 export interface IntegrityReport {

@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
   isInterrupted?: boolean
   progress: number
   steps: StepProgressItem[]
-  sessionUsername?: string | null
+  sessionUsernames: string[]
   sessionViewDismissed?: boolean
   serverOffline?: boolean
   loginError?: string
@@ -28,7 +28,6 @@ const props = withDefaults(defineProps<{
   showAuth: boolean
   showBack: boolean
 }>(), {
-  sessionUsername: null,
   sessionViewDismissed: false,
   serverOffline: false,
   loginError: '',
@@ -68,8 +67,8 @@ const displayName = computed((): string => props.hasSession ? props.username : '
     </div>
 
     <LaunchSessionScene
-      v-else-if="sessionUsername && !sessionViewDismissed && !isLaunching"
-      :session-username="sessionUsername"
+      v-else-if="sessionUsernames.length > 0 && !sessionViewDismissed && !isLaunching"
+      :session-usernames="sessionUsernames"
       @back="emit('back-to-accounts')"
     />
 
@@ -94,7 +93,7 @@ const displayName = computed((): string => props.hasSession ? props.username : '
           :steps="steps"
           :is-interrupted="isInterrupted ?? false"
           :is-cancel-pending="isCancelPending"
-          :is-game-started="sessionUsername !== null"
+          :is-game-started="sessionUsernames.length > 0"
           @cancel="emit('cancel')"
         />
         <LaunchActionsScene
