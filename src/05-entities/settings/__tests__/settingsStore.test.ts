@@ -5,7 +5,6 @@ import { buildThemeId, THEME_FAMILIES } from '../themes'
 
 const THEME_KEY = 'limacina-theme'
 const ANIMATIONS_KEY = 'limacina-animations'
-const LEGACY_KEY = 'limacina-settings'
 
 describe('useSettingsStore', () => {
   beforeEach(() => {
@@ -21,12 +20,6 @@ describe('useSettingsStore', () => {
     expect(store.isDark).toBe(true)
     expect(store.themeMode).toBe('dark')
     expect(store.themeFamily).toBe('default')
-  })
-
-  it('removes the legacy storage key on init', () => {
-    localStorage.setItem(LEGACY_KEY, '{}')
-    useSettingsStore()
-    expect(localStorage.getItem(LEGACY_KEY)).toBeNull()
   })
 
   it('restores a cached theme on init', () => {
@@ -113,5 +106,35 @@ describe('useSettingsStore', () => {
     expect(store.animationsEnabled).toBe(false)
     store.setAnimationsEnabled(true)
     expect(document.documentElement.dataset.animations).toBe('on')
+  })
+
+  it('marks and clears the hydration marker through actions', () => {
+    const store = useSettingsStore()
+    store.setTheme('default-dark')
+    store.markThemeHydration('lime-light')
+    expect(store.lastHydratedTheme).toBe('lime-light')
+
+    store.clearHydratedTheme()
+    expect(store.lastHydratedTheme).toBeNull()
+  })
+
+  it('skips the hydration marker when it matches the current theme', () => {
+    const store = useSettingsStore()
+    store.markThemeHydration('default-dark')
+    expect(store.lastHydratedTheme).toBeNull()
+  })
+
+  it('clears the hydration marker on family and mode changes', () => {
+    const store = useSettingsStore()
+    store.setTheme('default-dark')
+    store.markThemeHydration('lime-light')
+    expect(store.lastHydratedTheme).toBe('lime-light')
+
+    store.setThemeFamily('monologue')
+    expect(store.lastHydratedTheme).toBeNull()
+
+    store.markThemeHydration('monologue-light')
+    store.setThemeMode('dark')
+    expect(store.lastHydratedTheme).toBeNull()
   })
 })

@@ -443,6 +443,50 @@ describe('useCpmSettings', () => {
     expect(savePlayerModel).not.toHaveBeenCalled()
   })
 
+  it('deletes the orphaned uploaded model when savePlayerModel fails', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockRejectedValue(new Error('denied'))
+    vi.mocked(deleteModel).mockResolvedValue(undefined)
+    vi.mocked(listModels).mockResolvedValue([])
+    exporter.cpmProjectToLinkBase64.mockResolvedValue('base64-link')
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(savePlayerModel).toHaveBeenCalledOnce()
+    expect(deleteModel).toHaveBeenCalledWith(9)
+    expect(cpm.errorMessage.value).toBe('denied')
+    expect(useNotificationStore().message).not.toBe('Модель добавлена в игру')
+    expect(cpm.isUploading.value).toBe(false)
+  })
+
+  it('keeps the orphaned model deletable when the rollback delete fails too', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockRejectedValue(new Error('denied'))
+    vi.mocked(deleteModel).mockRejectedValue(new Error('also down'))
+    exporter.cpmProjectToLinkBase64.mockResolvedValue('base64-link')
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(cpm.errorMessage.value).toBe('denied')
+    expect(cpm.isUploading.value).toBe(false)
+  })
+
   it('skips the upload without an opened model', async () => {
     vi.mocked(uploadModel).mockResolvedValue(makeModel(1))
     const cpm = setupCpm()

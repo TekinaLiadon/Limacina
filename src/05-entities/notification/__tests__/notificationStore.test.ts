@@ -51,13 +51,17 @@ describe('useNotificationStore', () => {
     expect(store.visible).toBe(false)
   })
 
-  it('clears the timer id after the notification expires', () => {
+  it('keeps the timer and popup resolver out of the reactive store state', async () => {
     const store = useNotificationStore()
     store.show('Готово')
-    expect(store.timer).not.toBeNull()
-    vi.advanceTimersByTime(3000)
-    expect(store.visible).toBe(false)
-    expect(store.timer).toBeNull()
+    const pending = store.confirm('Удалить?')
+
+    const exposed = store as unknown as Record<string, unknown>
+    expect(exposed.timer).toBeUndefined()
+    expect(exposed.popupResolve).toBeUndefined()
+
+    store.resolvePopup(false)
+    await expect(pending).resolves.toBe(false)
   })
 
   it('confirm shows the popup and resolves with the answer', async () => {
@@ -69,7 +73,6 @@ describe('useNotificationStore', () => {
     await expect(promise).resolves.toBe(true)
     expect(store.popupVisible).toBe(false)
     expect(store.popupMessage).toBe('')
-    expect(store.popupResolve).toBeNull()
   })
 
   it('resolves the previous popup as false when a new confirm arrives', async () => {
@@ -86,7 +89,6 @@ describe('useNotificationStore', () => {
     const store = useNotificationStore()
     expect(() => store.resolvePopup(true)).not.toThrow()
     expect(store.popupVisible).toBe(false)
-    expect(store.popupResolve).toBeNull()
   })
 
   it('runConfirmed performs the action after confirmation', async () => {

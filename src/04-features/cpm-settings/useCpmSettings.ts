@@ -1,6 +1,6 @@
 import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, reportError } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3, type UserContentItem } from '@/05-entities'
 import {
   getErrorMessage,
   getPlayerModelsLimit,
@@ -157,26 +157,37 @@ export function useCpmSettings() {
     notification.runConfirmed('Удалить модель из списка загруженных?', (): Promise<void> =>
       content.handleDelete(id))
 
+  const rollbackUploadedModel = async (item: UserContentItem): Promise<void> => {
+    if (item.id === null || item.id === undefined) return
+    try {
+      await content.handleDelete(item.id)
+    } catch (e: unknown) {
+      reportError('Не удалось удалить модель после сбоя сохранения', e)
+    }
+  }
+
   const handleUploadModel = async (): Promise<void> => {
     if (!cpmFileBytes.value || !cpmData.value) return
     if (isUploading.value) return
 
     isUploading.value = true
     content.errorMessage.value = ''
+    let uploaded: UserContentItem | null = null
     try {
       const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value)
-      const item = await content.handleUpload(base64)
-      if (!item) return
+      uploaded = await content.handleUpload(base64)
+      if (uploaded === null) return
 
       await savePlayerModel({
         name: modelName.value,
-        url: item.url,
-        modelId: item.id ?? null,
+        url: uploaded.url,
+        modelId: uploaded.id ?? null,
         slim: cpmData.value.config.skinType === 'slim',
         data: null,
       })
       notification.show('Модель добавлена в игру')
     } catch (e: unknown) {
+      if (uploaded !== null) await rollbackUploadedModel(uploaded)
       content.errorMessage.value = getErrorMessage(e)
     } finally {
       isUploading.value = false

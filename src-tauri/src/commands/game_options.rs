@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::log_info;
-use crate::state::config::load_config_or_default;
+use crate::state::config::{ensure_project_selected, load_config_or_default};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::tauri_err::CommandResult;
 
@@ -466,9 +466,7 @@ pub async fn get_game_options(project_name: String) -> CommandResult<GameOptions
 }
 
 async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
-    if project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::ProjectNotSelected);
-    }
+    ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
     let content = read_to_string_opt(&path).await?;
     let file_exists = content.is_some();
@@ -507,9 +505,7 @@ async fn write_options_file(path: &PathBuf, content: &str) -> Result<()> {
 }
 
 async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> Result<()> {
-    if project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::ProjectNotSelected);
-    }
+    ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
     let content = read_to_string_opt(&path).await?;
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);

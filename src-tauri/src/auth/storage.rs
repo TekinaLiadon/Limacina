@@ -27,7 +27,6 @@ fn fallback_store_lock() -> &'static Mutex<()> {
 #[serde(rename_all = "snake_case")]
 enum EntryScheme {
     #[default]
-    LegacyFnv,
     XorSecret,
     Plain,
 }
@@ -35,7 +34,6 @@ enum EntryScheme {
 #[derive(Serialize, Deserialize)]
 struct EncryptedEntry {
     username: String,
-    #[serde(alias = "ciphertext")]
     obfuscated: String,
     #[serde(default)]
     scheme: EntryScheme,
@@ -66,19 +64,6 @@ fn read_fallback_store(path: &std::path::Path, content: &str) -> CredentialStore
             CredentialStore::default()
         }
     }
-}
-
-fn fnv1a(data: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in data {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
-fn legacy_entry_key(key_name: &str) -> [u8; 8] {
-    fnv1a(key_name.as_bytes()).to_le_bytes()
 }
 
 fn secret_entry_key(secret: &[u8], key_name: &str) -> [u8; 8] {
@@ -188,11 +173,7 @@ fn encrypt_entry_value(secret: Option<&[u8]>, key_name: &str, value: &str) -> En
     }
 }
 
-fn decrypt_entry_value(
-    entry: &EncryptedEntry,
-    key_name: &str,
-    secret: Option<&[u8]>,
-) -> Option<String> {
+fn decrypt_entry_value(entry: &EncryptedEntry, secret: Option<&[u8]>) -> Option<String> {
     match entry.scheme {
         EntryScheme::Plain => Some(entry.obfuscated.clone()),
         EntryScheme::XorSecret => {
@@ -201,47 +182,7 @@ fn decrypt_entry_value(
             let decrypted = xor_crypt(&ciphertext, &secret_entry_key(secret, &entry.username));
             String::from_utf8(decrypted).ok()
         }
-        EntryScheme::LegacyFnv => {
-            let ciphertext = from_hex(&entry.obfuscated).ok()?;
-            let decrypted = xor_crypt(&ciphertext, &legacy_entry_key(key_name));
-            String::from_utf8(decrypted).ok()
-        }
     }
-}
-
-fn migrate_legacy_entries(store: &mut CredentialStore) {
-    if !store
-        .entries
-        .iter()
-        .any(|entry| entry.scheme == EntryScheme::LegacyFnv)
-    {
-        return;
-    }
-    let secret = obfuscation_secret();
-    let mut migrated = Vec::with_capacity(store.entries.len());
-    let mut kept_undecryptable = 0u32;
-    for entry in store.entries.drain(..) {
-        if entry.scheme != EntryScheme::LegacyFnv {
-            migrated.push(entry);
-            continue;
-        }
-        let key_name = entry.username.clone();
-        match decrypt_entry_value(&entry, &key_name, secret.as_deref()) {
-            Some(value) => {
-                migrated.push(encrypt_entry_value(secret.as_deref(), &key_name, &value));
-            }
-            None => {
-                kept_undecryptable += 1;
-                migrated.push(entry);
-            }
-        }
-    }
-    if kept_undecryptable > 0 {
-        log_info!(
-            "Fallback-хранилище: {kept_undecryptable} legacy-записей не мигрированы и оставлены как есть"
-        );
-    }
-    store.entries = migrated;
 }
 
 fn mutate_fallback_store(
@@ -268,7 +209,6 @@ fn mutate_fallback_store(
         CredentialStore::default()
     };
 
-    migrate_legacy_entries(&mut store);
     mutate(&mut store);
 
     let content = serde_json::to_string_pretty(&store)
@@ -301,14 +241,10 @@ pub(crate) fn save_fallback(
     if !FALLBACK_ALLOWED_SUFFIXES.contains(&key_suffix) {
         anyhow::bail!("«{key_suffix}» не сохраняется в fallback-хранилище");
     }
-    let key_name = fallback_entry_key(project, username, key_suffix);
-    let legacy_name = legacy_fallback_entry_key(username, key_suffix);
+    let key_name = keyring_key(project, username, key_suffix);
     let entry = encrypt_entry_value(obfuscation_secret().as_deref(), &key_name, value);
     mutate_fallback_store(true, |store| {
-        store.entries.retain(|e| !e.username.ends_with("_password"));
-        store
-            .entries
-            .retain(|e| e.username != key_name && e.username != legacy_name);
+        store.entries.retain(|e| e.username != key_name);
         store.entries.insert(0, entry);
     })
 }
@@ -323,13 +259,11 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
         fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
     ensure_private_mode(&path);
     let store = read_fallback_store(&path, &content);
-    let key_name = fallback_entry_key(project, username, key_suffix);
-    let legacy_name = legacy_fallback_entry_key(username, key_suffix);
+    let key_name = keyring_key(project, username, key_suffix);
     let entry = store
         .entries
         .iter()
         .find(|e| e.username == key_name)
-        .or_else(|| store.entries.iter().find(|e| e.username == legacy_name))
         .context("Credentials не найдены в хранилище")?;
 
     let secret = obfuscation_secret();
@@ -339,7 +273,7 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
         );
     }
 
-    match decrypt_entry_value(entry, &key_name, secret.as_deref()) {
+    match decrypt_entry_value(entry, secret.as_deref()) {
         Some(value) => Ok(value),
         None => {
             log_info!(
@@ -352,21 +286,10 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
 }
 
 pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
-    let key_name = fallback_entry_key(project, username, key_suffix);
-    let legacy_name = legacy_fallback_entry_key(username, key_suffix);
+    let key_name = keyring_key(project, username, key_suffix);
     mutate_fallback_store(false, |store| {
-        store
-            .entries
-            .retain(|e| e.username != key_name && e.username != legacy_name);
+        store.entries.retain(|e| e.username != key_name);
     })
-}
-
-fn fallback_entry_key(project: &str, username: &str, key_suffix: &str) -> String {
-    keyring_key(project, username, key_suffix)
-}
-
-fn legacy_fallback_entry_key(username: &str, key_suffix: &str) -> String {
-    format!("{}_{}", username, key_suffix)
 }
 
 fn keyring_key(project: &str, username: &str, key_suffix: &str) -> String {
@@ -536,8 +459,8 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::{
-        delete_fallback, legacy_entry_key, load_fallback, save_fallback, to_hex, xor_crypt,
-        EntryScheme, SecretUnavailableGuard,
+        delete_fallback, load_fallback, save_fallback, to_hex, xor_crypt, EntryScheme,
+        SecretUnavailableGuard,
     };
     use crate::test_support::LauncherDirGuard;
     use crate::utils::download_file::write_atomic_sync;
@@ -552,18 +475,6 @@ mod tests {
 
     fn write_store(dir: &LauncherDirGuard, content: &str) {
         write_atomic_sync(&store_path(dir), content.as_bytes()).unwrap();
-    }
-
-    fn legacy_store(entries: &[(&str, &str)]) -> String {
-        let body = entries
-            .iter()
-            .map(|(key_name, value)| {
-                let obfuscated = to_hex(&xor_crypt(value.as_bytes(), &legacy_entry_key(key_name)));
-                format!("{{\"username\":\"{key_name}\",\"obfuscated\":\"{obfuscated}\"}}")
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("{{\"entries\":[{body}]}}")
     }
 
     #[cfg(unix)]
@@ -709,26 +620,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fallback_reads_legacy_entry_without_project_in_key() {
-        let dir = LauncherDirGuard::acquire("credentials_legacy").await;
-
-        let obfuscated = to_hex(&xor_crypt(
-            b"legacy-token",
-            &legacy_entry_key("Cordelia_Steve_refresh_token"),
-        ));
-        let store = format!(
-            "{{\"entries\":[{{\"username\":\"Steve_refresh_token\",\"obfuscated\":\"{}\"}}]}}",
-            obfuscated
-        );
-        write_store(&dir, &store);
-
-        assert_eq!(
-            load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
-            "legacy-token"
-        );
-    }
-
-    #[tokio::test]
     async fn corrupt_store_backed_up_on_load() {
         let dir = LauncherDirGuard::acquire("credentials_corrupt_load").await;
         write_store(&dir, "{ broken");
@@ -743,6 +634,29 @@ mod tests {
         let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
             .expect("битое хранилище должно быть забэкаплено при чтении");
         assert!(backup.contains("broken"));
+    }
+
+    #[tokio::test]
+    async fn store_with_unknown_scheme_is_reset_with_backup() {
+        let dir = LauncherDirGuard::acquire("credentials_unknown_scheme").await;
+        write_store(
+            &dir,
+            "{\"entries\":[{\"username\":\"Cordelia_Steve_refresh_token\",\"obfuscated\":\"ab\",\"scheme\":\"legacy_fnv\"}]}",
+        );
+
+        let error = load_fallback("Cordelia", "Steve", "refresh_token")
+            .expect_err("запись с неизвестной схемой не должна читаться");
+
+        assert!(
+            error.to_string().contains("Credentials не найдены"),
+            "неизвестная схема — это отсутствие записей: {error}"
+        );
+        let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
+            .expect("хранилище с неизвестной схемой должно быть забэкаплено");
+        assert!(
+            backup.contains("legacy_fnv"),
+            "исходные данные должны сохраняться в бэкапе: {backup}"
+        );
     }
 
     #[tokio::test]
@@ -776,22 +690,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn legacy_entry_key_matches_fixed_fnv1a() {
-        assert_eq!(
-            legacy_entry_key("Cordelia_Steve_refresh_token"),
-            [144, 176, 89, 172, 167, 236, 201, 204]
-        );
-    }
-
     #[tokio::test]
     async fn load_fallback_resets_entry_encrypted_with_foreign_key() {
         let dir = LauncherDirGuard::acquire("credentials_foreign_key").await;
 
         let obfuscated = to_hex(&xor_crypt(b"refresh-token-old-toolchain", &[0xA5; 8]));
         let store = format!(
-            "{{\"entries\":[{{\"username\":\"Steve_refresh_token\",\"obfuscated\":\"{}\"}}]}}",
-            obfuscated
+            "{{\"entries\":[{{\"username\":\"Cordelia_Steve_refresh_token\",\"obfuscated\":\"{obfuscated}\",\"scheme\":\"xor_secret\"}}]}}"
         );
         write_store(&dir, &store);
 
@@ -869,38 +774,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_entries_are_reencrypted_on_next_save() {
-        let dir = LauncherDirGuard::acquire("credentials_migrate").await;
-        write_store(
-            &dir,
-            &legacy_store(&[
-                ("Cordelia_Steve_refresh_token", "legacy-token"),
-                ("Cordelia_Alex_refresh_token", "legacy-token-alex"),
-            ]),
-        );
-
-        save_fallback("Cordelia", "Newbie", "refresh_token", "fresh-token")
-            .expect("сохранение новой записи запускает миграцию");
-
-        let stored = read_store(&dir);
-        assert!(
-            !stored.contains("legacy-token"),
-            "мигрированные записи не должны оставаться в legacy-схеме: {stored}"
-        );
-        assert!(stored.contains("\"scheme\": \"xor_secret\""));
-
-        assert_eq!(
-            load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
-            "legacy-token",
-            "миграция не должна терять существующие входы"
-        );
-        assert_eq!(
-            load_fallback("Cordelia", "Alex", "refresh_token").unwrap(),
-            "legacy-token-alex"
-        );
-    }
-
-    #[tokio::test]
     async fn fallback_without_secret_stores_documented_plaintext() {
         let dir = LauncherDirGuard::acquire("credentials_plain").await;
         let _unavailable = SecretUnavailableGuard::acquire();
@@ -916,29 +789,6 @@ mod tests {
         assert_eq!(
             load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
             "plain-token"
-        );
-    }
-
-    #[tokio::test]
-    async fn fallback_without_secret_migrates_legacy_entries_to_plain() {
-        let dir = LauncherDirGuard::acquire("credentials_plain_migrate").await;
-        write_store(
-            &dir,
-            &legacy_store(&[("Cordelia_Steve_refresh_token", "legacy-token")]),
-        );
-        let _unavailable = SecretUnavailableGuard::acquire();
-
-        save_fallback("Cordelia", "Newbie", "refresh_token", "fresh").unwrap();
-
-        let stored = read_store(&dir);
-        assert!(stored.contains("\"scheme\": \"plain\""));
-        assert!(
-            stored.contains("legacy-token"),
-            "миграция в plaintext должна сохранять значение: {stored}"
-        );
-        assert_eq!(
-            load_fallback("Cordelia", "Steve", "refresh_token").unwrap(),
-            "legacy-token"
         );
     }
 
@@ -966,30 +816,13 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn xor_secret_key_is_not_derivable_from_store_data() {
-        let dir = LauncherDirGuard::acquire("credentials_not_derivable").await;
-
-        save_fallback("Cordelia", "Steve", "refresh_token", "jwt-secret").unwrap();
-
-        let stored = read_store(&dir);
-        let derivable = to_hex(&xor_crypt(
-            b"jwt-secret",
-            &legacy_entry_key("Cordelia_Steve_refresh_token"),
-        ));
-        assert!(
-            !stored.contains(&derivable),
-            "обфускация не должна сводиться к ключу, вычислимому из данных файла"
-        );
-    }
-
     #[test]
     fn entry_scheme_serializes_snake_case() {
         let json = serde_json::to_string(&EntryScheme::XorSecret).unwrap();
         assert_eq!(json, "\"xor_secret\"");
         assert_eq!(
-            serde_json::from_str::<EntryScheme>("\"legacy_fnv\"").unwrap(),
-            EntryScheme::LegacyFnv
+            serde_json::from_str::<EntryScheme>("\"plain\"").unwrap(),
+            EntryScheme::Plain
         );
         assert_eq!(
             serde_json::from_str::<super::EncryptedEntry>(
@@ -997,8 +830,8 @@ mod tests {
             )
             .unwrap()
             .scheme,
-            EntryScheme::LegacyFnv,
-            "отсутствие поля схемы должно читаться как legacy"
+            EntryScheme::XorSecret,
+            "отсутствие поля схемы должно читаться как xor_secret"
         );
     }
 }

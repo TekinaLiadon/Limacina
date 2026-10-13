@@ -1,6 +1,6 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
 import { readCpmProjectZip } from './cpmProjectZip'
-import { parseHexColor } from '@/06-shared'
+import { DEFAULT_RGB, parseHexColor } from '@/06-shared'
 import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
@@ -189,7 +189,7 @@ function flatten(config: CPMConfig): FlatModel {
         texSize: texSizeOf(child),
         u: child.u ?? 0,
         v: child.v ?? 0,
-        rgb: parseHexColor(child.color) ?? 0,
+        rgb: parseHexColor(child.color) ?? DEFAULT_RGB,
       })
       walk(child.children ?? [], id)
     }
@@ -302,7 +302,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
 
   const writeChildEffects = (child: CPMChild): void => {
     const id = elementIds.get(child) ?? 0
-    const rgb = parseHexColor(child.color) ?? 0
+    const rgb = parseHexColor(child.color) ?? DEFAULT_RGB
 
     if (child.glow) {
       renderEffect(RE.GLOW, (w) => {

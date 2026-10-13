@@ -84,6 +84,7 @@ export function useAuth() {
 
       try {
         const session = await getSessionInfo()
+        if (!scope.isCurrent()) return
         if (session) store.applySession(session)
       } catch (e: unknown) {
         reportError('Не удалось обновить сессию после входа', e)
@@ -97,7 +98,7 @@ export function useAuth() {
       if (!scope.isCurrent()) return
       reportAuthError(e)
     } finally {
-      isLoading.value = false
+      if (scope.isCurrent()) isLoading.value = false
     }
   }
 
@@ -135,7 +136,7 @@ export function useAuth() {
       if (!scope.isCurrent()) return
       reportAuthError(e)
     } finally {
-      isLoading.value = false
+      if (scope.isCurrent()) isLoading.value = false
     }
   }
 

@@ -251,8 +251,9 @@ describe('useAuth', () => {
   it('does not apply the login result when the project changed during the login', async () => {
     fillLoginForm()
     useAccountsStore().showAuthForm = true
-    vi.mocked(authLogin).mockImplementation(async () => {
+    vi.mocked(authLogin).mockImplementationOnce(async () => {
       useCoreStore().currentProject = 'other'
+      useAccountsStore().reset()
     })
     vi.mocked(getSessionInfo).mockResolvedValue({ uuid: 'u-1', username: 'user' })
     vi.mocked(authLogins).mockResolvedValue(['user'])
@@ -264,8 +265,53 @@ describe('useAuth', () => {
     expect(accountsStore.session).toBeNull()
     expect(accountsStore.isLoggedIn).toBe(false)
     expect(useNotificationStore().message).toBe('')
-    expect(useAccountsStore().showAuthForm).toBe(true)
     expect(auth.isLoading.value).toBe(false)
+    unmount()
+  })
+
+  it('does not resurrect the session or drop the shared loading flag when the project switches during the session read', async () => {
+    fillLoginForm()
+    const accounts = useAccountsStore()
+    accounts.showAuthForm = true
+    vi.mocked(authLogin).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockImplementationOnce(async () => {
+      useCoreStore().currentProject = 'other'
+      accounts.authLoading = true
+      return { uuid: 'u-1', username: 'user' }
+    })
+    vi.mocked(authLogins).mockResolvedValue(['user'])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(accounts.session).toBeNull()
+    expect(accounts.isLoggedIn).toBe(false)
+    expect(accounts.showAuthForm).toBe(true)
+    expect(useNotificationStore().message).toBe('')
+    expect(accounts.authLoading).toBe(true)
+    unmount()
+  })
+
+  it('keeps the shared loading flag when the registration completes after a project switch', async () => {
+    useCoreStore().currentProject = 'proj'
+    const accounts = useAccountsStore()
+    accounts.showAuthForm = true
+    accounts.registerFormData = {
+      login: 'user',
+      password: 'password',
+      confirmPassword: 'password',
+    }
+    vi.mocked(authRegister).mockImplementationOnce(async () => {
+      useCoreStore().currentProject = 'other'
+      accounts.authLoading = true
+    })
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleRegister()
+
+    expect(accounts.registerFormData.login).toBe('user')
+    expect(accounts.showAuthForm).toBe(true)
+    expect(accounts.authLoading).toBe(true)
     unmount()
   })
 

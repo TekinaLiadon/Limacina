@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { ref } from 'vue'
+import { PopupShell } from '@/06-shared'
 import { DEFAULT_VIEWER_MIN_ZOOM, provideViewerControls } from './viewerControls'
 import ViewerToolbar from './ViewerToolbar.vue'
 
@@ -22,33 +23,14 @@ const openFullscreen = (): void => {
 const closeFullscreen = (): void => {
   isFullscreen.value = false
 }
-
-const onKeydown = (event: KeyboardEvent): void => {
-  if (event.key === 'Escape') closeFullscreen()
-}
-
-watch(isFullscreen, (open: boolean) => {
-  if (open) window.addEventListener('keydown', onKeydown)
-  else window.removeEventListener('keydown', onKeydown)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-})
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="popup">
-      <div v-show="isFullscreen" class="viewer-3d-fullscreen" @click.self="closeFullscreen">
-        <div class="viewer-3d-fullscreen__content popup-panel">
-          <div ref="stageTarget" class="viewer-3d-fullscreen__stage" />
-          <ViewerToolbar fullscreen @toggle-fullscreen="closeFullscreen" />
-          <div ref="bottomTarget" class="viewer-3d-fullscreen__bottom" />
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PopupShell :visible="isFullscreen" persistent aria-label="Просмотр 3D-модели" panel-class="viewer-3d-fullscreen__content" @close="closeFullscreen">
+    <div ref="stageTarget" class="viewer-3d-fullscreen__stage" />
+    <ViewerToolbar fullscreen @toggle-fullscreen="closeFullscreen" />
+    <div ref="bottomTarget" class="viewer-3d-fullscreen__bottom" />
+  </PopupShell>
 
   <div class="viewer-3d">
     <div class="viewer-3d__stage">
@@ -64,8 +46,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss">
-@use '@/01-app/assets/mixins';
-
 .viewer-3d {
   display: flex;
   flex-direction: column;
@@ -76,26 +56,22 @@ onBeforeUnmount(() => {
   }
 }
 
-.viewer-3d-fullscreen {
-  @include mixins.popup-overlay;
+.viewer-3d-fullscreen__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: calc(100vw - var(--space-48));
+  max-width: var(--viewer-fullscreen-max-width);
+  height: calc(100vh - var(--space-48));
+}
 
-  &__content {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-    width: calc(100vw - var(--space-48));
-    max-width: var(--viewer-fullscreen-max-width);
-    height: calc(100vh - var(--space-48));
-  }
+.viewer-3d-fullscreen__stage {
+  flex: 1;
+  min-height: 0;
 
-  &__stage {
-    flex: 1;
-    min-height: 0;
-
-    .skin-viewer__canvas,
-    .cpm-viewer__canvas {
-      height: 100%;
-    }
+  .skin-viewer__canvas,
+  .cpm-viewer__canvas {
+    height: 100%;
   }
 }
 </style>

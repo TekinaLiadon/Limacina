@@ -154,11 +154,16 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
   return group
 }
 
+export interface SkinViewerOptions {
+  onTextureError?: (url: string) => void
+}
+
 export function useSkinViewer(
     container: Ref<HTMLDivElement | null>,
     skinUrl: Ref<string>,
     controls: ViewerControls,
     slim: Ref<boolean>,
+    options: SkinViewerOptions = {},
 ) {
   const { rebuildModel, loadModel, clearModel } = useViewerModel(
     container,
@@ -172,6 +177,9 @@ export function useSkinViewer(
         const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3())
         const maxDim = Math.max(size.x, size.y, size.z)
         api.setFitDistance((maxDim / 2) / Math.tan(fitFovRadians(perspectiveCamera) / 2) * 1.2)
+      },
+      onTextureError: (url: string): void => {
+        options.onTextureError?.(url)
       },
     },
   )

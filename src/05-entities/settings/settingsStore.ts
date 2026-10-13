@@ -5,10 +5,8 @@ import { buildThemeId, normalizeTheme, parseThemeId } from './themes'
 
 const THEME_CACHE_KEY = 'limacina-theme'
 const ANIMATIONS_CACHE_KEY = 'limacina-animations'
-const LEGACY_STORAGE_KEY = 'limacina-settings'
 
 function loadCachedTheme(): string {
-  localStorage.removeItem(LEGACY_STORAGE_KEY)
   return normalizeTheme(localStorage.getItem(THEME_CACHE_KEY))
 }
 
@@ -49,13 +47,17 @@ export const useSettingsStore = defineStore('settings', () => {
     localStorage.setItem(THEME_CACHE_KEY, theme.value)
   }
 
-  function setThemeFamily(family: string): void {
+  function clearHydratedTheme(): void {
     lastHydratedTheme.value = null
+  }
+
+  function setThemeFamily(family: string): void {
+    clearHydratedTheme()
     setTheme(buildThemeId(family, themeMode.value))
   }
 
   function setThemeMode(mode: ThemeMode): void {
-    lastHydratedTheme.value = null
+    clearHydratedTheme()
     setTheme(buildThemeId(themeFamily.value, mode))
   }
 
@@ -77,5 +79,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setThemeFamily,
     setThemeMode,
     markThemeHydration,
+    clearHydratedTheme,
   }
 })

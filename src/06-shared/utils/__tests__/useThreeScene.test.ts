@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { ref } from 'vue'
 import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
@@ -81,5 +81,70 @@ describe('useThreeScene', () => {
     expect((background as THREE.Color).getHex()).toBe(0xff8800)
 
     unmount()
+  })
+
+  it('re-resolves the CSS background when the data-theme attribute changes', async () => {
+    const computedStyle = {
+      getPropertyValue: (prop: string): string => (prop === '--viewer-bg' ? '#111111' : ''),
+    }
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(
+      (() => computedStyle) as unknown as typeof window.getComputedStyle,
+    )
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const { result, unmount } = withSetup(() => useThreeScene(container))
+
+    await Promise.resolve()
+    expect((result.scene.value?.background as THREE.Color | null)?.getHex()).toBe(0x111111)
+
+    computedStyle.getPropertyValue = (prop: string): string => (prop === '--viewer-bg' ? '#222222' : '')
+    document.documentElement.setAttribute('data-theme', 'lime-light')
+    await vi.waitFor(() => {
+      expect((result.scene.value?.background as THREE.Color | null)?.getHex()).toBe(0x222222)
+    })
+
+    document.documentElement.removeAttribute('data-theme')
+    unmount()
+  })
+
+  it('keeps the explicit background option across theme changes', async () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const { result, unmount } = withSetup(() => useThreeScene(container, { background: '#ff8800' }))
+
+    document.documentElement.setAttribute('data-theme', 'lime-light')
+    await vi.waitFor(() => {
+      expect((result.scene.value?.background as THREE.Color | null)?.getHex()).toBe(0xff8800)
+    })
+
+    document.documentElement.removeAttribute('data-theme')
+    unmount()
+  })
+
+  it('cancels the pending animation frame handle on unmount', () => {
+    const cancelFrame = vi.fn()
+    vi.stubGlobal('requestAnimationFrame', vi.fn((): number => 42))
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame)
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const { unmount } = withSetup(() => useThreeScene(container))
+
+    unmount()
+
+    expect(cancelFrame).toHaveBeenCalledWith(42)
+  })
+
+  it('releases the WebGL context before disposing the renderer', () => {
+    const container = ref<HTMLDivElement | null>(document.createElement('div'))
+    const { result, unmount } = withSetup(() => useThreeScene(container))
+    const renderer = result.renderer.value as unknown as { dispose: Mock; forceContextLoss: Mock }
+    const teardown: string[] = []
+    renderer.forceContextLoss.mockImplementation((): void => {
+      teardown.push('context-loss')
+    })
+    renderer.dispose.mockImplementation((): void => {
+      teardown.push('dispose')
+    })
+
+    unmount()
+
+    expect(teardown).toEqual(['context-loss', 'dispose'])
   })
 })

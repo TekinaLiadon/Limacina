@@ -66,7 +66,7 @@ export function useAppInit() {
       const isUpdateCheckEnabled = autoUpdate && coreStore.isServerBuild
 
       const loadedProject: string | null = coreStore.currentProject
-      let projectLoad: Promise<void> = loadedProject ? loadProject(loadedProject) : Promise.resolve()
+      let targetProject: string | null = loadedProject
 
       if (isUpdateCheckEnabled) {
         preloaderText.value = 'Проверка обновлений...'
@@ -88,10 +88,7 @@ export function useAppInit() {
           preloaderText.value = 'Обновление завершено, загрузка...'
           const freshData = await getAppInitData()
           applyInitData(freshData)
-          const activeProject = coreStore.currentProject
-          if (activeProject && activeProject !== loadedProject) {
-            projectLoad = loadProject(activeProject)
-          }
+          targetProject = coreStore.currentProject || targetProject
         }
       }
 
@@ -100,7 +97,7 @@ export function useAppInit() {
         return
       }
 
-      await projectLoad
+      if (targetProject) await loadProject(targetProject)
     } catch (e: unknown) {
       reportError('Ошибка инициализации', e)
       startupError.value = getErrorMessage(e)

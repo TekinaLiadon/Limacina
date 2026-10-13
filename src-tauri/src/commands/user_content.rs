@@ -1,5 +1,5 @@
 use crate::utils::errors::LauncherError;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
 use tauri::State;
@@ -9,7 +9,7 @@ use crate::commands::auth::restore_and_persist_session;
 use crate::commands::auth_offline;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
-use crate::state::config::load_config_or_default;
+use crate::state::config::{current_project_config, load_config_or_default};
 use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::allowlisted_read::AllowlistedRead;
 use crate::utils::download_file::{download_file, write_atomic};
@@ -186,23 +186,16 @@ async fn get_profile_skin_inner(
     state: &State<'_, Mutex<GlobalState>>,
     url: &str,
 ) -> Result<Vec<u8>> {
-    let (project_name, uuid, server_url) = {
-        let guard = state.lock().await;
-        let uuid = guard
-            .session
-            .as_ref()
-            .map(|s| s.uuid.clone())
-            .ok_or(LauncherError::NoSession)?;
-        (
-            guard.project_config.project_name.clone(),
-            uuid,
-            guard.project_config.resolved_server_url(),
-        )
-    };
-
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
-    }
+    let config = current_project_config(state.inner()).await?;
+    let server_url = config.resolved_server_url();
+    let project_name = config.project_name;
+    let uuid = state
+        .lock()
+        .await
+        .session
+        .as_ref()
+        .map(|s| s.uuid.clone())
+        .ok_or(LauncherError::NoSession)?;
 
     ensure_skin_origin(url, server_url.as_deref())?;
 
@@ -303,17 +296,6 @@ pub async fn delete_model(state: State<'_, Mutex<GlobalState>>, id: i64) -> Comm
     Ok(())
 }
 
-pub(crate) async fn current_project_name(state: &State<'_, Mutex<GlobalState>>) -> Result<String> {
-    let project_name = {
-        let guard = state.lock().await;
-        guard.project_config.project_name.clone()
-    };
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
-    }
-    Ok(project_name)
-}
-
 #[tauri::command]
 pub async fn save_offline_skin(
     state: State<'_, Mutex<GlobalState>>,
@@ -326,7 +308,7 @@ pub async fn save_offline_skin(
         ))
     })?;
 
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     let (png_path, meta_path) = offline_skin_paths(&project_name)?;
     let png_parent = png_path.parent().map(|p| p.to_path_buf());
 
@@ -366,7 +348,7 @@ pub async fn save_offline_skin(
 pub async fn get_offline_skin(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<tauri::ipc::Response> {
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     let (png_path, _) = offline_skin_paths(&project_name)?;
     let bytes = crate::utils::blocking(
         "Не удалось прочитать локальный скин",
@@ -387,7 +369,7 @@ pub async fn get_offline_skin(
 pub async fn get_offline_skin_model(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Option<String>> {
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     let (_, meta_path) = offline_skin_paths(&project_name)?;
     let model = crate::utils::blocking(
         "Не удалось прочитать модель локального скина",
@@ -403,7 +385,7 @@ pub async fn get_offline_skin_model(
 
 #[tauri::command]
 pub async fn delete_offline_skin(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     delete_offline_skin_files(&project_name).await?;
     Ok(())
 }

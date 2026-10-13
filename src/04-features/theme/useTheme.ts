@@ -47,19 +47,19 @@ export function useTheme(): {
       switchTimerId = null
     }
     if (settingsStore.lastHydratedTheme !== null) {
-      if (newTheme === settingsStore.lastHydratedTheme) {
-        settingsStore.lastHydratedTheme = null
+      const hydratedTheme = settingsStore.lastHydratedTheme
+      settingsStore.clearHydratedTheme()
+      if (newTheme === hydratedTheme) {
         applyTheme(newTheme)
         applyWindowBackground(newTheme)
         return
       }
-      settingsStore.lastHydratedTheme = null
     }
     if (!oldTheme || newTheme === oldTheme) return
 
     saveTheme(newTheme)
       .then((config: LauncherConfig): void => {
-        coreStore.launcherConfig = config
+        coreStore.applyLauncherConfig(config)
       })
       .catch((e: unknown) => {
         reportError('Ошибка сохранения темы', e)

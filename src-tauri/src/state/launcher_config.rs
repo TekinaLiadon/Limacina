@@ -125,17 +125,7 @@ impl LauncherConfig {
             ))
         })?;
         let launcher_name = crate::utils::env_info::get_launcher_name();
-        let primary = config_dir.join(&launcher_name).join("config.json");
-        if primary.exists() {
-            return Ok(primary);
-        }
-        let fallback = config_dir
-            .join(launcher_name.to_lowercase())
-            .join("config.json");
-        if fallback.exists() {
-            return Ok(fallback);
-        }
-        Ok(primary)
+        Ok(config_dir.join(launcher_name).join("config.json"))
     }
 
     fn fallback_path() -> PathBuf {
@@ -189,12 +179,7 @@ impl LauncherConfig {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
         match serde_json::from_str::<LauncherConfig>(&content) {
-            Ok(mut config) => {
-                if migrate_flattened_projects(&mut config, &content)? {
-                    let _ = config.save();
-                }
-                Ok(Some(config))
-            }
+            Ok(config) => Ok(Some(config)),
             Err(e) => {
                 backup_corrupt_config(&path, &anyhow::Error::from(e));
                 Ok(None)
@@ -217,7 +202,8 @@ impl LauncherConfig {
 
     pub(crate) fn write_serialized(path: &Path, content: &str) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
         }
         write_atomic_sync(path, content.as_bytes())
     }
@@ -363,41 +349,6 @@ fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
     let _ = fs::rename(path, &backup_path);
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct LegacyLauncherConfig {
-    #[serde(flatten)]
-    rest: serde_json::Map<String, serde_json::Value>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-struct LegacyAuthProjectConfig {
-    logins: Vec<SavedLogin>,
-}
-
-fn migrate_flattened_projects(config: &mut LauncherConfig, content: &str) -> Result<bool> {
-    let raw: LegacyLauncherConfig =
-        serde_json::from_str(content).context("Неверный формат конфигурации")?;
-
-    let mut migrated = false;
-    for (key, value) in raw.rest {
-        if key == "projects" {
-            continue;
-        }
-        let Ok(project_config) = serde_json::from_value::<LegacyAuthProjectConfig>(value.clone())
-        else {
-            continue;
-        };
-        if project_config.logins.is_empty() {
-            continue;
-        }
-        config.projects.entry(key).or_default().logins = project_config.logins;
-        migrated = true;
-    }
-    Ok(migrated)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn current_project_survives_json_round_trip_with_flattened_logins() {
+    fn current_project_survives_json_round_trip() {
         let mut config = LauncherConfig {
             launcher_path: "/home/user/Limacina".to_string(),
             ..Default::default()
@@ -462,43 +413,6 @@ mod tests {
                 ["logins"][0]["username"],
             "player"
         );
-    }
-
-    #[test]
-    fn migration_moves_flattened_logins_into_projects() {
-        let legacy = r#"{
-            "launcherPath": "/home/user/Limacina",
-            "theme": "default-dark",
-            "projectNames": ["Cordelia"],
-            "Cordelia": { "logins": [{ "username": "player" }] }
-        }"#;
-        let mut config: LauncherConfig = serde_json::from_str(legacy).expect("разбор старого JSON");
-
-        assert!(config.projects.is_empty());
-        assert!(migrate_flattened_projects(&mut config, legacy).expect("миграция"));
-        assert_eq!(config.get_logins("Cordelia"), vec!["player".to_string()]);
-        assert_eq!(config.theme, "default-dark");
-
-        let json = serde_json::to_string(&config).expect("сериализация в JSON");
-        let mut reparsed: LauncherConfig = serde_json::from_str(&json).expect("повторный разбор");
-        assert_eq!(reparsed.get_logins("Cordelia"), vec!["player".to_string()]);
-        assert!(!migrate_flattened_projects(&mut reparsed, &json).expect("повторная миграция"));
-        assert_eq!(reparsed.get_logins("Cordelia"), vec!["player".to_string()]);
-    }
-
-    #[test]
-    fn migration_skips_non_project_keys() {
-        let legacy = r#"{
-            "launcherPath": "/home/user/Limacina",
-            "theme": "default-dark",
-            "currentProject": "Cordelia",
-            "projectNames": ["Cordelia"]
-        }"#;
-        let mut config: LauncherConfig = serde_json::from_str(legacy).expect("разбор старого JSON");
-
-        assert!(!migrate_flattened_projects(&mut config, legacy).expect("миграция"));
-        assert!(config.projects.is_empty());
-        assert_eq!(config.theme, "default-dark");
     }
 
     #[test]
@@ -668,7 +582,10 @@ mod tests {
 
         assert_eq!(PathBuf::from(&config.launcher_path), install);
         for sub in ["project", "manifest", "java"] {
-            assert!(install.join(sub).is_dir(), "папка {sub} должна быть создана");
+            assert!(
+                install.join(sub).is_dir(),
+                "папка {sub} должна быть создана"
+            );
         }
         let saved = LauncherConfig::load()
             .expect("чтение конфига")

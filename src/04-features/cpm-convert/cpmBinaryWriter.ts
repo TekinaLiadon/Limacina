@@ -73,10 +73,12 @@ export class CpmBinaryWriter {
   }
 }
 
+const BASE64_CHUNK_SIZE = 0x8000
+
 export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte)
+  const chunks: string[] = []
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_SIZE) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK_SIZE)))
   }
-  return btoa(binary)
+  return btoa(chunks.join(''))
 }

@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::log_err;
+use crate::state::config::ensure_project_selected;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::errors::LauncherError;
@@ -119,9 +120,7 @@ pub async fn load_install_journal(
     fingerprint: String,
     plan: Vec<String>,
 ) -> CommandResult<Vec<String>> {
-    if project.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
+    ensure_project_selected(&project)?;
     let journal = match read_journal(&project).await {
         Ok(journal) => journal,
         Err(e) => {
@@ -143,18 +142,14 @@ pub async fn record_install_step(
     fingerprint: String,
     key: String,
 ) -> CommandResult<()> {
-    if project.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
+    ensure_project_selected(&project)?;
     record_step(&project, &fingerprint, &key).await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn clear_install_journal(project: String) -> CommandResult<()> {
-    if project.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
+    ensure_project_selected(&project)?;
     clear_journal(&project).await?;
     Ok(())
 }

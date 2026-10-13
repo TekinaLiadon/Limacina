@@ -82,7 +82,7 @@ describe('useAlternativeJava', () => {
     expect(java.selectedDistribution.value).toBe('zulu')
   })
 
-  it('loads the java version together with the distributions', async () => {
+  it('opens the popup immediately and keeps the loading state until distributions arrive', async () => {
     let releaseDistributions: (distributions: JavaDistribution[]) => void = () => {}
     vi.mocked(getJavaDistributions).mockImplementationOnce(
       () =>
@@ -96,14 +96,17 @@ describe('useAlternativeJava', () => {
     const opening = java.openPopup('1.20.1')
 
     expect(getJavaVersion).toHaveBeenCalledWith('1.20.1')
-    expect(java.isPopupOpen.value).toBe(false)
+    expect(java.isPopupOpen.value).toBe(true)
+    expect(java.isDistributionsLoading.value).toBe(true)
+    expect(java.distributions.value).toHaveLength(0)
 
     releaseDistributions([makeDistribution('temurin')])
     await opening
 
     expect(java.distributions.value).toHaveLength(1)
+    expect(java.selectedDistribution.value).toBe('temurin')
     expect(java.javaVersion.value).toBe('17')
-    expect(java.isPopupOpen.value).toBe(true)
+    expect(java.isDistributionsLoading.value).toBe(false)
   })
 
   it('drops the stale java version when the popup reopens for another version', async () => {
@@ -227,6 +230,76 @@ describe('useAlternativeJava', () => {
     releaseDownload()
     await pending
     expect(java.isPopupOpen.value).toBe(false)
+  })
+
+  it('drops the stale distributions response when the list is loaded twice', async () => {
+    let releaseFirst: (distributions: JavaDistribution[]) => void = () => {}
+    vi.mocked(getJavaVersion).mockResolvedValue('17')
+    vi.mocked(getJavaDistributions)
+      .mockImplementationOnce(
+        () =>
+          new Promise<JavaDistribution[]>((resolve) => {
+            releaseFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce([makeDistribution('zulu')])
+    const java = useAlternativeJava()
+
+    const first = java.openPopup('1.20.1')
+    await java.openPopup('1.20.1')
+
+    releaseFirst([makeDistribution('stale')])
+    await first
+
+    expect(java.distributions.value.map((d) => d.name)).toEqual(['zulu'])
+    expect(java.selectedDistribution.value).toBe('zulu')
+  })
+
+  it('drops the stale distributions error when a newer load already succeeded', async () => {
+    let releaseFirst: (error: Error) => void = () => {}
+    vi.mocked(getJavaVersion).mockResolvedValue('17')
+    vi.mocked(getJavaDistributions)
+      .mockImplementationOnce(
+        () =>
+          new Promise<JavaDistribution[]>((_resolve, reject) => {
+            releaseFirst = reject
+          }),
+      )
+      .mockResolvedValueOnce([makeDistribution('zulu')])
+    const java = useAlternativeJava()
+
+    const first = java.openPopup('1.20.1')
+    await java.openPopup('1.20.1')
+
+    releaseFirst(new Error('mirror down'))
+    await first
+
+    expect(java.distributions.value.map((d) => d.name)).toEqual(['zulu'])
+    expect(java.distributionsError.value).toBe('')
+  })
+
+  it('ignores a repeated download call while one is already running', async () => {
+    let releaseDownload: () => void = () => {}
+    vi.mocked(getJavaDistributions).mockResolvedValue([makeDistribution('temurin')])
+    vi.mocked(getJavaVersion).mockResolvedValue('17')
+    vi.mocked(downloadAlternativeJava).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseDownload = resolve
+        }),
+    )
+    const java = useAlternativeJava()
+    await java.openPopup('1.20.1')
+
+    const pending = java.startDownload()
+    const repeated = await java.startDownload()
+
+    expect(repeated).toBe(false)
+    expect(downloadAlternativeJava).toHaveBeenCalledTimes(1)
+
+    releaseDownload()
+    await pending
+    expect(java.isDownloading.value).toBe(false)
   })
 
   it('closes the popup when idle', async () => {

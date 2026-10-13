@@ -7,6 +7,7 @@ use crate::modrinth::install::{
     check_updates, install_project, sync_installed_from_scan, uninstall_project, InstallContext,
 };
 use crate::modrinth::structs::{ModrinthManifest, ModrinthProject, ModrinthVersion, SearchHit};
+use crate::state::config::current_project_config;
 use crate::state::dto::{GlobalState, ModLoader};
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
@@ -86,7 +87,7 @@ fn loader_key(loader: &ModLoader) -> Option<String> {
 }
 
 async fn profile_context(state: &Mutex<GlobalState>) -> Result<ProfileContext> {
-    let config = state.lock().await.project_config.clone();
+    let config = current_project_config(state).await?;
     if config.online {
         return Err(anyhow!(LauncherError::OfflineProfile(
             "моды Modrinth доступны только в одиночных профилях".to_string()

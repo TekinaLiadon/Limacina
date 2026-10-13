@@ -33,7 +33,7 @@ export function useDropdownPanel(
     const style = getComputedStyle(panel)
     const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
     const gap = Number.parseFloat(style.rowGap) || 0
-    const visible = maxVisible()
+    const visible = Math.min(maxVisible(), panel.children.length)
     const itemHeight = firstItem?.offsetHeight ?? 0
     measuredHeight.value =
       visible * itemHeight + padding + gap * Math.max(visible - 1, 0)

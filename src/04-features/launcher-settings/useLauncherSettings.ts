@@ -11,6 +11,7 @@ import { getErrorMessage, saveLauncherSettings, saveLauncherConfig, getAppInitDa
 import {
   joinPath,
   stripPathSuffix,
+  captureProjectScope,
   reportError,
   selectDirectory,
   isAutostartEnabled,
@@ -152,8 +153,10 @@ export function useLauncherSettings(): {
   bindSettingsDirtyTab('launcher', isDirty)
 
   const syncStartWithSystemState = async (initial: boolean): Promise<boolean> => {
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     try {
       const enabled = await isAutostartEnabled()
+      if (!scope.isCurrent()) return false
       const current = behaviorForm.value.startWithSystem
       if (current !== initial) return false
       if (current === enabled) return false

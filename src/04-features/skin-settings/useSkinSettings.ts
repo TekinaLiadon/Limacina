@@ -6,6 +6,7 @@ import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 
 const SKIN_SIZE_UNIT = 64
+const SKIN_TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру скина'
 
 function assertSkinSize(width: number, height: number): void {
   const isSupported = width > 0 && height > 0
@@ -41,13 +42,18 @@ export function useSkinSettings() {
 
   const hasSkin = computed((): boolean => skinUrl.value !== '')
 
+  const setTextureError = (): void => {
+    content.errorMessage.value = SKIN_TEXTURE_LOAD_ERROR
+  }
+
   const activeSkin = computed((): UserContentItem | undefined => {
     const items = content.items.value
     if (items.length === 0) return undefined
     return items.find((item) => item.active === true) ?? items[0]
   })
 
-  watch(activeSkin, (skin) => {
+  watch((): number | null | undefined => activeSkin.value?.id, () => {
+    const skin = activeSkin.value
     if (skin?.model === 'slim') modelMode.value = 'slim'
     else if (skin?.model === 'classic') modelMode.value = 'classic'
   }, { immediate: true })
@@ -196,6 +202,7 @@ export function useSkinSettings() {
     hasSkin,
     skinUrl,
     errorMessage: content.errorMessage,
+    setTextureError,
     isUploading: content.isUploading,
     isMutating: content.isMutating,
     isOffline: content.isOffline,

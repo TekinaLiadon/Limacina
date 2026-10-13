@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Button, MarkdownText, Preloader, useFocusTrap, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
+import { computed, ref, watch } from 'vue'
+import { Button, MarkdownText, PopupShell, Preloader, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import ModrinthInstallActions from './ModrinthInstallActions.vue'
 import { MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
@@ -25,10 +25,6 @@ const emit = defineEmits<{
 }>()
 
 const notification = useNotificationStore()
-
-const popupRef = ref<HTMLDivElement | null>(null)
-
-useFocusTrap(popupRef, (): boolean => props.visible)
 
 const expandedChangelogs = ref<Set<string>>(new Set())
 
@@ -100,18 +96,6 @@ watch((): string => props.hit?.project_id ?? '', (projectId: string): void => {
   if (projectId === '') return
 })
 
-function handleEsc(e: KeyboardEvent): void {
-  if (props.visible && e.key === 'Escape') emit('close')
-}
-
-onMounted((): void => {
-  window.addEventListener('keydown', handleEsc)
-})
-
-onBeforeUnmount((): void => {
-  window.removeEventListener('keydown', handleEsc)
-})
-
 async function handleLink(url: string): Promise<void> {
   try {
     await openExternalUrl(url)
@@ -122,115 +106,103 @@ async function handleLink(url: string): Promise<void> {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="popup">
-      <div v-if="visible" class="modrinth-popup-overlay" @click.self="emit('close')">
-        <div ref="popupRef" class="modrinth-popup popup-panel" role="dialog" aria-modal="true" aria-label="Страница проекта Modrinth">
-          <div class="modrinth-popup__head">
-            <ModrinthIcon :src="hit?.icon_url ?? null" :title="hit?.title ?? '?'" size="lg" />
-            <div class="modrinth-popup__head-info">
-              <h3 class="modrinth-popup__title">{{ hit?.title }}</h3>
-              <p v-if="authorText" class="modrinth-popup__meta">{{ authorText }}</p>
-              <p v-if="statText" class="modrinth-popup__meta">{{ statText }}</p>
-            </div>
-            <ModrinthInstallActions
-              class="modrinth-popup__action"
-              :is-installed="isInstalled"
-              :update-version="updateVersion"
-              :is-busy="isBusy"
-              :is-busy-any="isBusyAny"
-              @update="emit('update')"
-              @install="emit('install')"
-            />
-            <Button v-focus class="btn-quiet modrinth-popup__close" @click="emit('close')">
-              Закрыть
-            </Button>
-          </div>
+  <PopupShell :visible="visible" aria-label="Страница проекта Modrinth" panel-class="modrinth-popup" @close="emit('close')">
+    <div class="modrinth-popup__head">
+      <ModrinthIcon :src="hit?.icon_url ?? null" :title="hit?.title ?? '?'" size="lg" />
+      <div class="modrinth-popup__head-info">
+        <h3 class="modrinth-popup__title">{{ hit?.title }}</h3>
+        <p v-if="authorText" class="modrinth-popup__meta">{{ authorText }}</p>
+        <p v-if="statText" class="modrinth-popup__meta">{{ statText }}</p>
+      </div>
+      <ModrinthInstallActions
+        class="modrinth-popup__action"
+        :is-installed="isInstalled"
+        :update-version="updateVersion"
+        :is-busy="isBusy"
+        :is-busy-any="isBusyAny"
+        @update="emit('update')"
+        @install="emit('install')"
+      />
+      <Button v-focus class="btn-quiet modrinth-popup__close" @click="emit('close')">
+        Закрыть
+      </Button>
+    </div>
 
-          <div v-if="isLoading" class="modrinth-popup__loading">
-            <Preloader local text="Загрузка информации..." />
-          </div>
+    <div v-if="isLoading" class="modrinth-popup__loading">
+      <Preloader local text="Загрузка информации..." />
+    </div>
 
-          <div v-else-if="details" class="modrinth-popup__content">
-            <div class="modrinth-popup__info">
-              <p class="modrinth-popup__info-row">
-                <span class="modrinth-popup__info-item">{{ sideText }}</span>
-                <span v-if="licenseText" class="modrinth-popup__info-item">Лицензия: {{ licenseText }}</span>
-              </p>
-              <p class="modrinth-popup__info-row">
-                <span class="modrinth-popup__info-item">Создан: {{ formatDate(details.project.date_created) }}</span>
-                <span class="modrinth-popup__info-item">Обновлён: {{ formatDate(details.project.date_modified) }}</span>
-              </p>
-              <div v-if="details.project.categories.length > 0" class="modrinth-popup__chips">
-                <span v-for="category in details.project.categories" :key="category" class="modrinth-popup__chip">
-                  {{ MODRINTH_CATEGORY_LABELS[category] ?? category }}
-                </span>
-              </div>
-            </div>
-
-            <p class="modrinth-popup__description">{{ details.project.description }}</p>
-
-            <MarkdownText
-              class="modrinth-popup__body"
-              :source="details.project.body"
-              :base-url="MODRINTH_BASE_URL"
-              @link-error="notification.show"
-            />
-
-            <h4 class="modrinth-popup__versions-title">Версии ({{ details.versions.length }})</h4>
-            <div class="modrinth-popup__versions">
-              <div v-for="version in details.versions" :key="version.id" class="modrinth-popup__version">
-                <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
-                <span class="modrinth-popup__version-meta">
-                  {{ versionTypeLabels[version.version_type] }} ·
-                  {{ version.loaders.join(', ') }} ·
-                  {{ formatDate(version.date_published) }} ·
-                  {{ formatNumber(version.downloads) }} загрузок
-                </span>
-                <Button
-                  v-if="hasChangelog(version)"
-                  class="btn-quiet modrinth-popup__changelog-toggle"
-                  @click="toggleChangelog(version.id)"
-                >
-                  {{ expandedChangelogs.has(version.id) ? 'Скрыть изменения' : 'Изменения' }}
-                </Button>
-                <MarkdownText
-                  v-if="hasChangelog(version) && expandedChangelogs.has(version.id)"
-                  class="modrinth-popup__changelog"
-                  :source="version.changelog ?? ''"
-                  :base-url="MODRINTH_BASE_URL"
-                  @link-error="notification.show"
-                />
-              </div>
-            </div>
-          </div>
-
-          <p v-else class="modrinth-popup__error">{{ loadError || 'Не удалось загрузить информацию о моде' }}</p>
-
-          <div v-if="links.length > 0" class="modrinth-popup__footer">
-            <Button
-              v-for="link in links"
-              :key="link.url"
-              class="btn-secondary modrinth-popup__link"
-              @click="handleLink(link.url)"
-            >
-              {{ link.label }}
-            </Button>
-          </div>
+    <div v-else-if="details" class="modrinth-popup__content">
+      <div class="modrinth-popup__info">
+        <p class="modrinth-popup__info-row">
+          <span class="modrinth-popup__info-item">{{ sideText }}</span>
+          <span v-if="licenseText" class="modrinth-popup__info-item">Лицензия: {{ licenseText }}</span>
+        </p>
+        <p class="modrinth-popup__info-row">
+          <span class="modrinth-popup__info-item">Создан: {{ formatDate(details.project.date_created) }}</span>
+          <span class="modrinth-popup__info-item">Обновлён: {{ formatDate(details.project.date_modified) }}</span>
+        </p>
+        <div v-if="details.project.categories.length > 0" class="modrinth-popup__chips">
+          <span v-for="category in details.project.categories" :key="category" class="modrinth-popup__chip">
+            {{ MODRINTH_CATEGORY_LABELS[category] ?? category }}
+          </span>
         </div>
       </div>
-    </Transition>
-  </Teleport>
+
+      <p class="modrinth-popup__description">{{ details.project.description }}</p>
+
+      <MarkdownText
+        class="modrinth-popup__body"
+        :source="details.project.body"
+        :base-url="MODRINTH_BASE_URL"
+        @link-error="notification.show"
+      />
+
+      <h4 class="modrinth-popup__versions-title">Версии ({{ details.versions.length }})</h4>
+      <div class="modrinth-popup__versions">
+        <div v-for="version in details.versions" :key="version.id" class="modrinth-popup__version">
+          <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
+          <span class="modrinth-popup__version-meta">
+            {{ versionTypeLabels[version.version_type] }} ·
+            {{ version.loaders.join(', ') }} ·
+            {{ formatDate(version.date_published) }} ·
+            {{ formatNumber(version.downloads) }} загрузок
+          </span>
+          <Button
+            v-if="hasChangelog(version)"
+            class="btn-quiet modrinth-popup__changelog-toggle"
+            @click="toggleChangelog(version.id)"
+          >
+            {{ expandedChangelogs.has(version.id) ? 'Скрыть изменения' : 'Изменения' }}
+          </Button>
+          <MarkdownText
+            v-if="hasChangelog(version) && expandedChangelogs.has(version.id)"
+            class="modrinth-popup__changelog"
+            :source="version.changelog ?? ''"
+            :base-url="MODRINTH_BASE_URL"
+            @link-error="notification.show"
+          />
+        </div>
+      </div>
+    </div>
+
+    <p v-else class="modrinth-popup__error">{{ loadError || 'Не удалось загрузить информацию о моде' }}</p>
+
+    <div v-if="links.length > 0" class="modrinth-popup__footer">
+      <Button
+        v-for="link in links"
+        :key="link.url"
+        class="btn-secondary modrinth-popup__link"
+        @click="handleLink(link.url)"
+      >
+        {{ link.label }}
+      </Button>
+    </div>
+  </PopupShell>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
-
-.modrinth-popup-overlay {
-  @include mixins.popup-overlay;
-
-  text-align: left;
-}
 
 .modrinth-popup {
   @include mixins.popup-card(none, var(--modrinth-popup-width));
@@ -239,6 +211,7 @@ async function handleLink(url: string): Promise<void> {
   flex-direction: column;
   gap: var(--element-gap);
   height: var(--modrinth-popup-height);
+  text-align: left;
 
   &__head {
     display: flex;

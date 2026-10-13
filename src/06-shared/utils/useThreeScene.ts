@@ -1,4 +1,4 @@
-import { ref, onMounted, onBeforeUnmount, shallowRef, type Ref } from 'vue'
+import { onMounted, onBeforeUnmount, shallowRef, type Ref } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
@@ -11,10 +11,17 @@ interface ThreeSceneOptions {
   autoRotateSpeed?: number
 }
 
+interface ThreeSceneState {
+  scene: Ref<THREE.Scene | null>
+  camera: Ref<THREE.PerspectiveCamera | null>
+  renderer: Ref<THREE.WebGLRenderer | null>
+  getOrbitControls: () => OrbitControls | null
+}
+
 export function useThreeScene(
   container: Ref<HTMLDivElement | null>,
   options: ThreeSceneOptions = {}
-) {
+): ThreeSceneState {
   const {
     cameraPosition = [0, 5, 22],
     cameraFov = 35,
@@ -27,13 +34,19 @@ export function useThreeScene(
   const renderer = shallowRef<THREE.WebGLRenderer | null>(null)
   const scene = shallowRef<THREE.Scene | null>(null)
   const camera = shallowRef<THREE.PerspectiveCamera | null>(null)
-  const animationId = ref<number>(0)
+  let animationId = 0
   let orbitControls: OrbitControls | null = null
   let resizeObserver: ResizeObserver | null = null
+  let themeObserver: MutationObserver | null = null
 
   const resolveBackground = (): number | string => {
     if (background !== undefined) return background
     return getComputedStyle(document.documentElement).getPropertyValue('--viewer-bg').trim()
+  }
+
+  const applyBackground = (s: THREE.Scene): void => {
+    const cssBackground = resolveBackground()
+    s.background = cssBackground === '' ? null : new THREE.Color(cssBackground)
   }
 
   function initScene(): void {
@@ -43,8 +56,7 @@ export function useThreeScene(
     const h = container.value.clientHeight
     const aspect = w > 0 && h > 0 ? w / h : 1
     const s = new THREE.Scene()
-    const cssBackground = resolveBackground()
-    if (cssBackground !== '') s.background = new THREE.Color(cssBackground)
+    applyBackground(s)
     scene.value = s
 
     const cam = new THREE.PerspectiveCamera(cameraFov, aspect, 0.1, 2000)
@@ -79,7 +91,7 @@ export function useThreeScene(
     orbitControls = ctrl
 
     const animate = (): void => {
-      animationId.value = requestAnimationFrame(animate)
+      animationId = requestAnimationFrame(animate)
       ctrl.update()
       r.render(s, cam)
     }
@@ -97,7 +109,9 @@ export function useThreeScene(
   }
 
   function cleanup(): void {
-    cancelAnimationFrame(animationId.value)
+    cancelAnimationFrame(animationId)
+    themeObserver?.disconnect()
+    themeObserver = null
     window.removeEventListener('resize', onResize)
     resizeObserver?.disconnect()
     resizeObserver = null
@@ -105,8 +119,8 @@ export function useThreeScene(
     orbitControls = null
     const r = renderer.value
     if (r) {
-      r.dispose()
       r.forceContextLoss()
+      r.dispose()
       r.domElement.remove()
     }
     renderer.value = null
@@ -116,6 +130,11 @@ export function useThreeScene(
 
   onMounted(() => {
     initScene()
+    themeObserver = new MutationObserver(() => {
+      const s = scene.value
+      if (s) applyBackground(s)
+    })
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     window.addEventListener('resize', onResize)
     if (container.value) {
       resizeObserver = new ResizeObserver(onResize)

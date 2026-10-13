@@ -88,20 +88,23 @@ describe('parseCpmAnimations', () => {
       priority: 0,
       loop: false,
       additive: true,
-      interpolator: 'poly_loop',
+      interpolator: 'poly_single',
       hidden: false,
       frames: [],
     })
+    expect(reportError).not.toHaveBeenCalled()
   })
 
-  it('falls back to the default interpolator for unknown values', async () => {
+  it('falls back to a single-pass interpolator and reports unknown values', async () => {
     const zip = await buildZip({
       'animations/weird.json': JSON.stringify({ interpolator: 'turbo' }),
     })
 
     const animations = await parseCpmAnimations(zip)
 
-    expect(animations[0]?.interpolator).toBe('poly_loop')
+    expect(animations[0]?.interpolator).toBe('poly_single')
+    expect(reportError).toHaveBeenCalledOnce()
+    expect(reportError).toHaveBeenCalledWith(expect.stringContaining('weird.json'))
   })
 
   it('reports broken json files by name and keeps the valid ones', async () => {

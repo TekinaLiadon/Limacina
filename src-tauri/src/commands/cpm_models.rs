@@ -1,16 +1,16 @@
 use std::sync::{Mutex as StdMutex, OnceLock};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::commands::user_content::current_project_name;
 use crate::cpm::{
     build_link_definition, build_player_model_file, merge_selected_model, parse_cpm_config,
     pick_eviction_index, rebind_selection, remove_selected_model, sanitize_file_name,
     CpmModelEntry, CpmModelManifest, RebindDecision, SKIN_TYPE_DEFAULT, SKIN_TYPE_SLIM,
 };
 use crate::launcher_server::user_content;
+use crate::state::config::current_project_config;
 use crate::state::dto::GlobalState;
 use crate::utils::allowlisted_read::{has_extension, AllowlistedRead};
 use crate::utils::download_file::{read_to_string_opt, write_atomic};
@@ -167,7 +167,7 @@ async fn enforce_models_limit(
 pub async fn get_player_models_limit(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<Option<u32>> {
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     let manifest = read_manifest(&project_name).await?;
     Ok(manifest.limit)
 }
@@ -177,7 +177,7 @@ pub async fn set_player_models_limit(
     state: State<'_, Mutex<GlobalState>>,
     limit: Option<u32>,
 ) -> CommandResult<()> {
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     if limit == Some(0) {
         return Err(LauncherError::InvalidInput(
             "Лимит моделей должен быть не меньше 1".to_string(),
@@ -210,7 +210,7 @@ pub async fn save_player_model(
     slim: Option<bool>,
     data: Option<Vec<u8>>,
 ) -> CommandResult<()> {
-    let project_name = current_project_name(&state).await?;
+    let project_name = current_project_config(state.inner()).await?.project_name;
     save_player_model_inner(&project_name, name, url, model_id, slim, data).await?;
     Ok(())
 }
@@ -306,22 +306,18 @@ async fn save_player_model_inner(
 }
 
 pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
-    let (project_name, uuid) = {
-        let guard = state.lock().await;
-        if !guard.project_config.online {
-            return Ok(());
-        }
-        let project = guard.project_config.project_name.clone();
-        let uuid = guard
-            .session
-            .as_ref()
-            .map(|s| s.uuid.clone())
-            .ok_or(LauncherError::NoSession)?;
-        (project, uuid)
-    };
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
+    let config = current_project_config(state).await?;
+    if !config.online {
+        return Ok(());
     }
+    let project_name = config.project_name;
+    let uuid = state
+        .lock()
+        .await
+        .session
+        .as_ref()
+        .map(|s| s.uuid.clone())
+        .ok_or(LauncherError::NoSession)?;
 
     let items = user_content::list_models(state, uuid).await?;
     let server_ids: Vec<i64> = items.iter().filter_map(|i| i.id).collect();

@@ -277,6 +277,28 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
+  it('drops the autostart sync when the project switches before the state resolves', async () => {
+    let releaseAutostart: (enabled: boolean) => void = () => {}
+    vi.mocked(isAutostartEnabled).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseAutostart = resolve
+        }),
+    )
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    useCoreStore().currentProject = 'other'
+
+    releaseAutostart(true)
+    await flushPromises()
+
+    expect(settings.behaviorForm.value.startWithSystem).toBe(false)
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
   it('resets dirty state and skips the success toast when the autostart apply fails after a successful save', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))

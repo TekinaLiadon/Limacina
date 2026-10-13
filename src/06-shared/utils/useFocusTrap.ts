@@ -47,16 +47,20 @@ export function useFocusTrap(
     }
   }
 
-  watch(isActive, (active) => {
-    if (active) {
-      restoreTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null
-      document.addEventListener('keydown', handleKeydown, true)
-      return
-    }
-    document.removeEventListener('keydown', handleKeydown, true)
-    if (restoreTarget instanceof HTMLElement) restoreTarget.focus()
-    restoreTarget = null
-  })
+  watch(
+    isActive,
+    (active) => {
+      if (active) {
+        restoreTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        document.addEventListener('keydown', handleKeydown, true)
+        return
+      }
+      document.removeEventListener('keydown', handleKeydown, true)
+      if (restoreTarget instanceof HTMLElement) restoreTarget.focus()
+      restoreTarget = null
+    },
+    { immediate: true },
+  )
 
   onBeforeUnmount((): void => {
     document.removeEventListener('keydown', handleKeydown, true)

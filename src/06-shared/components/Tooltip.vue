@@ -75,6 +75,10 @@ const handleScroll = (): void => {
   if (shown.value) hide()
 }
 
+const handleResize = (): void => {
+  if (shown.value) hide()
+}
+
 watch((): boolean => props.disabled, (disabled) => {
   if (disabled) hide()
 })
@@ -82,12 +86,14 @@ watch((): boolean => props.disabled, (disabled) => {
 onMounted((): void => {
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', handleResize)
 })
 
 onBeforeUnmount((): void => {
   hide()
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 

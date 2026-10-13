@@ -23,6 +23,32 @@ const mountInput = (modelValue = '') =>
   })
 
 describe('Input', () => {
+  it('exposes aria-controls only while the listbox is rendered', async () => {
+    const wrapper = mountInput()
+    const input = wrapper.find('input')
+    expect(input.attributes('aria-controls')).toBeUndefined()
+
+    await input.trigger('focus')
+    const listbox = wrapper.find('[role="listbox"]')
+    expect(listbox.exists()).toBe(true)
+    expect(input.attributes('aria-controls')).toBe(listbox.attributes('id'))
+
+    await input.trigger('focusout')
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    expect(input.attributes('aria-controls')).toBeUndefined()
+  })
+
+  it('omits aria-controls when the filtered list is empty', async () => {
+    const wrapper = mount(Input, {
+      props: { modelValue: 'zzz', options: { list: ['alpha'] } },
+    })
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    expect(input.attributes('aria-controls')).toBeUndefined()
+  })
+
   it('opens the filtered dropdown on focus', async () => {
     const wrapper = mountInput()
     await wrapper.find('input').trigger('focus')
@@ -164,6 +190,6 @@ describe('Input near the bottom edge', () => {
 
     const dropdown = wrapper.find('.input__dropdown')
     expect(dropdown.classes()).toContain('input__dropdown--up')
-    expect(dropdown.attributes('style')).toContain('max-height: 302px')
+    expect(dropdown.attributes('style')).toContain('max-height: 134px')
   })
 })

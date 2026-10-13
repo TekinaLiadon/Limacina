@@ -274,6 +274,42 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).not.toHaveBeenCalled()
   })
 
+  it('rechecks the guards after the dirty confirmation and keeps the launch state intact', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    const settings = useProjectSettingsStore()
+    settings.startLoading('alpha')
+    settings.applyLoaded('alpha', {
+      projectName: 'alpha',
+      mcVersion: '1.20.1',
+      modLoader: 'vanilla',
+      loaderVersion: '',
+      javaPath: '',
+      javaVersion: null,
+      jvmArgs: '',
+      memoryRange: [512, 4096],
+      online: true,
+      initialized: true,
+      serverUrl: null,
+      autoJoinServer: false,
+    })
+    settings.config.jvmArgs = '-XX:+UseG1GC'
+    const launch = useLaunchStore()
+    const ps = setup()
+
+    const pending = ps.selectProject('beta')
+    await vi.waitFor(() => expect(useNotificationStore().popupVisible).toBe(true))
+    launch.beginLaunch()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(useNotificationStore().message).toBe('Дождитесь завершения запуска игры')
+    expect(saveCurrentProject).not.toHaveBeenCalled()
+    expect(core.currentProject).toBe('alpha')
+    expect(launch.isLaunching).toBe(true)
+  })
+
   it('asks for confirmation when other settings tabs have unsaved edits', async () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'

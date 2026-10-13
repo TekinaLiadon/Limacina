@@ -6,7 +6,9 @@ use tokio::sync::Mutex;
 use crate::init::init_project_config;
 use crate::java::find_java_executable;
 use crate::log_info;
-use crate::state::config::{load_config, update_project_config};
+use crate::state::config::{
+    current_project_config, ensure_project_selected, load_config, update_project_config,
+};
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::blocking;
 use crate::utils::env_info::launcher_path;
@@ -143,16 +145,14 @@ async fn load_settings_project_inner(
 pub async fn clear_minecraft_config(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<String> {
-    let (project_name, keep_old_configs) = {
+    let project_name = current_project_config(state.inner()).await?.project_name;
+    let keep_old_configs = {
         let guard = state.lock().await;
-        (
-            guard.project_config.project_name.clone(),
-            guard
-                .launcher_config
-                .as_ref()
-                .map(|c| c.keep_old_configs)
-                .unwrap_or(false),
-        )
+        guard
+            .launcher_config
+            .as_ref()
+            .map(|c| c.keep_old_configs)
+            .unwrap_or(false)
     };
 
     clear_minecraft_config_inner(&project_name, keep_old_configs)
@@ -164,9 +164,7 @@ async fn clear_minecraft_config_inner(
     project_name: &str,
     keep_old_configs: bool,
 ) -> Result<String> {
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
-    }
+    ensure_project_selected(project_name)?;
 
     let game_dir = launcher_path(Some(project_name))?;
     let config_dir = game_dir.join("config");

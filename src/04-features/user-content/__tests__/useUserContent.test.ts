@@ -285,6 +285,37 @@ describe('useUserContent', () => {
     expect(api.list).toHaveBeenCalledTimes(1)
   })
 
+  it('resets the mutation state and the error message when the project switches', async () => {
+    loginSession()
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+
+    let releaseUpload: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseUpload = resolve
+        }),
+    )
+    const pendingUpload = content.handleUpload({ data: 'base64' })
+    api.delete.mockRejectedValueOnce(new Error('locked'))
+    await content.handleDelete(3)
+    expect(content.isUploading.value).toBe(true)
+    expect(content.errorMessage.value).toBe('locked')
+
+    core.currentProject = 'new'
+    useAccountsStore().clearSessionState()
+    await nextTick()
+
+    expect(content.errorMessage.value).toBe('')
+    expect(content.isUploading.value).toBe(false)
+    expect(content.isMutating.value).toBe(false)
+
+    releaseUpload(makeItem(1))
+    await pendingUpload
+  })
+
   it('drops the stale list response when the project switches mid-load', async () => {
     loginSession()
     const core = useCoreStore()

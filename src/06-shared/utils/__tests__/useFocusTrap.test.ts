@@ -45,6 +45,35 @@ describe('useFocusTrap', () => {
     expect(document.activeElement).toBe(button)
   })
 
+  it('activates on mount when the popup is already active', async () => {
+    const active = ref(true)
+    const container = document.createElement('div')
+    const first = document.createElement('button')
+    const second = document.createElement('button')
+    container.appendChild(first)
+    container.appendChild(second)
+    document.body.appendChild(container)
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    outside.focus()
+
+    withSetup(() => useFocusTrap(ref(container), () => active.value))
+    await Promise.resolve()
+
+    const button = container.querySelector('button')
+    if (!button) return
+    button.focus()
+
+    const forward = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true })
+    container.dispatchEvent(forward)
+
+    expect(forward.defaultPrevented).toBe(true)
+
+    active.value = false
+    await Promise.resolve()
+    expect(document.activeElement).toBe(outside)
+  })
+
   it('ignores keys while inactive', async () => {
     const active = ref(false)
     buildTrap(() => active.value)

@@ -1,13 +1,51 @@
 pub mod downloader;
 pub mod user_content;
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use std::future::Future;
 use tokio::sync::Mutex;
 
+use crate::log_err;
 use crate::log_info;
-use crate::state::dto::GlobalState;
+use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::errors::LauncherError;
+use crate::utils::http::{http_client, with_launcher_id};
+
+pub(crate) async fn fetch_project_config(base_url: &str) -> Result<ProjectConfig> {
+    let response = LauncherError::classify(
+        with_launcher_id(http_client().get(format!("{base_url}/v1/launcher/config")))
+            .send()
+            .await
+            .with_context(|| format!("Не удалось подключиться к {}", base_url)),
+        LauncherError::LauncherServer,
+    )?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
+        bail!(LauncherError::LauncherServer(format!(
+            "Сервер {} вернул {} при запросе конфига проекта",
+            base_url, status
+        )));
+    }
+
+    let config: ProjectConfig = LauncherError::classify(
+        response
+            .json()
+            .await
+            .context("Не удалось распарсить конфиг с сервера"),
+        LauncherError::LauncherServer,
+    )?;
+
+    if config.project_name.trim().is_empty() {
+        bail!(LauncherError::LauncherServer(
+            "Сервер не вернул название проекта".to_string()
+        ));
+    }
+
+    Ok(config)
+}
 
 pub(crate) async fn api_context(state: &Mutex<GlobalState>) -> Result<(String, String)> {
     let guard = state.lock().await;
@@ -182,5 +220,119 @@ mod session_retry_tests {
         wipe_project_credentials("TestProj", &["Steve".to_string()])
             .await
             .expect("очистка хранилища после теста");
+    }
+}
+
+#[cfg(test)]
+mod fetch_project_config_tests {
+    use super::fetch_project_config;
+    use crate::utils::errors::LauncherError;
+    use crate::utils::install_id::LAUNCHER_ID_HEADER;
+    use mockito::Server;
+
+    fn config_body(project_name: &str) -> String {
+        format!(
+            r#"{{"projectName":"{project_name}","mcVersion":"1.20.1","modLoader":"vanilla",
+                "loaderVersion":null,"javaPath":null,"jvmArgs":[],
+                "minMemory":"-Xms512M","maxMemory":"-Xmx4G"}}"#
+        )
+    }
+
+    fn launcher_server_error(error: &anyhow::Error) -> Option<&LauncherError> {
+        error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<LauncherError>())
+            .and_then(|e| match e {
+                LauncherError::LauncherServer(_) => Some(e),
+                _ => None,
+            })
+    }
+
+    #[tokio::test]
+    async fn parses_server_config_with_launcher_id_header() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/config")
+            .match_header(LAUNCHER_ID_HEADER, mockito::Matcher::Any)
+            .with_status(200)
+            .with_body(config_body("TestProj"))
+            .create_async()
+            .await;
+
+        let config = fetch_project_config(&server.url())
+            .await
+            .expect("валидный конфиг должен разбираться");
+
+        assert_eq!(config.project_name, "TestProj");
+        assert_eq!(config.mc_version, "1.20.1");
+        assert_eq!(config.min_memory, "-Xms512M");
+    }
+
+    #[tokio::test]
+    async fn http_error_is_classified_with_status_in_message() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(503)
+            .with_body("maintenance")
+            .create_async()
+            .await;
+
+        let error = fetch_project_config(&server.url())
+            .await
+            .expect_err("ошибка сервера должна пробрасываться");
+
+        assert!(
+            launcher_server_error(&error).is_some(),
+            "ожидается LauncherServer: {error:#}"
+        );
+        assert!(
+            error.to_string().contains("503"),
+            "сообщение должно называть статус: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unparseable_body_is_classified_as_launcher_server() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body("<html>not json</html>")
+            .create_async()
+            .await;
+
+        let error = fetch_project_config(&server.url())
+            .await
+            .expect_err("мусор вместо JSON должен отклоняться");
+
+        assert!(
+            launcher_server_error(&error).is_some(),
+            "ожидается LauncherServer: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_project_name_is_rejected() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(config_body(""))
+            .create_async()
+            .await;
+
+        let error = fetch_project_config(&server.url())
+            .await
+            .expect_err("конфиг без названия проекта должен отклоняться");
+
+        assert!(
+            error.to_string().contains("не вернул название проекта"),
+            "сообщение должно объяснять причину: {error:#}"
+        );
+        assert!(
+            launcher_server_error(&error).is_some(),
+            "ожидается LauncherServer: {error:#}"
+        );
     }
 }

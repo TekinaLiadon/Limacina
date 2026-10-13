@@ -39,6 +39,21 @@ export function useProjectSwitch() {
 
   const isSwitching = computed((): boolean => isProjectSwitching.value)
 
+  const switchBlockReason = (): string | null => {
+    if (launchStore.gameUsername) return 'Нельзя переключить проект, пока запущена игра'
+    if (launchStore.isLaunching) return 'Дождитесь завершения запуска игры'
+    if (accountsStore.authLoading || accountsStore.isLoading) return 'Дождитесь завершения авторизации'
+    return null
+  }
+
+  const isSwitchBlocked = (): boolean => {
+    if (isProjectSwitching.value) return true
+    const reason = switchBlockReason()
+    if (reason === null) return false
+    notification.show(reason)
+    return true
+  }
+
   const applyProjectSwitch = async (projectName: string): Promise<void> => {
     const projectConfig = await loadSettingsProject(projectName)
     const logins = await authLogins(projectName)
@@ -64,25 +79,14 @@ export function useProjectSwitch() {
 
   const selectProject = async (projectName: string): Promise<void> => {
     if (!projectName || projectName === coreStore.currentProject) return
-    if (isProjectSwitching.value) return
-    if (launchStore.gameUsername) {
-      notification.show('Нельзя переключить проект, пока запущена игра')
-      return
-    }
-    if (launchStore.isLaunching) {
-      notification.show('Дождитесь завершения запуска игры')
-      return
-    }
-    if (accountsStore.authLoading || accountsStore.isLoading) {
-      notification.show('Дождитесь завершения авторизации')
-      return
-    }
+    if (isSwitchBlocked()) return
     if (projectSettingsStore.isDirty || settingsDirtyStore.hasDirtyTabs) {
       const confirmed = await notification.confirm(
         'В настройках есть несохранённые изменения. Переключить проект и потерять их?'
       )
       if (!confirmed) return
     }
+    if (isSwitchBlocked()) return
 
     const previousProject = coreStore.currentProject
     isProjectSwitching.value = true

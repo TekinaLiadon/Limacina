@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Button, ProgressBar, useFocusTrap } from '@/06-shared'
+import { computed } from 'vue'
+import { Button, PopupShell, ProgressBar } from '@/06-shared'
 import StepProgress from '@/03-widgets/tabs/login/StepProgress.vue'
 import type { IntegrityReport, StepProgressItem } from '@/05-entities'
 
@@ -22,22 +22,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const popupRef = ref<HTMLDivElement | null>(null)
 const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.isChecking || props.report !== null || props.errorMessage !== ''))
-
-useFocusTrap(popupRef, (): boolean => isPopupVisible.value)
-
-function handleKeydown(e: KeyboardEvent): void {
-  if (isPopupVisible.value && e.key === 'Escape') emit('close')
-}
-
-onMounted((): void => {
-  window.addEventListener('keydown', handleKeydown)
-})
-
-onBeforeUnmount((): void => {
-  window.removeEventListener('keydown', handleKeydown)
-})
 </script>
 
 <template>
@@ -46,69 +31,60 @@ onBeforeUnmount((): void => {
     <Button class="btn-secondary integrity-check__btn" :is-disabled="isChecking" :is-loading="isChecking" @click="emit('check')">
       Проверить
     </Button>
-
-    <Teleport to="body">
-      <Transition name="popup">
-        <div v-if="isPopupVisible" class="integrity-popup-overlay" @click.self="emit('close')">
-          <div ref="popupRef" class="integrity-popup popup-panel" role="dialog" aria-modal="true" aria-label="Проверка целостности файлов">
-            <h3 class="integrity-popup__title">Проверка целостности файлов</h3>
-
-            <template v-if="isCheckingNow">
-              <div class="integrity-popup__progress">
-                <ProgressBar :progress="progress" />
-              </div>
-              <div class="integrity-popup__steps">
-                <StepProgress :steps="steps" />
-              </div>
-            </template>
-
-            <template v-else-if="errorMessage">
-              <div class="integrity-popup__error">{{ errorMessage }}</div>
-            </template>
-
-            <template v-else>
-              <div v-if="isClean" class="integrity-popup__summary integrity-popup__summary--ok">
-                Все файлы в порядке
-              </div>
-              <div v-else-if="hasErrors" class="integrity-popup__summary integrity-popup__summary--error">
-                Не удалось восстановить {{ report?.failed.length }} файлов
-              </div>
-              <div v-else class="integrity-popup__summary">
-                Файлы восстановлены
-              </div>
-              <p class="integrity-popup__stats">{{ resultText }}</p>
-              <ul v-if="hasErrors" class="integrity-popup__failed">
-                <li v-for="file in report?.failed" :key="file">{{ file }}</li>
-              </ul>
-            </template>
-
-            <div class="integrity-popup__actions">
-              <Button
-                class="btn-primary integrity-popup__btn"
-                :is-disabled="isCheckingNow"
-                @click="emit('check')"
-              >
-                Проверить снова
-              </Button>
-              <Button v-focus class="btn-quiet integrity-popup__btn" @click="emit('close')">
-                Закрыть
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
   </div>
+
+  <PopupShell :visible="isPopupVisible" aria-label="Проверка целостности файлов" panel-class="integrity-popup" @close="emit('close')">
+    <h3 class="integrity-popup__title">Проверка целостности файлов</h3>
+
+    <template v-if="isCheckingNow">
+      <div class="integrity-popup__progress">
+        <ProgressBar :progress="progress" />
+      </div>
+      <div class="integrity-popup__steps">
+        <StepProgress :steps="steps" />
+      </div>
+    </template>
+
+    <template v-else-if="errorMessage">
+      <div class="integrity-popup__error">{{ errorMessage }}</div>
+    </template>
+
+    <template v-else>
+      <div v-if="isClean" class="integrity-popup__summary integrity-popup__summary--ok">
+        Все файлы в порядке
+      </div>
+      <div v-else-if="hasErrors" class="integrity-popup__summary integrity-popup__summary--error">
+        Не удалось восстановить {{ report?.failed.length }} файлов
+      </div>
+      <div v-else class="integrity-popup__summary">
+        Файлы восстановлены
+      </div>
+      <p class="integrity-popup__stats">{{ resultText }}</p>
+      <ul v-if="hasErrors" class="integrity-popup__failed">
+        <li v-for="file in report?.failed" :key="file">{{ file }}</li>
+      </ul>
+    </template>
+
+    <div class="integrity-popup__actions">
+      <Button
+        class="btn-primary integrity-popup__btn"
+        :is-disabled="isCheckingNow"
+        @click="emit('check')"
+      >
+        Проверить снова
+      </Button>
+      <Button v-focus class="btn-quiet integrity-popup__btn" @click="emit('close')">
+        Закрыть
+      </Button>
+    </div>
+  </PopupShell>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .integrity-check {
   @include mixins.settings-row-body;
-}
-
-.integrity-popup-overlay {
-  @include mixins.popup-overlay;
 }
 
 .integrity-popup {

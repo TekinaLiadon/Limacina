@@ -119,6 +119,9 @@ export function useUserContent<T>(api: UserContentApi<T>) {
     items.value = []
     isListLoading.value = false
     listError.value = ''
+    errorMessage.value = ''
+    isUploading.value = false
+    isMutating.value = false
     void loadItems()
   })
 

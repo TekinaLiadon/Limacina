@@ -18,6 +18,7 @@ export function useAlternativeJava() {
   const versionError = ref<string>('')
 
   const versionGuard = useAsyncRaceGuard()
+  const distributionsGuard = useAsyncRaceGuard()
 
   const loadJavaVersion = async (mcVersion: string): Promise<void> => {
     const generation = versionGuard.next()
@@ -35,28 +36,32 @@ export function useAlternativeJava() {
   }
 
   const loadDistributions = async (): Promise<void> => {
+    const generation = distributionsGuard.next()
     isDistributionsLoading.value = true
     distributionsError.value = ''
     try {
-      distributions.value = await getJavaDistributions()
+      const list = await getJavaDistributions()
+      if (!distributionsGuard.isCurrent(generation)) return
+      distributions.value = list
       if (!selectedDistribution.value) {
-        const [first] = distributions.value
+        const [first] = list
         if (first !== undefined) selectedDistribution.value = first.name
       }
     } catch (e: unknown) {
+      if (!distributionsGuard.isCurrent(generation)) return
       distributionsError.value = getErrorMessage(e)
       reportError('Не удалось загрузить список Java-дистрибутивов', e)
     } finally {
-      isDistributionsLoading.value = false
+      if (distributionsGuard.isCurrent(generation)) isDistributionsLoading.value = false
     }
   }
 
   const openPopup = async (mcVersion: string): Promise<void> => {
+    isPopupOpen.value = true
     await Promise.all([
       distributions.value.length === 0 ? loadDistributions() : Promise.resolve(),
       loadJavaVersion(mcVersion),
     ])
-    isPopupOpen.value = true
   }
 
   const closePopup = (): void => {
@@ -64,6 +69,7 @@ export function useAlternativeJava() {
   }
 
   const startDownload = async (): Promise<boolean> => {
+    if (isDownloading.value) return false
     const dist = distributions.value.find((d) => d.name === selectedDistribution.value)
     if (!dist) return false
 

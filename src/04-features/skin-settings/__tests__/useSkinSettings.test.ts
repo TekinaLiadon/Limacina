@@ -187,6 +187,40 @@ describe('useSkinSettings', () => {
     expect(uploadSkin).not.toHaveBeenCalled()
   })
 
+  it('keeps the manually selected model mode when the list reloads', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([{ ...makeSkin(1, true), model: 'slim' }])
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+    expect(skins.modelMode.value).toBe('slim')
+
+    skins.modelMode.value = 'classic'
+    await skins.loadList()
+    await nextTick()
+
+    expect(skins.modelMode.value).toBe('classic')
+  })
+
+  it('adopts the model of the newly activated skin', async () => {
+    goOnline()
+    let activeId = 1
+    vi.mocked(listSkins).mockImplementation(async () => [
+      { ...makeSkin(1, activeId === 1), model: 'classic' },
+      { ...makeSkin(2, activeId === 2), model: 'slim' },
+    ])
+    vi.mocked(setActiveSkin).mockImplementation(async (id: number): Promise<void> => {
+      activeId = id
+    })
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+    expect(skins.modelMode.value).toBe('classic')
+
+    await skins.handleActivate(2)
+    await nextTick()
+
+    expect(skins.modelMode.value).toBe('slim')
+  })
+
   it('activates a skin and reloads the preview', async () => {
     goOnline()
     vi.mocked(listSkins).mockResolvedValue([makeSkin(1, true)])
@@ -313,5 +347,14 @@ describe('useSkinSettings', () => {
 
     expect(skins.skinUrl.value).toBe('')
     expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('sets the texture load error through the composable action', async () => {
+    const skins = setupSkins()
+
+    expect(skins.errorMessage.value).toBe('')
+    skins.setTextureError()
+
+    expect(skins.errorMessage.value).toBe('Не удалось загрузить текстуру скина')
   })
 })

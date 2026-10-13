@@ -8,6 +8,7 @@ import {
   type AppInitData,
   type LauncherConfig,
   type ProjectConfig,
+  type UpdateInfo,
 } from '@/05-entities'
 import { useAppInit } from '../useAppInit'
 import { withSetup } from '@/test-support/withSetup'
@@ -169,6 +170,44 @@ describe('useAppInit', () => {
     await runInit()
 
     expect(api.loadSettingsProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('defers the project load until the update check picks the target project', async () => {
+    api.getAppInitData
+      .mockResolvedValueOnce(
+        makeInitData({ launcherConfig: makeLauncherConfig({ autoUpdate: true }) }),
+      )
+      .mockResolvedValueOnce(
+        makeInitData({
+          version: '2.0.0',
+          launcherConfig: makeLauncherConfig({
+            autoUpdate: true,
+            projectNames: ['proj', 'beta'],
+            currentProject: 'beta',
+          }),
+        }),
+      )
+    let releaseCheck: (info: UpdateInfo) => void = () => {}
+    api.checkUpdate.mockImplementationOnce(
+      () =>
+        new Promise<UpdateInfo>((resolve) => {
+          releaseCheck = resolve
+        }),
+    )
+    api.applyUpdateCmd.mockResolvedValue(undefined)
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('beta'))
+
+    setupApp()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(api.loadSettingsProject).not.toHaveBeenCalled()
+
+    releaseCheck({ version: '2.0.0' })
+    await runInit()
+
+    expect(api.loadSettingsProject).toHaveBeenCalledTimes(1)
+    expect(api.loadSettingsProject).toHaveBeenCalledWith('beta')
+    expect(useProjectSettingsStore().loadedProject).toBe('beta')
   })
 
   it('routes to the setup screen when there is no launcher config', async () => {

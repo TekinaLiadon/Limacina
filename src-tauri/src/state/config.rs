@@ -5,10 +5,27 @@ use crate::utils::errors::LauncherError;
 use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
 use anyhow::{Context, Result};
 use tokio::fs::{create_dir_all, read_to_string, rename};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use toml::{from_str, to_string_pretty};
 
 static PROJECT_CONFIG_WRITE_LOCK: Mutex<()> = Mutex::const_new(());
+
+pub(crate) async fn project_config_write_lock() -> MutexGuard<'static, ()> {
+    PROJECT_CONFIG_WRITE_LOCK.lock().await
+}
+
+pub(crate) fn ensure_project_selected(project_name: &str) -> Result<()> {
+    if project_name.trim().is_empty() {
+        return Err(LauncherError::ProjectNotSelected.into());
+    }
+    Ok(())
+}
+
+pub(crate) async fn current_project_config(state: &Mutex<GlobalState>) -> Result<ProjectConfig> {
+    let config = state.lock().await.project_config.clone();
+    ensure_project_selected(&config.project_name)?;
+    Ok(config)
+}
 
 pub fn validate_project_name(name: &str) -> Result<()> {
     let trimmed = name.trim();
@@ -28,7 +45,7 @@ pub fn validate_project_name(name: &str) -> Result<()> {
 }
 
 impl ProjectConfig {
-    pub async fn save_config(&self) -> Result<()> {
+    pub(crate) async fn save_config(&self) -> Result<()> {
         let toml_string =
             to_string_pretty(self).context("Не удалось сериализовать конфиг профиля")?;
         let path = config_file_path(&self.project_name)?;
@@ -110,14 +127,11 @@ fn is_missing_config(e: &anyhow::Error) -> bool {
     })
 }
 
-fn is_corrupt_config(e: &anyhow::Error) -> bool {
+pub(crate) fn is_corrupt_config(e: &anyhow::Error) -> bool {
     e.chain().any(|cause| cause.is::<toml::de::Error>())
 }
 
-async fn recover_corrupt_config(
-    project_name: &str,
-    error: &anyhow::Error,
-) -> Result<ProjectConfig> {
+pub(crate) async fn backup_corrupt_config(project_name: &str, error: &anyhow::Error) -> Result<()> {
     let path = config_file_path(project_name)?;
     let backup_path = path.with_extension("toml.bak");
     log_err!(
@@ -133,18 +147,73 @@ async fn recover_corrupt_config(
             backup_path
         )
     })?;
+    Ok(())
+}
+
+async fn recover_corrupt_config(
+    project_name: &str,
+    error: &anyhow::Error,
+) -> Result<ProjectConfig> {
+    backup_corrupt_config(project_name, error).await?;
     Ok(default_project_config(project_name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        config_file_path, load_config, load_config_or_default, update_project_config,
-        validate_project_name,
+        config_file_path, current_project_config, load_config, load_config_or_default,
+        update_project_config, validate_project_name,
     };
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::{part_files_in, LauncherDirGuard};
+    use crate::utils::errors::LauncherError;
     use tokio::sync::Mutex;
+
+    #[test]
+    fn ensure_project_selected_rejects_blank_names() {
+        for name in ["", "   ", "\t"] {
+            assert!(
+                super::ensure_project_selected(name).is_err(),
+                "имя {name:?} должно отклоняться"
+            );
+        }
+        assert!(super::ensure_project_selected("Limacina").is_ok());
+    }
+
+    #[tokio::test]
+    async fn current_project_config_requires_selected_project() {
+        let state = Mutex::new(GlobalState::default());
+
+        let error = current_project_config(&state)
+            .await
+            .expect_err("пустой проект должен отклоняться");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectNotSelected)
+            ),
+            "ожидается ProjectNotSelected: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn current_project_config_returns_clone_of_active_config() {
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Current".to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+            ..GlobalState::default()
+        });
+
+        let config = current_project_config(&state)
+            .await
+            .expect("выбранный проект должен возвращаться");
+
+        assert_eq!(config.project_name, "Current");
+        assert_eq!(config.mc_version, "1.20.1");
+    }
 
     #[test]
     fn validate_accepts_normal_names() {

@@ -127,7 +127,7 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
                role="combobox"
                :aria-expanded="showDropdown && filteredList.length > 0"
                aria-haspopup="listbox"
-               :aria-controls="listboxId"
+               :aria-controls="showDropdown && filteredList.length > 0 ? listboxId : undefined"
                :aria-activedescendant="showDropdown && filteredList.length > 0 ? `${listboxId}-opt-${activeIndex}` : undefined"
                @focus="openList"
                @input="openList"

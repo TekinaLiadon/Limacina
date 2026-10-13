@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import type { CPMChild, CPMConfig, CPMElement } from '@/05-entities'
+import { DEFAULT_RGB } from '@/06-shared'
 import { bytesToBase64 } from '../cpmBinaryWriter'
 import {
   cpmConfigToBytes,
@@ -87,6 +88,19 @@ describe('cpmProjectExporter', () => {
       0, 0,
       2, 133,
     ])
+  })
+
+  it('writes the shared default rgb for textureless cubes without a valid color', () => {
+    const expectedRgb = [
+      (DEFAULT_RGB >>> 16) & 0xFF,
+      (DEFAULT_RGB >>> 8) & 0xFF,
+      DEFAULT_RGB & 0xFF,
+    ]
+    const missing = cpmConfigToLinkBytes(makeConfig([makeChild({ texture: false })]))
+    expect([missing[25], missing[26], missing[27]]).toEqual(expectedRgb)
+
+    const invalid = cpmConfigToLinkBytes(makeConfig([makeChild({ texture: false, color: '80808080' })]))
+    expect([invalid[25], invalid[26], invalid[27]]).toEqual(expectedRgb)
   })
 
   it('wraps the definition into the full byte format', () => {

@@ -5,6 +5,7 @@ use tokio::fs;
 use tokio::sync::Mutex;
 
 use crate::commands::launcher_config::update_launcher_config;
+use crate::launcher_server::fetch_project_config;
 use crate::log_err;
 use crate::log_info;
 use crate::minecraft::manifest::VERSION_MANIFEST_URL;
@@ -15,7 +16,8 @@ use crate::minecraft::structs::{
 };
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
 use crate::state::config::{
-    load_config, load_config_or_default, set_project_config, validate_project_name,
+    backup_corrupt_config, current_project_config, is_corrupt_config, load_config,
+    load_config_or_default, project_config_write_lock, set_project_config, validate_project_name,
 };
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
@@ -23,10 +25,9 @@ use crate::utils::compare_versions;
 use crate::utils::download_file::download_json;
 use crate::utils::env_info::{launcher_path, normalize_server_url};
 use crate::utils::errors::LauncherError;
-use crate::utils::http::http_client;
 use crate::utils::tauri_err::CommandResult;
 
-async fn register_project(state: &State<'_, Mutex<GlobalState>>, project_name: &str) -> Result<()> {
+async fn register_project(state: &Mutex<GlobalState>, project_name: &str) -> Result<()> {
     let mut registered = false;
     update_launcher_config(state, |config| {
         if config.has_project(project_name) {
@@ -42,10 +43,7 @@ async fn register_project(state: &State<'_, Mutex<GlobalState>>, project_name: &
     Ok(())
 }
 
-async fn validate_new_project_name(
-    state: &State<'_, Mutex<GlobalState>>,
-    name: &str,
-) -> Result<()> {
+async fn validate_new_project_name(state: &Mutex<GlobalState>, name: &str) -> Result<()> {
     validate_project_name(name)?;
 
     let trimmed = name.trim();
@@ -56,8 +54,13 @@ async fn validate_new_project_name(
             .as_ref()
             .is_some_and(|c| c.has_project(trimmed))
     };
-    if already_registered || load_config(trimmed).await.is_ok() {
+    if already_registered {
         bail!(LauncherError::ProjectExists(trimmed.to_string()));
+    }
+    match load_config(trimmed).await {
+        Ok(_) => bail!(LauncherError::ProjectExists(trimmed.to_string())),
+        Err(e) if is_corrupt_config(&e) => backup_corrupt_config(trimmed, &e).await?,
+        Err(_) => {}
     }
     Ok(())
 }
@@ -79,10 +82,7 @@ async fn activate_project(state: &Mutex<GlobalState>, config: &ProjectConfig) ->
     set_project_config(state, config.clone()).await
 }
 
-async fn add_server_profile(
-    state: &State<'_, Mutex<GlobalState>>,
-    server_url: &str,
-) -> Result<ProjectConfig> {
+async fn add_server_profile(state: &Mutex<GlobalState>, server_url: &str) -> Result<ProjectConfig> {
     if server_url.trim().is_empty() {
         bail!(LauncherError::ServerUrlMissing);
     }
@@ -92,60 +92,32 @@ async fn add_server_profile(
         "[profile] Запрос конфига сервера: {}/v1/launcher/config",
         base_url
     );
-    let response = LauncherError::classify(
-        http_client()
-            .get(format!("{}/v1/launcher/config", base_url))
-            .send()
-            .await
-            .with_context(|| format!("Не удалось подключиться к {}", base_url)),
-        LauncherError::LauncherServer,
-    )?;
+    let mut config = fetch_project_config(&base_url).await?;
 
-    if !response.status().is_success() {
-        bail!(LauncherError::LauncherServer(format!(
-            "Сервер {} вернул {}",
-            base_url,
-            response.status()
-        )));
+    {
+        let _write_guard = project_config_write_lock().await;
+        validate_new_project_name(state, &config.project_name).await?;
+
+        config.online = true;
+        config.initialized = false;
+        config.server_url = Some(base_url);
+
+        persist_new_project(&config).await?;
+        register_project(state, &config.project_name).await?;
     }
-
-    let mut config: ProjectConfig = LauncherError::classify(
-        response
-            .json()
-            .await
-            .context("Не удалось распарсить конфиг сервера"),
-        LauncherError::LauncherServer,
-    )?;
-
-    if config.project_name.trim().is_empty() {
-        bail!(LauncherError::LauncherServer(
-            "Сервер не вернул название проекта".to_string()
-        ));
-    }
-
-    validate_new_project_name(state, &config.project_name).await?;
-
-    config.online = true;
-    config.initialized = false;
-    config.server_url = Some(base_url);
-
-    persist_new_project(&config).await?;
-    register_project(state, &config.project_name).await?;
-    activate_project(state.inner(), &config).await?;
+    activate_project(state, &config).await?;
 
     log_info!("[profile] Профиль сервера создан: {}", config.project_name);
     Ok(config)
 }
 
 async fn add_offline_profile(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     name: &str,
     mc_version: &str,
     mod_loader: ModLoader,
     loader_version: Option<String>,
 ) -> Result<ProjectConfig> {
-    validate_new_project_name(state, name).await?;
-
     if mc_version.trim().is_empty() {
         bail!(LauncherError::InvalidInput(
             "Выберите версию Minecraft".to_string()
@@ -157,24 +129,30 @@ async fn add_offline_profile(
         bail!(LauncherError::LoaderNotSelected);
     }
 
-    let config = ProjectConfig {
-        project_name: name.trim().to_string(),
-        mc_version: mc_version.trim().to_string(),
-        mod_loader,
-        loader_version,
-        online: false,
-        server_url: None,
-        ..ProjectConfig::default()
+    let config = {
+        let _write_guard = project_config_write_lock().await;
+        validate_new_project_name(state, name).await?;
+
+        let config = ProjectConfig {
+            project_name: name.trim().to_string(),
+            mc_version: mc_version.trim().to_string(),
+            mod_loader,
+            loader_version,
+            online: false,
+            server_url: None,
+            ..ProjectConfig::default()
+        };
+
+        persist_new_project(&config).await?;
+        let mods_dir = launcher_path(Some(&config.project_name))?.join("mods");
+        fs::create_dir_all(&mods_dir)
+            .await
+            .with_context(|| format!("Не удалось создать папку модов {:?}", mods_dir))?;
+
+        register_project(state, &config.project_name).await?;
+        config
     };
-
-    persist_new_project(&config).await?;
-    let mods_dir = launcher_path(Some(&config.project_name))?.join("mods");
-    fs::create_dir_all(&mods_dir)
-        .await
-        .with_context(|| format!("Не удалось создать папку модов {:?}", mods_dir))?;
-
-    register_project(state, &config.project_name).await?;
-    activate_project(state.inner(), &config).await?;
+    activate_project(state, &config).await?;
 
     log_info!(
         "[profile] Одиночный профиль создан: {}",
@@ -254,29 +232,21 @@ pub async fn create_server_profile(
     state: State<'_, Mutex<GlobalState>>,
     server_url: String,
 ) -> CommandResult<ProjectConfig> {
-    Ok(add_server_profile(&state, &server_url).await?)
+    Ok(add_server_profile(state.inner(), &server_url).await?)
 }
 
 #[tauri::command]
 pub async fn get_server_connect_url(state: State<'_, Mutex<GlobalState>>) -> CommandResult<String> {
-    let (project_name, online, server_url) = {
-        let guard = state.lock().await;
-        (
-            guard.project_config.project_name.clone(),
-            guard.project_config.online,
-            guard.project_config.resolved_server_url(),
-        )
-    };
-    if project_name.trim().is_empty() {
-        return Err(LauncherError::ProjectNotSelected.into());
-    }
-    if !online {
+    let config = current_project_config(state.inner()).await?;
+    if !config.online {
         return Err(LauncherError::OfflineProfile(
             "ссылка для подключения доступна только у серверных профилей".to_string(),
         )
         .into());
     }
-    let url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
+    let url = config
+        .resolved_server_url()
+        .ok_or(LauncherError::ServerUrlMissing)?;
     Ok(url)
 }
 
@@ -288,7 +258,14 @@ pub async fn create_offline_profile(
     mod_loader: ModLoader,
     loader_version: Option<String>,
 ) -> CommandResult<ProjectConfig> {
-    Ok(add_offline_profile(&state, &name, &mc_version, mod_loader, loader_version).await?)
+    Ok(add_offline_profile(
+        state.inner(),
+        &name,
+        &mc_version,
+        mod_loader,
+        loader_version,
+    )
+    .await?)
 }
 
 #[tauri::command]
@@ -349,13 +326,7 @@ async fn delete_project_credentials(project_name: &str, logins: Vec<String>) -> 
 }
 
 async fn delete_current_project(state: &Mutex<GlobalState>) -> Result<LauncherConfig> {
-    let project_name = {
-        let guard = state.lock().await;
-        guard.project_config.project_name.clone()
-    };
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
-    }
+    let project_name = current_project_config(state).await?.project_name;
     if project_name.eq_ignore_ascii_case("config") {
         bail!(LauncherError::ProjectNameReserved);
     }
@@ -469,15 +440,160 @@ pub async fn refresh_manifests() -> CommandResult<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::state::config::update_project_config;
-    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::state::config::{load_config, project_config_write_lock, update_project_config};
+    use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use crate::utils::errors::LauncherError;
     use tokio::sync::Mutex;
 
-    use super::{activate_project, delete_current_project, delete_project_files};
+    use super::{
+        activate_project, add_offline_profile, delete_current_project, delete_project_files,
+    };
+
+    fn empty_state() -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            launcher_config: Some(LauncherConfig::default()),
+            ..GlobalState::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn parallel_creates_with_same_name_leave_single_profile() {
+        let guard = LauncherDirGuard::acquire("profile_create_race").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let state = empty_state();
+
+        let (first, second) = tokio::join!(
+            add_offline_profile(&state, "Dup", "1.20.1", ModLoader::Vanilla, None),
+            add_offline_profile(&state, "Dup", "1.20.1", ModLoader::Vanilla, None),
+        );
+
+        let winners = usize::from(first.is_ok()) + usize::from(second.is_ok());
+        assert_eq!(winners, 1, "ровно один create должен победить");
+        let loser = if first.is_ok() { second } else { first };
+        let error = loser.expect_err("проигравший должен получить ошибку");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectExists(_))
+            ),
+            "ожидается ProjectExists: {error:#}"
+        );
+
+        let config_dir = guard.root().join("project").join("config");
+        assert!(
+            config_dir.join("Dup.toml").exists(),
+            "конфиг победителя на месте"
+        );
+        let saved = load_config("Dup")
+            .await
+            .expect("конфиг победителя должен читаться");
+        assert_eq!(saved.mc_version, "1.20.1");
+        assert!(
+            guard
+                .root()
+                .join("project")
+                .join("Dup")
+                .join("mods")
+                .exists(),
+            "папка победителя на месте"
+        );
+        assert!(
+            state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .has_project("Dup"),
+            "проект зарегистрирован"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_waits_until_inflight_config_write_releases() {
+        let guard = LauncherDirGuard::acquire("profile_create_waits_lock").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let state = Arc::new(empty_state());
+        let task_state = Arc::clone(&state);
+        let _write_lock = project_config_write_lock().await;
+
+        let task = tokio::spawn(async move {
+            add_offline_profile(&task_state, "Waited", "1.20.1", ModLoader::Vanilla, None).await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !task.is_finished(),
+            "создание профиля должно ждать освобождения блокировки конфига"
+        );
+
+        drop(_write_lock);
+        let created = task
+            .await
+            .expect("задача создания не должна паниковать")
+            .expect("создание после снятия блокировки");
+        assert_eq!(created.project_name, "Waited");
+        assert!(
+            state.lock().await.project_config.project_name == "Waited",
+            "профиль должен активироваться после создания"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_over_corrupt_toml_backs_up_broken_file() {
+        let guard = LauncherDirGuard::acquire("profile_create_corrupt_bak").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let config_dir = guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("создание config");
+        std::fs::write(config_dir.join("Dup.toml"), "not [valid toml").expect("битый toml");
+
+        let state = empty_state();
+        let config = add_offline_profile(&state, "Dup", "1.20.1", ModLoader::Vanilla, None)
+            .await
+            .expect("битый конфиг не должен блокировать создание");
+
+        assert_eq!(config.project_name, "Dup");
+        assert!(
+            config_dir.join("Dup.toml.bak").exists(),
+            "битый toml должен сохраниться в .bak"
+        );
+        let saved = load_config("Dup")
+            .await
+            .expect("новый конфиг должен читаться");
+        assert_eq!(saved.mc_version, "1.20.1");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_name_registered_in_launcher_config() {
+        let guard = LauncherDirGuard::acquire("profile_create_registered").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let mut base = empty_state().into_inner();
+        base.launcher_config
+            .as_mut()
+            .expect("конфиг лаунчера")
+            .add_project("Reg");
+        let state = Mutex::new(base);
+
+        let error = add_offline_profile(&state, "Reg", "1.20.1", ModLoader::Vanilla, None)
+            .await
+            .expect_err("зарегистрированное имя должно отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectExists(_))
+            ),
+            "ожидается ProjectExists: {error:#}"
+        );
+        assert!(
+            !guard.root().join("project").join("Reg").exists(),
+            "файлов быть не должно"
+        );
+    }
 
     fn state_with_current(project_name: &str) -> GlobalState {
         GlobalState {

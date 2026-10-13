@@ -34,14 +34,10 @@ pub(crate) async fn update_launcher_config(
 ) -> anyhow::Result<LauncherConfig> {
     let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
 
-    let mut config = {
-        let guard = state.lock().await;
-        guard.launcher_config.clone()
+    let mut config = match state.lock().await.launcher_config.clone() {
+        Some(config) => config,
+        None => load_launcher_config().await?,
     };
-    if config.is_none() {
-        config = Some(load_launcher_config().await?);
-    }
-    let mut config = config.unwrap_or_default();
 
     mutate(&mut config);
 
@@ -355,10 +351,14 @@ mod update_flow_tests {
 
         let error = update_launcher_config(&state, |config| config.theme = "changed".to_string())
             .await
-            .expect_err("запись под файлом-заглушкой должна упасть");
+            .expect_err("запись под файлом-заглушкой должна падать");
         assert!(
-            error.to_string().contains("os error"),
-            "ожидается ошибка записи, получено: {error}"
+            error.to_string().contains("Не удалось создать каталог"),
+            "ошибка должна называть контекст: {error}"
+        );
+        assert!(
+            format!("{error:#}").contains("os error"),
+            "ожидается ошибка записи в причине: {error:#}"
         );
 
         let in_memory = state

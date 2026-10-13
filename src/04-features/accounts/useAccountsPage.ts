@@ -4,6 +4,7 @@ import { useAccounts } from '@/04-features/accounts/useAccounts'
 import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
+import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
 import { reportError, storeBinding, useAsyncAction } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
@@ -31,6 +32,7 @@ export function useAccountsPage() {
   } = useGameLaunch()
 
   const { resetLaunchSteps } = useLaunchStepsStream()
+  const { isSwitching } = useProjectSwitch()
 
   const isServerOffline = computed((): boolean =>
     coreStore.isServerBuild && coreStore.isOnlineProject && serverStore.isServerReachable === false
@@ -50,20 +52,26 @@ export function useAccountsPage() {
       notificationStore.show('Идёт проверка целостности, запуск невозможен')
       return
     }
-    const launchGeneration = launch.beginLaunch()
+    if (isSwitching.value) {
+      notificationStore.show('Идёт переключение проекта, запуск невозможен')
+      return
+    }
     try {
-      try {
-        const username = await getGameState()
-        if (username !== null) {
-          launch.gameUsername = username
-          notificationStore.show('Игра уже запущена')
-          return
-        }
-      } catch (e: unknown) {
-        reportError('Не удалось проверить состояние игровой сессии', e)
-        notificationStore.show('Не удалось проверить состояние игры, запуск заблокирован')
+      const username = await getGameState()
+      if (launch.isLaunching || isSwitching.value) return
+      if (username !== null) {
+        launch.gameUsername = username
+        notificationStore.show('Игра уже запущена')
         return
       }
+    } catch (e: unknown) {
+      reportError('Не удалось проверить состояние игровой сессии', e)
+      notificationStore.show('Не удалось проверить состояние игры, запуск заблокирован')
+      return
+    }
+
+    const launchGeneration = launch.beginLaunch()
+    try {
       await executeSteps(() => !launch.isCurrent(launchGeneration))
     } catch (e: unknown) {
       launch.reportFailure(launchGeneration, getErrorMessage(e))

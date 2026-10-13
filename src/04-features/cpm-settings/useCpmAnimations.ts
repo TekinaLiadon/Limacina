@@ -26,21 +26,24 @@ export function useCpmAnimations(cpmData: Ref<CPMData | null>) {
   )
 
   const compositions = computed((): Map<string, GestureComposition> => {
-    const mains = new Map<string, CPMAnimation>()
+    const mainIdsByName = new Map<string, string[]>()
     for (const animation of availableAnimations.value) {
-      if (serviceTargetName(animation) === null) mains.set(animation.name, animation)
+      if (serviceTargetName(animation) !== null) continue
+      const ids = mainIdsByName.get(animation.name)
+      if (ids) ids.push(animation.id)
+      else mainIdsByName.set(animation.name, [animation.id])
     }
 
     const links = new Map<string, GestureComposition>()
     for (const animation of availableAnimations.value) {
       const target = serviceTargetName(animation)
       if (target === null) continue
-      const main = mains.get(target)
-      if (!main) continue
-      const composition = links.get(main.id) ?? { setup: null, finish: null }
-      if (animation.kind === 'setup') composition.setup ??= animation
-      else composition.finish ??= animation
-      links.set(main.id, composition)
+      for (const mainId of mainIdsByName.get(target) ?? []) {
+        const composition = links.get(mainId) ?? { setup: null, finish: null }
+        if (animation.kind === 'setup') composition.setup ??= animation
+        else composition.finish ??= animation
+        links.set(mainId, composition)
+      }
     }
     return links
   })

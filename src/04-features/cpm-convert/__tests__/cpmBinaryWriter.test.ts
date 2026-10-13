@@ -89,4 +89,14 @@ describe('cpmBinaryWriter', () => {
     expect(bytesToBase64(new Uint8Array([1, 2, 3, 4]))).toBe('AQIDBA==')
     expect(bytesToBase64(new Uint8Array([]))).toBe('')
   })
+
+  it('encodes payloads spanning several chunks without corruption', () => {
+    for (const length of [8191, 8192, 8193, 20000]) {
+      const bytes = new Uint8Array(length)
+      for (let i = 0; i < length; i += 1) bytes[i] = (i * 31 + 7) % 251
+      let reference = ''
+      for (const byte of bytes) reference += String.fromCharCode(byte)
+      expect(bytesToBase64(bytes)).toBe(btoa(reference))
+    }
+  })
 })

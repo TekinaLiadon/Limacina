@@ -8,7 +8,7 @@ export interface BackoffPollerConfig<T> {
   isWatched: () => boolean
   fetch: () => Promise<T>
   applySuccess: (result: T) => void
-  applyError?: (error: unknown) => void
+  applyError?: ((error: unknown) => void) | undefined
   applyIdle: () => void
   shouldPoll?: () => boolean
   failureThreshold?: number
@@ -93,7 +93,8 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
     const generation = pollGeneration
     try {
       if (shouldPoll !== undefined && !shouldPoll()) {
-        schedule(okIntervalMs)
+        resetBackoff()
+        guardApply(applyIdle)
         return
       }
       await runCycle(generation)

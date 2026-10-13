@@ -8,6 +8,7 @@ import Viewer3D from './Viewer3D.vue'
 const {
   skinUrl,
   errorMessage,
+  setTextureError,
   isUploading,
   isMutating,
   isSkinLoading,
@@ -59,7 +60,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
         </button>
       </div>
       <Viewer3D>
-        <SkinViewer :skin-url="skinUrl" :slim="modelMode === 'slim'" />
+        <SkinViewer :skin-url="skinUrl" :slim="modelMode === 'slim'" @load-error="setTextureError" />
       </Viewer3D>
     </template>
 

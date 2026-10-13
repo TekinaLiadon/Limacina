@@ -4,6 +4,7 @@ use tokio::fs;
 use tokio::sync::Mutex;
 
 use crate::commands::launcher_config::update_launcher_config;
+use crate::launcher_server::fetch_project_config;
 use crate::log_err;
 use crate::state::config::validate_project_name;
 use crate::state::dto::{GlobalState, ProjectConfig};
@@ -12,7 +13,6 @@ use crate::utils::blocking;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
 use crate::utils::errors::LauncherError;
-use crate::utils::http::{http_client, with_launcher_id};
 
 #[derive(Debug)]
 pub struct InitPaths {
@@ -127,37 +127,7 @@ pub async fn init_project_config(
             ))
         })?,
     };
-    let response = LauncherError::classify(
-        with_launcher_id(http_client().get(format!("{}/v1/launcher/config", base_url)))
-            .send()
-            .await
-            .context("Не удалось подключиться к серверу конфига проекта"),
-        LauncherError::LauncherServer,
-    )?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
-        anyhow::bail!(LauncherError::LauncherServer(format!(
-            "Сервер {} вернул {} при запросе конфига проекта",
-            base_url, status
-        )));
-    }
-
-    let mut config: ProjectConfig = LauncherError::classify(
-        response
-            .json()
-            .await
-            .context("Не удалось распарсить конфиг с сервера"),
-        LauncherError::LauncherServer,
-    )?;
-
-    if config.project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::LauncherServer(
-            "Сервер не вернул название проекта".to_string()
-        ));
-    }
+    let mut config = fetch_project_config(&base_url).await?;
 
     if !project_name.is_empty() {
         config.project_name = project_name.to_string();

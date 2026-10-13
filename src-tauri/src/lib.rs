@@ -176,8 +176,6 @@ pub fn run() {
             };
             app.manage(Mutex::new(gs));
 
-            tauri::async_runtime::spawn_blocking(updater::cleanup_old_binaries);
-
             tauri::async_runtime::spawn_blocking(move || {
                 discord::init(discord_enabled);
             });

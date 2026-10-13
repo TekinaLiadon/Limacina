@@ -1,3 +1,4 @@
+use crate::state::config::current_project_config;
 use crate::state::dto::GlobalState;
 use crate::updater::{
     compare_with_current, get_launcher_versions as fetch_launcher_versions, is_timeout_error,
@@ -40,20 +41,16 @@ pub struct ServerStatus {
 pub async fn get_server_status(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ServerStatus> {
-    let (online, server_url) = {
-        let guard = state.lock().await;
-        (
-            guard.project_config.online,
-            guard.project_config.resolved_server_url(),
-        )
-    };
-    if !online {
+    let config = current_project_config(state.inner()).await?;
+    if !config.online {
         return Err(LauncherError::OfflineProfile(
             "статус доступен только для серверных профилей".to_string(),
         )
         .into());
     }
-    let server_url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
+    let server_url = config
+        .resolved_server_url()
+        .ok_or(LauncherError::ServerUrlMissing)?;
     let url = format!("{server_url}/v1/common/status");
     let request = with_launcher_id(
         crate::utils::http::http_client()
