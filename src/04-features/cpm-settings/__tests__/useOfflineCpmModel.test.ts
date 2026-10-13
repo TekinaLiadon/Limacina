@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref, shallowRef, type Ref } from 'vue'
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { savePlayerModel } from '@/06-shared/api'
-import { useNotificationStore, type CPMData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMData } from '@/05-entities'
 import { useOfflineCpmModel } from '../useOfflineCpmModel'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -106,5 +107,51 @@ describe('useOfflineCpmModel', () => {
 
     expect(savePlayerModel).not.toHaveBeenCalled()
     expect(exporter.cpmProjectToBytes).not.toHaveBeenCalled()
+  })
+
+  it('skips the write when the project switches before the save is issued', async () => {
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+    let releaseBytes: (bytes: Uint8Array) => void = () => {}
+    exporter.cpmProjectToBytes.mockImplementationOnce(
+      () =>
+        new Promise<Uint8Array>((resolve) => {
+          releaseBytes = resolve
+        }),
+    )
+    const { offline } = setupOffline(new Uint8Array(8), makeCpmData('default'))
+    useCoreStore().currentProject = 'proj'
+
+    const saving = offline.handleSaveModelOffline()
+    await flushPromises()
+    useCoreStore().currentProject = 'other'
+    releaseBytes(new Uint8Array([1, 2, 3]))
+    await saving
+
+    expect(savePlayerModel).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).not.toBe('Модель сохранена в игру')
+    expect(offline.isSaving.value).toBe(false)
+  })
+
+  it('skips the success notification when the project switches mid-save', async () => {
+    let releaseSave: () => void = () => {}
+    vi.mocked(savePlayerModel).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSave = resolve
+        }),
+    )
+    exporter.cpmProjectToBytes.mockResolvedValue(new Uint8Array([1]))
+    const { offline } = setupOffline(new Uint8Array(4), makeCpmData('default'))
+    useCoreStore().currentProject = 'proj'
+
+    const saving = offline.handleSaveModelOffline()
+    await flushPromises()
+    useCoreStore().currentProject = 'other'
+    releaseSave()
+    await saving
+
+    expect(savePlayerModel).toHaveBeenCalledTimes(1)
+    expect(useNotificationStore().message).not.toBe('Модель сохранена в игру')
+    expect(offline.isSaving.value).toBe(false)
   })
 })

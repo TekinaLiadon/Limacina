@@ -1,6 +1,7 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, getErrorMessage, getLauncherVersions } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 
 export function useLauncherUpdate(): {
   versions: Ref<UpdateInfo[]>
@@ -41,6 +42,7 @@ export function useLauncherUpdate(): {
       versions.value = await getLauncherVersions()
       selectedVersion.value = currentVersion.value
     } catch (e: unknown) {
+      reportError('Не удалось загрузить список версий лаунчера', e)
       loadError.value = getErrorMessage(e)
     } finally {
       isLoading.value = false
@@ -69,6 +71,7 @@ export function useLauncherUpdate(): {
       await applyUpdateCmd(target)
       notification.show(`Установлена версия v${target}, лаунчер перезапускается...`)
     } catch (e: unknown) {
+      reportError('Не удалось применить версию лаунчера', e)
       notification.show(getErrorMessage(e))
     } finally {
       isApplying.value = false

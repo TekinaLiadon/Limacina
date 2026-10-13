@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { useNotificationStore, type ProjectConfig, type ServerProfileForm } from '@/05-entities'
 import { createServerProfile, getErrorMessage } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
 
 export function useAddProfile() {
@@ -26,6 +27,7 @@ export function useAddProfile() {
       notification.show(`Сервер «${config.projectName}» добавлен`)
       return config
     } catch (e: unknown) {
+      reportError('Не удалось добавить сервер', e)
       errorMessage.value = getErrorMessage(e)
       return null
     } finally {

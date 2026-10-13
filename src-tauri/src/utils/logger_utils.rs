@@ -102,7 +102,6 @@ pub fn send_frontend_log(line: String, is_error: bool) {
 mod session_payload_tests {
     use super::{
         drain_startup_logs, send_game_output, send_log, set_game_output_enabled, ConsolePayload,
-        LOG_BUFFER,
     };
     use std::collections::VecDeque;
     use std::sync::Mutex as StdMutex;

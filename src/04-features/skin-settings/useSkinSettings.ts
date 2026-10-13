@@ -1,5 +1,5 @@
 import { ref, computed, watch, onMounted, onScopeDispose } from 'vue'
-import { getErrorMessage, reportError, useAsyncRaceGuard } from '@/06-shared'
+import { getErrorMessage, hasPngSignature, reportError, useAsyncRaceGuard } from '@/06-shared'
 import { getProfileSkin, readSkinFile } from '@/06-shared/api'
 import { useCoreStore, useNotificationStore, type UserContentItem, type SkinModelMode } from '@/05-entities'
 import { useSkinUserContent } from '@/04-features/user-content/useUserContent'
@@ -143,6 +143,8 @@ export function useSkinSettings() {
     accept: '.png,image/png',
     extensions: ['png'],
     maxBytes: 256 * 1024,
+    validateBytes: (skinBytes: Uint8Array): string | null =>
+      hasPngSignature(skinBytes) ? null : 'Выбранный файл не является PNG-изображением',
     readFile: readSkinFile,
     processFile: async (skinBytes: Uint8Array): Promise<void> => {
       const dataUrl = await createPreviewUrl(skinBytes)

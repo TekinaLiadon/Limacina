@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Button, Dropdown, Input, MultiSelect, Skeleton, formatNumber } from '@/06-shared'
+import { computed, onMounted, ref, watch } from 'vue'
+import { Button, Dropdown, Input, MultiSelect, Skeleton, formatNumber, useRovingTabs } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05-entities'
 import { useModrinth, MODRINTH_SORTS, MODRINTH_CATEGORIES } from '@/04-features'
 import ModrinthProjectPopup from './ModrinthProjectPopup.vue'
-import ModrinthIcon from './ModrinthIcon.vue'
-import ModrinthInstallActions from './ModrinthInstallActions.vue'
-import ModrinthUpdateBadge from './ModrinthUpdateBadge.vue'
+import ModrinthRow from './ModrinthRow.vue'
 
 const coreStore = useCoreStore()
 const notificationStore = useNotificationStore()
@@ -79,28 +77,14 @@ const viewTabs: Array<{ key: ModsView; label: string }> = [
   { key: 'installed', label: 'Установленные' },
 ]
 
-const moveView = (delta: number): void => {
-  const count = viewTabs.length
-  const currentIndex = viewTabs.findIndex((tab) => tab.key === activeView.value)
-  const nextTab = viewTabs[(currentIndex + delta + count) % count]
-  if (!nextTab) return
-  activeView.value = nextTab.key
-  void nextTick((): void => {
-    document.getElementById(`modrinth-view-${nextTab.key}`)?.focus({ preventScroll: true })
-  })
-}
-
-const handleViewsKeydown = (event: KeyboardEvent): void => {
-  if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    moveView(1)
-    return
-  }
-  if (event.key === 'ArrowLeft') {
-    event.preventDefault()
-    moveView(-1)
-  }
-}
+const { handleKeydown: handleViewsKeydown } = useRovingTabs<ModsView>({
+  tabs: (): Array<{ key: ModsView; label: string }> => viewTabs,
+  isActive: (key: ModsView): boolean => activeView.value === key,
+  tabId: (key: ModsView): string => `modrinth-view-${key}`,
+  select: (key: ModsView): void => {
+    activeView.value = key
+  },
+})
 
 type PaginationItem = { key: string; page: number | null }
 
@@ -255,41 +239,21 @@ onMounted(() => {
         Пока ничего не установлено — найдите моды в каталоге
       </p>
       <div v-else class="modrinth-tab__list">
-        <article
+        <ModrinthRow
           v-for="mod in installed"
           :key="mod.project_id"
-          class="modrinth-tab__row"
-        >
-          <ModrinthIcon :src="mod.icon_url" :title="mod.title" />
-          <div class="modrinth-tab__row-info">
-            <div class="modrinth-tab__row-head">
-              <span class="modrinth-tab__row-title">{{ mod.title }}</span>
-              <span class="modrinth-tab__badge">{{ mod.version_number }}</span>
-              <ModrinthUpdateBadge
-                v-if="availableUpdate(mod.project_id)"
-                :version="availableUpdate(mod.project_id) ?? ''"
-              />
-            </div>
-            <span class="modrinth-tab__row-meta">{{ mod.filename }}</span>
-          </div>
-          <div class="modrinth-tab__row-actions">
-            <ModrinthInstallActions
-              :is-installed="true"
-              :update-version="availableUpdate(mod.project_id) ?? ''"
-              :is-busy="isBusy(mod.project_id)"
-              :is-busy-any="installingId !== null"
-              @update="handleUpdate(mod.project_id)"
-            />
-            <Button
-              class="btn-danger"
-              :is-loading="isBusy(mod.project_id)"
-              :is-disabled="installingId !== null"
-              @click="handleUninstall(mod.project_id)"
-            >
-              Удалить
-            </Button>
-          </div>
-        </article>
+          variant="installed"
+          :icon-url="mod.icon_url"
+          :title="mod.title"
+          :version-text="mod.version_number"
+          :update-version="availableUpdate(mod.project_id) ?? ''"
+          :is-installed="true"
+          :is-busy="isBusy(mod.project_id)"
+          :is-busy-any="installingId !== null"
+          :meta-text="mod.filename"
+          @update="handleUpdate(mod.project_id)"
+          @uninstall="handleUninstall(mod.project_id)"
+        />
       </div>
     </section>
 
@@ -353,37 +317,24 @@ onMounted(() => {
         </div>
       </div>
       <TransitionGroup v-else name="modrinth-rows" tag="div" class="modrinth-tab__list">
-        <article
+        <ModrinthRow
           v-for="(hit, index) in hits"
           :key="hit.project_id"
-          class="modrinth-tab__row"
+          variant="catalog"
           :style="{ '--modrinth-row-index': String(Math.min(index, 11)) }"
-        >
-          <ModrinthIcon :src="hit.icon_url" :title="hit.title" />
-          <div class="modrinth-tab__row-info">
-            <div class="modrinth-tab__row-head">
-              <span class="modrinth-tab__row-title">{{ hit.title }}</span>
-              <span v-if="versionText(hit)" class="modrinth-tab__badge">{{ versionText(hit) }}</span>
-              <ModrinthUpdateBadge
-                v-if="availableUpdate(hit.project_id)"
-                :version="availableUpdate(hit.project_id) ?? ''"
-              />
-            </div>
-            <p class="modrinth-tab__row-description">{{ hit.description }}</p>
-            <span class="modrinth-tab__row-meta">{{ formatNumber(hit.downloads) }} загрузок · {{ hit.author }}</span>
-          </div>
-          <div class="modrinth-tab__row-actions">
-            <ModrinthInstallActions
-              :is-installed="isInstalled(hit)"
-              :update-version="availableUpdate(hit.project_id) ?? ''"
-              :is-busy="isBusy(hit.project_id)"
-              :is-busy-any="installingId !== null"
-              @update="handleUpdate(hit.project_id)"
-              @install="handleInstall(hit)"
-            />
-            <Button class="btn-secondary" @click="openDetails(hit)">Подробнее</Button>
-          </div>
-        </article>
+          :icon-url="hit.icon_url"
+          :title="hit.title"
+          :version-text="versionText(hit)"
+          :update-version="availableUpdate(hit.project_id) ?? ''"
+          :is-installed="isInstalled(hit)"
+          :is-busy="isBusy(hit.project_id)"
+          :is-busy-any="installingId !== null"
+          :meta-text="`${formatNumber(hit.downloads)} загрузок · ${hit.author}`"
+          :description="hit.description"
+          @update="handleUpdate(hit.project_id)"
+          @install="handleInstall(hit)"
+          @details="openDetails(hit)"
+        />
       </TransitionGroup>
 
       <div v-if="totalPages > 1 && hits.length > 0" class="modrinth-tab__pagination">

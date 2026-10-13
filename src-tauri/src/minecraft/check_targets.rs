@@ -18,6 +18,7 @@ use crate::{
         },
     },
     state::dto::ProjectConfig,
+    step_try,
     utils::{
         download_file::download_file,
         env_info::launcher_path,
@@ -113,7 +114,15 @@ impl VanillaPhaseExecutor for IntegrityPhases {
                 PHASE_ASSET_INDEX.integrity_noun
             ))
         })?;
+        let failed_downloads = report.failed.clone();
         self.report.merge(report);
+        if !failed_downloads.is_empty() {
+            return Err(LauncherError::GameDownload(format!(
+                "Не удалось восстановить индекс ассетов: {}",
+                failed_downloads.join(", ")
+            ))
+            .into());
+        }
 
         let asset_index = read_asset_index(&index_path).await.map_err(|e| {
             LauncherError::GameDownload(format!("Не удалось прочитать индекс ассетов: {e:#}"))
@@ -131,7 +140,7 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         "mc.manifest",
         "Загрузка манифеста версии",
     );
-    let manifest = load_version_manifest(project).await?;
+    let manifest = step_try!(manifest_step, load_version_manifest(project).await);
     manifest_step.finish(false);
 
     let base_path = launcher_path(Some(&project_name)).map_err(|e| {
@@ -144,8 +153,7 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         base_path,
         report: IntegrityReport::default(),
     };
-    run_vanilla_phases(&mut phases, &manifest).await?;
-
+    let phases_result = run_vanilla_phases(&mut phases, &manifest).await;
     let report = phases.report;
     log_info!(
         "[integrity] Minecraft {}: проверено {}, повреждено {}, восстановлено {}, ошибок {}",
@@ -156,6 +164,12 @@ pub async fn check_minecraft_integrity(project: &ProjectConfig) -> Result<Integr
         report.failed.len()
     );
 
+    if let Err(e) = phases_result {
+        if report.failed.is_empty() {
+            return Err(e);
+        }
+        log_err!("[integrity] Конвейер проверки прерван, возвращён частичный отчёт: {e:#}");
+    }
     Ok(report)
 }
 
@@ -198,6 +212,213 @@ async fn check_natives_integrity(
                 ..IntegrityReport::default()
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod step_event_tests {
+    use super::{check_minecraft_integrity, IntegrityPhases};
+    use crate::minecraft::vanilla::download::PHASE_ASSET_INDEX;
+    use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
+    use crate::utils::step_events::test_capture;
+    use crate::utils::step_events::{StepChannel, StepEvent};
+    use mockito::Server;
+    use std::path::PathBuf;
+
+    fn event_id(event: &StepEvent) -> &str {
+        match event {
+            StepEvent::Started { id, .. }
+            | StepEvent::Progress { id, .. }
+            | StepEvent::Detail { id, .. }
+            | StepEvent::Finished { id, .. }
+            | StepEvent::Failed { id, .. } => id,
+        }
+    }
+
+    fn integrity_terminals(id: &str) -> Vec<StepEvent> {
+        test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                matches!(channel, StepChannel::Integrity) && event_id(event) == id
+            })
+            .filter(|(_, event)| {
+                matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+            })
+            .map(|(_, event)| event)
+            .collect()
+    }
+
+    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+        IntegrityTarget {
+            rel_path: PathBuf::from(rel),
+            hash: hash.to_string(),
+            hash_kind: HashKind::Sha1,
+            download: TargetDownload::Url(url),
+        }
+    }
+
+    fn seed_vanilla_index_cache(dir: &LauncherDirGuard) {
+        let manifest_dir = dir.root().join("manifest");
+        std::fs::create_dir_all(&manifest_dir).expect("каталог манифестов");
+        std::fs::write(
+            manifest_dir.join("vanilla_index.json"),
+            r#"{"latest": {"release": "1.20.1", "snapshot": "1.20.1"}, "versions": [{"id": "1.20.1", "url": "http://127.0.0.1:1/1.20.1.json", "type": "release"}]}"#,
+        )
+        .expect("кэш индекса версий");
+    }
+
+    #[tokio::test]
+    async fn manifest_load_failure_fails_manifest_step() {
+        let dir = LauncherDirGuard::acquire("integrity_manifest_fail").await;
+        let _capture = test_capture::CaptureGuard::new();
+        seed_vanilla_index_cache(&dir);
+
+        let project = ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            mc_version: "9.9.9".to_string(),
+            ..ProjectConfig::default()
+        };
+        let error = check_minecraft_integrity(&project)
+            .await
+            .expect_err("неизвестная версия должна прерывать проверку");
+
+        assert!(
+            error.to_string().contains("Версия не найдена"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = integrity_terminals("mc.manifest");
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "шаг манифеста не должен оставаться активным после ошибки: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "ошибка загрузки манифеста должна фейлить шаг: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn asset_index_download_failure_surfaces_original_error_and_keeps_report() {
+        let dir = LauncherDirGuard::acquire("integrity_index_fail").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/index.json")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let mut phases = IntegrityPhases {
+            base_path: dir.project_dir("Cordelia"),
+            report: Default::default(),
+        };
+        let error = phases
+            .asset_index(url_target(
+                "assets/indexes/5.json",
+                &sha1_hex(b"index"),
+                format!("{}/index.json", server.url()),
+            ))
+            .await
+            .expect_err("неудачное скачивание индекса должно прерывать фазу");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Не удалось восстановить индекс ассетов"),
+            "ошибка должна называть сбой скачивания, а не чтения: {error}"
+        );
+        assert_eq!(
+            phases.report.failed,
+            vec!["assets/indexes/5.json".to_string()],
+            "накопленный отчёт не должен теряться при сбое фазы"
+        );
+        let step_terminals = integrity_terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn check_integrity_returns_partial_report_when_asset_index_download_fails() {
+        let dir = LauncherDirGuard::acquire("integrity_partial_report").await;
+        let _capture = test_capture::CaptureGuard::new();
+        seed_vanilla_index_cache(&dir);
+        let mut server = Server::new_async().await;
+
+        let client_jar = b"client jar bytes".to_vec();
+        server
+            .mock("GET", "/client.jar")
+            .with_status(200)
+            .with_body(client_jar.clone())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/index.json")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        std::fs::write(
+            dir.root().join("manifest").join("1.20.1.json"),
+            serde_json::json!({
+                "id": "1.20.1",
+                "downloads": {
+                    "client": {
+                        "sha1": sha1_hex(&client_jar),
+                        "size": 1,
+                        "url": format!("{}/client.jar", server.url())
+                    }
+                },
+                "libraries": [],
+                "assetIndex": {
+                    "id": "5",
+                    "sha1": sha1_hex(b"index"),
+                    "size": 1,
+                    "url": format!("{}/index.json", server.url()),
+                    "totalSize": 1
+                },
+                "assets": "5",
+                "mainClass": "net.minecraft.client.main.Main"
+            })
+            .to_string(),
+        )
+        .expect("кэш манифеста версии");
+
+        let project = ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+        let report = check_minecraft_integrity(&project)
+            .await
+            .expect("сбой скачивания индекса должен возвращать частичный отчёт, а не ошибку");
+
+        assert!(
+            report.failed.contains(&"assets/indexes/5.json".to_string()),
+            "отчёт должен содержать сбой индекса ассетов: {:?}",
+            report.failed
+        );
+        assert!(report.repaired >= 1, "успешные фазы должны попасть в отчёт");
+        let step_terminals = integrity_terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг индекса должен фейлиться: {step_terminals:?}"
+        );
     }
 }
 

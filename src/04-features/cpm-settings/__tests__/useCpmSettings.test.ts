@@ -29,6 +29,13 @@ const parser = vi.hoisted(() => ({
   parseCpmProjectFile: vi.fn(),
 }))
 
+const reportError = vi.hoisted(() => vi.fn())
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  reportError,
+}))
+
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   deleteModel: vi.fn(),
@@ -104,6 +111,7 @@ describe('useCpmSettings', () => {
     vi.mocked(getPlayerModelsLimit).mockResolvedValue(null)
     exporter.cpmProjectToLinkBase64.mockReset()
     parser.parseCpmProjectFile.mockReset()
+    reportError.mockClear()
     createObjectURLMock.mockClear()
     const core = useCoreStore()
     core.currentProject = 'proj'
@@ -172,15 +180,30 @@ describe('useCpmSettings', () => {
     expect(cpm.modelsLimit.value).toBeNull()
   })
 
-  it('rejects a non-positive limit without a command call', async () => {
+  it('rejects a non-integer or out-of-range limit without a command call', async () => {
     vi.mocked(setPlayerModelsLimit).mockResolvedValue(undefined)
     const cpm = setupCpm()
     await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
 
     await cpm.handleSaveModelsLimit(0)
 
-    expect(cpm.limitSaveError.value).toBe('Лимит моделей — положительное число или пустое значение')
+    expect(cpm.limitSaveError.value).toBe(
+      'Лимит моделей — целое число от 1 до 4294967295 или пустое значение',
+    )
     expect(setPlayerModelsLimit).not.toHaveBeenCalled()
+
+    await cpm.handleSaveModelsLimit(2.5)
+    await cpm.handleSaveModelsLimit(1e10)
+    await cpm.handleSaveModelsLimit(Number.NaN)
+    await cpm.handleSaveModelsLimit(4294967296)
+
+    expect(setPlayerModelsLimit).not.toHaveBeenCalled()
+    expect(cpm.limitSaveError.value).not.toBe('')
+
+    await cpm.handleSaveModelsLimit(4294967295)
+
+    expect(setPlayerModelsLimit).toHaveBeenCalledWith(4294967295)
+    expect(cpm.limitSaveError.value).toBe('')
   })
 
   it('reports the limit save failure', async () => {
@@ -484,6 +507,8 @@ describe('useCpmSettings', () => {
     await cpm.handleUploadModel()
 
     expect(cpm.errorMessage.value).toBe('denied')
+    expect(reportError).toHaveBeenCalledWith('Не удалось удалить модель', expect.objectContaining({ message: 'also down' }))
+    expect(reportError).toHaveBeenCalledWith('Не удалось сохранить модель', expect.objectContaining({ message: 'denied' }))
     expect(cpm.isUploading.value).toBe(false)
   })
 

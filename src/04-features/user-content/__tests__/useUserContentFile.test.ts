@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref, type Ref } from 'vue'
 import { useUserContentFile } from '../useUserContentFile'
+import { hasPngSignature } from '@/06-shared'
 import { withSetup } from '@/test-support/withSetup'
 
 const shared = vi.hoisted(() => ({
@@ -43,6 +44,7 @@ describe('useUserContentFile', () => {
     accept: string
     extensions: string[]
     maxBytes: number
+    validateBytes?: (bytes: Uint8Array, name: string) => string | null
   }): ReturnType<typeof useUserContentFile> => {
     const { result } = withSetup(() =>
       useUserContentFile({
@@ -51,6 +53,7 @@ describe('useUserContentFile', () => {
         maxBytes: options.maxBytes,
         readFile,
         processFile,
+        validateBytes: options.validateBytes,
         errorMessage,
       }),
     )
@@ -211,5 +214,46 @@ describe('useUserContentFile', () => {
 
     expect(errorMessage.value).toBe('Размер файла не должен превышать 1 КБ (загружено 2 КБ)')
     expect(processFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects bytes failing validation before processing from a path', async () => {
+    const fakePng = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
+    readFile.mockResolvedValue(fakePng)
+    const file = setupWithLimits({
+      accept: '.png,image/png',
+      extensions: ['png'],
+      maxBytes: 1024,
+      validateBytes: (bytes: Uint8Array): string | null =>
+        hasPngSignature(bytes) ? null : 'Выбранный файл не является PNG-изображением',
+    })
+
+    await file.loadFromPath('/skins/avatar.png')
+
+    expect(errorMessage.value).toBe('Выбранный файл не является PNG-изображением')
+    expect(processFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects bytes failing validation before processing from the dialog', async () => {
+    const file = setupWithLimits({
+      accept: '.png,image/png',
+      extensions: ['png'],
+      maxBytes: 1024,
+      validateBytes: (bytes: Uint8Array): string | null =>
+        hasPngSignature(bytes) ? null : 'Выбранный файл не является PNG-изображением',
+    })
+    file.openFileDialog()
+    const options = shared.selectFile.mock.calls[0]?.[0] as {
+      onLoad: (file: { name: string }, result: string | ArrayBuffer) => Promise<void>
+    }
+
+    const realPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+    await options.onLoad({ name: 'avatar.png' }, realPng)
+    expect(processFile).toHaveBeenCalledWith(realPng, 'avatar.png')
+    expect(errorMessage.value).toBe('')
+
+    const fakePng = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x57, 0x45, 0x42, 0x50])
+    await options.onLoad({ name: 'renamed.png' }, fakePng)
+    expect(errorMessage.value).toBe('Выбранный файл не является PNG-изображением')
+    expect(processFile).toHaveBeenCalledTimes(1)
   })
 })

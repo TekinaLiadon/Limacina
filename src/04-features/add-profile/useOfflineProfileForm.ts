@@ -13,7 +13,7 @@ import {
   getLoaderVersions,
   getMinecraftVersions,
 } from '@/06-shared/api'
-import { useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
+import { reportError, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
 
 const loaderOption = (value: ModLoaderKind): DropdownOption => ({
@@ -85,6 +85,7 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
       }
     } catch (e: unknown) {
       if (!mcVersionsGuard.isCurrent(generation)) return
+      reportError('Не удалось загрузить версии Minecraft', e)
       errorMessage.value = getErrorMessage(e)
       mcVersions.value = []
     } finally {
@@ -119,6 +120,7 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
       }
     } catch (e: unknown) {
       if (!loaderVersionsGuard.isCurrent(generation)) return
+      reportError('Не удалось загрузить версии загрузчика', e)
       errorMessage.value = getErrorMessage(e)
       loaderVersions.value = []
       offlineForm.value.loaderVersion = ''
@@ -155,6 +157,7 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
       notification.show(`Профиль «${config.projectName}» создан`)
       return config
     } catch (e: unknown) {
+      reportError('Не удалось создать профиль', e)
       errorMessage.value = getErrorMessage(e)
       return null
     } finally {

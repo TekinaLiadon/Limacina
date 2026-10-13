@@ -18,6 +18,9 @@ interface UserContentApi<T> {
   delete: (id: number) => Promise<void>
   activate?: (id: number) => Promise<void>
   uploadSuccessMessage: string
+  uploadErrorMessage: string
+  deleteErrorMessage: string
+  activateErrorMessage?: string
   listLoadErrorMessage: string
 }
 
@@ -69,6 +72,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await loadItems()
       return item
     } catch (e: unknown) {
+      reportError(api.uploadErrorMessage, e)
       errorMessage.value = getErrorMessage(e)
       return null
     } finally {
@@ -84,6 +88,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await api.delete(id)
       await loadItems()
     } catch (e: unknown) {
+      reportError(api.deleteErrorMessage, e)
       errorMessage.value = getErrorMessage(e)
     } finally {
       isMutating.value = false
@@ -98,6 +103,7 @@ export function useUserContent<T>(api: UserContentApi<T>) {
       await api.activate(id)
       await loadItems()
     } catch (e: unknown) {
+      reportError(api.activateErrorMessage ?? 'Не удалось установить скин', e)
       errorMessage.value = getErrorMessage(e)
     } finally {
       isMutating.value = false
@@ -148,6 +154,9 @@ export function useSkinUserContent() {
     delete: deleteSkin,
     activate: setActiveSkin,
     uploadSuccessMessage: 'Скин успешно загружен',
+    uploadErrorMessage: 'Не удалось загрузить скин на сервер',
+    deleteErrorMessage: 'Не удалось удалить скин',
+    activateErrorMessage: 'Не удалось установить скин',
     listLoadErrorMessage: 'Не удалось загрузить список скинов',
   })
 }
@@ -158,6 +167,8 @@ export function useModelUserContent() {
     upload: uploadModel,
     delete: deleteModel,
     uploadSuccessMessage: 'Модель успешно загружена',
+    uploadErrorMessage: 'Не удалось загрузить модель на сервер',
+    deleteErrorMessage: 'Не удалось удалить модель',
     listLoadErrorMessage: 'Не удалось загрузить список моделей',
   })
 }

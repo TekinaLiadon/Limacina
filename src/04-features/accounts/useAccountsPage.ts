@@ -137,6 +137,7 @@ export function useAccountsPage() {
   })
 
   const deleteAccountAction = useAsyncAction((e: unknown): void => {
+    reportError('Не удалось удалить аккаунт', e)
     notificationStore.show(getErrorMessage(e))
   })
 

@@ -136,3 +136,62 @@ describe('PopupShell', () => {
     wrapper.unmount()
   })
 })
+
+describe('PopupShell escape stack', () => {
+  it('closes only the topmost dialog when two are visible', async () => {
+    const bottom = mountShell()
+    const top = mountShell()
+    await top.vm.$nextTick()
+
+    pressEscape()
+
+    expect(top.emitted('close')).toHaveLength(1)
+    expect(bottom.emitted('close')).toBeUndefined()
+
+    top.unmount()
+    bottom.unmount()
+  })
+
+  it('passes Escape to the dialog below after the top one hides', async () => {
+    const bottom = mountShell()
+    const top = mountShell()
+
+    pressEscape()
+    expect(top.emitted('close')).toHaveLength(1)
+    expect(bottom.emitted('close')).toBeUndefined()
+
+    await top.setProps({ visible: false })
+    pressEscape()
+
+    expect(bottom.emitted('close')).toHaveLength(1)
+
+    top.unmount()
+    bottom.unmount()
+  })
+
+  it('treats the most recently shown dialog as the top one', async () => {
+    const early = mountShell({ visible: false })
+    const late = mountShell({ visible: false })
+    await early.setProps({ visible: true })
+    await late.setProps({ visible: true })
+
+    pressEscape()
+
+    expect(late.emitted('close')).toHaveLength(1)
+    expect(early.emitted('close')).toBeUndefined()
+
+    early.unmount()
+    late.unmount()
+  })
+
+  it('skips Escape already consumed by an inner widget', () => {
+    const wrapper = mountShell()
+
+    const consumed = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    consumed.preventDefault()
+    window.dispatchEvent(consumed)
+
+    expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+})

@@ -146,6 +146,51 @@ describe('Input', () => {
   })
 })
 
+describe('Input combobox semantics', () => {
+  it('omits the combobox role and popup attributes without an options list', () => {
+    const wrapper = mount(Input, { props: { modelValue: '' } })
+
+    const input = wrapper.find('input')
+    expect(input.attributes('role')).toBeUndefined()
+    expect(input.attributes('aria-haspopup')).toBeUndefined()
+    expect(input.attributes('aria-expanded')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  it('announces combobox semantics when a list is configured', () => {
+    const wrapper = mountInput()
+
+    const input = wrapper.find('input')
+    expect(input.attributes('role')).toBe('combobox')
+    expect(input.attributes('aria-haspopup')).toBe('listbox')
+    expect(input.attributes('aria-expanded')).toBe('false')
+
+    wrapper.unmount()
+  })
+
+  it('names the listbox with the label, the placeholder, or a fallback', async () => {
+    const labeled = mount(Input, {
+      props: { modelValue: '', options: { list: ['alpha'], label: 'Ник' } },
+    })
+    await labeled.find('input').trigger('focus')
+    expect(labeled.find('[role="listbox"]').attributes('aria-label')).toBe('Ник')
+    labeled.unmount()
+
+    const hinted = mount(Input, {
+      props: { modelValue: '', options: { list: ['alpha'], placeholder: 'Введите ник' } },
+    })
+    await hinted.find('input').trigger('focus')
+    expect(hinted.find('[role="listbox"]').attributes('aria-label')).toBe('Введите ник')
+    hinted.unmount()
+
+    const bare = mountInput()
+    await bare.find('input').trigger('focus')
+    expect(bare.find('[role="listbox"]').attributes('aria-label')).toBe('Варианты')
+    bare.unmount()
+  })
+})
+
 describe('Input near the bottom edge', () => {
   const originalInnerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')
   const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')

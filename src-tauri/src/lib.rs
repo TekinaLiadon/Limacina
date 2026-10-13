@@ -148,6 +148,12 @@ pub fn run() {
                 if removed > 0 {
                     log_info!("Удалено временных .part-файлов после сбоя: {removed}");
                 }
+                let removed_staging = java::cleanup_stale_java_staging(&part_cleanup_root);
+                if removed_staging > 0 {
+                    log_info!(
+                        "Удалено временных папок распаковки Java после сбоя: {removed_staging}"
+                    );
+                }
             });
 
             crate::utils::winreg::init_uninstall_registry_key(app.config());

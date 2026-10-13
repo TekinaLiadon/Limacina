@@ -36,6 +36,15 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   uploadSkin: vi.fn(),
 }))
 
+const shared = vi.hoisted(() => ({
+  selectFile: vi.fn(),
+}))
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  selectFile: shared.selectFile,
+}))
+
 const createObjectURLMock = vi.fn((): string => 'blob:mock-url')
 const revokeObjectURLMock = vi.fn()
 URL.createObjectURL = createObjectURLMock
@@ -86,6 +95,7 @@ describe('useSkinSettings', () => {
     vi.mocked(readSkinFile).mockReset()
     vi.mocked(setActiveSkin).mockReset()
     vi.mocked(uploadSkin).mockReset()
+    shared.selectFile.mockReset()
     vi.mocked(listSkins).mockResolvedValue([])
     vi.mocked(getProfileSkin).mockResolvedValue(new Uint8Array([1, 2, 3]))
     createImageBitmapMock.mockClear()
@@ -185,6 +195,31 @@ describe('useSkinSettings', () => {
     await skins.handleUpload()
 
     expect(uploadSkin).not.toHaveBeenCalled()
+  })
+
+  it('rejects a renamed non-png skin before accepting the file', async () => {
+    goOnline()
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
+
+    skins.selectSkin()
+    const options = shared.selectFile.mock.calls[0]?.[0] as {
+      onLoad: (file: { name: string }, result: string | ArrayBuffer) => Promise<void>
+    }
+
+    const fakePng = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x57, 0x45, 0x42, 0x50])
+    await options.onLoad({ name: 'avatar.png' }, fakePng)
+
+    expect(skins.errorMessage.value).toBe('Выбранный файл не является PNG-изображением')
+    expect(skins.skinFileBytes.value.length).toBe(0)
+    expect(createImageBitmapMock).not.toHaveBeenCalled()
+
+    const realPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+    await options.onLoad({ name: 'skin.png' }, realPng)
+
+    expect(skins.errorMessage.value).toBe('')
+    expect(skins.skinFileBytes.value).toEqual(realPng)
+    expect(createImageBitmapMock).toHaveBeenCalledOnce()
   })
 
   it('keeps the manually selected model mode when the list reloads', async () => {

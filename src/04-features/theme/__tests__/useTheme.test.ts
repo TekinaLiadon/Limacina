@@ -194,7 +194,7 @@ describe('useTheme', () => {
     )
   })
 
-  it('stores the config returned by saveTheme through applyLauncherConfig', async () => {
+  it('stores the config returned by saveTheme through setLauncherConfig', async () => {
     prepareStore('default-dark', true)
     const config = {
       theme: 'lime-dark',

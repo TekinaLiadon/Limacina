@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Button, Checkbox, Input, type InputOptions } from '@/06-shared'
+import { Checkbox, Input, type InputOptions } from '@/06-shared'
 import { useCpmSettings, useCpmAnimations, useOfflineCpmModel } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
-import UserContentList from './UserContentList.vue'
+import UserContentViewer from './UserContentViewer.vue'
 import Viewer3D from './Viewer3D.vue'
 
 const {
@@ -82,7 +82,7 @@ watch(modelsLimit, (): void => {
 
 const applyLimitInput = async (): Promise<void> => {
   const raw = limitInput.value.trim()
-  const parsed = raw === '' ? null : Number.parseInt(raw, 10)
+  const parsed = raw === '' ? null : Number(raw)
   if (parsed !== modelsLimit.value) {
     await handleSaveModelsLimit(parsed)
   }
@@ -91,13 +91,31 @@ const applyLimitInput = async (): Promise<void> => {
 </script>
 
 <template>
-  <div class="cpm-settings">
-    <div v-if="isDragOver" class="cpm-settings__drop-overlay">Отпустите файл</div>
-
-    <div v-if="isOffline" class="cpm-settings__notice">
-      Локальный профиль: модель сохраняется в игру без отправки на сервер
-    </div>
-
+  <UserContentViewer
+    :is-drag-over="isDragOver"
+    :is-offline="isOffline"
+    offline-notice="Локальный профиль: модель сохраняется в игру без отправки на сервер"
+    :error-message="errorMessage"
+    :has-content="hasModel"
+    :select-label="hasModel ? 'Заменить модель' : 'Загрузить модель'"
+    server-action-label="Отправить"
+    offline-action-label="Сохранить в игру"
+    :is-server-action-busy="isUploading"
+    :is-offline-action-busy="isSaving"
+    reset-label="Сбросить модель"
+    format-hint="Формат: .cpmproject, не более 2 МБ"
+    list-title="Загруженные модели"
+    :items="uploadedModels"
+    :is-list-loading="isListLoading"
+    :list-error="listError"
+    @select="selectCpmFile"
+    @server-action="handleUploadModel"
+    @offline-action="handleSaveModelOffline"
+    @reset="resetCpm"
+    @copy="handleCopyUrl"
+    @delete="handleDeleteModel"
+    @retry="loadList"
+  >
     <Viewer3D v-show="hasModel" :min-zoom="8">
       <CpmViewer
         :cpm-data="cpmData"
@@ -129,121 +147,53 @@ const applyLimitInput = async (): Promise<void> => {
       </template>
     </Viewer3D>
 
-    <div v-if="errorMessage" class="cpm-settings__error">
-      {{ errorMessage }}
-    </div>
-
-    <div v-if="hasModel" class="cpm-settings__layers">
-      <Checkbox
-        v-model="showEmptyLayers"
-        label="Показать пустые слои"
-      />
-
-      <div class="cpm-settings__layer-list">
+    <template #below-error>
+      <div v-if="hasModel" class="cpm-settings__layers">
         <Checkbox
-          v-for="layer in displayLayers"
-          :key="layer.storeId ?? layer.name"
-          :model-value="layer.visible"
-          :disabled="layer.storeId === null"
-          :label="layer.name"
-          @update:model-value="toggleLayer(layer.storeId)"
+          v-model="showEmptyLayers"
+          label="Показать пустые слои"
         />
+
+        <div class="cpm-settings__layer-list">
+          <Checkbox
+            v-for="layer in displayLayers"
+            :key="layer.storeId ?? layer.name"
+            :model-value="layer.visible"
+            :disabled="layer.storeId === null"
+            :label="layer.name"
+            @update:model-value="toggleLayer(layer.storeId)"
+          />
+        </div>
       </div>
-    </div>
+    </template>
 
-    <div class="cpm-settings__actions">
-      <Button class="btn-primary cpm-settings__btn" @click="selectCpmFile">
-        {{ hasModel ? 'Заменить модель' : 'Загрузить модель' }}
-      </Button>
-      <Button
-        v-if="hasModel && !isOffline"
-        class="btn-secondary cpm-settings__btn cpm-settings__btn--upload"
-        :is-loading="isUploading"
-        :is-disabled="isUploading"
-        @click="handleUploadModel"
-      >
-        Отправить
-      </Button>
-      <Button
-        v-if="hasModel && isOffline"
-        class="btn-secondary cpm-settings__btn cpm-settings__btn--upload"
-        :is-loading="isSaving"
-        :is-disabled="isSaving"
-        @click="handleSaveModelOffline"
-      >
-        Сохранить в игру
-      </Button>
-      <Button
-        v-if="hasModel"
-        class="btn-danger cpm-settings__btn cpm-settings__btn--reset"
-        @click="resetCpm"
-      >
-        Сбросить модель
-      </Button>
-    </div>
-
-    <p class="cpm-settings__hint">
-      Формат: .cpmproject, не более 2 МБ
-    </p>
-
-    <div class="cpm-settings__limit">
-      <Input
-        v-model="limitInput"
-        class="cpm-settings__limit-input"
-        :options="limitOptions"
-        @keydown.enter="applyLimitInput"
-        @blur="applyLimitInput"
-      />
-      <div v-if="limitSaveError" class="cpm-settings__limit-error" role="alert">
-        {{ limitSaveError }}
+    <template #after-actions>
+      <div class="cpm-settings__limit">
+        <Input
+          v-model="limitInput"
+          class="cpm-settings__limit-input"
+          :options="limitOptions"
+          @keydown.enter="applyLimitInput"
+          @blur="applyLimitInput"
+        />
+        <div v-if="limitSaveError" class="cpm-settings__limit-error" role="alert">
+          {{ limitSaveError }}
+        </div>
+        <div v-if="limitLoadError" class="cpm-settings__limit-error" role="alert">
+          Не удалось загрузить лимит моделей: {{ limitLoadError }}
+        </div>
+        <p class="cpm-settings__hint cpm-settings__limit-hint">
+          Сколько моделей игра хранит в папке player_models — самые старые удаляются
+        </p>
       </div>
-      <div v-if="limitLoadError" class="cpm-settings__limit-error" role="alert">
-        Не удалось загрузить лимит моделей: {{ limitLoadError }}
-      </div>
-      <p class="cpm-settings__hint cpm-settings__limit-hint">
-        Сколько моделей игра хранит в папке player_models — самые старые удаляются
-      </p>
-    </div>
-
-    <UserContentList
-      v-if="!isOffline && (isListLoading || listError || uploadedModels.length > 0)"
-      title="Загруженные модели"
-      :items="uploadedModels"
-      :is-loading="isListLoading"
-      :error="listError"
-      @copy="handleCopyUrl"
-      @delete="handleDeleteModel"
-      @retry="loadList"
-    />
-  </div>
+    </template>
+  </UserContentViewer>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
 
 .cpm-settings {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-
-  &__drop-overlay {
-    @include mixins.drop-overlay;
-  }
-
-  &__error {
-    @include mixins.error-box;
-  }
-
-  &__notice {
-    padding: var(--space-12);
-    border-radius: var(--radius-badge);
-    background: var(--accent-subtle);
-    color: var(--accent-text);
-    font-size: var(--text-body-sm);
-    text-align: left;
-  }
-
   &__layers {
     display: flex;
     flex-direction: column;
@@ -261,10 +211,6 @@ const applyLimitInput = async (): Promise<void> => {
     max-height: var(--options-max-height);
     overflow-y: auto;
     width: 100%;
-  }
-
-  &__actions {
-    @include mixins.viewer-actions-row('.cpm-settings__btn');
   }
 
   &__hint {

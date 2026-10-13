@@ -120,6 +120,7 @@ export function useGameLaunch() {
   const failStep = async (error: unknown, isCancelled?: () => boolean): Promise<void> => {
     if (isCancelled?.()) return
     await flushLaunchSteps()
+    reportError('Не удалось запустить игру', error)
     launch.failActiveStep(getErrorMessage(error))
   }
 
@@ -130,11 +131,12 @@ export function useGameLaunch() {
     } catch (e: unknown) {
       if (isCancelled?.()) return
       resetLaunchSteps()
+      reportError('Не удалось подготовить запуск игры', e)
       launch.failActive(getErrorMessage(e))
       return
     }
     if (isCancelled?.()) return
-    coreStore.projectConfig = config
+    coreStore.setProjectConfig(config)
 
     const isInstall = !config.initialized
     const actionSteps: ActionStep[] = isInstall
@@ -196,7 +198,7 @@ export function useGameLaunch() {
         reportJournalFailure('Не удалось очистить журнал установки — на запуск это не повлияет', e)
       }
       try {
-        coreStore.projectConfig = await setInitialized()
+        coreStore.setProjectConfig(await setInitialized())
       } catch (error: unknown) {
         await failStep(error, isCancelled)
         return

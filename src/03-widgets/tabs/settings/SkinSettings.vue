@@ -2,7 +2,7 @@
 import { Button, Preloader } from '@/06-shared'
 import { useOfflineSkinSettings } from '@/04-features'
 import SkinViewer from './SkinViewer.vue'
-import UserContentList from './UserContentList.vue'
+import UserContentViewer from './UserContentViewer.vue'
 import Viewer3D from './Viewer3D.vue'
 
 const {
@@ -35,13 +35,30 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
 </script>
 
 <template>
-  <div class="skin-settings">
-    <div v-if="isDragOver" class="skin-settings__drop-overlay">Отпустите файл</div>
-
-    <p v-if="isOffline" class="skin-settings__hint">
-      Локальный профиль: скин сохраняется на этом компьютере и применяется при запуске игры
-    </p>
-
+  <UserContentViewer
+    :is-drag-over="isDragOver"
+    :is-offline="isOffline"
+    offline-notice="Локальный профиль: скин сохраняется на этом компьютере и применяется при запуске игры"
+    :error-message="errorMessage"
+    :has-content="hasSkin"
+    :select-label="hasSkin ? 'Заменить скин' : 'Загрузить скин'"
+    server-action-label="Сохранить"
+    :offline-action-label="null"
+    :is-server-action-busy="isUploading"
+    :is-offline-action-busy="false"
+    reset-label="Сбросить скин"
+    format-hint="Формат: .png, не более 256 КБ"
+    list-title="Загруженные скины"
+    :items="uploadedSkins"
+    :is-list-loading="isListLoading"
+    :list-error="listError"
+    @select="selectSkin"
+    @server-action="handleUpload"
+    @reset="resetSkin"
+    @copy="handleCopyUrl"
+    @delete="handleDelete"
+    @retry="loadList"
+  >
     <div v-if="isSkinLoading" class="skin-settings__loading">
       <Preloader local text="Загрузка скина..." />
     </div>
@@ -64,75 +81,25 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
       </Viewer3D>
     </template>
 
-    <div v-if="errorMessage" class="skin-settings__error">
-      {{ errorMessage }}
-    </div>
-
-    <div class="skin-settings__actions">
-      <Button class="btn-primary skin-settings__btn" @click="selectSkin">
-        {{ hasSkin ? 'Заменить скин' : 'Загрузить скин' }}
-      </Button>
+    <template #item-actions="{ item }">
       <Button
-        v-if="hasSkin && !isOffline"
-        class="btn-secondary skin-settings__btn skin-settings__btn--upload"
-        :is-loading="isUploading"
-        :is-disabled="isUploading"
-        @click="handleUpload"
+        v-if="item.id != null && item.active !== true"
+        class="btn-primary"
+        :is-loading="isMutating"
+        :is-disabled="isMutating"
+        @click="handleActivate(item.id!)"
       >
-        Сохранить
+        Активировать
       </Button>
-      <Button
-        v-if="hasSkin"
-        class="btn-danger skin-settings__btn skin-settings__btn--reset"
-        @click="resetSkin"
-      >
-        Сбросить скин
-      </Button>
-    </div>
-
-    <p class="skin-settings__hint">
-      Формат: .png, не более 256 КБ
-    </p>
-
-    <UserContentList
-      v-if="!isOffline && (isListLoading || listError || uploadedSkins.length > 0)"
-      title="Загруженные скины"
-      :items="uploadedSkins"
-      :is-loading="isListLoading"
-      :error="listError"
-      @copy="handleCopyUrl"
-      @delete="handleDelete"
-      @retry="loadList"
-    >
-      <template #item-actions="{ item }">
-        <Button
-          v-if="item.id != null && item.active !== true"
-          class="btn-primary"
-          :is-loading="isMutating"
-          :is-disabled="isMutating"
-          @click="handleActivate(item.id!)"
-        >
-          Активировать
-        </Button>
-        <span v-else-if="item.active === true" class="skin-settings__active-badge">Активен</span>
-      </template>
-    </UserContentList>
-  </div>
+      <span v-else-if="item.active === true" class="skin-settings__active-badge">Активен</span>
+    </template>
+  </UserContentViewer>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
 
 .skin-settings {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-
-  &__drop-overlay {
-    @include mixins.drop-overlay;
-  }
-
   &__loading {
     position: relative;
     height: var(--viewer-height);
@@ -140,10 +107,6 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     border-radius: var(--radius-card);
     background: var(--surface-subtle);
     box-shadow: var(--elevation-inset);
-  }
-
-  &__error {
-    @include mixins.error-box;
   }
 
   &__model-mode {
@@ -172,14 +135,6 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
       background: var(--accent-active-bg);
       color: var(--accent-text);
     }
-  }
-
-  &__actions {
-    @include mixins.viewer-actions-row('.skin-settings__btn');
-  }
-
-  &__hint {
-    @include mixins.caption-hint;
   }
 
   &__active-badge {

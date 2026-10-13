@@ -37,7 +37,7 @@ export function useAppInit() {
   const applyInitData = (data: AppInitData): void => {
     coreStore.launcherName = data.launcherName
     coreStore.defaultParentPath = data.defaultParentPath
-    coreStore.launcherConfig = data.launcherConfig
+    coreStore.setLauncherConfig(data.launcherConfig)
     coreStore.version = data.version
     coreStore.totalMemoryMb = data.totalMemoryMb
     coreStore.offlineBuild = data.offlineBuild
@@ -45,7 +45,6 @@ export function useAppInit() {
 
     if (!data.launcherConfig) return
 
-    coreStore.applyLauncherProjects(data.launcherConfig)
     settingsStore.markThemeHydration(data.launcherConfig.theme)
     settingsStore.setTheme(normalizeTheme(data.launcherConfig.theme))
     settingsStore.setAnimationsEnabled(data.launcherConfig.animationsEnabled)

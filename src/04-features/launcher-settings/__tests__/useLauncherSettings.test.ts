@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveLauncherSettings, getAppInitData } from '@/06-shared/api'
-import { isAutostartEnabled } from '@/06-shared'
+import { isAutostartEnabled, selectDirectory } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type AppInitData, type LauncherBehaviorForm, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
 import { useLauncherSettings } from '../useLauncherSettings'
 import { withSetup } from '@/test-support/withSetup'
@@ -355,6 +355,57 @@ describe('useLauncherSettings', () => {
     expect(await savedLimit('0')).toBeNull()
     expect(saveLauncherSettings).not.toHaveBeenCalled()
     expect(settings.downloadSpeedLimitError.value).not.toBe('')
+
+    unmount()
+  })
+
+  it('rejects speed limits beyond the safe ceiling', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const savedLimit = async (raw: string): Promise<number | null> => {
+      vi.mocked(saveLauncherSettings).mockClear()
+      settings.behaviorForm.value.downloadSpeedLimit = raw
+      await settings.handleSave()
+      const { calls } = vi.mocked(saveLauncherSettings).mock
+      const lastCall = calls[calls.length - 1]
+      return lastCall === undefined ? null : lastCall[0].downloadSpeedLimit
+    }
+
+    expect(await savedLimit('9'.repeat(25))).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(settings.downloadSpeedLimitError.value).toBe(
+      'Ограничение скорости — целое число от 1 до 10000000 КБ/с',
+    )
+
+    expect(await savedLimit('10000001')).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+
+    expect(await savedLimit('10000000')).toBe(10000000)
+    expect(settings.downloadSpeedLimitError.value).toBe('')
+
+    unmount()
+  })
+
+  it('does not nest the launcher folder when the selected path already ends with the launcher name', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+    useCoreStore().launcherName = 'Limacina'
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    vi.mocked(selectDirectory).mockResolvedValue('/games/Limacina')
+    await settings.selectLauncherFolder()
+    expect(settings.launcherPath.value).toBe('/games/Limacina')
+
+    vi.mocked(selectDirectory).mockResolvedValue('/games')
+    await settings.selectLauncherFolder()
+    expect(settings.launcherPath.value).toBe('/games/Limacina')
 
     unmount()
   })

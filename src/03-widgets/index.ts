@@ -36,6 +36,7 @@ export { default as AccountSettings } from './tabs/settings/AccountSettings.vue'
 export { default as GameSettings } from './tabs/settings/GameSettings.vue'
 export { default as SettingsSection } from './tabs/settings/SettingsSection.vue'
 export { default as SettingsSaveBar } from './tabs/settings/SettingsSaveBar.vue'
+export { default as SettingsPageShell } from './tabs/settings/SettingsPageShell.vue'
 
 export { default as ThemeSwitchAnimation } from './theme/ThemeSwitchAnimation.vue'
 

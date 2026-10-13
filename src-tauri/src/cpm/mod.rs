@@ -116,6 +116,14 @@ pub fn sanitize_file_name(name: &str) -> String {
     }
 }
 
+pub fn model_file_name(id: i64, name: &str) -> String {
+    format!("limacina_{}_{}.cpmmodel", id, sanitize_file_name(name))
+}
+
+pub fn local_model_file_name(name: &str) -> String {
+    format!("limacina_local_{}.cpmmodel", sanitize_file_name(name))
+}
+
 pub fn parse_cpm_config(content: Option<&str>) -> serde_json::Map<String, serde_json::Value> {
     match content {
         Some(content) => serde_json::from_str(content).unwrap_or_default(),
@@ -360,6 +368,29 @@ mod tests {
         assert_eq!(
             rebind_selection(&manifest, Some("gone.cpmmodel"), false, false),
             RebindDecision::Clear
+        );
+    }
+
+    #[test]
+    fn model_file_name_sanitizes_model_name() {
+        assert_eq!(model_file_name(7, "Hero"), "limacina_7_Hero.cpmmodel");
+        assert_eq!(
+            model_file_name(12, "Dark/Vader"),
+            "limacina_12_Dark_Vader.cpmmodel"
+        );
+        assert_eq!(
+            model_file_name(3, "///"),
+            "limacina_3____.cpmmodel",
+            "запрещённые символы заменяются на подчёркивания"
+        );
+        assert_eq!(
+            model_file_name(4, "  "),
+            "limacina_4_model.cpmmodel",
+            "пустое после очистки имя заменяется на model"
+        );
+        assert_eq!(
+            local_model_file_name("Hero"),
+            "limacina_local_Hero.cpmmodel"
         );
     }
 

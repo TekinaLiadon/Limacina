@@ -59,7 +59,7 @@ export function useTheme(): {
 
     saveTheme(newTheme)
       .then((config: LauncherConfig): void => {
-        coreStore.applyLauncherConfig(config)
+        coreStore.setLauncherConfig(config)
       })
       .catch((e: unknown) => {
         reportError('Ошибка сохранения темы', e)

@@ -44,11 +44,15 @@ const identityTransfer = <T>(defaultValue: T): FieldTransfer<T> => ({
   toPayload: (value) => value,
 })
 
+const MAX_SPEED_LIMIT_KBPS = 10_000_000
+const SPEED_LIMIT_ERROR = `Ограничение скорости — целое число от 1 до ${MAX_SPEED_LIMIT_KBPS} КБ/с`
+
 const parseSpeedLimit = (raw: string): number | null => {
   const trimmed = raw.trim()
   if (!/^\d+$/.test(trimmed)) return null
-  const parsed = Number.parseInt(trimmed, 10)
-  return parsed > 0 ? parsed : null
+  const parsed = Number(trimmed)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > MAX_SPEED_LIMIT_KBPS) return null
+  return parsed
 }
 
 const LAUNCHER_FIELD_TRANSFERS: LauncherFieldTransfers = {
@@ -134,10 +138,7 @@ export function useLauncherSettings(): {
   const downloadSpeedLimitError = computed((): string => {
     const trimmed = behaviorForm.value.downloadSpeedLimit.trim()
     if (trimmed === '') return ''
-    if (!/^\d+$/.test(trimmed) || Number.parseInt(trimmed, 10) <= 0) {
-      return 'Ограничение скорости — целое число больше нуля, КБ/с'
-    }
-    return ''
+    return parseSpeedLimit(trimmed) === null ? SPEED_LIMIT_ERROR : ''
   })
 
   const formSettings = (): LauncherSettingsPayload => formSettingsOf(behaviorForm.value)
@@ -178,6 +179,7 @@ export function useLauncherSettings(): {
       }
       return true
     } catch (e: unknown) {
+      reportError(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск`, e)
       notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
       return false
     }
@@ -218,7 +220,7 @@ export function useLauncherSettings(): {
         loadError.value = 'Не удалось загрузить настройки лаунчера'
         return
       }
-      coreStore.launcherConfig = config
+      coreStore.setLauncherConfig(config)
       applyConfig(config)
       finishLoad()
     } catch (e: unknown) {
@@ -241,20 +243,24 @@ export function useLauncherSettings(): {
   const selectLauncherFolder = async (): Promise<void> => {
     const selected = await selectDirectory()
     if (selected) {
-      launcherPath.value = joinPath(selected, coreStore.launcherName)
+      launcherPath.value = joinPath(
+        stripPathSuffix(selected, coreStore.launcherName),
+        coreStore.launcherName,
+      )
     }
   }
 
   const resyncLauncherConfig = async (): Promise<void> => {
     try {
       const data = await getAppInitData()
-      coreStore.launcherConfig = data.launcherConfig
+      coreStore.setLauncherConfig(data.launcherConfig)
     } catch (e: unknown) {
       reportError('Не удалось восстановить состояние настроек', e)
     }
   }
 
   const saveAction = useAsyncAction(async (e: unknown): Promise<void> => {
+    reportError('Не удалось сохранить настройки лаунчера', e)
     await resyncLauncherConfig()
     notification.show(getErrorMessage(e))
   }, isSaving)
@@ -268,12 +274,12 @@ export function useLauncherSettings(): {
     }
     await saveAction.run(async () => {
       const savedSettings = await saveLauncherSettings(settings.value)
-      coreStore.launcherConfig = savedSettings
+      coreStore.setLauncherConfig(savedSettings)
 
       const config = coreStore.launcherConfig
       if (config && launcherPath.value !== config.launcherPath) {
         const parentPath = stripPathSuffix(launcherPath.value, coreStore.launcherName)
-        coreStore.launcherConfig = await saveLauncherConfig(parentPath)
+        coreStore.setLauncherConfig(await saveLauncherConfig(parentPath))
       }
 
       dirtyState.captureBaseline()

@@ -1,13 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveAnimationsEnabled } from '@/06-shared/api'
-import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsStore, type LauncherConfig } from '@/05-entities'
 import { useAnimationSettings } from '../useAnimationSettings'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   saveAnimationsEnabled: vi.fn(),
 }))
+
+const makeConfig = (animationsEnabled: boolean): LauncherConfig => ({
+  launcherPath: '/launcher',
+  installId: null,
+  discordActivity: false,
+  keepOldConfigs: false,
+  downloadSpeedLimit: null,
+  autoUpdate: false,
+  systemNotifications: false,
+  debugMode: false,
+  startWithSystem: false,
+  closeAfterLaunch: false,
+  minimizeToTray: false,
+  theme: 'default-dark',
+  animationsEnabled,
+  projectNames: [],
+  currentProject: null,
+  projects: {},
+})
 
 describe('useAnimationSettings', () => {
   beforeEach(() => {
@@ -22,7 +41,7 @@ describe('useAnimationSettings', () => {
   })
 
   it('persists the new value through the command', async () => {
-    vi.mocked(saveAnimationsEnabled).mockResolvedValue({} as never)
+    vi.mocked(saveAnimationsEnabled).mockResolvedValue(makeConfig(false))
     const animations = useAnimationSettings()
 
     await animations.setAnimationsEnabled(false)
@@ -33,7 +52,7 @@ describe('useAnimationSettings', () => {
   })
 
   it('flips the current value on toggle', async () => {
-    vi.mocked(saveAnimationsEnabled).mockResolvedValue({} as never)
+    vi.mocked(saveAnimationsEnabled).mockResolvedValue(makeConfig(false))
     const animations = useAnimationSettings()
 
     await animations.toggleAnimations()
@@ -78,7 +97,7 @@ describe('useAnimationSettings', () => {
   })
 
   it('stores the config returned by the command in the core store', async () => {
-    const config = { animationsEnabled: false } as never
+    const config = makeConfig(false)
     vi.mocked(saveAnimationsEnabled).mockResolvedValue(config)
     const animations = useAnimationSettings()
 

@@ -96,7 +96,7 @@ defineExpose({ close })
       <slot name="trailing" />
     </div>
     <slot name="trigger-overlay" />
-    <div v-if="shown" ref="panelRef" :id="listboxId" class="select-base-options" role="listbox" :style="{ maxHeight }">
+    <div v-if="shown" ref="panelRef" :id="listboxId" class="select-base-options" role="listbox" :aria-label="title" :style="{ maxHeight }">
       <div
         v-for="(option, index) in props.options"
         :key="option.value"

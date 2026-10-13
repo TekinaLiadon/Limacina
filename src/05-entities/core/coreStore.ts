@@ -24,11 +24,6 @@ export const useCoreStore = defineStore('core', () => {
   const isOfflineProject = computed<boolean>(() => projectConfig.value?.online === false)
   const isOnlineProject = computed<boolean>(() => projectConfig.value?.online === true)
 
-  function applyLauncherConfig(config: LauncherConfig): void {
-    launcherConfig.value = config
-    applyLauncherProjects(config)
-  }
-
   function applyLauncherProjects(config: LauncherConfig): void {
     projects.value = [...config.projectNames]
     const [first] = projects.value
@@ -39,6 +34,48 @@ export const useCoreStore = defineStore('core', () => {
 
     const saved = config.currentProject
     currentProject.value = saved !== null && projects.value.includes(saved) ? saved : first
+  }
+
+  function setLauncherConfig(config: LauncherConfig | null): void {
+    launcherConfig.value = config
+    if (config === null) {
+      projects.value = []
+      currentProject.value = ''
+      return
+    }
+
+    applyLauncherProjects(config)
+  }
+
+  function applyProjectSwitch(projectName: string, config: ProjectConfig | null): void {
+    currentProject.value = projectName
+    projectConfig.value = config
+    if (launcherConfig.value === null) return
+
+    launcherConfig.value = { ...launcherConfig.value, currentProject: projectName }
+  }
+
+  function addProject(projectName: string, config: ProjectConfig): void {
+    if (!projects.value.includes(projectName)) {
+      projects.value = [...projects.value, projectName]
+    }
+    if (launcherConfig.value !== null) {
+      launcherConfig.value = {
+        ...launcherConfig.value,
+        projectNames: [...projects.value],
+        currentProject: projectName,
+      }
+    }
+    currentProject.value = projectName
+    projectConfig.value = config
+  }
+
+  function setProjectConfig(config: ProjectConfig | null): void {
+    projectConfig.value = config
+  }
+
+  function setPendingCpmProjectPath(path: string | null): void {
+    pendingCpmProjectPath.value = path
   }
 
   return {
@@ -59,7 +96,10 @@ export const useCoreStore = defineStore('core', () => {
     isServerBuild,
     isOfflineProject,
     isOnlineProject,
-    applyLauncherConfig,
-    applyLauncherProjects,
+    setLauncherConfig,
+    applyProjectSwitch,
+    addProject,
+    setProjectConfig,
+    setPendingCpmProjectPath,
   }
 })

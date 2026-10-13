@@ -82,8 +82,6 @@ export function useGameOptions(): {
 
   bindSettingsDirtyTab('game', isDirty)
 
-  const notifyError = (e: unknown): void => notification.show(getErrorMessage(e))
-
   const loadOptions = async (project: string, force: boolean = false): Promise<void> => {
     if (!project) return
     if (!force && loadedProject === project) return
@@ -137,11 +135,15 @@ export function useGameOptions(): {
       notification.show('Общие настройки подставлены, не забудьте сохранить')
     } catch (e: unknown) {
       if (!loadGuard.isCurrent(generation)) return
+      reportError('Не удалось подставить общие настройки игры', e)
       notification.show(getErrorMessage(e))
     }
   }
 
-  const saveAction = useAsyncAction(notifyError, isSaving)
+  const saveAction = useAsyncAction((e: unknown): void => {
+    reportError('Не удалось сохранить настройки игры', e)
+    notification.show(getErrorMessage(e))
+  }, isSaving)
 
   const handleSave = async (): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
@@ -155,7 +157,10 @@ export function useGameOptions(): {
     })
   }
 
-  const saveGlobalAction = useAsyncAction(notifyError, isSavingGlobal)
+  const saveGlobalAction = useAsyncAction((e: unknown): void => {
+    reportError('Не удалось сохранить настройки игры как общие', e)
+    notification.show(getErrorMessage(e))
+  }, isSavingGlobal)
 
   const handleSaveGlobal = async (): Promise<void> => {
     if (isLoading.value || isSavingGlobal.value || loadError.value) return

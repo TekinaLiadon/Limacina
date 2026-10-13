@@ -2,7 +2,7 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
 import { getErrorMessage, initializeLauncher } from '@/06-shared/api'
-import { joinPath, prefersReducedMotion, selectDirectory, useAsyncAction } from '@/06-shared'
+import { joinPath, prefersReducedMotion, reportError, selectDirectory, useAsyncAction } from '@/06-shared'
 import { useAnimationSettings } from '@/04-features/animation-settings/useAnimationSettings'
 
 export function useSetup(): {
@@ -35,13 +35,14 @@ export function useSetup(): {
   }
 
   const saveAction = useAsyncAction((e: unknown): void => {
+    reportError('Не удалось инициализировать лаунчер', e)
     notificationStore.show(getErrorMessage(e))
   }, isLoading)
 
   const save = async (): Promise<void> => {
     await saveAction.run(async () => {
       const config = await initializeLauncher(selectedPath.value)
-      coreStore.applyLauncherConfig(config)
+      coreStore.setLauncherConfig(config)
       if (prefersReducedMotion()) {
         await setAnimationsEnabled(false)
       }

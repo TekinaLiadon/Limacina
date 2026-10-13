@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { runScopedAction } from '../runScopedAction'
 
+const reportError = vi.hoisted(() => vi.fn())
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  reportError,
+}))
+
 describe('runScopedAction', () => {
   it('clears the error target, applies the result and returns its value while current', async () => {
     const errorTarget = ref('старая ошибка')
@@ -10,6 +17,7 @@ describe('runScopedAction', () => {
     const result = await runScopedAction({
       isCurrent: (): boolean => true,
       errorTarget,
+      errorMessage: 'Не удалось выполнить действие',
       run: async (): Promise<number> => 7,
       apply,
     })
@@ -17,6 +25,7 @@ describe('runScopedAction', () => {
     expect(result).toBe('applied')
     expect(apply).toHaveBeenCalledWith(7)
     expect(errorTarget.value).toBe('')
+    expect(reportError).not.toHaveBeenCalled()
   })
 
   it('drops the result without applying it when the scope went stale', async () => {
@@ -26,6 +35,7 @@ describe('runScopedAction', () => {
     const result = await runScopedAction({
       isCurrent: (): boolean => false,
       errorTarget,
+      errorMessage: 'Не удалось выполнить действие',
       run: async (): Promise<number> => 7,
       apply,
     })
@@ -35,17 +45,20 @@ describe('runScopedAction', () => {
     expect(errorTarget.value).toBe('')
   })
 
-  it('writes the failure message to the error target while current', async () => {
+  it('writes the failure message to the error target and reports it while current', async () => {
     const errorTarget = ref('')
+    const failure = new Error('сетевой сбой')
 
     const result = await runScopedAction({
       isCurrent: (): boolean => true,
       errorTarget,
-      run: (): Promise<number> => Promise.reject(new Error('сетевой сбой')),
+      errorMessage: 'Не удалось выполнить действие',
+      run: (): Promise<number> => Promise.reject(failure),
     })
 
     expect(result).toBeUndefined()
     expect(errorTarget.value).toBe('сетевой сбой')
+    expect(reportError).toHaveBeenCalledWith('Не удалось выполнить действие', failure)
   })
 
   it('keeps the error target untouched when the failure is stale', async () => {
@@ -54,10 +67,12 @@ describe('runScopedAction', () => {
     await runScopedAction({
       isCurrent: (): boolean => false,
       errorTarget,
+      errorMessage: 'Не удалось выполнить действие',
       run: (): Promise<number> => Promise.reject(new Error('старая ошибка')),
     })
 
     expect(errorTarget.value).toBe('')
+    expect(reportError).not.toHaveBeenCalled()
   })
 
   it('sets the busy flag up front and clears it in the end while current', async () => {
@@ -67,6 +82,7 @@ describe('runScopedAction', () => {
     await runScopedAction({
       isCurrent: (): boolean => true,
       errorTarget: ref(''),
+      errorMessage: 'Не удалось выполнить действие',
       busyFlag,
       run: async (): Promise<void> => {
         seenBusy.push(busyFlag.value)
@@ -83,6 +99,7 @@ describe('runScopedAction', () => {
     await runScopedAction({
       isCurrent: (): boolean => false,
       errorTarget: ref(''),
+      errorMessage: 'Не удалось выполнить действие',
       busyFlag,
       run: async (): Promise<void> => {},
     })
@@ -96,12 +113,14 @@ describe('runScopedAction', () => {
     await runScopedAction({
       isCurrent: (): boolean => true,
       errorTarget: ref(''),
+      errorMessage: 'Не удалось выполнить действие',
       cleanup,
       run: async (): Promise<void> => {},
     })
     await runScopedAction({
       isCurrent: (): boolean => true,
       errorTarget: ref(''),
+      errorMessage: 'Не удалось выполнить действие',
       cleanup,
       run: (): Promise<void> => Promise.reject(new Error('сбой')),
     })
@@ -115,6 +134,7 @@ describe('runScopedAction', () => {
     const result = await runScopedAction({
       isCurrent: (): boolean => true,
       errorTarget: ref(''),
+      errorMessage: 'Не удалось выполнить действие',
       run: async (): Promise<void> => {},
       apply,
     })

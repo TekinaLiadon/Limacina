@@ -76,6 +76,33 @@ describe('createManagedTextureLoader', () => {
     expect(onLoaded).not.toHaveBeenCalled()
   })
 
+  it('cancel() invalidates an in-flight load and frees the current texture while staying usable', () => {
+    const scene = ref<THREE.Scene | null>(new THREE.Scene())
+    const managed = createManagedTextureLoader(scene)
+    const onLoaded = vi.fn()
+
+    managed.load('first.png', onLoaded)
+    const firstTexture = makeTexture()
+    const firstDispose = vi.spyOn(firstTexture, 'dispose')
+    textureLoads[0]?.resolve(firstTexture)
+    expect(onLoaded).toHaveBeenCalledOnce()
+
+    managed.load('second.png', onLoaded)
+    managed.cancel()
+
+    const secondTexture = makeTexture()
+    const secondDispose = vi.spyOn(secondTexture, 'dispose')
+    textureLoads[1]?.resolve(secondTexture)
+
+    expect(onLoaded).toHaveBeenCalledOnce()
+    expect(secondDispose).toHaveBeenCalledOnce()
+    expect(firstDispose).toHaveBeenCalledOnce()
+
+    managed.load('third.png', onLoaded)
+    textureLoads[2]?.resolve(makeTexture())
+    expect(onLoaded).toHaveBeenCalledTimes(2)
+  })
+
   it('disposes each texture exactly once across stale and dispose paths', () => {
     const scene = ref<THREE.Scene | null>(new THREE.Scene())
     const managed = createManagedTextureLoader(scene)

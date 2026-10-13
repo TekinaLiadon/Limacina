@@ -1,11 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::fs::{create_dir_all, read_dir, remove_file, rename};
-use tokio::task::spawn_blocking;
+use tokio::fs::create_dir_all;
 
-use crate::java::{extract_archive, find_java_executable, resolve_java_version};
-use crate::utils::blocking;
+use crate::java::{install_java_archive, resolve_java_version};
 use crate::utils::download_file::download_file;
 use crate::utils::env_info::{ensure_safe_relative_path, get_arch, get_current_os, launcher_path};
 use crate::utils::errors::LauncherError;
@@ -145,17 +143,6 @@ async fn fetch_package(
     Ok(pkg)
 }
 
-async fn collect_dirs(path: &PathBuf) -> Result<Vec<String>> {
-    let mut dirs = Vec::new();
-    let mut entries = read_dir(path).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        if entry.file_type().await.is_ok_and(|t| t.is_dir()) {
-            dirs.push(entry.file_name().to_string_lossy().into_owned());
-        }
-    }
-    Ok(dirs)
-}
-
 fn ensure_distribution_supported(distribution: &str) -> Result<()> {
     if get_java_distributions_list()
         .iter()
@@ -206,42 +193,15 @@ pub async fn download_alt_java(
 
     let base_path = launcher_path(None)?;
     let java_parent = base_path.join("java").join(&version);
-    let java_path = java_parent.join(distribution);
     let archive_path = java_parent.join(format!("archive_{}.{}", distribution, archive_type));
 
-    create_dir_all(&java_parent).await?;
-
-    let existing_dirs: Vec<String> = collect_dirs(&java_parent).await?;
+    create_dir_all(&java_parent)
+        .await
+        .with_context(|| format!("Не удалось создать папку Java {java_parent:?}"))?;
 
     download_file(&download_url, &archive_path).await?;
 
-    let java_parent_clone = java_parent.clone();
-    let archive_clone = archive_path.clone();
-    spawn_blocking(move || extract_archive(&archive_clone, &java_parent_clone)).await??;
-
-    remove_file(&archive_path).await?;
-
-    let new_dirs: Vec<String> = collect_dirs(&java_parent)
-        .await?
-        .into_iter()
-        .filter(|d| !existing_dirs.contains(d))
-        .collect();
-
-    let to = java_parent.join(distribution);
-    if !to.exists() {
-        if let Some(extracted_dir) = new_dirs.into_iter().next() {
-            let from = java_parent.join(&extracted_dir);
-            if from != to {
-                rename(&from, &to).await?;
-            }
-        }
-    }
-
-    let exe = blocking(
-        "Не удалось найти исполняемый файл Java",
-        move || find_java_executable(&java_path),
-    )
-    .await??;
+    let exe = install_java_archive(&java_parent, &archive_path, distribution).await?;
     Ok((exe, version))
 }
 

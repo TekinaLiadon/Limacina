@@ -2,8 +2,8 @@
 import { computed } from 'vue'
 import { useProjectSettings, useAlternativeJava, useIntegrityCheck } from '@/04-features'
 import { useCoreStore, LOADER_LABELS } from '@/05-entities'
-import { PathPicker, AlternativeJavaButton, MemorySlider, DangerActionButton, IntegrityCheck, JvmPreset, ServerConnect, SettingsSection, SettingsSaveBar, SettingsInfoRow, LoadErrorRow } from '@/03-widgets'
-import { Button, Checkbox, Input, Skeleton } from '@/06-shared'
+import { PathPicker, AlternativeJavaButton, MemorySlider, DangerActionButton, IntegrityCheck, JvmPreset, ServerConnect, SettingsSection, SettingsInfoRow, SettingsPageShell } from '@/03-widgets'
+import { Button, Checkbox, Input } from '@/06-shared'
 
 const coreStore = useCoreStore()
 
@@ -80,14 +80,14 @@ const handleDownload = async (): Promise<void> => {
 </script>
 
 <template>
-  <div class="project-settings">
-    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
-
-    <div v-if="isLoading" class="project-settings__loading" aria-hidden="true">
-      <Skeleton v-for="index in 9" :key="index" variant="line" height="var(--control-height)" />
-    </div>
-
-    <template v-else>
+  <SettingsPageShell
+    :is-loading="isLoading"
+    :load-error="loadError"
+    :is-saving="isSaving"
+    :is-dirty="isDirty"
+    @retry="retryLoad"
+    @save="handleSave"
+  >
     <SettingsSection title="Сборка" storage-key="project-build">
       <div class="settings-grid">
         <div class="project-settings__info">
@@ -206,24 +206,13 @@ const handleDownload = async (): Promise<void> => {
         />
       </div>
     </SettingsSection>
-    </template>
-
-    <SettingsSaveBar :is-saving="isSaving" :is-loading="isLoading" :is-dirty="isDirty" :is-blocked="loadError !== ''" @save="handleSave" />
-  </div>
+  </SettingsPageShell>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
 
 .project-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--section-gap);
-
-  &__loading {
-    @include mixins.settings-fields-grid;
-  }
-
   &__info {
     display: flex;
     flex-direction: column;

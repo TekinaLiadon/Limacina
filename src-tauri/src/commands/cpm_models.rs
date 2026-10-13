@@ -5,9 +5,10 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::cpm::{
-    build_link_definition, build_player_model_file, merge_selected_model, parse_cpm_config,
-    pick_eviction_index, rebind_selection, remove_selected_model, sanitize_file_name,
-    CpmModelEntry, CpmModelManifest, RebindDecision, SKIN_TYPE_DEFAULT, SKIN_TYPE_SLIM,
+    build_link_definition, build_player_model_file, local_model_file_name, merge_selected_model,
+    model_file_name, parse_cpm_config, pick_eviction_index, rebind_selection,
+    remove_selected_model, CpmModelEntry, CpmModelManifest, RebindDecision, SKIN_TYPE_DEFAULT,
+    SKIN_TYPE_SLIM,
 };
 use crate::launcher_server::user_content;
 use crate::state::config::current_project_config;
@@ -136,31 +137,40 @@ async fn clear_selected_model(project_name: &str) -> Result<()> {
     Ok(())
 }
 
-async fn enforce_models_limit(
-    project_name: &str,
-    manifest: &mut CpmModelManifest,
-    selected: Option<&str>,
-) -> Result<bool> {
+fn enforce_models_limit(manifest: &mut CpmModelManifest, selected: Option<&str>) -> Vec<String> {
     let Some(limit) = manifest.limit else {
-        return Ok(false);
+        return Vec::new();
     };
     let limit = (limit.max(1)) as usize;
-    let dir = player_models_dir(project_name)?;
-    let mut evicted = false;
+    let mut evicted_files = Vec::new();
 
     while manifest.models.len() > limit {
         let Some(index) = pick_eviction_index(manifest, selected) else {
             break;
         };
         let entry = manifest.models.remove(index);
-        if let Err(e) = tokio::fs::remove_file(dir.join(&entry.file)).await {
-            log_err!("Не удалось удалить файл модели {:?}: {e:#}", entry.file);
-        }
         log_info!("Модель {} удалена: достигнут лимит хранения", entry.file);
-        evicted = true;
+        evicted_files.push(entry.file);
     }
 
-    Ok(evicted)
+    evicted_files
+}
+
+async fn remove_model_files(dir: &std::path::Path, files: &[String]) {
+    for file in files {
+        if let Err(e) = tokio::fs::remove_file(dir.join(file)).await {
+            log_err!("Не удалось удалить файл модели {file:?}: {e:#}");
+        }
+    }
+}
+
+async fn write_link_stub(dir: &std::path::Path, entry: &CpmModelEntry, url: &str) -> Result<()> {
+    let data_block = build_link_definition(url, entry.skin_type.unwrap_or(SKIN_TYPE_DEFAULT))?;
+    let container = build_player_model_file(&entry.name, &data_block);
+    let path = dir.join(&entry.file);
+    write_atomic(&path, &container)
+        .await
+        .with_context(|| format!("Не удалось записать модель {path:?}"))
 }
 
 #[tauri::command]
@@ -189,8 +199,10 @@ pub async fn set_player_models_limit(
     let mut manifest = read_manifest(&project_name).await?;
     manifest.limit = limit;
     let selected = read_selected_model(&project_name).await?;
-    enforce_models_limit(&project_name, &mut manifest, selected.as_deref()).await?;
+    let evicted_files = enforce_models_limit(&mut manifest, selected.as_deref());
     save_manifest(&project_name, &manifest).await?;
+    let dir = player_models_dir(&project_name)?;
+    remove_model_files(&dir, &evicted_files).await;
 
     log_info!(
         "Лимит моделей обновлён: {}",
@@ -223,7 +235,7 @@ async fn save_player_model_inner(
     slim: Option<bool>,
     data: Option<Vec<u8>>,
 ) -> Result<()> {
-    let (data_block, entry) = match url {
+    let (model_data, entry) = match url {
         Some(url) => {
             let id = model_id.ok_or_else(|| {
                 anyhow!(LauncherError::InvalidInput(
@@ -235,39 +247,38 @@ async fn save_player_model_inner(
             } else {
                 SKIN_TYPE_DEFAULT
             };
-            let data_block = build_link_definition(&url, skin_type)?;
             let entry = CpmModelEntry {
                 id: Some(id),
-                file: format!("limacina_{}_{}.cpmmodel", id, sanitize_file_name(&name)),
+                file: model_file_name(id, &name),
                 name,
                 url: Some(url),
                 skin_type: Some(skin_type),
                 offline: false,
             };
-            (data_block, entry)
+            (None, entry)
         }
         None => {
-            let data = data.ok_or_else(|| {
+            let model_data = data.ok_or_else(|| {
                 anyhow!(LauncherError::InvalidInput(
                     "Не переданы данные модели".to_string()
                 ))
             })?;
-            if data.len() as u64 > CPM_PROJECT_MAX_BYTES {
+            if model_data.len() as u64 > CPM_PROJECT_MAX_BYTES {
                 return Err(anyhow!(LauncherError::InvalidInput(format!(
                     "Данные модели слишком большие: {} МБ, максимум {} МБ",
-                    data.len() / (1024 * 1024),
+                    model_data.len() / (1024 * 1024),
                     CPM_PROJECT_MAX_BYTES / (1024 * 1024)
                 ))));
             }
             let entry = CpmModelEntry {
                 id: None,
-                file: format!("limacina_local_{}.cpmmodel", sanitize_file_name(&name)),
+                file: local_model_file_name(&name),
                 name,
                 url: None,
                 skin_type: None,
                 offline: true,
             };
-            (data, entry)
+            (Some(model_data), entry)
         }
     };
 
@@ -278,28 +289,39 @@ async fn save_player_model_inner(
             .context("Не удалось создать папку моделей"),
         LauncherError::DiskIo,
     )?;
-    let container = build_player_model_file(&entry.name, &data_block);
 
     let _guard = MODELS_MANIFEST_LOCK.lock().await;
     let mut manifest = read_manifest(project_name).await?;
-    let mut removed_files: Vec<String> = Vec::new();
+    let mut displaced_files: Vec<String> = Vec::new();
     manifest.models.retain(|model| {
         let same = model.file == entry.file || (entry.id.is_some() && model.id == entry.id);
         if same && model.file != entry.file {
-            removed_files.push(model.file.clone());
+            displaced_files.push(model.file.clone());
         }
         !same
     });
     manifest.models.push(entry.clone());
-    enforce_models_limit(project_name, &mut manifest, Some(&entry.file)).await?;
-    for file in removed_files {
-        if let Err(e) = tokio::fs::remove_file(dir.join(&file)).await {
-            log_err!("Не удалось удалить файл модели {file:?}: {e:#}");
-        }
+    let evicted_files = enforce_models_limit(&mut manifest, Some(&entry.file));
+
+    if let Some(model_data) = &model_data {
+        let container = build_player_model_file(&entry.name, model_data);
+        let path = dir.join(&entry.file);
+        write_atomic(&path, &container)
+            .await
+            .with_context(|| format!("Не удалось записать модель {path:?}"))?;
+    } else if let Some(link_url) = entry.url.as_deref() {
+        write_link_stub(&dir, &entry, link_url).await?;
+    } else {
+        return Err(anyhow!(LauncherError::PlayerModel(
+            "В манифесте моделей нет ссылки на модель".to_string()
+        )));
     }
     save_manifest(project_name, &manifest).await?;
     set_selected_model(project_name, &entry.file).await?;
-    write_atomic(&dir.join(&entry.file), &container).await?;
+
+    let mut stale_files = displaced_files;
+    stale_files.extend(evicted_files);
+    remove_model_files(&dir, &stale_files).await;
 
     log_info!("Модель сохранена в игру: {}", entry.file);
     Ok(())
@@ -339,10 +361,7 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
         }
         known
     });
-    for file in removed_files {
-        if let Err(e) = tokio::fs::remove_file(dir.join(&file)).await {
-            log_err!("Не удалось удалить файл модели {file:?}: {e:#}");
-        }
+    if !removed_files.is_empty() {
         changed = true;
     }
 
@@ -363,15 +382,11 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
                 "В манифесте моделей нет ссылки на модель".to_string()
             ))
         })?;
-        let path = dir.join(&entry.file);
-        let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
+        let exists = tokio::fs::try_exists(dir.join(&entry.file))
+            .await
+            .unwrap_or(false);
         if !exists || url_changed {
-            let data_block =
-                build_link_definition(&url, entry.skin_type.unwrap_or(SKIN_TYPE_DEFAULT))?;
-            let container = build_player_model_file(&entry.name, &data_block);
-            write_atomic(&path, &container)
-                .await
-                .with_context(|| format!("Не удалось записать модель {:?}", path))?;
+            write_link_stub(&dir, entry, &url).await?;
             changed = true;
         }
     }
@@ -385,28 +400,30 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
         let name = format!("Модель {}", id);
         let entry = CpmModelEntry {
             id: Some(id),
-            file: format!("limacina_{}_{}.cpmmodel", id, sanitize_file_name(&name)),
+            file: model_file_name(id, &name),
             name,
             url: Some(item.url.clone()),
             skin_type: Some(SKIN_TYPE_DEFAULT),
             offline: false,
         };
-        let data_block = build_link_definition(&item.url, SKIN_TYPE_DEFAULT)?;
-        let container = build_player_model_file(&entry.name, &data_block);
-        write_atomic(&dir.join(&entry.file), &container).await?;
+        write_link_stub(&dir, &entry, &item.url).await?;
         manifest.models.push(entry);
         added_new = true;
         changed = true;
     }
 
     let selected = read_selected_model(&project_name).await?;
-    let evicted = enforce_models_limit(&project_name, &mut manifest, selected.as_deref()).await?;
-    if changed || evicted {
+    let evicted_files = enforce_models_limit(&mut manifest, selected.as_deref());
+    if changed || !evicted_files.is_empty() {
         save_manifest(&project_name, &manifest).await?;
     }
 
     let selected_exists = match &selected {
-        Some(file) => tokio::fs::try_exists(dir.join(file)).await.unwrap_or(false),
+        Some(file) => {
+            !removed_files.contains(file)
+                && !evicted_files.contains(file)
+                && tokio::fs::try_exists(dir.join(file)).await.unwrap_or(false)
+        }
         None => false,
     };
     match rebind_selection(&manifest, selected.as_deref(), selected_exists, added_new) {
@@ -420,6 +437,10 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
             log_info!("Выбор модели CPM сброшен: модель удалена с сервера");
         }
     }
+
+    let mut stale_files = removed_files;
+    stale_files.extend(evicted_files);
+    remove_model_files(&dir, &stale_files).await;
 
     log_info!("Синхронизация моделей CPM завершена");
     Ok(())
@@ -446,7 +467,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn enforce_models_limit_deletes_oldest_files_and_keeps_orphans() {
+    async fn enforce_models_limit_evicts_oldest_and_defers_file_deletion() {
         let _guard = LauncherDirGuard::acquire("cpm_limit").await;
         let project = "Cordelia";
         let dir = player_models_dir(project).unwrap();
@@ -467,13 +488,18 @@ mod tests {
             .await
             .unwrap();
 
-        let evicted = enforce_models_limit(project, &mut manifest, None)
-            .await
-            .unwrap();
+        let evicted_files = enforce_models_limit(&mut manifest, None);
 
-        assert!(evicted);
+        assert_eq!(evicted_files, vec!["a.cpmmodel"]);
         assert_eq!(manifest.models.len(), 2);
         assert_eq!(manifest.models[0].file, "b.cpmmodel");
+        assert!(
+            tokio::fs::try_exists(dir.join("a.cpmmodel")).await.unwrap(),
+            "удаление отложено до сохранения манифеста"
+        );
+
+        remove_model_files(&dir, &evicted_files).await;
+
         assert!(!tokio::fs::try_exists(dir.join("a.cpmmodel")).await.unwrap());
         assert!(tokio::fs::try_exists(dir.join("b.cpmmodel")).await.unwrap());
         assert!(tokio::fs::try_exists(dir.join("orphan.cpmmodel"))
@@ -481,11 +507,11 @@ mod tests {
             .unwrap());
 
         manifest.limit = Some(1);
-        enforce_models_limit(project, &mut manifest, None)
-            .await
-            .unwrap();
+        let evicted_files = enforce_models_limit(&mut manifest, None);
+        assert_eq!(evicted_files, vec!["b.cpmmodel"]);
         assert_eq!(manifest.models.len(), 1);
         assert_eq!(manifest.models[0].file, "c.cpmmodel");
+        remove_model_files(&dir, &evicted_files).await;
         assert!(tokio::fs::try_exists(dir.join("orphan.cpmmodel"))
             .await
             .unwrap());
@@ -860,6 +886,214 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn save_player_model_write_failure_leaves_no_dangling_state() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_write_fail").await;
+        let file = local_model_file_name("Hero");
+        let dir = player_models_dir(SYNC_PROJECT).unwrap();
+        tokio::fs::create_dir_all(dir.join(&file)).await.unwrap();
+
+        let error = save_player_model_inner(
+            SYNC_PROJECT,
+            "Hero".to_string(),
+            None,
+            None,
+            None,
+            Some(b"model".to_vec()),
+        )
+        .await
+        .expect_err("сбой записи файла модели");
+
+        assert!(
+            !error.to_string().is_empty(),
+            "ошибка записи должна вернуться вызывающему"
+        );
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert!(
+            manifest.models.is_empty(),
+            "манифест не должен ссылаться на незаписанный файл"
+        );
+        assert_eq!(
+            read_selected_model(SYNC_PROJECT).await.unwrap(),
+            None,
+            "выбор не должен указывать на несуществующий файл"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_player_model_retry_after_failure_restores_offline_state() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_retry").await;
+        let file = local_model_file_name("Hero");
+        let dir = player_models_dir(SYNC_PROJECT).unwrap();
+        tokio::fs::create_dir_all(dir.join(&file)).await.unwrap();
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "Hero".to_string(),
+            None,
+            None,
+            None,
+            Some(b"model".to_vec()),
+        )
+        .await
+        .expect_err("первое сохранение падает на записи файла");
+
+        tokio::fs::remove_dir_all(dir.join(&file)).await.unwrap();
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "Hero".to_string(),
+            None,
+            None,
+            None,
+            Some(b"model v2".to_vec()),
+        )
+        .await
+        .expect("повторное сохранение чинит состояние");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1);
+        assert_eq!(manifest.models[0].file, file);
+        assert!(model_file_exists(&file).await);
+        assert_eq!(
+            read_selected_model(SYNC_PROJECT).await.unwrap().as_deref(),
+            Some(file.as_str()),
+            "после повтора выбор указывает на существующий файл"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn save_player_model_failure_at_selection_keeps_previous_selection_valid() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_select_fail").await;
+        seed_manifest(vec![online_entry(
+            7,
+            "old.cpmmodel",
+            "https://cdn.example.com/m/7",
+        )])
+        .await;
+        write_model_file("old.cpmmodel", b"old").await;
+        set_selected_model(SYNC_PROJECT, "old.cpmmodel")
+            .await
+            .unwrap();
+
+        let game_config_dir = cpm_config_path(SYNC_PROJECT)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        std::fs::set_permissions(
+            &game_config_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o500),
+        )
+        .unwrap();
+
+        let result = save_player_model_inner(
+            SYNC_PROJECT,
+            "new".to_string(),
+            Some("https://cdn.example.com/m/7v2".to_string()),
+            Some(7),
+            None,
+            None,
+        )
+        .await;
+
+        std::fs::set_permissions(
+            &game_config_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+
+        result.expect_err("сбой записи cpm.json");
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(
+            manifest
+                .models
+                .iter()
+                .map(|m| m.file.clone())
+                .collect::<Vec<_>>(),
+            vec!["limacina_7_new.cpmmodel"],
+            "манифест и файл модели коммитятся до выбора"
+        );
+        assert!(model_file_exists("limacina_7_new.cpmmodel").await);
+        assert!(
+            model_file_exists("old.cpmmodel").await,
+            "вытесненный файл не удаляется до перевеса выбора"
+        );
+        assert_eq!(
+            read_selected_model(SYNC_PROJECT).await.unwrap().as_deref(),
+            Some("old.cpmmodel"),
+            "старый выбор остаётся валидным"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn save_player_model_keeps_displaced_file_when_manifest_save_fails() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_manifest_fail").await;
+        seed_manifest(vec![online_entry(
+            7,
+            "old.cpmmodel",
+            "https://cdn.example.com/m/7",
+        )])
+        .await;
+        write_model_file("old.cpmmodel", b"old").await;
+        set_selected_model(SYNC_PROJECT, "old.cpmmodel")
+            .await
+            .unwrap();
+
+        let config_dir = manifest_path(SYNC_PROJECT)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        std::fs::set_permissions(
+            &config_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o500),
+        )
+        .unwrap();
+
+        let result = save_player_model_inner(
+            SYNC_PROJECT,
+            "new".to_string(),
+            Some("https://cdn.example.com/m/7v2".to_string()),
+            Some(7),
+            None,
+            None,
+        )
+        .await;
+
+        std::fs::set_permissions(
+            &config_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+
+        result.expect_err("сохранение манифеста должно провалиться");
+        assert!(
+            model_file_exists("old.cpmmodel").await,
+            "вытесненный файл не удаляется при сбое манифеста"
+        );
+        assert!(
+            model_file_exists("limacina_7_new.cpmmodel").await,
+            "файл модели записывается до манифеста"
+        );
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(
+            manifest
+                .models
+                .iter()
+                .map(|m| m.file.clone())
+                .collect::<Vec<_>>(),
+            vec!["old.cpmmodel"],
+            "манифест на диске не меняется при сбое записи"
+        );
+        assert_eq!(
+            read_selected_model(SYNC_PROJECT).await.unwrap().as_deref(),
+            Some("old.cpmmodel")
+        );
+    }
+
+    #[tokio::test]
     async fn manifest_survives_concurrent_save_and_sync() {
         let _guard = LauncherDirGuard::acquire("cpm_manifest_race").await;
         let mut server = mockito::Server::new_async().await;
@@ -912,7 +1146,7 @@ mod tests {
 
         let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
         for i in 0..25u32 {
-            let file = format!("limacina_{}_saved-{i}.cpmmodel", 100 + i64::from(i));
+            let file = model_file_name(100 + i64::from(i), &format!("saved-{i}"));
             assert!(
                 manifest.models.iter().any(|m| m.file == file),
                 "запись {file} потеряна при параллельной записи манифеста"
@@ -964,7 +1198,7 @@ mod tests {
             synced.expect("синхронизация");
 
             let selected = read_selected_model(SYNC_PROJECT).await.unwrap();
-            let expected = format!("limacina_{id}_{name}.cpmmodel");
+            let expected = model_file_name(id, &name);
             assert_eq!(
                 selected.as_deref(),
                 Some(expected.as_str()),

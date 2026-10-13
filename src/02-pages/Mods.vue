@@ -9,12 +9,11 @@ import { ModrinthTab } from '@/03-widgets'
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .mods-page {
-  width: 100%;
-  padding: var(--page-padding-y) var(--page-padding-x);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  @include mixins.page-scaffold(none);
+
   text-align: left;
 }
 </style>

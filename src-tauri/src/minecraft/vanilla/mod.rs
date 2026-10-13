@@ -53,7 +53,7 @@ impl VanillaPhaseExecutor for InstallPhases {
             step,
             ensure_files(&step, &self.base_path, &self.project_name, targets).await
         );
-        settle_install_step(&step, &report)
+        settle_install_step(step, &report)
     }
 
     async fn natives(
@@ -83,21 +83,20 @@ impl VanillaPhaseExecutor for InstallPhases {
             step,
             ensure_files(&step, &self.base_path, &self.project_name, vec![target]).await
         );
-        settle_install_step(&step, &report)?;
-
-        let index_path = self.base_path.join(&index_rel);
-        let asset_index = match read_asset_index(&index_path).await {
-            Ok(index) => index,
-            Err(e) => {
-                step.fail(e.to_string());
-                return Err(e);
-            }
-        };
-        if let Err(e) = preflight_asset_disk_space(&self.base_path, &asset_index).await {
-            step.fail(e.to_string());
-            return Err(e);
+        if !report.failed.is_empty() {
+            let error = match settle_install_step(step, &report) {
+                Err(e) => e,
+                Ok(()) => anyhow::Error::msg("Не удалось скачать индекс ассетов"),
+            };
+            return Err(error);
         }
-        step.finish(false);
+        let index_path = self.base_path.join(&index_rel);
+        let asset_index = step_try!(step, read_asset_index(&index_path).await);
+        step_try!(
+            step,
+            preflight_asset_disk_space(&self.base_path, &asset_index).await
+        );
+        settle_install_step(step, &report)?;
         Ok(asset_index)
     }
 }
@@ -200,7 +199,7 @@ impl MinecraftLoader for Vanilla {
 #[cfg(test)]
 mod install_phases_tests {
     use super::InstallPhases;
-    use crate::minecraft::vanilla::download::PHASE_CLIENT;
+    use crate::minecraft::vanilla::download::{PHASE_ASSET_INDEX, PHASE_CLIENT};
     use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
     use crate::test_support::{sha1_hex, LauncherDirGuard};
     use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
@@ -317,6 +316,120 @@ mod install_phases_tests {
             step_terminals.len(),
             1,
             "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться, а не финишировать: {step_terminals:?}"
+        );
+    }
+
+    fn phases(base: PathBuf) -> InstallPhases {
+        InstallPhases {
+            base_path: base,
+            project_name: "Cordelia".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn asset_index_intact_finishes_step_once_as_skipped() {
+        let dir = LauncherDirGuard::acquire("vanilla_index_intact").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        let index_json = r#"{"objects": {}}"#;
+        let rel = PathBuf::from("assets/indexes/5.json");
+        std::fs::create_dir_all(base.join(&rel).parent().unwrap()).expect("директория индекса");
+        std::fs::write(base.join(&rel), index_json).expect("целый индекс");
+
+        phases(base)
+            .asset_index(url_target(
+                rel.to_string_lossy().as_ref(),
+                &sha1_hex(index_json.as_bytes()),
+                "http://127.0.0.1:1/index".to_string(),
+            ))
+            .await
+            .expect("фаза индекса ассетов по целому файлу");
+
+        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие на шаг: {step_terminals:?}"
+        );
+        assert!(
+            matches!(
+                step_terminals.first(),
+                Some(StepEvent::Finished { skipped: true, .. })
+            ),
+            "целый индекс должен финишировать как пропущенный: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn asset_index_failed_download_fails_step_once() {
+        let dir = LauncherDirGuard::acquire("vanilla_index_failed").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/index.json")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let error = phases(dir.project_dir("Cordelia"))
+            .asset_index(url_target(
+                "assets/indexes/5.json",
+                &sha1_hex(b"index"),
+                format!("{}/index.json", server.url()),
+            ))
+            .await
+            .expect_err("неудачное скачивание индекса должно прерывать фазу");
+
+        assert!(
+            error.to_string().contains("Не удалось скачать файлов"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn asset_index_unparseable_file_fails_step_once() {
+        let dir = LauncherDirGuard::acquire("vanilla_index_corrupt").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        let broken_json = b"not json at all";
+        let rel = PathBuf::from("assets/indexes/5.json");
+        std::fs::create_dir_all(base.join(&rel).parent().unwrap()).expect("директория индекса");
+        std::fs::write(base.join(&rel), broken_json).expect("непарсящийся индекс");
+
+        let error = phases(base)
+            .asset_index(url_target(
+                rel.to_string_lossy().as_ref(),
+                &sha1_hex(broken_json),
+                "http://127.0.0.1:1/index".to_string(),
+            ))
+            .await
+            .expect_err("битый индекс должен прерывать фазу после проверки хеша");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Не удалось разобрать индекс ресурсов"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "после успешного скачивания сбой чтения должен давать единственный Failed: {step_terminals:?}"
         );
         assert!(
             matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),

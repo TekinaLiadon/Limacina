@@ -400,13 +400,13 @@ pub async fn ensure_files(
     })
 }
 
-pub(crate) fn settle_install_step(step: &StepHandle, report: &IntegrityReport) -> Result<()> {
+pub(crate) fn settle_install_step(step: StepHandle, report: &IntegrityReport) -> Result<()> {
     if !report.failed.is_empty() {
         let message = format!("Не удалось скачать файлов: {}", report.failed.len());
-        step.clone().fail(message.clone());
+        step.fail(message.clone());
         return Err(anyhow::Error::msg(message));
     }
-    step.clone().finish(report.broken == 0);
+    step.finish(report.broken == 0);
     Ok(())
 }
 
@@ -839,22 +839,21 @@ mod ensure_files_tests {
             failed: vec!["a.jar".to_string()],
             ..IntegrityReport::default()
         };
-        let error =
-            settle_install_step(&StepHandle::start("settle.failed", "Тест"), &failed_report)
-                .expect_err("неудачные скачивания должны фейлить шаг");
+        let error = settle_install_step(StepHandle::start("settle.failed", "Тест"), &failed_report)
+            .expect_err("неудачные скачивания должны фейлить шаг");
         assert!(
             error.to_string().contains("Не удалось скачать файлов"),
             "неожиданная ошибка: {error}"
         );
 
         let intact_report = IntegrityReport::default();
-        settle_install_step(&StepHandle::start("settle.skipped", "Тест"), &intact_report)
+        settle_install_step(StepHandle::start("settle.skipped", "Тест"), &intact_report)
             .expect("целые файлы финишируют шаг");
         let repaired_report = IntegrityReport {
             broken: 2,
             ..IntegrityReport::default()
         };
-        settle_install_step(&StepHandle::start("settle.done", "Тест"), &repaired_report)
+        settle_install_step(StepHandle::start("settle.done", "Тест"), &repaired_report)
             .expect("отремонтированные файлы финишируют шаг");
 
         let events = crate::utils::step_events::test_capture::captured();

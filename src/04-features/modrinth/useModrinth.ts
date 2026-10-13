@@ -120,6 +120,7 @@ export function useModrinth() {
     await runScopedAction({
       isCurrent: (): boolean => searchGuard.isCurrent(generation),
       errorTarget: searchError,
+      errorMessage: 'Не удалось выполнить поиск Modrinth',
       busyFlag: isSearching,
       run: (): Promise<ModrinthSearchResult> => modrinthSearch({
         query: query.value,
@@ -150,6 +151,7 @@ export function useModrinth() {
     await runScopedAction({
       isCurrent: (): boolean => installedGuard.isCurrent(generation) && scope.isCurrent(),
       errorTarget: installedError,
+      errorMessage: 'Не удалось загрузить список установленных модов',
       busyFlag: isLoadingInstalled,
       run: (): Promise<ModrinthInstalledMod[]> => modrinthInstalled(),
       apply: (list: ModrinthInstalledMod[]): void => {
@@ -167,6 +169,7 @@ export function useModrinth() {
     await runScopedAction({
       isCurrent: (): boolean => detailsGuard.isCurrent(generation) && scope.isCurrent(),
       errorTarget: popupError,
+      errorMessage: 'Не удалось загрузить информацию о моде',
       busyFlag: isPopupLoading,
       run: (): Promise<ModrinthProjectDetails> => fetchModrinthProjectDetails(projectId),
       apply: (result: ModrinthProjectDetails): void => {
@@ -190,6 +193,7 @@ export function useModrinth() {
     await runScopedAction({
       isCurrent: (): boolean => updatesGuard.isCurrent(generation),
       errorTarget: actionError,
+      errorMessage: 'Не удалось проверить обновления модов',
       busyFlag: isCheckingUpdates,
       run: (): Promise<ModrinthUpdateCheck[]> => modrinthCheckUpdates(),
       apply: (checks: ModrinthUpdateCheck[]): void => {
@@ -211,6 +215,7 @@ export function useModrinth() {
     return await runScopedAction({
       isCurrent: (): boolean => scope.isCurrent(),
       errorTarget: actionError,
+      errorMessage: 'Не удалось установить мод',
       cleanup: (): void => {
         if (installingId.value === projectId) installingId.value = null
       },
@@ -231,6 +236,7 @@ export function useModrinth() {
     return await runScopedAction({
       isCurrent: (): boolean => scope.isCurrent(),
       errorTarget: actionError,
+      errorMessage: 'Не удалось удалить мод',
       cleanup: (): void => {
         if (installingId.value === projectId) installingId.value = null
       },
@@ -251,6 +257,7 @@ export function useModrinth() {
     await runScopedAction({
       isCurrent: (): boolean => scope.isCurrent(),
       errorTarget: actionError,
+      errorMessage: 'Не удалось открыть папку модов',
       cleanup: (): void => {
         isOpeningFolder.value = false
       },

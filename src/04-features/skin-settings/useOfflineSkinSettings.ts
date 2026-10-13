@@ -1,6 +1,6 @@
 import { computed, nextTick, onMounted, watch } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { getErrorMessage, reportError } from '@/06-shared'
+import { captureProjectScope, getErrorMessage, reportError } from '@/06-shared'
 import {
   deleteOfflineSkin, getOfflineSkin, getOfflineSkinModel, saveOfflineSkin,
 } from '@/06-shared/api'
@@ -18,13 +18,16 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
 
   const persistOfflineSkin = async (notify: boolean): Promise<void> => {
     if (!isOffline.value || settings.skinFileBytes.value.length === 0) return
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     const previous = persistQueue
     const run = async (): Promise<void> => {
       await previous
+      if (!scope.isCurrent()) return
       try {
         await saveOfflineSkin(settings.skinFileBytes.value, settings.modelMode.value)
-        if (notify) notification.show('Скин сохранён')
+        if (notify && scope.isCurrent()) notification.show('Скин сохранён')
       } catch (e: unknown) {
+        if (!scope.isCurrent()) return
         settings.errorMessage.value = 'Не удалось сохранить скин на диск'
         reportError('Не удалось сохранить локальный скин', e)
       }
@@ -80,16 +83,19 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
     void loadOfflineSkin()
   })
 
-  const resetSkin = (): Promise<void> =>
-    notification.runConfirmed('Сбросить текущий скин?', async (): Promise<void> => {
+  const resetSkin = (): Promise<void> => {
+    const scope = captureProjectScope((): string => coreStore.currentProject)
+    return notification.runConfirmed('Сбросить текущий скин?', async (): Promise<void> => {
       await settings.resetSkinState()
-      if (!isOffline.value) return
+      if (!isOffline.value || !scope.isCurrent()) return
       try {
         await deleteOfflineSkin()
       } catch (e: unknown) {
+        if (!scope.isCurrent()) return
         reportError('Не удалось удалить локальный скин', e)
       }
     })
+  }
 
   onMounted((): void => {
     if (!isOffline.value) return

@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { readZipEntryText, type ZipReadBudget } from '../cpm-convert/cpmProjectZip'
 import { reportError } from '@/06-shared'
 import type {
   CPMAnimation,
@@ -122,7 +123,7 @@ function findInterpolator(raw: unknown): CPMAnimationInterpolator | undefined {
   return INTERPOLATORS.find((value) => value === raw)
 }
 
-export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
+export async function parseCpmAnimations(zip: JSZip, budget: ZipReadBudget): Promise<CPMAnimation[]> {
   const files = Object.keys(zip.files)
     .filter((path) => path.startsWith('animations/') && path.endsWith('.json'))
     .sort()
@@ -135,9 +136,10 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
     const file = zip.file(path)
     if (!file) continue
 
+    const text = await readZipEntryText(budget, file)
     let raw: Record<string, unknown> | null
     try {
-      const parsed: unknown = JSON.parse(await file.async('string'))
+      const parsed: unknown = JSON.parse(text)
       raw = isRecord(parsed) ? parsed : null
     } catch {
       raw = null

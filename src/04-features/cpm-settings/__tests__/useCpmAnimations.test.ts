@@ -107,6 +107,22 @@ describe('useCpmAnimations', () => {
     expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual(['dance-pre', 'dance-b'])
   })
 
+  it('plays the shared setup once when both mains are selected', () => {
+    const first = { ...makeAnimation('dance-a'), name: 'Dance' }
+    const second = { ...makeAnimation('dance-b'), name: 'Dance' }
+    const setup = { ...makeAnimation('dance-pre'), name: 'g:Dance', kind: 'setup' as const, duration: 300 }
+    const data = ref<CPMData | null>(makeData([first, second, setup]))
+    const animations = useCpmAnimations(data)
+
+    animations.selectedAnimationIds.value = ['dance-a', 'dance-b']
+
+    expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual([
+      'dance-pre',
+      'dance-a',
+      'dance-b',
+    ])
+  })
+
   it('drops the finish from a looping gesture composition', () => {
     const data = ref<CPMData | null>(makeData(makeGestureSet(true)))
     const animations = useCpmAnimations(data)

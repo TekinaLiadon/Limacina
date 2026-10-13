@@ -10,7 +10,7 @@ import {
   type ProjectConfig,
 } from '@/05-entities'
 import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJavaVersion, refreshManifests, saveSettingsProject } from '@/06-shared/api'
-import { captureProjectScope, copyToClipboard, selectDirectory, useAsyncAction } from '@/06-shared'
+import { captureProjectScope, copyToClipboard, reportError, selectDirectory, useAsyncAction } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { loadProjectConfig } from './loadProjectConfig'
 import { splitJvmArgs, validateJvmArgs } from './jvmPresets'
@@ -69,6 +69,7 @@ export function useProjectSettings(): {
     try {
       config.value.javaVersion = await probeJavaVersion(selected)
     } catch (e: unknown) {
+      reportError('Не удалось проверить версию Java', e)
       config.value.javaVersion = null
       notification.show(getErrorMessage(e))
     }
@@ -83,9 +84,12 @@ export function useProjectSettings(): {
   const serverConnectUrl = ref<string>('')
   const isLoadingConnectUrl = ref<boolean>(false)
 
-  const notifyError = (e: unknown): void => notification.show(getErrorMessage(e))
+  const reportAndNotify = (message: string) => (e: unknown): void => {
+    reportError(message, e)
+    notification.show(getErrorMessage(e))
+  }
 
-  const connectUrlAction = useAsyncAction(notifyError, isLoadingConnectUrl)
+  const connectUrlAction = useAsyncAction(reportAndNotify('Не удалось получить ссылку для подключения'), isLoadingConnectUrl)
 
   watch(() => coreStore.currentProject, (project: string) => {
     serverConnectUrl.value = ''
@@ -117,10 +121,11 @@ export function useProjectSettings(): {
       }
       const saved = await saveSettingsProject(projectConfig)
       if (!scope.isCurrent()) return
-      coreStore.projectConfig = saved
+      coreStore.setProjectConfig(saved)
       store.adoptLoaded(projectName, projectSettingsFormFromConfig(saved))
       notification.show('Настройки сохранены')
     } catch (e: unknown) {
+      reportError('Не удалось сохранить настройки проекта', e)
       notification.show(getErrorMessage(e))
     } finally {
       store.finishSaving()
@@ -133,7 +138,7 @@ export function useProjectSettings(): {
     })
   }
 
-  const copyConnectUrlAction = useAsyncAction(notifyError)
+  const copyConnectUrlAction = useAsyncAction(reportAndNotify('Не удалось скопировать ссылку'))
 
   const handleCopyConnectUrl = async (): Promise<void> => {
     if (!serverConnectUrl.value) return
@@ -144,7 +149,7 @@ export function useProjectSettings(): {
   }
 
   const isClearingConfig = ref<boolean>(false)
-  const clearConfigAction = useAsyncAction(notifyError, isClearingConfig)
+  const clearConfigAction = useAsyncAction(reportAndNotify('Не удалось очистить конфиги игры'), isClearingConfig)
 
   const handleClearMinecraftConfig = async (): Promise<void> => {
     const confirmed = await notification.confirm(
@@ -159,7 +164,7 @@ export function useProjectSettings(): {
   }
 
   const isRefreshingManifests = ref<boolean>(false)
-  const manifestsAction = useAsyncAction(notifyError, isRefreshingManifests)
+  const manifestsAction = useAsyncAction(reportAndNotify('Не удалось обновить манифесты'), isRefreshingManifests)
 
   const handleRefreshManifests = async (): Promise<void> => {
     await manifestsAction.run(async () => {
@@ -169,7 +174,7 @@ export function useProjectSettings(): {
   }
 
   const isDeleting = ref<boolean>(false)
-  const deleteAction = useAsyncAction(notifyError, isDeleting)
+  const deleteAction = useAsyncAction(reportAndNotify('Не удалось удалить проект'), isDeleting)
 
   const canDeleteProject = computed((): boolean => {
     const { envProjectName } = coreStore
@@ -195,16 +200,13 @@ export function useProjectSettings(): {
     if (!confirmed) return
 
     await deleteAction.run(async () => {
-      const launcherConfig = await deleteProject()
-      coreStore.launcherConfig = launcherConfig
-      coreStore.projects = [...launcherConfig.projectNames]
+      coreStore.setLauncherConfig(await deleteProject())
       resetAccountsState()
       notification.show('Проект удалён')
 
       const [next] = coreStore.projects
       if (next === undefined) {
-        coreStore.currentProject = ''
-        coreStore.projectConfig = null
+        coreStore.setProjectConfig(null)
         await router.push({ name: 'AddProfile' })
         return
       }
@@ -212,8 +214,8 @@ export function useProjectSettings(): {
       try {
         await applyProjectSwitch(next)
       } catch (e: unknown) {
-        coreStore.currentProject = next
-        coreStore.projectConfig = null
+        reportError('Не удалось переключиться на следующий проект после удаления', e)
+        coreStore.setProjectConfig(null)
         notification.show(getErrorMessage(e))
       }
     })

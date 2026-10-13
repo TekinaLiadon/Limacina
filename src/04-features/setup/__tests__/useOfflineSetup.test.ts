@@ -66,7 +66,7 @@ describe('useOfflineSetup', () => {
   it('routes home when the config already exists and no profile is needed', async () => {
     const core = useCoreStore()
     core.offlineBuild = false
-    core.applyLauncherConfig(makeLauncherConfig())
+    core.setLauncherConfig(makeLauncherConfig())
 
     const setup = await setupWizard()
 
@@ -78,7 +78,7 @@ describe('useOfflineSetup', () => {
   it('moves to the profile step for an offline build without projects', async () => {
     const core = useCoreStore()
     core.offlineBuild = true
-    core.applyLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
+    core.setLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
 
     const setup = await setupWizard()
 
@@ -103,7 +103,7 @@ describe('useOfflineSetup', () => {
 
     const setup = await setupWizard()
 
-    core.applyLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
+    core.setLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
     await vi.waitFor(() => expect(setup.step.value).toBe(2))
 
     expect(router.replace).not.toHaveBeenCalled()
@@ -115,7 +115,7 @@ describe('useOfflineSetup', () => {
 
     const setup = await setupWizard()
 
-    core.applyLauncherConfig(makeLauncherConfig())
+    core.setLauncherConfig(makeLauncherConfig())
     await vi.waitFor(() => expect(router.replace).toHaveBeenCalledWith('/'))
 
     expect(setup.step.value).toBe(1)
@@ -126,7 +126,7 @@ describe('useOfflineSetup', () => {
     await startRedirect()
 
     core.offlineBuild = true
-    core.applyLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
+    core.setLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
     await nextTick()
 
     expect(router.replace).toHaveBeenCalledWith({ name: 'Setup' })
@@ -137,7 +137,7 @@ describe('useOfflineSetup', () => {
     await startRedirect()
 
     core.offlineBuild = false
-    core.applyLauncherConfig(makeLauncherConfig())
+    core.setLauncherConfig(makeLauncherConfig())
     await nextTick()
 
     expect(router.replace).not.toHaveBeenCalled()
@@ -149,7 +149,7 @@ describe('useOfflineSetup', () => {
     await startRedirect()
 
     core.offlineBuild = true
-    core.applyLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
+    core.setLauncherConfig(makeLauncherConfig({ projectNames: [], currentProject: null }))
     await nextTick()
 
     expect(router.replace).not.toHaveBeenCalled()

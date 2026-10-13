@@ -32,7 +32,7 @@ const progressLabel = computed((): string =>
   <div class="launch-scene__progress">
     <div class="launch-scene__progress-header">
       <span class="eyebrow">{{ progressLabel }}</span>
-      <ProgressBar :progress="progress" />
+      <ProgressBar :progress="progress" :aria-label="progressLabel" />
     </div>
 
     <StepProgress :steps="steps" hide-completed />

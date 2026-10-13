@@ -13,7 +13,7 @@ export function useCpmProjectOpen(): void {
   if (cpmProjectOpenListeners.isStarted()) return
 
   const openCpmProject = (path: string): void => {
-    coreStore.pendingCpmProjectPath = path
+    coreStore.setPendingCpmProjectPath(path)
   }
 
   void cpmProjectOpenListeners.start(async (track): Promise<void> => {

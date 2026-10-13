@@ -548,7 +548,10 @@ pub async fn download_mods(
         .context("Не удалось синхронизировать моды с сервером")?;
 
         let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
-        cleanup_extra_mods(&mods_dir, &server_mods).await?;
+        step_try!(
+            clean_step,
+            cleanup_extra_mods(&mods_dir, &server_mods).await
+        );
         clean_step.finish(false);
         Ok(report)
     })
@@ -737,6 +740,90 @@ mod mock_server_tests {
         .await;
 
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mods_clean_failure_fails_clean_step() {
+        use crate::utils::step_events::test_capture;
+        use crate::utils::step_events::{StepChannel, StepEvent};
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = LauncherDirGuard::acquire("mods_clean_fail").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+
+        let intact = b"intact mod".to_vec();
+        server
+            .mock("GET", "/v1/launcher/files/mods")
+            .with_status(200)
+            .with_body(json!({ "mods/a.jar": sha1_hex(&intact) }).to_string())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("mods")).expect("каталог модов");
+        std::fs::write(base.join("mods/a.jar"), &intact).expect("целый мод");
+        std::fs::write(base.join("mods/extra.jar"), b"stale").expect("лишний мод");
+        std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o500))
+            .expect("каталог без права на запись");
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server.url()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "test-token".to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        });
+
+        let result = download_mods("Cordelia".to_string(), &state).await;
+        std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o755))
+            .expect("восстановление прав");
+
+        let error = result
+            .err()
+            .expect("ошибка удаления лишнего мода должна прерывать синхронизацию");
+        assert!(
+            error.to_string().contains("Не удалось удалить лишний мод"),
+            "неожиданная ошибка: {error}"
+        );
+
+        let terminals: Vec<StepEvent> = test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                matches!(channel, StepChannel::Launch)
+                    && matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+                    && step_event_id(event) == "mods.clean"
+            })
+            .map(|(_, event)| event)
+            .collect();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "шаг очистки не должен оставаться активным после ошибки: {terminals:?}"
+        );
+        assert!(
+            matches!(terminals.first(), Some(StepEvent::Failed { .. })),
+            "ошибка очистки должна фейлить шаг: {terminals:?}"
+        );
+    }
+
+    fn step_event_id(event: &crate::utils::step_events::StepEvent) -> &str {
+        use crate::utils::step_events::StepEvent;
+        match event {
+            StepEvent::Started { id, .. }
+            | StepEvent::Progress { id, .. }
+            | StepEvent::Detail { id, .. }
+            | StepEvent::Finished { id, .. }
+            | StepEvent::Failed { id, .. } => id,
+        }
     }
 
     #[tokio::test]

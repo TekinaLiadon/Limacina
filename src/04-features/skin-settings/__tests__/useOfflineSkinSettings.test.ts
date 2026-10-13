@@ -274,6 +274,50 @@ describe('useOfflineSkinSettings', () => {
     expect(saveOfflineSkin).not.toHaveBeenCalled()
   })
 
+  it('skips the queued offline save when the project switches before the write runs', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
+    let releaseFirst: () => void = () => {}
+    vi.mocked(saveOfflineSkin).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        }),
+    )
+    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+
+    skins.modelMode.value = 'slim'
+    await nextTick()
+    skins.modelMode.value = 'classic'
+    await nextTick()
+    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
+
+    useCoreStore().currentProject = 'other'
+    releaseFirst()
+    await flushPromises()
+
+    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips the offline delete when the project switches while the confirmation is open', async () => {
+    goOffline()
+    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
+    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
+    vi.mocked(deleteOfflineSkin).mockResolvedValue(undefined)
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+
+    const confirmed = skins.resetSkin()
+    useCoreStore().currentProject = 'other'
+    useNotificationStore().resolvePopup(true)
+    await confirmed
+
+    expect(deleteOfflineSkin).not.toHaveBeenCalled()
+  })
+
   it('resets the skin after confirmation and clears the offline file', async () => {
     goOffline()
     vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))

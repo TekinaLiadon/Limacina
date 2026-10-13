@@ -24,7 +24,7 @@ export function useAnimationSettings(): {
     settingsStore.setAnimationsEnabled(value)
     try {
       const config: LauncherConfig = await saveAnimationsEnabled(value)
-      coreStore.launcherConfig = config
+      coreStore.setLauncherConfig(config)
     } catch (e: unknown) {
       settingsStore.setAnimationsEnabled(previous)
       reportError('Не удалось сохранить настройку анимаций', e)

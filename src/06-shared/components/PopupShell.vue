@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { pushEscapeHandler } from '@/06-shared/utils/escapeStack'
 import { useFocusTrap } from '@/06-shared/utils/useFocusTrap'
 
 const props = defineProps<{
@@ -18,16 +19,24 @@ const panelRef = ref<HTMLDivElement | null>(null)
 
 useFocusTrap(panelRef, (): boolean => props.visible)
 
-function handleKeydown(e: KeyboardEvent): void {
-  if (props.visible && e.key === 'Escape') emit('close')
-}
+let unregisterEscape: (() => void) | null = null
 
-onMounted((): void => {
-  window.addEventListener('keydown', handleKeydown)
-})
+watch(
+  (): boolean => props.visible,
+  (visible: boolean): void => {
+    if (visible) {
+      unregisterEscape = pushEscapeHandler((): void => emit('close'))
+      return
+    }
+    unregisterEscape?.()
+    unregisterEscape = null
+  },
+  { immediate: true },
+)
 
 onBeforeUnmount((): void => {
-  window.removeEventListener('keydown', handleKeydown)
+  unregisterEscape?.()
+  unregisterEscape = null
 })
 </script>
 
@@ -46,6 +55,7 @@ onBeforeUnmount((): void => {
           :class="panelClass"
           role="dialog"
           aria-modal="true"
+          tabindex="-1"
           :aria-label="ariaLabel"
           :aria-labelledby="ariaLabelledBy"
         >

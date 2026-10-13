@@ -1,6 +1,7 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { useLaunchStore, useNotificationStore } from '@/05-entities'
 import { getErrorMessage, killGameProcess } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
 
 export function useKillGame(): {
   isGameRunning: ComputedRef<boolean>
@@ -23,6 +24,7 @@ export function useKillGame(): {
     try {
       await killGameProcess()
     } catch (e: unknown) {
+      reportError('Не удалось завершить процесс игры', e)
       notificationStore.show(`Не удалось завершить процесс игры: ${getErrorMessage(e)}`)
     } finally {
       isKilling.value = false

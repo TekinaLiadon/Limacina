@@ -178,6 +178,24 @@ describe('useViewerModel', () => {
     model.unmount()
   })
 
+  it('does not restore the model when an in-flight load resolves after clearModel', async () => {
+    const model = mountModel()
+    model.loadModel('skin.png')
+    await nextTick()
+
+    model.clearModel()
+    await nextTick()
+
+    const texture = makeTexture()
+    const textureDispose = vi.spyOn(texture, 'dispose')
+    await resolveLastLoad(texture)
+
+    expect(modelGroups()).toHaveLength(0)
+    expect(model.modelGroup.value).toBeNull()
+    expect(textureDispose).toHaveBeenCalledOnce()
+    model.unmount()
+  })
+
   it('reloads the model when the scene reattaches', async () => {
     const model = mountModel()
     model.loadModel('skin.png')

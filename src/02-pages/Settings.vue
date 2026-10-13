@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Button, Tooltip } from '@/06-shared'
+import { Button, Tooltip, useRovingTabs } from '@/06-shared'
 import { useProjectSettings, useSettingsNav, useSettingsDirtyGuard } from '@/04-features'
 
 const router = useRouter()
@@ -20,30 +20,11 @@ const activeTabKey = computed<string | null>(() => {
   return active?.key ?? null
 })
 
-const moveTabFocus = (delta: number): void => {
-  const available = tabs.value.filter((tab) => tab.isAvailable)
-  if (available.length === 0) return
-  const focusedId = document.activeElement?.id ?? ''
-  const focusedIndex = available.findIndex((tab) => tabId(tab.key) === focusedId)
-  const anchorIndex = focusedIndex !== -1
-    ? focusedIndex
-    : available.findIndex((tab) => tab.key === activeTabKey.value)
-  const nextIndex = anchorIndex === -1 ? 0 : (anchorIndex + delta + available.length) % available.length
-  const next = available[nextIndex]
-  if (next) document.getElementById(tabId(next.key))?.focus()
-}
-
-const handleTabsKeydown = (event: KeyboardEvent): void => {
-  if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    moveTabFocus(1)
-    return
-  }
-  if (event.key === 'ArrowLeft') {
-    event.preventDefault()
-    moveTabFocus(-1)
-  }
-}
+const { handleKeydown: handleTabsKeydown } = useRovingTabs<string>({
+  tabs: (): typeof tabs.value => tabs.value,
+  isActive: (key: string): boolean => activeTabKey.value === key,
+  tabId,
+})
 
 watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   if (offline && route.name === 'SettingsAccount') router.replace({ name: 'SettingsLauncher' })
@@ -98,12 +79,8 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
 @use '@/01-app/assets/breakpoints';
 
 .settings-page {
-  width: 100%;
-  max-width: var(--page-max-width-wide);
-  margin: 0 auto;
-  padding: var(--page-padding-y) var(--page-padding-x);
-  display: flex;
-  flex-direction: column;
+  @include mixins.page-scaffold(var(--page-max-width-wide));
+
   flex: 1;
   min-height: 0;
   height: 0;

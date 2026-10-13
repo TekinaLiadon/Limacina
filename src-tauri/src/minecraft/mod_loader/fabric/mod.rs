@@ -81,7 +81,6 @@ impl ModLoader for Fabric {
             version_info,
             &version_info.library,
             "Установка Fabric".to_string(),
-            false,
         )
         .await
     }

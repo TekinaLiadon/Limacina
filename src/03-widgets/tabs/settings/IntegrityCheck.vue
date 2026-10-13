@@ -38,7 +38,7 @@ const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.is
 
     <template v-if="isCheckingNow">
       <div class="integrity-popup__progress">
-        <ProgressBar :progress="progress" />
+        <ProgressBar :progress="progress" aria-label="Проверка файлов" />
       </div>
       <div class="integrity-popup__steps">
         <StepProgress :steps="steps" />

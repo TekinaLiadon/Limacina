@@ -21,6 +21,8 @@ export interface CpmLayer {
 }
 
 const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
+const MODELS_LIMIT_MAX = 4294967295
+const MODELS_LIMIT_ERROR = `Лимит моделей — целое число от 1 до ${MODELS_LIMIT_MAX} или пустое значение`
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
@@ -134,7 +136,7 @@ export function useCpmSettings() {
 
   watch((): string | null => coreStore.pendingCpmProjectPath, (path: string | null): void => {
     if (!path) return
-    coreStore.pendingCpmProjectPath = null
+    coreStore.setPendingCpmProjectPath(null)
     void loadFromPath(path)
   }, { immediate: true })
 
@@ -159,11 +161,7 @@ export function useCpmSettings() {
 
   const rollbackUploadedModel = async (item: UserContentItem): Promise<void> => {
     if (item.id === null || item.id === undefined) return
-    try {
-      await content.handleDelete(item.id)
-    } catch (e: unknown) {
-      reportError('Не удалось удалить модель после сбоя сохранения', e)
-    }
+    await content.handleDelete(item.id)
   }
 
   const handleUploadModel = async (): Promise<void> => {
@@ -188,6 +186,7 @@ export function useCpmSettings() {
       notification.show('Модель добавлена в игру')
     } catch (e: unknown) {
       if (uploaded !== null) await rollbackUploadedModel(uploaded)
+      reportError('Не удалось сохранить модель', e)
       content.errorMessage.value = getErrorMessage(e)
     } finally {
       isUploading.value = false
@@ -213,8 +212,8 @@ export function useCpmSettings() {
 
   const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
     if (isSavingLimit.value) return
-    if (limit !== null && (!Number.isFinite(limit) || limit < 1)) {
-      limitSaveError.value = 'Лимит моделей — положительное число или пустое значение'
+    if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > MODELS_LIMIT_MAX)) {
+      limitSaveError.value = MODELS_LIMIT_ERROR
       return
     }
     const scope = captureProjectScope((): string => coreStore.currentProject)
@@ -227,6 +226,7 @@ export function useCpmSettings() {
       limitLoadError.value = ''
     } catch (e: unknown) {
       if (!scope.isCurrent()) return
+      reportError('Не удалось сохранить лимит моделей', e)
       limitSaveError.value = getErrorMessage(e)
     } finally {
       isSavingLimit.value = false

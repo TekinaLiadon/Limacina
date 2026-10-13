@@ -59,8 +59,7 @@ export function useProjectSwitch() {
     const logins = await authLogins(projectName)
     await finalizeSession()
 
-    coreStore.currentProject = projectName
-    coreStore.projectConfig = projectConfig
+    coreStore.applyProjectSwitch(projectName, projectConfig)
     projectSettingsStore.adoptLoaded(projectName, projectSettingsFormFromConfig(projectConfig))
     resetAccountsState()
     accountsStore.logins = logins
@@ -98,6 +97,7 @@ export function useProjectSwitch() {
       backendOnNewProject = true
       await applyProjectSwitch(projectName)
     } catch (e: unknown) {
+      reportError('Не удалось переключить проект', e)
       let message = getErrorMessage(e)
       if (backendOnNewProject && coreStore.currentProject === previousProject) {
         const restored = await restoreSavedProject(previousProject)

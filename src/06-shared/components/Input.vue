@@ -48,6 +48,12 @@ const {
 
 const listboxId = randomId()
 
+const hasSuggests = computed((): boolean => (props.options?.list?.length ?? 0) > 0)
+
+const listboxName = computed((): string => props.options?.label ?? props.options?.placeholder ?? 'Варианты')
+
+const isDropdownExpanded = computed((): boolean => hasSuggests.value && showDropdown.value && filteredList.value.length > 0)
+
 const inputType = computed((): string => {
   if (props.options?.type === 'password') return showPassword.value ? 'text' : 'password'
 
@@ -124,11 +130,11 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
                :id="id"
                :readonly="options?.readonly"
                :disabled="options?.disabled"
-               role="combobox"
-               :aria-expanded="showDropdown && filteredList.length > 0"
-               aria-haspopup="listbox"
-               :aria-controls="showDropdown && filteredList.length > 0 ? listboxId : undefined"
-               :aria-activedescendant="showDropdown && filteredList.length > 0 ? `${listboxId}-opt-${activeIndex}` : undefined"
+               :role="hasSuggests ? 'combobox' : undefined"
+               :aria-expanded="hasSuggests ? isDropdownExpanded : undefined"
+               :aria-haspopup="hasSuggests ? 'listbox' : undefined"
+               :aria-controls="isDropdownExpanded ? listboxId : undefined"
+               :aria-activedescendant="isDropdownExpanded ? `${listboxId}-opt-${activeIndex}` : undefined"
                @focus="openList"
                @input="openList"
                @keydown="handleInputKeydown"
@@ -141,6 +147,7 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
           class="input__dropdown"
           :class="{ 'input__dropdown--up': openUp }"
           role="listbox"
+          :aria-label="listboxName"
           :style="{ maxHeight }"
         >
           <div

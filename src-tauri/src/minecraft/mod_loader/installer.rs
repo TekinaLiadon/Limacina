@@ -294,7 +294,6 @@ pub(crate) async fn install_loader_files(
         download: TargetDownload::Url(installer_url.to_string()),
     });
     let report = step_try!(step, ensure_files(&step, base, project, targets).await);
-    settle_install_step(&step, &report)?;
     step_try!(
         step,
         record_installed_hash(
@@ -304,7 +303,7 @@ pub(crate) async fn install_loader_files(
         )
         .await
     );
-    Ok(())
+    settle_install_step(step, &report)
 }
 
 pub(crate) fn find_loader_version<'a>(
@@ -322,25 +321,25 @@ pub(crate) async fn install_version_files(
     version_info: &VersionMod,
     library: &[LibraryMod],
     label: String,
-    skipped: bool,
 ) -> Result<()> {
     let step = StepHandle::start("loader", label);
-    let base = launcher_path(Some(&state.project_name)).map_err(|e| {
-        LauncherError::LoaderSetup(format!(
-            "Не удалось определить путь к файлам проекта: {e:#}"
-        ))
-    })?;
+    let base = step_try!(
+        step,
+        launcher_path(Some(&state.project_name)).map_err(|e| {
+            LauncherError::LoaderSetup(format!(
+                "Не удалось определить путь к файлам проекта: {e:#}"
+            ))
+        })
+    );
     install_loader_files(
-        step.clone(),
+        step,
         &base,
         &state.project_name,
         &version_info.id,
         library,
         &version_info.url,
     )
-    .await?;
-    step.finish(skipped);
-    Ok(())
+    .await
 }
 
 pub async fn setup_loader(
@@ -363,7 +362,7 @@ pub async fn setup_loader(
     {
         let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         let library = loader_libraries(version_manifest.libraries, maven_base)?;
-        install_version_files(state, version_info, &library, label.clone(), true).await?;
+        install_version_files(state, version_info, &library, label.clone()).await?;
         log_info!("{} уже установлен, проверка файлов завершена", loader_name);
         return Ok(());
     }
@@ -402,7 +401,7 @@ pub async fn setup_loader(
     step.detail("Скачивание библиотек");
     log_info!("Скачивание библиотек {}", loader_name);
     install_loader_files(
-        step.clone(),
+        step,
         &base_url,
         &state.project_name,
         &target_version,
@@ -412,7 +411,6 @@ pub async fn setup_loader(
     .await?;
 
     log_info!("Установка {} завершена", loader_name);
-    step.finish(false);
     Ok(())
 }
 
@@ -568,6 +566,98 @@ mod loader_install_tests {
         assert!(installed
             .files
             .contains_key("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar"));
+    }
+
+    #[tokio::test]
+    async fn setup_loader_fast_path_finishes_loader_step_once() {
+        use crate::utils::step_events::test_capture;
+        use crate::utils::step_events::StepEvent;
+
+        let dir = LauncherDirGuard::acquire("loader_setup_single_terminal").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+
+        server
+            .mock(
+                "GET",
+                "/maven/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
+            )
+            .with_status(200)
+            .with_body(b"loader jar bytes".as_slice())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/maven/org/ow2/asm/asm/9.7/asm-9.7.jar")
+            .with_status(200)
+            .with_body(b"asm lib bytes".as_slice())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/installer/1.20.1-0.16.9.jar")
+            .with_status(200)
+            .with_body(b"installer bytes".as_slice())
+            .create_async()
+            .await;
+
+        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            loader_manifest_json(
+                &sha1_hex(b"loader jar bytes"),
+                &sha1_hex(b"asm lib bytes"),
+                b"loader jar bytes".len() as i64,
+                b"asm lib bytes".len() as i64,
+            )
+            .to_string(),
+        )
+        .unwrap();
+
+        let state = project_config("LoaderProj");
+        let manifest = vec![VersionMod {
+            url: format!("{}/installer/1.20.1-0.16.9.jar", server.url()),
+            id: "1.20.1-0.16.9".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+        let maven_base = format!("{}/maven", server.url());
+
+        setup_loader("Forge", "forge", &state, &manifest, &maven_base)
+            .await
+            .expect("установка лоадера");
+
+        let terminals: Vec<StepEvent> = test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                matches!(channel, crate::utils::step_events::StepChannel::Launch)
+                    && matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+                    && event_id(event) == "loader"
+            })
+            .map(|(_, event)| event)
+            .collect();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "шаг лоадера должен завершаться ровно одним терминальным событием: {terminals:?}"
+        );
+        assert!(
+            matches!(
+                terminals.first(),
+                Some(StepEvent::Finished { skipped: false, .. })
+            ),
+            "установка со скачиванием не должна помечаться пропущенной: {terminals:?}"
+        );
+    }
+
+    fn event_id(event: &crate::utils::step_events::StepEvent) -> &str {
+        use crate::utils::step_events::StepEvent;
+        match event {
+            StepEvent::Started { id, .. }
+            | StepEvent::Progress { id, .. }
+            | StepEvent::Detail { id, .. }
+            | StepEvent::Finished { id, .. }
+            | StepEvent::Failed { id, .. } => id,
+        }
     }
 
     fn neoforge_manifest_json() -> serde_json::Value {

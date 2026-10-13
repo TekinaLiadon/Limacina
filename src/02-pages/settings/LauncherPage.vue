@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useLauncherSettings } from '@/04-features'
-import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsSaveBar, LoadErrorRow } from '@/03-widgets'
-import { Skeleton } from '@/06-shared'
+import { PathPicker, ThemeSelector, AnimationToggle, LauncherUpdate, LauncherBehavior, SettingsSection, SettingsPageShell } from '@/03-widgets'
 import { useCoreStore } from '@/05-entities'
 
 const coreStore = useCoreStore()
@@ -20,14 +19,14 @@ const {
 </script>
 
 <template>
-  <div class="launcher-settings">
-    <LoadErrorRow :message="loadError" :is-loading="isLoading" @retry="retryLoad" />
-
-    <div v-if="isLoading" class="launcher-settings__loading" aria-hidden="true">
-      <Skeleton v-for="index in 9" :key="index" variant="line" height="var(--control-height)" />
-    </div>
-
-    <template v-else>
+  <SettingsPageShell
+    :is-loading="isLoading"
+    :load-error="loadError"
+    :is-saving="isSaving"
+    :is-dirty="isDirty"
+    @retry="retryLoad"
+    @save="handleSave"
+  >
     <SettingsSection title="Расположение" storage-key="launcher-location">
       <div class="settings-grid">
         <PathPicker
@@ -50,22 +49,5 @@ const {
     <SettingsSection v-if="coreStore.isServerBuild" title="Обновление лаунчера" storage-key="launcher-update">
       <LauncherUpdate />
     </SettingsSection>
-    </template>
-
-    <SettingsSaveBar :is-saving="isSaving" :is-loading="isLoading" :is-dirty="isDirty" :is-blocked="loadError !== ''" @save="handleSave" />
-  </div>
+  </SettingsPageShell>
 </template>
-
-<style lang="scss">
-@use '@/01-app/assets/mixins';
-
-.launcher-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--section-gap);
-
-  &__loading {
-    @include mixins.settings-fields-grid;
-  }
-}
-</style>

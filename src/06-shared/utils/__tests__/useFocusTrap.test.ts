@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useFocusTrap } from '../useFocusTrap'
 import { withSetup } from '@/test-support/withSetup'
 
+const unmountFns: Array<() => void> = []
+
 const buildTrap = (isActive: () => boolean): void => {
   const container = document.createElement('div')
+  container.tabIndex = -1
   const first = document.createElement('button')
   const second = document.createElement('button')
   container.appendChild(first)
   container.appendChild(second)
   document.body.appendChild(container)
-  withSetup(() => useFocusTrap(ref(container), isActive))
+  const { unmount } = withSetup(() => useFocusTrap(ref(container), isActive))
+  unmountFns.push(unmount)
 }
 
 describe('useFocusTrap', () => {
@@ -19,6 +23,7 @@ describe('useFocusTrap', () => {
   })
 
   afterEach(() => {
+    unmountFns.splice(0).forEach((unmount) => unmount())
     document.body.innerHTML = ''
     vi.restoreAllMocks()
   })
@@ -110,20 +115,58 @@ describe('useFocusTrap', () => {
     expect(escape.defaultPrevented).toBe(false)
   })
 
-  it('does not move the initial focus on activation', async () => {
+  it('moves the focus into the container on activation', async () => {
     const active = ref(false)
     buildTrap(() => active.value)
     await Promise.resolve()
 
+    const container = document.body.querySelector('div')
+    expect(container).not.toBeNull()
+    if (!container) return
     const outside = document.createElement('button')
     document.body.appendChild(outside)
     outside.focus()
 
     active.value = true
-    await Promise.resolve()
+    await nextTick()
+
+    expect(document.activeElement).toBe(container)
+  })
+
+  it('keeps the focus on a child that is focused before activation', async () => {
+    const active = ref(false)
+    buildTrap(() => active.value)
     await Promise.resolve()
 
-    expect(document.activeElement).toBe(outside)
+    const container = document.body.querySelector('div')
+    if (!container) return
+    const button = container.querySelector('button')
+    if (!button) return
+    button.focus()
+
+    active.value = true
+    await nextTick()
+
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('keeps shift-tab from leaking outside when the container itself is focused', async () => {
+    const active = ref(false)
+    buildTrap(() => active.value)
+    await Promise.resolve()
+
+    const container = document.body.querySelector('div')
+    if (!container) return
+
+    active.value = true
+    await nextTick()
+    container.focus()
+
+    const shift = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true })
+    container.dispatchEvent(shift)
+
+    expect(shift.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(container)
   })
 
   it('restores the focus on deactivation', async () => {
@@ -138,9 +181,9 @@ describe('useFocusTrap', () => {
     outside.focus()
 
     active.value = true
-    await Promise.resolve()
+    await nextTick()
     active.value = false
-    await Promise.resolve()
+    await nextTick()
 
     expect(document.activeElement).toBe(outside)
   })
