@@ -42,11 +42,7 @@ pub(crate) async fn update_launcher_config(
     mutate(&mut config);
 
     let saved_config = config.clone();
-    blocking(
-        "Не удалось записать конфиг",
-        move || saved_config.save(),
-    )
-    .await??;
+    blocking("Не удалось записать конфиг", move || saved_config.save()).await??;
 
     {
         let mut guard = state.lock().await;
@@ -76,8 +72,7 @@ async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<A
     let (config, version) = {
         let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
 
-        let mut config = match blocking("Не удалось прочитать конфиг", LauncherConfig::load)
-            .await
+        let mut config = match blocking("Не удалось прочитать конфиг", LauncherConfig::load).await
         {
             Ok(Ok(config)) => config,
             Ok(Err(e)) | Err(e) => {
@@ -99,11 +94,7 @@ async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<A
             }
             if changed {
                 let cfg_clone = cfg.clone();
-                match blocking(
-                    "Не удалось записать конфиг",
-                    move || cfg_clone.save(),
-                )
-                .await
+                match blocking("Не удалось записать конфиг", move || cfg_clone.save()).await
                 {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) | Err(e) => {

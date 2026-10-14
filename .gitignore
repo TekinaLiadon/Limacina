@@ -2,6 +2,8 @@
 logs
 *.log
 *.lock
+!bun.lock
+!Cargo.lock
 .env
 npm-debug.log*
 yarn-debug.log*

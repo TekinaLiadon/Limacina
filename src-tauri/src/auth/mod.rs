@@ -217,7 +217,11 @@ pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Сервер авторизации вернул {} при инвалидации токена: {}", status, body);
+            anyhow::bail!(
+                "Сервер авторизации вернул {} при инвалидации токена: {}",
+                status,
+                body
+            );
         }
 
         Ok(())

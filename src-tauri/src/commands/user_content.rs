@@ -158,25 +158,22 @@ async fn get_profile_skin_inner(
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
-    crate::utils::blocking(
-        "Не удалось очистить кэш скинов",
-        {
-            let cache_dir = cache_dir.clone();
-            let file_name = file_name.clone();
-            let prefix = prefix.clone();
-            move || {
-                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-                    for entry in entries.flatten() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if name.starts_with(&prefix) && name != file_name {
-                                let _ = std::fs::remove_file(entry.path());
-                            }
+    crate::utils::blocking("Не удалось очистить кэш скинов", {
+        let cache_dir = cache_dir.clone();
+        let file_name = file_name.clone();
+        let prefix = prefix.clone();
+        move || {
+            if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&prefix) && name != file_name {
+                            let _ = std::fs::remove_file(entry.path());
                         }
                     }
                 }
             }
-        },
-    )
+        }
+    })
     .await?;
 
     download_file(url, &cache_path).await?;
