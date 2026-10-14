@@ -86,7 +86,6 @@ const switchTab = (tab: AuthSubTab): void => {
         :is-back="showBack ?? false"
       >
         <Checkbox
-          v-if="!isOffline"
           v-model="loginFormData.rememberMe"
           label="Сохранить данные"
         />

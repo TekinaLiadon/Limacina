@@ -70,8 +70,6 @@
   <circle cx="256" cy="256" r="118" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.4"/>
   <circle cx="256" cy="256" r="108" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.4"/>
 
-  <path d="M201.233 336.001 V176 H225.222 V314.049 H310.767 V336.001 Z" fill="url(#gold)" filter="url(#glow)"/>
-
   <g stroke="url(#gold)" stroke-width="1.5" fill="none" opacity="0.3">
     <path d="M105 105 Q130 108 125 133"/>
     <path d="M407 105 Q382 108 387 133"/>
