@@ -111,6 +111,8 @@ const ALLOWED_D_PROPERTY_KEYS: &[&str] = &[
     "ignoreList",
     "mergeModules",
     "libraryDirectory",
+    "os.name",
+    "os.version",
 ];
 
 const ALLOWED_D_PROPERTY_PREFIXES: &[&str] =
@@ -875,6 +877,16 @@ mod jvm_args_guard_tests {
         .collect();
 
         validate_jvm_args(&args).expect("штатные аргументы пресетов не должны запрещаться");
+    }
+
+    #[test]
+    fn allows_mojang_manifest_os_properties() {
+        let args: Vec<String> = ["-Dos.name=Windows 10", "-Dos.version=10.0"]
+            .iter()
+            .map(|arg| arg.to_string())
+            .collect();
+
+        validate_jvm_args(&args).expect("os-свойства манифеста Mojang не должны запрещаться");
     }
 
     #[test]
