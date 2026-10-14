@@ -216,7 +216,8 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 #[cfg(test)]
 mod game_state_tests {
     use super::{
-        game_tooltip, game_usernames, menu_status_label, store_add_game, store_remove_game,
+        game_tooltip, game_usernames, get_launcher_name, menu_status_label, store_add_game,
+        store_remove_game,
     };
 
     static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -268,11 +269,15 @@ mod game_state_tests {
 
     #[test]
     fn labels_reflect_single_and_multiple_sessions() {
-        assert_eq!(game_tooltip(&[]), "Limacina");
+        let name = get_launcher_name();
+        assert_eq!(game_tooltip(&[]), name);
         assert_eq!(menu_status_label(&[]), None);
 
         let single = vec!["Steve".to_string()];
-        assert_eq!(game_tooltip(&single), "Limacina, игра запущена (Steve)");
+        assert_eq!(
+            game_tooltip(&single),
+            format!("{name}, игра запущена (Steve)")
+        );
         assert_eq!(
             menu_status_label(&single),
             Some("Игра запущена: Steve".to_string())
@@ -281,7 +286,7 @@ mod game_state_tests {
         let many = vec!["Steve".to_string(), "Alex".to_string()];
         assert_eq!(
             game_tooltip(&many),
-            "Limacina, игры запущены (2): Steve, Alex"
+            format!("{name}, игры запущены (2): Steve, Alex")
         );
         assert_eq!(
             menu_status_label(&many),
