@@ -24,7 +24,7 @@ export function useAddProfile() {
       const config = await createServerProfile(serverForm.value.serverUrl.trim())
       await applyCreatedProfile(config)
       serverForm.value.serverUrl = ''
-      notification.show(`Сервер «${config.projectName}» добавлен`)
+      notification.show(`Сервер "${config.projectName}" добавлен`)
       return config
     } catch (e: unknown) {
       reportError('Не удалось добавить сервер', e)

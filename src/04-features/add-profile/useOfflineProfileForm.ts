@@ -154,7 +154,7 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
       )
       await applyCreatedProfile(config)
       offlineForm.value.name = ''
-      notification.show(`Профиль «${config.projectName}» создан`)
+      notification.show(`Профиль "${config.projectName}" создан`)
       return config
     } catch (e: unknown) {
       reportError('Не удалось создать профиль', e)

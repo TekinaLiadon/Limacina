@@ -404,7 +404,7 @@ describe('useLauncherSettings', () => {
     expect(await savedLimit('9'.repeat(25))).toBeNull()
     expect(saveLauncherSettings).not.toHaveBeenCalled()
     expect(settings.downloadSpeedLimitError.value).toBe(
-      'Ограничение скорости — целое число от 1 до 10000000 КБ/с',
+      'Ограничение скорости: целое число от 1 до 10000000 КБ/с',
     )
 
     expect(await savedLimit('10000001')).toBeNull()

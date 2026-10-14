@@ -159,7 +159,7 @@ async fn get_profile_skin_inner(
     let prefix = format!("{}_", uuid);
 
     crate::utils::blocking(
-        "Не удалось выполнить очистку кэша скинов",
+        "Не удалось очистить кэш скинов",
         {
             let cache_dir = cache_dir.clone();
             let file_name = file_name.clone();
@@ -183,7 +183,7 @@ async fn get_profile_skin_inner(
 
     let cache_path_clone = cache_path.clone();
     let bytes = crate::utils::blocking(
-        "Не удалось выполнить чтение кэша скина",
+        "Не удалось прочитать кэш скина",
         move || {
             std::fs::read(&cache_path_clone)
                 .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))

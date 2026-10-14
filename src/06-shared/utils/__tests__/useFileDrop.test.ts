@@ -84,7 +84,7 @@ describe('useFileDrop', () => {
     expect(drop.isDragOver.value).toBe(false)
 
     handler?.({ payload: { type: 'drop', paths: ['/tmp/archive.zip'] } })
-    expect(drop.onError).toHaveBeenCalledWith('Допустимый формат — .png, .cpmproject')
+    expect(drop.onError).toHaveBeenCalledWith('Допустимый формат: .png, .cpmproject')
     expect(drop.onDrop).toHaveBeenCalledTimes(1)
   })
 
@@ -106,7 +106,7 @@ describe('useFileDrop', () => {
     handler?.({ payload: { type: 'drop', paths: ['/tmp/archive.zip', '/tmp/notes.txt'] } })
 
     expect(drop.onDrop).not.toHaveBeenCalled()
-    expect(drop.onError).toHaveBeenCalledWith('Допустимый формат — .png')
+    expect(drop.onError).toHaveBeenCalledWith('Допустимый формат: .png')
   })
 
   it('ignores an empty drop payload', async () => {

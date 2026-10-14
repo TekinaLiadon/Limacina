@@ -3,9 +3,9 @@ import { isWindowMinimized, listenLaunchSteps, listenGameExit, listenGameStarted
 import { createSingletonListeners, reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
 
 const GAME_START_TITLE = 'Игра запущена'
-const gameStartBody = (username: string): string => `Сессия ${username} запущена — лаунчер ждёт в трее`
+const gameStartBody = (username: string): string => `Сессия ${username} запущена, лаунчер ждёт в трее`
 const GAME_EXIT_OK_TITLE = 'Игра завершена'
-const gameExitOkBody = (username: string): string => `Игра ${username} закрыта — лаунчер ждёт в трее`
+const gameExitOkBody = (username: string): string => `Игра ${username} закрыта, лаунчер ждёт в трее`
 const PENDING_START_TTL_MS = 60_000
 
 type GameExitChannel = 'os' | 'toast'

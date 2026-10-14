@@ -142,10 +142,10 @@ describe('cpmProjectExporter', () => {
 
   it('rejects a cube size that does not fit the unsigned byte range', () => {
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ size: { x: 30, y: 8, z: 8 } })]))).toThrow(
-      /Размер куба «Cube»/,
+      /Размер куба "Cube"/,
     )
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ size: { x: -1, y: 8, z: 8 } })]))).toThrow(
-      /Размер куба «Cube»/,
+      /Размер куба "Cube"/,
     )
   })
 

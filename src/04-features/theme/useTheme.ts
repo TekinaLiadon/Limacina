@@ -63,7 +63,7 @@ export function useTheme(): {
       })
       .catch((e: unknown) => {
         reportError('Ошибка сохранения темы', e)
-        notification.show('Тема применена, но не сохранена — после перезапуска вернётся прежняя')
+        notification.show('Тема применена, но не сохранена: после перезапуска вернётся прежняя')
       })
 
     const newMode = parseThemeId(newTheme).mode

@@ -36,7 +36,7 @@ export function useFileDrop(options: FileDropOptions): { isDragOver: Ref<boolean
             return
           }
           if (payload.paths.length > 0) {
-            options.onError(`Допустимый формат — .${options.accept.join(', .')}`)
+            options.onError(`Допустимый формат: .${options.accept.join(', .')}`)
           }
         }
       })

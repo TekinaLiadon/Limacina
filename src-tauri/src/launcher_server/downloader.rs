@@ -136,7 +136,7 @@ async fn download_file(
     url: &str,
     server_url: &str,
 ) -> Result<()> {
-    log_info!("[download] Запрос файла: {} → {:?}", url, file_path);
+    log_info!("[download] Запрос файла: {} -> {:?}", url, file_path);
     let body = BodyFile {
         url: url.to_string(),
     };
@@ -348,7 +348,7 @@ async fn fetch_online_list(
     let online = state.lock().await.project_config.online;
     if !online {
         log_info!(
-            "{} Одиночный профиль {} — {}",
+            "{} Одиночный профиль {}: {}",
             source.log_prefix,
             project_name,
             source.offline_note

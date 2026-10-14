@@ -20,7 +20,7 @@ const { step, needsProfile } = useOfflineSetup()
       <div class="setup-card">
         <div v-if="needsProfile" class="setup-steps">
           <span class="setup-steps__item" :class="{ 'setup-steps__item--active': step === 1 }">Папка установки</span>
-          <span class="setup-steps__arrow">→</span>
+          <span class="setup-steps__arrow">-&gt;</span>
           <span class="setup-steps__item" :class="{ 'setup-steps__item--active': step === 2 }">Профиль</span>
         </div>
 

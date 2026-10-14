@@ -14,7 +14,7 @@ const isVisible = computed((): boolean =>
   <div v-if="isVisible" class="server-unavailable-banner" role="alert">
     <span class="server-unavailable-banner__dot"></span>
     <span class="server-unavailable-banner__text">
-      Сервер лаунчера недоступен — запуск и синхронизация файлов приостановлены. Мы продолжаем
+      Сервер лаунчера недоступен, запуск и синхронизация файлов приостановлены. Мы продолжаем
       проверять соединение.
     </span>
   </div>

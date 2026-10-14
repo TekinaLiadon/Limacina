@@ -100,7 +100,7 @@ struct AuthChangePasswordRequest {
 pub const OFFLINE_ACCESS_TOKEN: &str = "0";
 
 pub fn generate_offline_uuid(nickname: &str) -> String {
-    log_info!("Генерация офлайн uuid");
+    log_info!("Генерация офлайн-uuid");
     let data = format!("OfflinePlayer:{}", nickname);
 
     let hash = Md5::digest(data.as_bytes());
@@ -217,7 +217,7 @@ pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Вернул {} при инвалидации токена: {}", status, body);
+            anyhow::bail!("Сервер авторизации вернул {} при инвалидации токена: {}", status, body);
         }
 
         Ok(())

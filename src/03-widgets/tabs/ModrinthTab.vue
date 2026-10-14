@@ -236,7 +236,7 @@ onMounted(() => {
         </div>
       </div>
       <p v-else-if="installed.length === 0 && !installedError" class="modrinth-tab__empty">
-        Пока ничего не установлено — найдите моды в каталоге
+        Пока ничего не установлено, найдите моды в каталоге
       </p>
       <div v-else class="modrinth-tab__list">
         <ModrinthRow
@@ -296,7 +296,7 @@ onMounted(() => {
       <div v-if="actionError" class="modrinth-tab__error">{{ actionError }}</div>
       <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
       <p v-if="searchVersionsFailed && !searchError" class="modrinth-tab__versions-hint">
-        Версии модов не загрузились — значки версий могут отсутствовать
+        Версии модов не загрузились, значки версий могут отсутствовать
       </p>
 
       <div v-if="isCatalogSearching" class="modrinth-tab__summary" aria-hidden="true">

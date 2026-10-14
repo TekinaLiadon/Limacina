@@ -190,7 +190,7 @@ describe('useTheme', () => {
     await Promise.resolve()
 
     expect(useNotificationStore().message).toBe(
-      'Тема применена, но не сохранена — после перезапуска вернётся прежняя',
+      'Тема применена, но не сохранена: после перезапуска вернётся прежняя',
     )
   })
 

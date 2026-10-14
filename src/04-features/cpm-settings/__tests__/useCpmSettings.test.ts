@@ -188,7 +188,7 @@ describe('useCpmSettings', () => {
     await cpm.handleSaveModelsLimit(0)
 
     expect(cpm.limitSaveError.value).toBe(
-      'Лимит моделей — целое число от 1 до 4294967295 или пустое значение',
+      'Лимит моделей: целое число от 1 до 4294967295 или пустое значение',
     )
     expect(setPlayerModelsLimit).not.toHaveBeenCalled()
 

@@ -26,7 +26,7 @@ export function selectFile(options: FileUploadOptions): void {
     if (!file) return
 
     if (!matchesExtension(file.name, accept.split(','))) {
-      onError(`Допустимый формат — ${accept}`)
+      onError(`Допустимый формат: ${accept}`)
       return
     }
 

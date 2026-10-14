@@ -13,7 +13,7 @@ function assertSkinSize(width: number, height: number): void {
     && width % SKIN_SIZE_UNIT === 0
     && (height === width || height * 2 === width)
   if (!isSupported) {
-    throw new Error(`Неподдерживаемый размер скина ${width}x${height} — поддерживаются 64x32, 64x64 и кратные им форматы`)
+    throw new Error(`Неподдерживаемый размер скина ${width}x${height}, поддерживаются 64x32, 64x64 и кратные им форматы`)
   }
 }
 

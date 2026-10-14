@@ -42,7 +42,7 @@ const {
 
 <template>
   <div class="accounts-page">
-    <Preloader v-if="isSwitching" text="Смена проекта…" />
+    <Preloader v-if="isSwitching" text="Смена проекта..." />
     <NoProjectsState
       v-else-if="coreStore.projects.length === 0"
       @add-profile="router.push({ name: 'AddProfile' })"

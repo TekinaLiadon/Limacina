@@ -88,7 +88,7 @@ pub fn canonicalize_parent_path(raw: &str) -> Result<PathBuf> {
     }
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(LauncherError::InvalidInput(format!(
-            "Путь к папке лаунчера не должен содержать «..»: {trimmed}"
+            "Путь к папке лаунчера не должен содержать \"..\": {trimmed}"
         ))
         .into());
     }
@@ -282,7 +282,7 @@ mod tests {
         ] {
             let error = canonicalize_parent_path(raw).expect_err("обход «..» должен отклоняться");
             assert!(
-                error.to_string().contains("«..»"),
+                error.to_string().contains("\"..\""),
                 "ошибка должна называть проблему для {raw}: {error}"
             );
         }

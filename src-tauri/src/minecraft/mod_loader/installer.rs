@@ -96,13 +96,13 @@ pub async fn run_loader_installer(
         .await
         .map_err(|_| {
             LauncherError::LoaderSetup(format!(
-                "{loader_name} installer не завершился за {} сек и был прерван",
+                "{loader_name} инсталлер не завершился за {} сек и был прерван",
                 INSTALLER_TIMEOUT.as_secs()
             ))
         })?
         .map_err(|e| {
             LauncherError::LoaderSetup(format!(
-                "Не удалось запустить {loader_name} installer: {e:#}"
+                "Не удалось запустить {loader_name} инсталлер: {e:#}"
             ))
         })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -117,7 +117,7 @@ pub async fn run_loader_installer(
 
     if !output.status.success() {
         return Err(LauncherError::LoaderSetup(format!(
-            "{} installer завершился с ошибкой (код {:?}):\n{}",
+            "{} инсталлер завершился с ошибкой (код {:?}):\n{}",
             loader_name,
             output.status.code(),
             stderr

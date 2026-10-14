@@ -93,7 +93,7 @@ describe('useAddProfile', () => {
     expect(useAccountsStore().logins).toEqual([])
     expect(clearSession).toHaveBeenCalledTimes(1)
     expect(add.serverForm.value.serverUrl).toBe('')
-    expect(useNotificationStore().message).toBe('Сервер «example» добавлен')
+    expect(useNotificationStore().message).toBe('Сервер "example" добавлен')
     expect(add.isSubmitting.value).toBe(false)
   })
 

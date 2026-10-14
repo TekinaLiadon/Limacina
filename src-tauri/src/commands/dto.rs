@@ -10,7 +10,7 @@ use crate::utils::errors::LauncherError;
 pub fn create_mod_loader(loader_type: &ConfigModLoader) -> Result<Box<dyn ModLoader>> {
     match loader_type {
         ConfigModLoader::Vanilla => Err(LauncherError::InvalidInput(
-            "Для Vanilla не требуется загрузчик модов — установка и запуск идут без него"
+            "Для Vanilla не требуется загрузчик модов, установка и запуск идут без него"
                 .to_string(),
         )
         .into()),

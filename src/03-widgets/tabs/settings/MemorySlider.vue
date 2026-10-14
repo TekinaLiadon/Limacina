@@ -78,9 +78,9 @@ const onMaxInput = (e: Event): void => {
 <template>
   <div class="memory-slider">
     <div class="memory-slider__header">
-      <label class="memory-slider__label eyebrow">Память (min — max)</label>
+      <label class="memory-slider__label eyebrow">Память (min-max)</label>
       <span class="memory-slider__values">
-        {{ formatValue(minVal) }} — {{ formatValue(maxVal) }}
+        {{ formatValue(minVal) }}-{{ formatValue(maxVal) }}
       </span>
     </div>
     <div class="memory-slider__track">
@@ -94,7 +94,7 @@ const onMaxInput = (e: Event): void => {
       <input
         type="range"
         class="memory-slider__input memory-slider__input--min"
-        aria-label="Память — минимальное значение"
+        aria-label="Минимальное значение памяти"
         :min="min"
         :max="maxLimit"
         :step="step"
@@ -104,7 +104,7 @@ const onMaxInput = (e: Event): void => {
       <input
         type="range"
         class="memory-slider__input memory-slider__input--max"
-        aria-label="Память — максимальное значение"
+        aria-label="Максимальное значение памяти"
         :min="min"
         :max="maxLimit"
         :step="step"

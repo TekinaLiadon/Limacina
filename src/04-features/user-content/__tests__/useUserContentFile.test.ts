@@ -140,9 +140,9 @@ describe('useUserContentFile', () => {
       onError: (message: string) => void
     }
 
-    options.onError('Допустимый формат — .cpmproject')
+    options.onError('Допустимый формат: .cpmproject')
 
-    expect(errorMessage.value).toBe('Допустимый формат — .cpmproject')
+    expect(errorMessage.value).toBe('Допустимый формат: .cpmproject')
   })
 
   it('routes the drop event through the same load path', async () => {

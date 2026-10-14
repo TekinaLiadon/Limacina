@@ -453,7 +453,7 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).toHaveBeenNthCalledWith(2, 'alpha')
     expect(core.currentProject).toBe('alpha')
     expect(useNotificationStore().message).toBe(
-      'config locked. Не удалось вернуть предыдущий проект — после перезапуска откроется «beta»',
+      'config locked. Не удалось вернуть предыдущий проект, после перезапуска откроется "beta"',
     )
   })
 })

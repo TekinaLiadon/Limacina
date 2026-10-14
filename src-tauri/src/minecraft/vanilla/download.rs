@@ -383,7 +383,7 @@ async fn extract_natives_from_jar(
             })?;
 
             written_names.push(file_name.clone());
-            log_info!("    ✓ {}", file_name);
+            log_info!("    {}", file_name);
         }
 
         Ok(written_names)
@@ -538,7 +538,7 @@ pub async fn preflight_asset_disk_space(
     .flatten();
     let Some(available) = available else {
         log_info!(
-            "[preflight] Не удалось определить диск для {:?} — проверка свободного места пропущена",
+            "[preflight] Не удалось определить диск для {:?}, проверка свободного места пропущена",
             base_path
         );
         return Ok(());

@@ -206,7 +206,7 @@ describe('useSystemNotifications', () => {
 
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершена',
-        body: 'Игра Steve закрыта — лаунчер ждёт в трее',
+        body: 'Игра Steve закрыта, лаунчер ждёт в трее',
       })
     })
 
@@ -220,7 +220,7 @@ describe('useSystemNotifications', () => {
       expect(api.sendOsNotification).toHaveBeenCalledTimes(2)
       expect(api.sendOsNotification).toHaveBeenNthCalledWith(1, {
         title: 'Игра завершена',
-        body: 'Игра alice закрыта — лаунчер ждёт в трее',
+        body: 'Игра alice закрыта, лаунчер ждёт в трее',
       })
       expect(api.sendOsNotification).toHaveBeenNthCalledWith(2, {
         title: 'Игра завершилась с ошибкой',
@@ -238,7 +238,7 @@ describe('useSystemNotifications', () => {
 
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра запущена',
-        body: 'Сессия alice запущена — лаунчер ждёт в трее',
+        body: 'Сессия alice запущена, лаунчер ждёт в трее',
       })
     })
 
@@ -253,7 +253,7 @@ describe('useSystemNotifications', () => {
       await vi.waitFor(() =>
         expect(api.sendOsNotification).toHaveBeenCalledWith({
           title: 'Игра запущена',
-          body: 'Сессия alice запущена — лаунчер ждёт в трее',
+          body: 'Сессия alice запущена, лаунчер ждёт в трее',
         })
       )
     })
@@ -285,7 +285,7 @@ describe('useSystemNotifications', () => {
       await vi.waitFor(() => expect(api.sendOsNotification).toHaveBeenCalledTimes(2))
       expect(api.sendOsNotification).toHaveBeenLastCalledWith({
         title: 'Игра запущена',
-        body: 'Сессия alice запущена — лаунчер ждёт в трее',
+        body: 'Сессия alice запущена, лаунчер ждёт в трее',
       })
     })
 
@@ -338,7 +338,7 @@ describe('useSystemNotifications', () => {
       await emitExit?.(exitInfo({ success: true, code: 0 }))
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершена',
-        body: 'Игра Steve закрыта — лаунчер ждёт в трее',
+        body: 'Игра Steve закрыта, лаунчер ждёт в трее',
       })
 
       await emitExit?.(exitInfo({ success: true, code: 0 }))
@@ -346,7 +346,7 @@ describe('useSystemNotifications', () => {
       expect(api.getNotificationIcon).toHaveBeenCalledTimes(2)
       expect(api.sendOsNotification).toHaveBeenLastCalledWith({
         title: 'Игра завершена',
-        body: 'Игра Steve закрыта — лаунчер ждёт в трее',
+        body: 'Игра Steve закрыта, лаунчер ждёт в трее',
         icon: '/icon.png',
       })
     })

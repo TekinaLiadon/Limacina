@@ -20,7 +20,7 @@ const {
 const versionOptions = computed((): DropdownOption[] =>
   versions.value.map((entry): DropdownOption => ({
     value: entry.version,
-    title: entry.version === currentVersion.value ? `${entry.version} — текущая` : entry.version,
+    title: entry.version === currentVersion.value ? `${entry.version} (текущая)` : entry.version,
   }))
 )
 </script>

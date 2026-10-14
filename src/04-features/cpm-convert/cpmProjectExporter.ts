@@ -50,10 +50,10 @@ function texSizeOf(child: CPMChild): number {
   const value = child.mirror ? -Math.abs(raw) : raw
   const rounded = Math.round(value)
   if (Math.abs(value - rounded) > TEX_SIZE_EPSILON) {
-    throw new Error(`texSize куба «${child.name}» должен быть целым числом, получено ${value}`)
+    throw new Error(`texSize куба "${child.name}" должен быть целым числом, получено ${value}`)
   }
   if (rounded < -128 || rounded > 127) {
-    throw new Error(`texSize куба «${child.name}» = ${rounded} не помещается в байт`)
+    throw new Error(`texSize куба "${child.name}" = ${rounded} не помещается в байт`)
   }
   return rounded
 }
@@ -62,7 +62,7 @@ function writeVec3ub(w: CpmBinaryWriter, v: { x: number; y: number; z: number },
   const toByte = (val: number): number => {
     const scaled = Math.round(val * 10)
     if (!(scaled >= 0 && scaled <= 255)) {
-      throw new Error(`Размер куба «${name}» = ${val} не помещается в байт`)
+      throw new Error(`Размер куба "${name}" = ${val} не помещается в байт`)
     }
     return scaled
   }

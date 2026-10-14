@@ -104,7 +104,7 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
         let file = primary_file(version)?;
         let sha1 = file.hashes.get("sha1").cloned().ok_or_else(|| {
             LauncherError::Modrinth(format!(
-                "Файл версии {} без SHA1 хеша",
+                "Файл версии {} без SHA1-хеша",
                 version.version_number
             ))
         })?;
@@ -454,7 +454,7 @@ pub async fn check_updates(ctx: &InstallContext) -> Result<Vec<UpdateCheck>> {
     for entry in entries {
         let Some(version) = latest.get(&entry.sha1) else {
             log_info!(
-                "[modrinth] Файл {} не распознан Modrinth — обновления для него недоступны",
+                "[modrinth] Файл {} не распознан Modrinth, обновления для него недоступны",
                 entry.filename
             );
             result.push(UpdateCheck {

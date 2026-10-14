@@ -220,7 +220,7 @@ async fn apply() {
             );
             match timeout(ipc_timeout(), task).await {
                 Err(_) => log_err!(
-                    "Discord IPC не ответил за {:?} — статус не обновлён",
+                    "Discord IPC не ответил за {:?}, статус не обновлён",
                     ipc_timeout()
                 ),
                 Ok(joined) => match joined {

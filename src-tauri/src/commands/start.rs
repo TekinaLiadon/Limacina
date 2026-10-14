@@ -68,7 +68,7 @@ async fn start_minecraft_inner(
     config_step.finish(false);
 
     if let Err(e) = force_narrator_off(&game_config.game_dir).await {
-        log_err!("[start] Не удалось выключить нарратор: {}", e);
+        log_err!("[start] Не удалось выключить диктор: {}", e);
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
@@ -203,7 +203,7 @@ async fn assemble_game_config(
                 .config(project_config, &config)
                 .await
                 .with_context(|| format!(
-                    "Не удалось получить Vanilla конфиг (проект: {})",
+                    "Не удалось получить конфиг Vanilla (проект: {})",
                     ctx.project
                 )),
             LauncherError::ManifestParse
@@ -221,7 +221,7 @@ async fn assemble_game_config(
                 .versions(project_config)
                 .await
                 .with_context(|| format!(
-                    "Не удалось получить список версий лоадера (проект: {})",
+                    "Не удалось получить список версий загрузчика модов (проект: {})",
                     ctx.project
                 )),
             LauncherError::ManifestParse
@@ -234,7 +234,7 @@ async fn assemble_game_config(
                 .version_current(project_config, &versions)
                 .await
                 .with_context(|| format!(
-                    "Не удалось получить текущую версию лоадера (проект: {})",
+                    "Не удалось получить текущую версию загрузчика модов (проект: {})",
                     ctx.project
                 )),
             LauncherError::ManifestParse
@@ -309,7 +309,7 @@ async fn wait_for_game_window(process: &GameProcess, project: &str) -> CommandRe
         )
     );
     if !process.window_opened() {
-        window_step.detail("Окно игры не обнаружено за 120 сек — оно может открыться позже");
+        window_step.detail("Окно игры не обнаружено за 120 сек, оно может открыться позже");
     }
     window_step.finish(false);
     Ok(())

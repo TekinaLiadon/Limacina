@@ -1190,7 +1190,7 @@ Function PageDirectory
 
   !insertmacro ScaleTo $1 44
   !insertmacro ScaleTo $2 10
-  StrCpy $BtnText "Обзор…"
+  StrCpy $BtnText "Обзор..."
 Call BtnWidth
 StrCpy $3 $BtnW
   IntOp $4 $ContentW - $3
@@ -1207,7 +1207,7 @@ StrCpy $3 $BtnW
   IntOp $4 $ContentX + $4
   IntOp $4 $4 + $2
   IntOp $5 $BodyTop - 1
-  ${NSD_CreateLabel} $4 $5 $3 $1 "Обзор…"
+  ${NSD_CreateLabel} $4 $5 $3 $1 "Обзор..."
   Pop $0
   ${NSD_AddStyle} $0 ${STYLE_CENTER}
   SetCtlColors $0 ${COLOR_BODY} ${COLOR_INPUT}

@@ -28,7 +28,7 @@ pub async fn check_files_integrity(
         report.merge(server_report);
     } else {
         log_info!(
-            "[integrity] Одиночный профиль {} — файлы сервера и моды не проверяются",
+            "[integrity] Одиночный профиль {}, файлы сервера и моды не проверяются",
             project.project_name
         );
     }

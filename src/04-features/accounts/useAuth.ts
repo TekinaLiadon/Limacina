@@ -39,13 +39,13 @@ export function useAuth() {
   const registerLoginHint = computed((): string | null => {
     const { login } = store.registerFormData
     if (!login || login.trim().length >= MIN_LOGIN_LENGTH) return null
-    return `Логин — ${minLengthMessage(MIN_LOGIN_LENGTH)}`
+    return `Логин: ${minLengthMessage(MIN_LOGIN_LENGTH)}`
   })
 
   const registerPasswordHint = computed((): string | null => {
     const { password } = store.registerFormData
     if (!password || password.length >= MIN_PASSWORD_LENGTH) return null
-    return `Пароль — ${minLengthMessage(MIN_PASSWORD_LENGTH)}`
+    return `Пароль: ${minLengthMessage(MIN_PASSWORD_LENGTH)}`
   })
 
   const loadSavedCredentials = (): void => {

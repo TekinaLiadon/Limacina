@@ -99,7 +99,7 @@ describe('useAuth', () => {
     expect(auth.registerLoginHint.value).toBeNull()
 
     store.registerFormData.login = 'abc'
-    expect(auth.registerLoginHint.value).toBe(`Логин — минимум ${MIN_LOGIN_LENGTH} символа`)
+    expect(auth.registerLoginHint.value).toBe(`Логин: минимум ${MIN_LOGIN_LENGTH} символа`)
     expect(auth.registerLoginHint.value).toContain(String(MIN_LOGIN_LENGTH))
 
     store.registerFormData.login = 'user'
@@ -113,7 +113,7 @@ describe('useAuth', () => {
     const { auth, unmount } = setupAuth()
 
     store.registerFormData.login = '  abc  '
-    expect(auth.registerLoginHint.value).toBe(`Логин — минимум ${MIN_LOGIN_LENGTH} символа`)
+    expect(auth.registerLoginHint.value).toBe(`Логин: минимум ${MIN_LOGIN_LENGTH} символа`)
 
     store.registerFormData.login = '  user  '
     expect(auth.registerLoginHint.value).toBeNull()
@@ -128,7 +128,7 @@ describe('useAuth', () => {
     expect(auth.registerPasswordHint.value).toBeNull()
 
     store.registerFormData.password = 'pas'
-    expect(auth.registerPasswordHint.value).toBe(`Пароль — минимум ${MIN_PASSWORD_LENGTH} символов`)
+    expect(auth.registerPasswordHint.value).toBe(`Пароль: минимум ${MIN_PASSWORD_LENGTH} символов`)
     expect(auth.registerPasswordHint.value).toContain(String(MIN_PASSWORD_LENGTH))
 
     store.registerFormData.password = 'password'

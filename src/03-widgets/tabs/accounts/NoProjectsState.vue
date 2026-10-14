@@ -12,7 +12,7 @@ const emit = defineEmits<{
       <span class="eyebrow">Профилей нет</span>
       <p class="no-projects-state__title">В лаунчере ещё нет ни одного проекта</p>
       <p class="no-projects-state__hint">
-        Профиль — это папка с отдельной версией игры и настройками. Добавьте первый профиль, чтобы
+        Профиль это папка с отдельной версией игры и настройками. Добавьте первый профиль, чтобы
         войти в аккаунт и запустить игру
       </p>
       <Button class="btn-primary btn-lg" @click="emit('add-profile')">

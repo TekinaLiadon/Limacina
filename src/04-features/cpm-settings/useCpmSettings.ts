@@ -22,7 +22,7 @@ export interface CpmLayer {
 
 const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
 const MODELS_LIMIT_MAX = 4294967295
-const MODELS_LIMIT_ERROR = `Лимит моделей — целое число от 1 до ${MODELS_LIMIT_MAX} или пустое значение`
+const MODELS_LIMIT_ERROR = `Лимит моделей: целое число от 1 до ${MODELS_LIMIT_MAX} или пустое значение`
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 

@@ -267,7 +267,7 @@ where
         if failed.is_empty() {
             step.finish(true);
         } else {
-            step.fail(format!("Не удалось прочитать файлов: {}", failed.len()));
+            step.fail(format!("Не удалось прочитать файлы: {}", failed.len()));
         }
         return Ok(IntegrityReport {
             total,
@@ -289,7 +289,7 @@ where
     if failed.is_empty() {
         step.finish(false);
     } else {
-        step.fail(format!("Не удалось восстановить файлов: {}", failed.len()));
+        step.fail(format!("Не удалось восстановить файлы: {}", failed.len()));
     }
 
     log_info!(
@@ -402,7 +402,7 @@ pub async fn ensure_files(
 
 pub(crate) fn settle_install_step(step: StepHandle, report: &IntegrityReport) -> Result<()> {
     if !report.failed.is_empty() {
-        let message = format!("Не удалось скачать файлов: {}", report.failed.len());
+        let message = format!("Не удалось скачать файлы: {}", report.failed.len());
         step.fail(message.clone());
         return Err(anyhow::Error::msg(message));
     }
@@ -835,7 +835,7 @@ mod ensure_files_tests {
         let error = settle_install_step(StepHandle::start("settle.failed", "Тест"), &failed_report)
             .expect_err("неудачные скачивания должны фейлить шаг");
         assert!(
-            error.to_string().contains("Не удалось скачать файлов"),
+            error.to_string().contains("Не удалось скачать файлы"),
             "неожиданная ошибка: {error}"
         );
 

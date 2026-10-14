@@ -97,7 +97,7 @@ async fn profile_context(state: &Mutex<GlobalState>) -> Result<ProfileContext> {
     }
     if config.mod_loader == ModLoader::Vanilla {
         return Err(anyhow!(LauncherError::InvalidInput(
-            "моды Modrinth требуют мод-лоадер: выберите Fabric, Forge или NeoForge для профиля"
+            "моды Modrinth требуют загрузчик модов: выберите Fabric, Forge или NeoForge для профиля"
                 .to_string()
         )));
     }
@@ -387,7 +387,7 @@ mod profile_context_tests {
             .await
             .expect_err("профиль без лоадера не должен искать и ставить моды");
         assert!(
-            error.to_string().contains("мод-лоадер"),
+            error.to_string().contains("загрузчик модов"),
             "ошибка должна объяснять причину: {error:#}"
         );
     }

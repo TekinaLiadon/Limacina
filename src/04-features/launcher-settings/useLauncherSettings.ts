@@ -45,7 +45,7 @@ const identityTransfer = <T>(defaultValue: T): FieldTransfer<T> => ({
 })
 
 const MAX_SPEED_LIMIT_KBPS = 10_000_000
-const SPEED_LIMIT_ERROR = `Ограничение скорости — целое число от 1 до ${MAX_SPEED_LIMIT_KBPS} КБ/с`
+const SPEED_LIMIT_ERROR = `Ограничение скорости: целое число от 1 до ${MAX_SPEED_LIMIT_KBPS} КБ/с`
 
 const parseSpeedLimit = (raw: string): number | null => {
   const trimmed = raw.trim()

@@ -57,7 +57,7 @@ pub(crate) async fn persist_session_credentials(
     let uuid = data.uuid();
     if !uuid.is_empty() {
         if let Err(e) = storage::save_credential(project_name, username, "uuid", &uuid).await {
-            log_err!("Не удалось сохранить uuid аккаунта «{username}»: {e:#}");
+            log_err!("Не удалось сохранить uuid аккаунта \"{username}\": {e:#}");
         }
     }
     storage::save_credential(
@@ -211,7 +211,7 @@ async fn refresh_after_rejection(
         }
         Err(e) => {
             log_err!(
-                "restore_session: не удалось перечитать refresh-токен ({e}) — запись не тронута"
+                "restore_session: не удалось перечитать refresh-токен ({e}), запись не тронута"
             );
             Ok(None)
         }
@@ -420,7 +420,7 @@ async fn change_password_session(
         }
         Err(e) => {
             log_info!(
-                "Смена пароля: аккаунт «{username}» не запомнен, refresh-токен не сохраняется ({e})"
+                "Смена пароля: аккаунт \"{username}\" не запомнен, refresh-токен не сохраняется ({e})"
             );
         }
     }
@@ -464,7 +464,7 @@ async fn delete_account_flow(
                 project_server_url(project_name, "удаление аккаунта недоступно").await
             {
                 if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                    log_err!("Не удалось отозвать токен на сервере: {}", e);
                 }
             }
         }

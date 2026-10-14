@@ -189,7 +189,7 @@ pub(crate) fn validate_jvm_args(jvm_args: &[String]) -> Result<()> {
             continue;
         }
         return Err(LauncherError::GameProcess(format!(
-            "В JVM-аргументах проекта указан запрещённый параметр «{arg}»: разрешены только параметры памяти, GC-тюнинга, системные свойства из списка и модульные опции JDK. Удалите его в настройках проекта"
+            "В JVM-аргументах проекта указан запрещённый параметр \"{arg}\": разрешены только параметры памяти, GC-тюнинга, системные свойства из списка и модульные опции JDK. Удалите его в настройках проекта"
         ))
         .into());
     }
@@ -271,7 +271,7 @@ pub fn ensure_session_free(username: &str) -> Result<()> {
         .any(|game| game.username == username);
     if taken {
         return Err(LauncherError::GameProcess(format!(
-            "Игра уже запущена с аккаунта {username} — завершите его сессию перед новым запуском"
+            "Игра уже запущена с аккаунта {username}, завершите его сессию перед новым запуском"
         ))
         .into());
     }
@@ -313,7 +313,7 @@ fn terminate_session_child(child: &SharedGameChild) -> Option<String> {
     let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
     match guard.try_wait() {
         Ok(Some(_)) => {
-            log_info!("Игра уже завершилась — принудительное завершение не требуется");
+            log_info!("Игра уже завершилась, принудительное завершение не требуется");
             None
         }
         Ok(None) => {
@@ -337,7 +337,7 @@ fn aggregated_kill_error(failures: &[String]) -> Result<()> {
     }
     Err(LauncherError::GameProcess(format!(
         "Не удалось завершить процесс игры: {}",
-        failures.join("; ")
+        failures.join("\n")
     ))
     .into())
 }
@@ -490,7 +490,7 @@ pub fn spawn_game_process(
     server_url: Option<&str>,
     username: String,
 ) -> Result<GameProcess> {
-    log_info!("\n▶ Запуск Minecraft...");
+    log_info!("\nЗапуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
     log_info!("Java: {:?}", &config.java_path);
     log_info!("Classpath entries: {}", config.classpath.len());
@@ -573,7 +573,7 @@ pub fn spawn_game_process(
         Err(mut orphan) => {
             kill_and_reap(&mut orphan);
             return Err(LauncherError::GameProcess(format!(
-                "Игра уже запущена с аккаунта {username} — повторный запуск невозможен"
+                "Игра уже запущена с аккаунта {username}, повторный запуск невозможен"
             ))
             .into());
         }
@@ -712,7 +712,7 @@ impl Drop for GameExitPanicGuard {
         if !self.armed {
             return;
         }
-        log_err!("Поток ожидания игры прерван — принудительная очистка состояния игры");
+        log_err!("Поток ожидания игры прерван, принудительная очистка состояния игры");
         mark_game_finalized(&self.exited, &self.child);
         if let Err(e) = self.app.emit(
             "game-exit",

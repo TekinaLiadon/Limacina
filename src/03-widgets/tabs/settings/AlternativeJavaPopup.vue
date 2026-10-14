@@ -66,7 +66,7 @@ const dropdownOptions = computed((): { title: string; value: string }[] =>
             :options="{ placeholder: 'Авто (на основе MC)' }"
           />
           <span v-if="versionError" class="alt-java-popup__version-error">
-            {{ versionError }} — будет использована версия по умолчанию
+            {{ versionError }}, будет использована версия по умолчанию
           </span>
         </div>
         <Checkbox

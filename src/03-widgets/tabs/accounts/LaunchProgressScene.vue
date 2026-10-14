@@ -38,11 +38,11 @@ const progressLabel = computed((): string =>
     <StepProgress :steps="steps" hide-completed />
 
     <p v-if="isInterrupted" class="launch-scene__hint">
-      Запуск был прерван перезагрузкой окна — отмените и запустите заново
+      Запуск был прерван перезагрузкой окна, отмените и запустите заново
     </p>
 
     <p v-if="isLaunchingGame" class="launch-scene__hint">
-      Игра запускается — окно откроется автоматически
+      Игра запускается, окно откроется автоматически
     </p>
 
     <Button
@@ -51,7 +51,7 @@ const progressLabel = computed((): string =>
       :is-disabled="isCancelPending"
       @click="emit('cancel')"
     >
-      {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
+      {{ isCancelPending ? 'Завершаем текущий шаг...' : 'Отменить запуск' }}
     </Button>
   </div>
 </template>

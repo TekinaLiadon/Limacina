@@ -145,7 +145,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
           :disabled="!isGameRunning || isKilling"
           @click="killGame"
         >
-          {{ isKilling ? 'Завершаем…' : 'Убить процесс' }}
+          {{ isKilling ? 'Завершаем...' : 'Убить процесс' }}
         </button>
         <button class="debug-tab__copy-btn" @click="handleCopy">
           Копировать

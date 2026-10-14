@@ -288,7 +288,7 @@ describe('useIntegrityCheck', () => {
     await pending
 
     expect(check.report.value).not.toBeNull()
-    expect(useNotificationStore().message).toBe('Проверка целостности: не удалось восстановить 2 файлов')
+    expect(useNotificationStore().message).toBe('Проверка целостности: не удалось восстановить 2 файла')
   })
 
   it('toasts the all-good summary when the popup was hidden', async () => {

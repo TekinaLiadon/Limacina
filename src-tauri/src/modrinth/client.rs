@@ -52,7 +52,7 @@ pub fn modrinth_client() -> Result<&'static Client> {
             crate::utils::http::base_client_builder()
                 .user_agent(USER_AGENT)
                 .build()
-                .map_err(|e| format!("Не удалось создать HTTP клиент Modrinth: {e:#}"))
+                .map_err(|e| format!("Не удалось создать HTTP-клиент Modrinth: {e:#}"))
         })
         .as_ref()
         .map_err(|e| anyhow!(e.clone()))
@@ -78,7 +78,7 @@ fn response_cache_guard() -> Option<std::sync::MutexGuard<'static, ResponseCache
         Ok(guard) => Some(guard),
         Err(e) => {
             log_err!(
-                "[modrinth] Не удалось получить доступ к кешу ответов: {}",
+                "[modrinth] Не удалось получить доступ к кэшу ответов: {}",
                 e
             );
             None
@@ -138,7 +138,7 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
             if stored_at.elapsed() < CACHE_TTL {
                 return serde_json::from_value(value).map_err(|e| {
                     LauncherError::Modrinth(format!(
-                        "Не удалось разобрать кешированный ответ от {url}: {e}"
+                        "Не удалось разобрать кэшированный ответ от {url}: {e}"
                     ))
                     .into()
                 });

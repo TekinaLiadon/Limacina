@@ -47,7 +47,7 @@ async fn download_minecraft_inner(
                     .await
                     .with_context(|| {
                         format!(
-                            "Не удалось определить последнюю версию лоадера (проект: {})",
+                            "Не удалось определить последнюю версию загрузчика модов (проект: {})",
                             project_config.project_name
                         )
                     }),

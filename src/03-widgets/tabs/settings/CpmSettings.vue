@@ -71,7 +71,7 @@ const limitOptions = computed<InputOptions>((): InputOptions => ({
   placeholder: limitLoadError.value
     ? 'Недоступно'
     : isLimitLoading.value || isSavingLimit.value
-      ? 'Загрузка…'
+      ? 'Загрузка...'
       : 'Не ограничен',
   disabled: isLimitLoading.value,
 }))
@@ -183,7 +183,7 @@ const applyLimitInput = async (): Promise<void> => {
           Не удалось загрузить лимит моделей: {{ limitLoadError }}
         </div>
         <p class="cpm-settings__hint cpm-settings__limit-hint">
-          Сколько моделей игра хранит в папке player_models — самые старые удаляются
+          Сколько моделей игра хранит в папке player_models: самые старые удаляются
         </p>
       </div>
     </template>

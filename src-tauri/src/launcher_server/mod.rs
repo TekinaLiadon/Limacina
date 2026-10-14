@@ -89,7 +89,7 @@ where
         Ok(value) => Ok(value),
         Err(error) if is_unauthorized_error(&error) => {
             let (project_name, username) = session_identity(state).await?;
-            log_info!("Сервер вернул 401: восстанавливаем сессию «{username}» и повторяем запрос");
+            log_info!("Сервер вернул 401: восстанавливаем сессию \"{username}\" и повторяем запрос");
             let data =
                 crate::commands::auth::restore_and_persist_session(&project_name, &username, None)
                     .await?;

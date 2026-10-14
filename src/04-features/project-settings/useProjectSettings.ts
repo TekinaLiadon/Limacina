@@ -165,7 +165,7 @@ export function useProjectSettings(): {
     )
     if (!confirmed) return
     if (!scope.isCurrent()) {
-      notification.show('Проект сменился — очистка конфигов отменена')
+      notification.show('Проект сменился, очистка конфигов отменена')
       return
     }
 
@@ -210,11 +210,11 @@ export function useProjectSettings(): {
 
     const scope = captureProjectScope((): string => coreStore.currentProject)
     const confirmed = await notification.confirm(
-      `Удалить проект «${projectName}»? Папка с игрой, модами, конфигами и сохранениями будет удалена безвозвратно`
+      `Удалить проект "${projectName}"? Папка с игрой, модами, конфигами и сохранениями будет удалена безвозвратно`
     )
     if (!confirmed) return
     if (!scope.isCurrent()) {
-      notification.show('Проект сменился — удаление отменено')
+      notification.show('Проект сменился, удаление отменено')
       return
     }
 

@@ -10,19 +10,19 @@ pub enum LauncherError {
     ProjectNameTooLong,
     #[error("Название профиля не должно содержать символы / \\ : * ? \" < > | и точку")]
     ProjectNameInvalidChars,
-    #[error("Название «config» зарезервировано")]
+    #[error("Название \"config\" зарезервировано")]
     ProjectNameReserved,
-    #[error("Профиль «{0}» уже существует")]
+    #[error("Профиль \"{0}\" уже существует")]
     ProjectExists(String),
-    #[error("Проект «{0}» прописан в сборке лаунчера и не может быть удалён")]
+    #[error("Проект \"{0}\" прописан в сборке лаунчера и не может быть удалён")]
     ProjectProtected(String),
-    #[error("Настройки относятся к проекту «{0}», а активен «{1}». Перезагрузите настройки.")]
+    #[error("Настройки относятся к проекту \"{0}\", а активен \"{1}\". Перезагрузите настройки.")]
     ProjectSettingsMismatch(String, String),
     #[error("Одиночный профиль: {0}")]
     OfflineProfile(String),
     #[error("Нет активной сессии. Войдите в аккаунт.")]
     NoSession,
-    #[error("Нет сохранённых учётных данных для «{0}» — войдите с паролем")]
+    #[error("Нет сохранённых учётных данных для \"{0}\", войдите с паролем")]
     NoSavedCredentials(String),
     #[error("Не указан адрес сервера")]
     ServerUrlMissing,
@@ -56,7 +56,7 @@ pub enum LauncherError {
     LoaderSetup(String),
     #[error("Не удалось запустить игру: {0}")]
     GameProcess(String),
-    #[error("Установка или запуск уже выполняются — дождитесь завершения")]
+    #[error("Установка или запуск уже выполняются, дождитесь завершения")]
     LaunchInProgress,
     #[error("Ошибка обновления: {0}")]
     Update(String),
@@ -78,7 +78,7 @@ pub enum LauncherError {
     PasswordUnchanged,
     #[error("{0}")]
     InvalidInput(String),
-    #[error("Сессия принадлежит проекту «{0}», а запускается «{1}». Перезайдите в аккаунт.")]
+    #[error("Сессия принадлежит проекту \"{0}\", а запускается \"{1}\". Перезайдите в аккаунт.")]
     SessionMismatch(String, String),
     #[error("Не удалось скачать файл: {0}")]
     Download(String),

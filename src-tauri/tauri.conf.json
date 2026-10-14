@@ -35,7 +35,7 @@
     "publisher": "Tekina",
     "copyright": "© 2026 Tekina",
     "shortDescription": "Лаунчер Minecraft: установка игры, модов и Java в один клик",
-    "longDescription": "Limacina — Minecraft-лаунчер: устанавливает игру и Java, поддерживает Vanilla, Fabric, Forge и NeoForge, синхронизирует файлы и моды с сервером, управляет скинами и моделями игроков и обновляется автоматически.",
+    "longDescription": "Minecraft-лаунчер Limacina: устанавливает игру и Java, поддерживает Vanilla, Fabric, Forge и NeoForge, синхронизирует файлы и моды с сервером, управляет скинами и моделями игроков и обновляется автоматически.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

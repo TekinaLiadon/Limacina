@@ -43,7 +43,7 @@ pub(crate) async fn update_launcher_config(
 
     let saved_config = config.clone();
     blocking(
-        "Не удалось выполнить запись конфига",
+        "Не удалось записать конфиг",
         move || saved_config.save(),
     )
     .await??;
@@ -57,7 +57,7 @@ pub(crate) async fn update_launcher_config(
 }
 
 async fn load_launcher_config() -> anyhow::Result<LauncherConfig> {
-    match blocking("Не удалось выполнить чтение конфига", LauncherConfig::load).await
+    match blocking("Не удалось прочитать конфиг", LauncherConfig::load).await
     {
         Ok(Ok(config)) => Ok(config.unwrap_or_default()),
         Ok(Err(e)) | Err(e) => Err(anyhow::Error::new(LauncherError::DiskIo(format!(
@@ -76,7 +76,7 @@ async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<A
     let (config, version) = {
         let _write_guard = LAUNCHER_CONFIG_WRITE_LOCK.lock().await;
 
-        let mut config = match blocking("Не удалось выполнить чтение конфига", LauncherConfig::load)
+        let mut config = match blocking("Не удалось прочитать конфиг", LauncherConfig::load)
             .await
         {
             Ok(Ok(config)) => config,
@@ -100,7 +100,7 @@ async fn get_app_init_data_inner(state: &Mutex<GlobalState>) -> anyhow::Result<A
             if changed {
                 let cfg_clone = cfg.clone();
                 match blocking(
-                    "Не удалось выполнить запись конфига",
+                    "Не удалось записать конфиг",
                     move || cfg_clone.save(),
                 )
                 .await
@@ -174,7 +174,7 @@ async fn save_launcher_config_inner(
 ) -> anyhow::Result<LauncherConfig> {
     let name = get_launcher_name();
     let launcher_path = blocking(
-        "Не удалось выполнить создание папок",
+        "Не удалось создать папки",
         move || -> anyhow::Result<String> {
             let base = crate::utils::env_info::canonicalize_parent_path(&parent_path)?.join(&name);
             let dirs_to_create = [
@@ -467,7 +467,7 @@ mod update_flow_tests {
             .expect_err("обход «..» в пути установки должен отклоняться");
 
         assert!(
-            error.to_string().contains("«..»"),
+            error.to_string().contains("\"..\""),
             "ошибка должна называть причину: {error}"
         );
         assert!(

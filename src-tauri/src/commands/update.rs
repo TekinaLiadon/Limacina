@@ -44,7 +44,7 @@ pub async fn get_server_status(
     let config = current_project_config(state.inner()).await?;
     if !config.online {
         return Err(LauncherError::OfflineProfile(
-            "статус доступен только для серверных профилей".to_string(),
+            "статус доступен только в серверных профилях".to_string(),
         )
         .into());
     }

@@ -39,7 +39,7 @@ where
 pub fn backup_corrupt_file(path: &Path, suffix: &str, error: &anyhow::Error) -> Result<()> {
     let backup_path = path.with_extension(suffix);
     log_err!(
-        "{}: {:?} — {:?} ({})",
+        "{}: {:?} -> {:?} ({})",
         LauncherError::ConfigCorrupt,
         path,
         backup_path,

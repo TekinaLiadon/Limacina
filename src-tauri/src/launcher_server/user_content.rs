@@ -220,7 +220,7 @@ pub async fn list_models(state: &Mutex<GlobalState>, uuid: String) -> Result<Vec
 
 pub async fn delete_model(state: &Mutex<GlobalState>, id: i64) -> Result<()> {
     let result = with_session_retry(state, || {
-        delete_content(state, "models", id, "Модель удалёна")
+        delete_content(state, "models", id, "Модель удалена")
     })
     .await;
     LauncherError::classify(result, LauncherError::LauncherServer)

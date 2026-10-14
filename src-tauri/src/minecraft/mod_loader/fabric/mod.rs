@@ -90,7 +90,7 @@ impl ModLoader for Fabric {
         vanilla_config: GameConfig,
         version: &VersionMod,
     ) -> Result<GameConfig> {
-        log_info!("Соединение classpath");
+        log_info!("Сборка classpath");
         let classpath = filter_classpath(
             merge_classpath(
                 &state.project_name,

@@ -187,7 +187,7 @@ async fn clear_minecraft_config_inner(
                     .await
                     .with_context(|| format!("Не удалось переименовать папку {:?}", staging_dir))?;
                 log_info!(
-                    "Дописан прерванный перенос конфигов проекта {} в old_config",
+                    "Завершён прерванный перенос конфигов проекта {} в old_config",
                     project_name
                 );
                 return Ok("Конфиги перемещены в резервную копию".to_string());

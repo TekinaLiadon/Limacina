@@ -55,7 +55,7 @@ fn read_fallback_store(path: &std::path::Path, content: &str) -> CredentialStore
         Err(e) => {
             let backup_path = path.with_extension("json.bak");
             log_err!(
-                "Хранилище credentials повреждено: {:?} — битый файл сохранён в {:?} ({})",
+                "Хранилище credentials повреждено: {:?}, битый файл сохранён в {:?} ({})",
                 path,
                 backup_path,
                 e
@@ -141,7 +141,7 @@ fn keyring_obfuscation_secret() -> Option<Vec<u8>> {
         Ok(secret_hex) => match from_hex(&secret_hex) {
             Ok(secret) if !secret.is_empty() => Some(secret),
             _ => {
-                log_err!("Секрет обфускации в keyring повреждён — fallback-хранилище работает в plaintext");
+                log_err!("Секрет обфускации в keyring повреждён, fallback-хранилище работает в plaintext");
                 None
             }
         },
@@ -150,13 +150,13 @@ fn keyring_obfuscation_secret() -> Option<Vec<u8>> {
             match entry.set_password(&to_hex(&secret)) {
                 Ok(()) => Some(secret),
                 Err(e) => {
-                    log_err!("Не удалось сохранить секрет обфускации в keyring: {e} — fallback-хранилище работает в plaintext");
+                    log_err!("Не удалось сохранить секрет обфускации в keyring: {e}, fallback-хранилище работает в plaintext");
                     None
                 }
             }
         }
         Err(e) => {
-            log_err!("Keyring недоступен для секрета обфускации: {e} — fallback-хранилище работает в plaintext");
+            log_err!("Keyring недоступен для секрета обфускации: {e}, fallback-хранилище работает в plaintext");
             None
         }
     }
@@ -248,7 +248,7 @@ pub(crate) fn save_fallback(
     value: &str,
 ) -> Result<()> {
     if !FALLBACK_ALLOWED_SUFFIXES.contains(&key_suffix) {
-        anyhow::bail!("«{key_suffix}» не сохраняется в fallback-хранилище");
+        anyhow::bail!("\"{key_suffix}\" не сохраняется в fallback-хранилище");
     }
     let key_name = keyring_key(project, username, key_suffix);
     let entry = encrypt_entry_value(obfuscation_secret().as_deref(), &key_name, value);
@@ -278,7 +278,7 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
     let secret = obfuscation_secret();
     if entry.scheme == EntryScheme::XorSecret && secret.is_none() {
         anyhow::bail!(
-            "Секрет обфускации недоступен — запись «{key_name}» не может быть расшифрована"
+            "Секрет обфускации недоступен, запись \"{key_name}\" не может быть расшифрована"
         );
     }
 
@@ -286,7 +286,7 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
         Some(value) => Ok(value),
         None => {
             log_info!(
-                "Fallback-хранилище: запись «{key_name}» не расшифрована (алгоритм ключа обновлён) — запись сброшена, потребуется повторный вход"
+                "Fallback-хранилище: запись \"{key_name}\" не расшифрована (алгоритм ключа обновлён), запись сброшена, потребуется повторный вход"
             );
             let _ = delete_fallback(project, username, key_suffix);
             anyhow::bail!("Не удалось расшифровать credentials")
@@ -367,7 +367,7 @@ fn save_credential_sync(
     });
 
     if let Err(e) = &keyring_result {
-        log_err!("Keyring save {}: ОШИБКА — {:?}", key_suffix, e);
+        log_err!("Keyring save {}: ошибка {:?}", key_suffix, e);
         save_fallback(project, username, key_suffix, value)?;
     }
 
@@ -395,7 +395,7 @@ fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resul
     let entry = match open_keyring_entry(project, username, key_suffix) {
         Ok(entry) => entry,
         Err(e) => {
-            log_err!("Keyring load {}: ОШИБКА — {}", key_suffix, e);
+            log_err!("Keyring load {}: ошибка {}", key_suffix, e);
             return load_fallback(project, username, key_suffix);
         }
     };
@@ -404,13 +404,13 @@ fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resul
         Ok(value) => Ok(value),
         Err(keyring::Error::NoEntry) => {
             log_info!(
-                "Keyring load {}: записи нет — читаю fallback-хранилище",
+                "Keyring load {}: записи нет, читаю fallback-хранилище",
                 key_suffix
             );
             load_fallback(project, username, key_suffix)
         }
         Err(e) => {
-            log_err!("Keyring load {}: ОШИБКА — {}", key_suffix, e);
+            log_err!("Keyring load {}: ошибка {}", key_suffix, e);
             load_fallback(project, username, key_suffix)
         }
     }
@@ -437,7 +437,7 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
     });
 
     if let Err(e) = &keyring_delete {
-        log_err!("Keyring delete {}: ОШИБКА — {}", key_suffix, e);
+        log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
     }
 
     let keyring_unavailable = matches!(

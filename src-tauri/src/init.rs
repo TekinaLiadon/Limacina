@@ -60,7 +60,7 @@ pub async fn init_launcher(
 ) -> Result<LauncherConfig> {
     let parent = parent_path.to_string();
     let launcher_path = blocking(
-        "Не удалось выполнить инициализацию лаунчера",
+        "Не удалось инициализировать лаунчер",
         move || -> Result<String> {
             let paths = InitPaths::new(&parent)?;
             paths.create_dirs()?;
@@ -105,7 +105,7 @@ pub async fn init_project_config(
                 Ok(config) => return Ok(config),
                 Err(e) => {
                     log_err!(
-                        "Конфиг проекта {project_name} повреждён: {e:#} — пересоздаём с сервера"
+                        "Конфиг проекта {project_name} повреждён: {e:#}, пересоздаём с сервера"
                     );
                     let broken_path = config_dir.join(format!("{project_name}.toml.broken"));
                     let _ = fs::remove_file(&broken_path).await;
@@ -220,7 +220,7 @@ mod tests {
         let error = InitPaths::new("/tmp/limacina_test/../etc")
             .expect_err("обход «..» в родительском пути должен отклоняться");
         assert!(
-            error.to_string().contains("«..»"),
+            error.to_string().contains("\"..\""),
             "ошибка должна называть причину: {error}"
         );
     }

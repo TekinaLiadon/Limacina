@@ -158,7 +158,7 @@ export function useGameLaunch() {
           skipKeys.add(key)
         }
       } catch (e: unknown) {
-        reportJournalFailure('Не удалось прочитать журнал установки — возможно повторное скачивание файлов', e)
+        reportJournalFailure('Не удалось прочитать журнал установки, возможно повторное скачивание файлов', e)
       }
       if (skipKeys.size > 0) {
         const skippedPlanKeys = new Set<string>(
@@ -180,7 +180,7 @@ export function useGameLaunch() {
           try {
             await recordInstallStep(coreStore.currentProject, fingerprint, step.key)
           } catch (e: unknown) {
-            reportJournalFailure('Не удалось записать журнал установки — при прерывании шаг повторится', e)
+            reportJournalFailure('Не удалось записать журнал установки, при прерывании шаг повторится', e)
           }
         }
       } catch (error: unknown) {
@@ -195,7 +195,7 @@ export function useGameLaunch() {
       try {
         await clearInstallJournal(coreStore.currentProject)
       } catch (e: unknown) {
-        reportJournalFailure('Не удалось очистить журнал установки — на запуск это не повлияет', e)
+        reportJournalFailure('Не удалось очистить журнал установки, на запуск это не повлияет', e)
       }
       try {
         coreStore.setProjectConfig(await setInitialized())

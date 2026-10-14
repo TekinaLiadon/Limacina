@@ -54,7 +54,7 @@ const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.is
         Все файлы в порядке
       </div>
       <div v-else-if="hasErrors" class="integrity-popup__summary integrity-popup__summary--error">
-        Не удалось восстановить {{ report?.failed.length }} файлов
+        Не удалось восстановить файлы: {{ report?.failed.length }}
       </div>
       <div v-else class="integrity-popup__summary">
         Файлы восстановлены

@@ -39,7 +39,7 @@ describe('selectFile', () => {
   it('rejects a file with a wrong extension', () => {
     pickFile(new File(['x'], 'skin.jpg', { type: 'image/jpeg' }))
 
-    expect(onErrorMock).toHaveBeenCalledWith('Допустимый формат — .png,image/png')
+    expect(onErrorMock).toHaveBeenCalledWith('Допустимый формат: .png,image/png')
     expect(onLoadMock).not.toHaveBeenCalled()
   })
 

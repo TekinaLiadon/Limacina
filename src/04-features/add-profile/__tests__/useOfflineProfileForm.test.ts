@@ -227,7 +227,7 @@ describe('useOfflineProfileForm', () => {
     expect(createOfflineProfile).toHaveBeenCalledWith('My profile', '1.20.1', 'vanilla', null)
     expect(created).toEqual(makeConfig('My profile'))
     expect(offline.offlineForm.value.name).toBe('')
-    expect(useNotificationStore().message).toBe('Профиль «My profile» создан')
+    expect(useNotificationStore().message).toBe('Профиль "My profile" создан')
   })
 
   it('passes the loader version for a loader-based profile', async () => {

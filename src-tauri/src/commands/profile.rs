@@ -239,7 +239,7 @@ pub async fn get_server_connect_url(state: State<'_, Mutex<GlobalState>>) -> Com
     let config = current_project_config(state.inner()).await?;
     if !config.online {
         return Err(LauncherError::OfflineProfile(
-            "ссылка для подключения доступна только у серверных профилей".to_string(),
+            "ссылка для подключения доступна только в серверных профилях".to_string(),
         )
         .into());
     }
@@ -339,7 +339,7 @@ async fn delete_named_project(
     };
     if !registered {
         bail!(LauncherError::InvalidInput(format!(
-            "Проект «{}» не найден",
+            "Проект \"{}\" не найден",
             project_name
         )));
     }
@@ -438,11 +438,11 @@ async fn purge_manifest_index_cache(manifest_dir: &std::path::Path) -> Result<us
         }
         match fs::remove_file(entry.path()).await {
             Ok(()) => {
-                log_info!("[manifests] Удалён кеш: {}", name);
+                log_info!("[manifests] Удалён кэш: {}", name);
                 removed += 1;
             }
             Err(e) => {
-                log_err!("[manifests] Не удалось удалить кеш {}: {}", name, e);
+                log_err!("[manifests] Не удалось удалить кэш {}: {}", name, e);
             }
         }
     }
@@ -455,7 +455,7 @@ pub async fn refresh_manifests() -> CommandResult<String> {
     let removed = purge_manifest_index_cache(&manifest_dir).await?;
 
     log_info!(
-        "[manifests] Удалено файлов: {}, перекачивание индексов",
+        "[manifests] Удалено файлов: {}, индексы будут скачаны заново",
         removed
     );
 
@@ -466,7 +466,7 @@ pub async fn refresh_manifests() -> CommandResult<String> {
     LauncherError::classify(loader_index(&FORGE).await, LauncherError::ManifestParse)?;
     LauncherError::classify(loader_index(&NEOFORGE).await, LauncherError::ManifestParse)?;
 
-    Ok(format!("Манифесты обновлены (удалено кешей: {})", removed))
+    Ok(format!("Манифесты обновлены (удалено кэшей: {})", removed))
 }
 
 #[cfg(test)]

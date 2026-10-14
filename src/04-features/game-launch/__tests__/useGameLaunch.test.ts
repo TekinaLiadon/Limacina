@@ -251,7 +251,7 @@ describe('useGameLaunch', () => {
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useLaunchStore().loginError).toBe('')
     expect(useNotificationStore().message).toBe(
-      'Не удалось прочитать журнал установки — возможно повторное скачивание файлов',
+      'Не удалось прочитать журнал установки, возможно повторное скачивание файлов',
     )
   })
 
@@ -268,7 +268,7 @@ describe('useGameLaunch', () => {
     expect(startMinecraft).toHaveBeenCalledTimes(1)
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe(
-      'Не удалось записать журнал установки — при прерывании шаг повторится',
+      'Не удалось записать журнал установки, при прерывании шаг повторится',
     )
   })
 
@@ -285,7 +285,7 @@ describe('useGameLaunch', () => {
     expect(setInitialized).toHaveBeenCalledTimes(1)
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe(
-      'Не удалось очистить журнал установки — на запуск это не повлияет',
+      'Не удалось очистить журнал установки, на запуск это не повлияет',
     )
   })
 

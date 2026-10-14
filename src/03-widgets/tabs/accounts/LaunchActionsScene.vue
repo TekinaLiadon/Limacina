@@ -94,7 +94,7 @@ const openLoginForm = (): void => {
       </Button>
     </template>
     <div v-if="serverOffline" class="launch-scene__error">
-      Сервер лаунчера недоступен — запуск заблокирован, ждём восстановления соединения
+      Сервер лаунчера недоступен, запуск заблокирован, ждём восстановления соединения
     </div>
     <Button
       class="btn-primary btn-lg btn-block"

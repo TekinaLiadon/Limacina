@@ -42,7 +42,7 @@ const {
     <template #head>
       <div class="game-settings__head">
         <p class="game-settings__hint">
-          Настройки применяются после сохранения — лаунчер вписывает их в
+          Настройки применяются после сохранения: лаунчер вписывает их в
           options.txt проекта при запуске
         </p>
         <Button

@@ -18,6 +18,15 @@ const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
 
 const isCheckRunning = ref<boolean>(false)
 
+const filesWord = (count: number): string => {
+  const mod100 = count % 100
+  const mod10 = count % 10
+  if (mod100 >= 11 && mod100 <= 14) return 'файлов'
+  if (mod10 === 1) return 'файл'
+  if (mod10 >= 2 && mod10 <= 4) return 'файла'
+  return 'файлов'
+}
+
 export function isIntegrityCheckRunning(): boolean {
   return isCheckRunning.value
 }
@@ -127,7 +136,7 @@ export function useIntegrityCheck(): {
       if (isPopupHidden.value) {
         notification.show(
           result.failed.length > 0
-            ? `Проверка целостности: не удалось восстановить ${result.failed.length} файлов`
+            ? `Проверка целостности: не удалось восстановить ${result.failed.length} ${filesWord(result.failed.length)}`
             : 'Проверка целостности: все файлы в порядке',
         )
       }

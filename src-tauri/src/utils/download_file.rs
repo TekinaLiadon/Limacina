@@ -333,7 +333,7 @@ where
         if intact {
             return Ok(false);
         }
-        log_info!("[download] Файл {dest:?} отличается от ожидаемого — перекачивается");
+        log_info!("[download] Файл {dest:?} отличается от ожидаемого, перекачивается");
     }
 
     let staging = part_path(dest);

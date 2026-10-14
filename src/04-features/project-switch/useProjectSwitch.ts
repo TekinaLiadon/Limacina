@@ -102,7 +102,7 @@ export function useProjectSwitch() {
       if (backendOnNewProject && coreStore.currentProject === previousProject) {
         const restored = await restoreSavedProject(previousProject)
         if (!restored) {
-          message = `${message}. Не удалось вернуть предыдущий проект — после перезапуска откроется «${projectName}»`
+          message = `${message}. Не удалось вернуть предыдущий проект, после перезапуска откроется "${projectName}"`
         }
       }
       notification.show(message)

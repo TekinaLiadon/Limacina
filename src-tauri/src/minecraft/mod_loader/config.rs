@@ -35,7 +35,7 @@ pub(crate) async fn build_loader_config(
     version: &VersionMod,
     options: LoaderConfigOptions,
 ) -> Result<GameConfig> {
-    log_info!("Соединение classpath {}", def.name);
+    log_info!("Сборка classpath {}", def.name);
     let target_version = loader_version_or_err(state)?;
     let manifest_path = loader_manifest_path(def.manifest_prefix, target_version).map_err(|e| {
         LauncherError::LoaderSetup(format!(
@@ -44,7 +44,7 @@ pub(crate) async fn build_loader_config(
     })?;
     if !tokio::fs::try_exists(&manifest_path).await.unwrap_or(false) {
         return Err(LauncherError::LoaderSetup(format!(
-            "Манифест {} для версии {target_version} не найден — запустите установку игры, чтобы скачать файлы лоадера",
+            "Манифест {} для версии {target_version} не найден, запустите установку игры, чтобы скачать файлы лоадера",
             def.name
         ))
         .into());

@@ -52,9 +52,9 @@ fn store_remove_game(username: &str) {
 fn game_tooltip(usernames: &[String]) -> String {
     match usernames {
         [] => get_launcher_name(),
-        [single] => format!("{} — игра запущена ({})", get_launcher_name(), single),
+        [single] => format!("{}, игра запущена ({})", get_launcher_name(), single),
         many => format!(
-            "{} — игры запущены ({}): {}",
+            "{}, игры запущены ({}): {}",
             get_launcher_name(),
             many.len(),
             many.join(", ")
@@ -272,7 +272,7 @@ mod game_state_tests {
         assert_eq!(menu_status_label(&[]), None);
 
         let single = vec!["Steve".to_string()];
-        assert_eq!(game_tooltip(&single), "Limacina — игра запущена (Steve)");
+        assert_eq!(game_tooltip(&single), "Limacina, игра запущена (Steve)");
         assert_eq!(
             menu_status_label(&single),
             Some("Игра запущена: Steve".to_string())
@@ -281,7 +281,7 @@ mod game_state_tests {
         let many = vec!["Steve".to_string(), "Alex".to_string()];
         assert_eq!(
             game_tooltip(&many),
-            "Limacina — игры запущены (2): Steve, Alex"
+            "Limacina, игры запущены (2): Steve, Alex"
         );
         assert_eq!(
             menu_status_label(&many),

@@ -508,7 +508,7 @@ describe('useProjectSettings', () => {
     await pending
 
     expect(clearMinecraftConfig).not.toHaveBeenCalled()
-    expect(useNotificationStore().message).toBe('Проект сменился — очистка конфигов отменена')
+    expect(useNotificationStore().message).toBe('Проект сменился, очистка конфигов отменена')
     expect(settings.isClearingConfig.value).toBe(false)
   })
 
@@ -624,7 +624,7 @@ describe('useProjectSettings', () => {
     await pending
 
     expect(deleteProject).not.toHaveBeenCalled()
-    expect(useNotificationStore().message).toBe('Проект сменился — удаление отменено')
+    expect(useNotificationStore().message).toBe('Проект сменился, удаление отменено')
     expect(settings.isDeleting.value).toBe(false)
   })
 

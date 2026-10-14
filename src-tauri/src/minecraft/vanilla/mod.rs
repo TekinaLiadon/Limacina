@@ -104,7 +104,7 @@ impl VanillaPhaseExecutor for InstallPhases {
 #[async_trait]
 impl MinecraftLoader for Vanilla {
     async fn versions(&self) -> Result<Vec<Versions>> {
-        log_info!("Загрузка индекс манифеста");
+        log_info!("Загрузка индекса манифеста");
         let versions = load_vanilla_index().await.map_err(|e| {
             LauncherError::ManifestParse(format!(
                 "Не удалось загрузить индекс манифеста версий: {e:#}"
@@ -175,7 +175,7 @@ impl MinecraftLoader for Vanilla {
         let jvm_args = get_jvm_args(&manifest_version, config, &args_map);
         let game_args = get_game_args(&manifest_version, &args_map);
 
-        log_info!("Поиск java");
+        log_info!("Поиск Java");
         let java_config = state.java_path.clone();
         let java_path = LauncherError::classify(
             blocking("Поиск Java в системе", move || {
@@ -288,7 +288,7 @@ mod install_phases_tests {
             .expect_err("неудачное скачивание должно прерывать фазу");
 
         assert!(
-            error.to_string().contains("Не удалось скачать файлов"),
+            error.to_string().contains("Не удалось скачать файлы"),
             "неожиданная ошибка: {error}"
         );
         let step_terminals = terminals(PHASE_CLIENT.id);
@@ -365,7 +365,7 @@ mod install_phases_tests {
             .expect_err("неудачное скачивание индекса должно прерывать фазу");
 
         assert!(
-            error.to_string().contains("Не удалось скачать файлов"),
+            error.to_string().contains("Не удалось скачать файлы"),
             "неожиданная ошибка: {error}"
         );
         let step_terminals = terminals(PHASE_ASSET_INDEX.id);

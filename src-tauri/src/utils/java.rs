@@ -49,7 +49,7 @@ pub fn find_java(java_path: Option<String>) -> Result<PathBuf> {
     }
 
     Err(LauncherError::Java(
-        "Java не найдена в системе — установите её в настройках лаунчера или выберите папку с Java вручную".to_string(),
+        "Java не найдена в системе: установите её в настройках лаунчера или выберите папку с Java вручную".to_string(),
     )
     .into())
 }

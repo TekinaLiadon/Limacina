@@ -23,7 +23,7 @@ const emit = defineEmits<{
 <template>
   <ProfileFormShell
     title="Добавить сервер"
-    subtitle="Введите адрес сервера — версия, сборка и моды загрузятся с него автоматически"
+    subtitle="Введите адрес сервера: версия, сборка и моды загрузятся с него автоматически"
     submit-label="Добавить"
     :is-submitting="isSubmitting"
     :is-valid="isValid"
