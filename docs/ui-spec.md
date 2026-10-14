@@ -1,6 +1,6 @@
 # UI-спека: дизайн-система лаунчера Limacina
 
-Статус: нормативный документ. Описывает дизайн-систему так, как она есть в коде, и фиксирует правила её использования. Приоритет норм: AGENTS.md → этот документ → скилл `limacina-frontend`. Источник истины по значениям: код `src/01-app/assets/`. При расхождении правится спека или код, обходов не делается.
+Статус: нормативный документ. Описывает дизайн-систему так, как она есть в коде, и фиксирует правила её использования. Приоритет норм: сначала AGENTS.md, затем этот документ, затем скилл `limacina-frontend`. Источник истины по значениям: код `src/01-app/assets/`. При расхождении правится спека или код, обходов не делается.
 
 Проверено против кода: 2026-10-12 (ветка `release-0.6.x`).
 
@@ -18,11 +18,11 @@
 | Файл | Содержимое |
 |---|---|
 | `01-app/assets/colors.scss` | Все глобальные `:root`-токены: интервалы, макет, типографика, движение, z-index, фокус, спецпалитры |
-| `01-app/assets/themes/*.scss` | 10 файлов тем: блоки `[data-theme="…"]`, 5 семейств в тёмной и светлой модификациях |
+| `01-app/assets/themes/*.scss` | 10 файлов тем: блоки `[data-theme="..."]`, 5 семейств в тёмной и светлой модификациях |
 | `01-app/assets/breakpoints.scss` | 3 медиа-миксина |
 | `01-app/assets/mixins.scss` | 34 стилевых миксина |
 | `01-app/assets/animations.scss` | Именованные Vue-переходы и глобальный kill-switch анимаций |
-| `01-app/assets/view-transitions.scss` | View Transition переключения темы (маска-«воронка» из GIF) |
+| `01-app/assets/view-transitions.scss` | View Transition переключения темы (маска-"воронка" из GIF) |
 | `01-app/assets/general.scss` | Глобальные сбросы, фокус-ринг, 5 легаси-утилитарных классов |
 | `01-app/assets/base.scss` | Базовая типографика `html`, `body`, `#app` |
 | `01-app/assets/fonts/` | Самодостаточные шрифты: Inter, Inter Tight, Onest, Jost, Manrope, JetBrains Mono |
@@ -66,18 +66,18 @@
 
 | Токен | Стек по умолчанию | Роль |
 |---|---|---|
-| `--font-body` | Inter, system-ui… | Основной текст |
-| `--font-display` | Onest, Inter… | Заголовки (`heading-display`) |
-| `--font-mono` | JetBrains Mono… | Код, значения слайдеров, консоль |
+| `--font-body` | Inter, system-ui... | Основной текст |
+| `--font-display` | Onest, Inter... | Заголовки (`heading-display`) |
+| `--font-mono` | JetBrains Mono... | Код, значения слайдеров, консоль |
 | `--font-eyebrow` | `--font-mono`, в части тем `--font-body` | Надзаголовки |
 
-Размеры: `--text-caption` 12, `--text-body-sm` 14, `--text-body` 16, `--text-subheading` 18, `--text-heading-sm` 24, `--text-heading` 28. Интерлиньяж: `--leading-caption` 1.33, `--leading-body-sm` 1.43, `--leading-body` 1.5, `--leading-heading` 1.14. Веса: `--weight-regular` 400, `--weight-medium` 500, плюс темозависимый `--weight-display` 500. Трекинг: `--tracking-body` −0.01em, `--tracking-heading` normal, `--tracking-eyebrow` 0.1em, значения у тем различаются.
+Размеры: `--text-caption` 12, `--text-body-sm` 14, `--text-body` 16, `--text-subheading` 18, `--text-heading-sm` 24, `--text-heading` 28. Интерлиньяж: `--leading-caption` 1.33, `--leading-body-sm` 1.43, `--leading-body` 1.5, `--leading-heading` 1.14. Веса: `--weight-regular` 400, `--weight-medium` 500, плюс темозависимый `--weight-display` 500. Трекинг: `--tracking-body` -0.01em, `--tracking-heading` normal, `--tracking-eyebrow` 0.1em, значения у тем различаются.
 
 Базовый шрифт документа задаёт `base.scss`: `--font-body` размером 14px (`--text-body-sm`). Заголовки оформляются классом `heading-display` (градиентный текст из `--heading-gradient`).
 
 ### 3.5. Движение
 
-Длительности: `--duration-fast` 150ms, `--duration-base` 250ms, `--duration-slow` 400ms, `--duration-spin` 0.8s, `--duration-shimmer` 1.4s, `--switch-duration` 1500ms (переключение темы). Кривые: `--ease-out` cubic-bezier(0.22, 1, 0.36, 1) применяется по умолчанию ко всему, `--ease-in-out` cubic-bezier(0.65, 0, 0.35, 1) предназначен для схлопывания и раскрытия (`collapsible`). Ступень каскада `--stagger-step` 25ms. Сырые значения вида `transition: … 0.3s` в компонентах запрещены.
+Длительности: `--duration-fast` 150ms, `--duration-base` 250ms, `--duration-slow` 400ms, `--duration-spin` 0.8s, `--duration-shimmer` 1.4s, `--switch-duration` 1500ms (переключение темы). Кривые: `--ease-out` cubic-bezier(0.22, 1, 0.36, 1) применяется по умолчанию ко всему, `--ease-in-out` cubic-bezier(0.65, 0, 0.35, 1) предназначен для схлопывания и раскрытия (`collapsible`). Ступень каскада `--stagger-step` 25ms. Сырые значения вида `transition: ... 0.3s` в компонентах запрещены.
 
 ### 3.6. Z-index
 
@@ -93,8 +93,8 @@
 
 Две группы токенов живут в `:root` и сознательно не зависят от темы:
 
-- `--debug-*`, палитра дебаг-консоли (фиксированная тёмная схема в стиле GitHub).
-- `--viewer-bg` `#1a1d2e`, подложка 3D-сцен, единая во всех темах.
+* `--debug-*`, палитра дебаг-консоли (фиксированная тёмная схема в стиле GitHub).
+* `--viewer-bg` `#1a1d2e`, подложка 3D-сцен, единая во всех темах.
 
 Кроме них глобальными являются `--switch-glow` и `--switch-glow-invert`, а также `--radius-pill` и `--radius-circle`, единственные радиусы вне тем.
 
@@ -102,27 +102,27 @@
 
 ### 4.1. Механика
 
-Идентификатор темы имеет вид `{семейство}-{режим}`, режим принимает значения `dark` и `light`. Семейства перечислены в `THEME_FAMILIES` (`05-entities/settings/themes.ts`), там же хранятся превью и названия для интерфейса: `default` («Стандартная»), `night` («Ночная синь»), `lime` («Лайм»), `spark` («Искра»), `monologue` («Монолог»). Всего 10 тем.
+Идентификатор темы имеет вид `{семейство}-{режим}`, режим принимает значения `dark` и `light`. Семейства перечислены в `THEME_FAMILIES` (`05-entities/settings/themes.ts`), там же хранятся превью и названия для интерфейса: `default` ("Стандартная"), `night` ("Ночная синь"), `lime` ("Лайм"), `spark` ("Искра"), `monologue` ("Монолог"). Всего 10 тем.
 
-`useTheme()` вешает `data-theme` на `<html>`, выбор сохраняется командой `save_theme`. localStorage `limacina-theme` служит только синхронным кэшем до ответа `get_app_init_data` (защита от вспышки не той темы). Переключение dark↔light проигрывает View Transition длительностью 1.5s с GIF-маской (расходящаяся «воронка», `view-transitions.scss`). Переключение внутри одного режима идёт без неё. При выключенных анимациях смена происходит мгновенно.
+`useTheme()` вешает `data-theme` на `<html>`, выбор сохраняется командой `save_theme`. localStorage `limacina-theme` служит только синхронным кэшем до ответа `get_app_init_data` (защита от вспышки не той темы). Переключение с dark на light проигрывает View Transition длительностью 1.5s с GIF-маской (расходящаяся "воронка", `view-transitions.scss`). Переключение внутри одного режима идёт без неё. При выключенных анимациях смена происходит мгновенно.
 
 ### 4.2. Контракт темы
 
 Каждый файл `themes/{family}-{mode}.scss` обязан определять полный набор:
 
-- типографика: `--font-body/display/mono/eyebrow`, `--weight-display`, `--tracking-body/heading/eyebrow`.
-- радиусы: `--radius-button/card/modal/input/badge`.
-- фоны: `--login-bg-primary/secondary`, `--app-bg` (многослойный градиент), `--html-bg`, `--login-bg-form`.
-- текст: `--login-text-primary/secondary/muted`.
-- акцент: `--login-accent`, `--login-accent-hover`, `--text-on-accent`, `--accent-fill`, `--text-on-accent-fill`, `--accent-subtle`, `--accent-active-bg`, `--accent-text`.
-- поверхности: `--surface-subtle/light/input/hover/active`, `--overlay`.
-- границы и тени: `--border-subtle`, `--elevation-inset`, `--elevation-inset-strong`, `--elevation-card`, `--elevation-modal`, `--elevation-glow`.
-- ошибки и удаление: `--error`, `--error-bg`, `--error-border`, `--delete-bg`, `--delete-border`, `--delete-text`.
-- декор: `--grid-line`, `--heading-gradient`.
+* типографика: `--font-body/display/mono/eyebrow`, `--weight-display`, `--tracking-body/heading/eyebrow`.
+* радиусы: `--radius-button/card/modal/input/badge`.
+* фоны: `--login-bg-primary/secondary`, `--app-bg` (многослойный градиент), `--html-bg`, `--login-bg-form`.
+* текст: `--login-text-primary/secondary/muted`.
+* акцент: `--login-accent`, `--login-accent-hover`, `--text-on-accent`, `--accent-fill`, `--text-on-accent-fill`, `--accent-subtle`, `--accent-active-bg`, `--accent-text`.
+* поверхности: `--surface-subtle/light/input/hover/active`, `--overlay`.
+* границы и тени: `--border-subtle`, `--elevation-inset`, `--elevation-inset-strong`, `--elevation-card`, `--elevation-modal`, `--elevation-glow`.
+* ошибки и удаление: `--error`, `--error-bg`, `--error-border`, `--delete-bg`, `--delete-border`, `--delete-text`.
+* декор: `--grid-line`, `--heading-gradient`.
 
-Префикс `--login-*` исторический. Это общие токены текста и фона всего приложения, а не только экрана логина.
+Префикс `--login-*` исторический. Это общие токены текста и фона всего приложения, не только экрана логина.
 
-Правило именования новых цветовых токенов: семантика, а не значение (`--surface-hover`, а не `--gray-100`). Новый цветовой токен добавляется сразу во все 10 файлов тем.
+Правило именования новых цветовых токенов: семантика, не значение (`--surface-hover`, не `--gray-100`). Новый цветовой токен добавляется сразу во все 10 файлов тем.
 
 ### 4.3. Идентичность тем
 
@@ -138,7 +138,7 @@
 
 ## 5. Адаптивность
 
-Брейкпоинта три, все работают «ниже порога» (`max-width`):
+Брейкпоинта три, все работают ниже порога (`max-width`):
 
 | Миксин | Порог | Основное поведение |
 |---|---|---|
@@ -146,7 +146,7 @@
 | `media-under-md` | ≤767px | Сжатие двухколоночных раскладок |
 | `media-under-sm` | ≤575px | Мобильная компактность |
 
-Подключение: `@use '@/01-app/assets/breakpoints'` затем `@include breakpoints.media-under-md { … }`.
+Подключение: `@use '@/01-app/assets/breakpoints'` затем `@include breakpoints.media-under-md { ... }`.
 
 Лейаут under-lg: `.app__body` переключается в `column-reverse` (App.vue). Панель навигации остаётся в потоке, `position: fixed` для неё запрещён, он ломает выравнивание по краям страницы.
 
@@ -158,8 +158,8 @@
 
 Глобально анимации гасятся двумя механизмами (`animations.scss`):
 
-- `html[data-animations='off']`, пользовательская настройка. Атрибут ставит `settingsStore.setAnimationsEnabled`, кэш localStorage `limacina-animations`, авторитетное состояние хранится в `LauncherConfig.animationsEnabled`.
-- `@media (prefers-reduced-motion: reduce)`, системная настройка. Действует, пока пользователь явно не включил `data-animations='on'`.
+* `html[data-animations='off']`, пользовательская настройка. Атрибут ставит `settingsStore.setAnimationsEnabled`, кэш localStorage `limacina-animations`, авторитетное состояние хранится в `LauncherConfig.animationsEnabled`.
+* `@media (prefers-reduced-motion: reduce)`, системная настройка. Действует, пока пользователь явно не включил `data-animations='on'`.
 
 Оба механизма переводят все `animation-*` и `transition-*` в ~0ms. Новая анимация обязана гаситься ими автоматически, то есть использовать только `animation` и `transition` без JS-управления длительностью.
 
@@ -169,13 +169,13 @@
 
 ### 6.3. Переключение темы
 
-View Transition на корне: старый и новый кадры анимируются keyframes `scale` с GIF-маской (`shigure-ui-smol.gif`) от 0 до 750vmax за `--switch-duration` 1500ms. Направление выбирает селектор `.dark::view-transition-old(root)`. Механизм запускает `useTheme` только на смене режима dark↔light.
+View Transition на корне: старый и новый кадры анимируются keyframes `scale` с GIF-маской (`shigure-ui-smol.gif`) от 0 до 750vmax за `--switch-duration` 1500ms. Направление выбирает селектор `.dark::view-transition-old(root)`. Механизм запускает `useTheme` только при смене режима с dark на light.
 
 ## 7. Миксины
 
-Подключение: `@use '@/01-app/assets/mixins'` затем `@include mixins.<name>;`. Параметры перечислены в сигнатурах `mixins.scss`. Реестр по группам.
+Подключение: `@use '@/01-app/assets/mixins'` затем `@include mixins.<name>`. Параметры перечислены в сигнатурах `mixins.scss`. Реестр по группам.
 
-Формы и текст: `form-head` (каркас `__head/__title/__subtitle/__error/__actions`), `form-subtitle`, `error-box` (красная плашка ошибки), `caption-hint` (серая подпись по центру), `eyebrow($font-size, $line-height, $transform, $weight, $color)` (надзаголовок капсом), `load-error-row` (строка ошибки с кнопкой «Повторить». В новых местах используется виджет `LoadErrorRow.vue`, миксин живёт внутри него).
+Формы и текст: `form-head` (каркас `__head/__title/__subtitle/__error/__actions`), `form-subtitle`, `error-box` (красная плашка ошибки), `caption-hint` (серая подпись по центру), `eyebrow($font-size, $line-height, $transform, $weight, $color)` (надзаголовок капсом), `load-error-row` (строка ошибки с кнопкой "Повторить". В новых местах используется виджет `LoadErrorRow.vue`, миксин живёт внутри него).
 
 Сегментированные переключатели: `segmented` (контейнер-капсула), `segmented-active` (активный пункт), `segmented-item($hover-bg, $disabled-opacity, $radius, $hover-exclude-active)` (пункт с hover, active и disabled состояниями, при `$hover-exclude-active: true` наведение на активный пункт не перекрашивает его), `mode-toggle` (кнопка переключения режима).
 
@@ -183,9 +183,9 @@ View Transition на корне: старый и новый кадры аним�
 
 Панели инструментов: `tool-panel` (подложка тулбара), `tool-button` (иконочная кнопка 32px с hover, active и `--active` состояниями), `tool-divider` (волосяной разделитель).
 
-Выпадающие списки: `dropdown-trigger` (свёрнутый триггер), `options-panel` (выпадающая панель с пунктами и переходом), `options-panel-up` (панель, раскрывающаяся вверх). Открытие, флип и клик вне реализует не стили, а `useDropdownPanel()`.
+Выпадающие списки: `dropdown-trigger` (свёрнутый триггер), `options-panel` (выпадающая панель с пунктами и переходом), `options-panel-up` (панель, раскрывающаяся вверх). Открытие, флип и клик вне реализует `useDropdownPanel()`.
 
-Настройки: `settings-row-body` (строка «текст слева, контрол справа»), `settings-fields-grid` (автогрид полей от `--settings-field-min`).
+Настройки: `settings-row-body` (строка "текст слева, контрол справа"), `settings-fields-grid` (автогрид полей от `--settings-field-min`).
 
 Оверлеи и попапы: `popup-overlay` (fixed-оверлей с blur), `popup-card($max-width, $width)` (карточка попапа), `drop-overlay` (оверлей drag-and-drop).
 
@@ -197,16 +197,16 @@ View Transition на корне: старый и новый кадры аним�
 
 ## 8. Глобальные классы (`general.scss`)
 
-Легаси-набор, сложившийся до правила «никаких новых общих классов»: `.eyebrow`, `.section-label` (надзаголовок с линиями по бокам), `.settings-grid` и `.settings-row`, `.heading-display` (градиентный заголовок). Использовать можно, расширять набор нельзя. Новое оформляется компонентом или миксином.
+Легаси-набор, сложившийся до правила "никаких новых общих классов": `.eyebrow`, `.section-label` (надзаголовок с линиями по бокам), `.settings-grid` и `.settings-row`, `.heading-display` (градиентный заголовок). Использовать можно, расширять набор нельзя. Новое оформляется компонентом или миксином.
 
 Там же живут глобальные сбросы (скроллбары скрыты, отступы списков и заголовков обнулены) и фокус-ринг `:focus-visible`.
 
 ## 9. Доступность
 
-- **Фокус**: единый `:focus-visible`-ринг из токенов (см. 3.7). Клавиатурная навигация не должна гаситься `outline: none` на интерактивных элементах. Глобальный сброс для `button` и `input` компенсируется рингом.
-- **Контраст**: аудит по WCAG (текст 4.5:1, крупный и UI 3:1) описан в `scripts/contrast-report.md`, запуск 2026-09-17. По всем 10 темам жёстких провалов нет, в disabled-состояниях встречаются advisory-провалы (WCAG disabled-состояния не нормирует). При изменении цветовых токенов отчёт перегенерируется.
-- **Reduced motion**: два механизма из 6.1.
-- **Disabled-прозрачности**: стандарт 0.4 для кнопок и 0.5 для пунктов списков задан в миксинах, не в компонентах.
+* Фокус: единый `:focus-visible`-ринг из токенов (см. 3.7). Клавиатурная навигация не должна гаситься `outline: none` на интерактивных элементах. Глобальный сброс для `button` и `input` компенсируется рингом.
+* Контраст: аудит по WCAG (текст 4.5:1, крупный и UI 3:1) описан в `scripts/contrast-report.md`, запуск 2026-09-17. По всем 10 темам жёстких провалов нет, в disabled-состояниях встречаются advisory-провалы (WCAG disabled-состояния не нормирует). При изменении цветовых токенов отчёт перегенерируется.
+* Reduced motion: два механизма из 6.1.
+* Disabled-прозрачности: стандарт 0.4 для кнопок и 0.5 для пунктов списков задан в миксинах, не в компонентах.
 
 ## 10. Аудит соответствия (2026-10-12)
 
@@ -214,15 +214,15 @@ View Transition на корне: старый и новый кадры аним�
 
 Найденные расхождения (кандидаты в бэклог, код в этой задаче не трогается):
 
-1. **Нет parity-теста тем**. `colors.test.ts` проверяет только шкалу z-index. Пропуск токена из контракта 4.2 в одном из 10 файлов тем молча падает в fallback `:root`. Кандидат: тест «каждая тема определяет полный набор токенов» по аналогии с z-тестом.
+1. **Нет parity-теста тем**. `colors.test.ts` проверяет только шкалу z-index. Пропуск токена из контракта 4.2 в одном из 10 файлов тем молча падает в fallback `:root`. Кандидат: тест "каждая тема определяет полный набор токенов" по аналогии с z-тестом.
 2. **Скилл `limacina-frontend` отставал от кода**: лишние брейкпоинты xxl и xl, несуществующая тема `test`, упоминание легаси-scoped исключений у `Preloader` и `Console`. Исправлено синхронизацией скилла 2026-10-12.
 3. **Advisory-контраст disabled-состояний**: в части тем ниже advisory-порога 3:1 (см. отчёт). Не блокер. Править только при редизайне соответствующих состояний.
 
 ## 11. Процесс изменения дизайн-системы
 
-- **Новый spacing или размер**: ступень в `colors.scss`, затем использование. Без исключений в компонентах.
-- **Новый цветовой токен**: определить семантику, добавить во все 10 файлов тем в той же секции, при необходимости перегенерировать контраст-отчёт.
-- **Новая тема**: файл `themes/{family}-{mode}.scss` с полным контрактом 4.2 → `@use` в `main.scss` → семейство в `THEME_FAMILIES` с превью → проверить контраст обеих мод.
-- **Новый миксин**: только при 3 и более использованиях, параметры со значениями по умолчанию (образец: `segmented-item`).
-- **Новый брейкпоинт**: сначала доказать, что задача не решается существующими тремя. Добавляется миксином в `breakpoints.scss`.
-- **Новый z-уровень**: вставить в шкалу с сохранением возрастания (тест следит) и добавить инвариант «что выше чего» в `colors.test.ts`.
+* Новый spacing или размер: ступень в `colors.scss`, затем использование. Без исключений в компонентах.
+* Новый цветовой токен: определить семантику, добавить во все 10 файлов тем в той же секции, при необходимости перегенерировать контраст-отчёт.
+* Новая тема: файл `themes/{family}-{mode}.scss` с полным контрактом 4.2, подключение `@use` в `main.scss`, семейство в `THEME_FAMILIES` с превью, проверка контраста обеих мод.
+* Новый миксин: только при 3 и более использованиях, параметры со значениями по умолчанию (образец: `segmented-item`).
+* Новый брейкпоинт: сначала доказать, что задача не решается существующими тремя. Добавляется миксином в `breakpoints.scss`.
+* Новый z-уровень: вставить в шкалу с сохранением возрастания (тест следит) и добавить инвариант "что выше чего" в `colors.test.ts`.
