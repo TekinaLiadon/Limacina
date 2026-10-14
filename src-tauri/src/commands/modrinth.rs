@@ -246,7 +246,7 @@ pub async fn modrinth_installed(
             sha1: entry.sha1,
         })
         .collect();
-    mods.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    mods.sort_by_key(|a| a.title.to_lowercase());
     Ok(mods)
 }
 

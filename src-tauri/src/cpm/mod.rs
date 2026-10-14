@@ -184,12 +184,7 @@ pub fn rebind_selection(
     if !needs_rebind {
         return RebindDecision::Keep;
     }
-    match manifest
-        .models
-        .iter()
-        .filter(|model| !model.offline)
-        .next_back()
-    {
+    match manifest.models.iter().rfind(|model| !model.offline) {
         Some(entry) => RebindDecision::Select(entry.file.clone()),
         None if stale => RebindDecision::Clear,
         None => RebindDecision::Keep,

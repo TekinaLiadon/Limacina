@@ -23,7 +23,7 @@ pub fn from_hex(s: &str) -> Result<Vec<u8>> {
         );
     }
     let mut result = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
+    for pair in bytes.as_chunks::<2>().0 {
         let hi = hex_digit(pair[0]);
         let lo = hex_digit(pair[1]);
         match (hi, lo) {

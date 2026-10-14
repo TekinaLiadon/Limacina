@@ -363,7 +363,7 @@ pub async fn setup_loader(
 ) -> Result<()> {
     let base_url = launcher_path(Some(&state.project_name))?;
     let loader_version = loader_version_or_err(state)?;
-    let target_version = format!("{}-{}", &state.mc_version, loader_version);
+    let target_version = format!("{}-{}", state.mc_version, loader_version);
     let version_info = find_loader_version(manifest, &target_version)?;
     let label = format!("Установка {loader_name}");
     let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
