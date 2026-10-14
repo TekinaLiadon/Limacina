@@ -336,7 +336,7 @@ mod tests {
     };
     use crate::utils::env_info::{get_arch_label, get_current_os};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn natives_library_1_21(classifier: &str, os_name: &str) -> serde_json::Value {
         serde_json::json!({
@@ -395,7 +395,7 @@ mod tests {
         serde_json::from_value(serde_json::Value::Array(libs_json)).unwrap()
     }
 
-    fn store_library_jar(libraries_dir: &PathBuf, rel_path: &str) {
+    fn store_library_jar(libraries_dir: &Path, rel_path: &str) {
         let path = libraries_dir.join(rel_path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"jar").unwrap();
