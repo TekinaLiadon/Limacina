@@ -107,11 +107,7 @@ pub fn collect_natives_to_extract(
     let mut queued: HashSet<PathBuf> = HashSet::new();
 
     for lib in &manifest.libraries {
-        if !is_rule_allowed(lib.rules.as_deref()) {
-            continue;
-        }
-
-        if !should_download_library(&lib.name) {
+        if !is_current_platform_library(lib) {
             continue;
         }
 
@@ -218,6 +214,10 @@ async fn clear_natives_dir(natives_dir: &Path) -> Result<()> {
 
 fn should_download_library(lib_name: &str) -> bool {
     should_download_library_for(lib_name, get_current_os(), get_arch_label())
+}
+
+pub(super) fn is_current_platform_library(lib: &Library) -> bool {
+    is_rule_allowed(lib.rules.as_deref()) && should_download_library(&lib.name)
 }
 
 fn should_download_library_for(lib_name: &str, os: &str, arch: &str) -> bool {
@@ -425,17 +425,14 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Result<Vec<
     let mut queued: HashSet<PathBuf> = HashSet::new();
 
     for lib in &manifest.libraries {
-        if !is_rule_allowed(lib.rules.as_deref()) {
+        if !is_current_platform_library(lib) {
             continue;
         }
 
         if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
                 let rel_path = PathBuf::from(format!("libraries/{}", artifact.path));
-                if !artifact.url.is_empty()
-                    && should_download_library(&lib.name)
-                    && !queued.contains(&rel_path)
-                {
+                if !artifact.url.is_empty() && !queued.contains(&rel_path) {
                     ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
                     if artifact.sha1.is_empty() {
                         return Err(LauncherError::ManifestParse(format!(

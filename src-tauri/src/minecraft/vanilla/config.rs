@@ -10,6 +10,7 @@ use crate::{
     minecraft::{
         mod_loader::utils::maven_to_path,
         structs::LaunchConfig,
+        vanilla::download::is_current_platform_library,
         vanilla::rules::is_rule_allowed,
         vanilla::structs::{ArgumentValue, Library, StringOrVec, VersionDetailsManifest},
     },
@@ -150,7 +151,7 @@ pub async fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Resu
     let mut missing: Vec<String> = Vec::new();
 
     for lib in libraries {
-        if !is_rule_allowed(lib.rules.as_deref()) {
+        if !is_current_platform_library(lib) {
             continue;
         }
 
@@ -333,8 +334,72 @@ mod tests {
         gson_library, gson_library_no_url, jopt_simple_library, logging_library,
         test_launch_config, TempDir,
     };
+    use crate::utils::env_info::{get_arch_label, get_current_os};
     use std::fs;
     use std::path::PathBuf;
+
+    fn natives_library_1_21(classifier: &str, os_name: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": format!("org.lwjgl:lwjgl:3.3.3:{classifier}"),
+            "rules": [{ "action": "allow", "os": { "name": os_name } }],
+            "downloads": {
+                "artifact": {
+                    "path": format!("org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-{classifier}.jar"),
+                    "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "size": 1,
+                    "url": format!(
+                        "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-{classifier}.jar"
+                    )
+                }
+            }
+        })
+    }
+
+    fn platform_natives_classifier() -> &'static str {
+        match (get_current_os(), get_arch_label()) {
+            ("windows", "x86") => "natives-windows-x86",
+            ("windows", "aarch64") => "natives-windows-arm64",
+            ("windows", _) => "natives-windows",
+            ("osx", "aarch64") => "natives-macos-arm64",
+            ("osx", _) => "natives-macos",
+            ("linux", _) => "natives-linux",
+            other => panic!("неожиданная платформа тестового хоста: {other:?}"),
+        }
+    }
+
+    fn foreign_natives_classifiers() -> Vec<&'static str> {
+        [
+            "natives-windows",
+            "natives-windows-x86",
+            "natives-windows-arm64",
+            "natives-macos",
+            "natives-macos-arm64",
+            "natives-linux",
+            "natives-linux-arm64",
+        ]
+        .into_iter()
+        .filter(|classifier| *classifier != platform_natives_classifier())
+        .collect()
+    }
+
+    fn lwjgl_1_21_libraries() -> Vec<Library> {
+        let current_os = get_current_os().to_string();
+        let mut libs_json = vec![logging_library()];
+        libs_json.push(natives_library_1_21(
+            platform_natives_classifier(),
+            &current_os,
+        ));
+        for classifier in foreign_natives_classifiers() {
+            libs_json.push(natives_library_1_21(classifier, &current_os));
+        }
+        serde_json::from_value(serde_json::Value::Array(libs_json)).unwrap()
+    }
+
+    fn store_library_jar(libraries_dir: &PathBuf, rel_path: &str) {
+        let path = libraries_dir.join(rel_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"jar").unwrap();
+    }
 
     fn libs_with_one_missing_url() -> Vec<Library> {
         serde_json::from_value(serde_json::json!([
@@ -436,6 +501,70 @@ mod tests {
 
         drop(dir);
         assert!(!libraries_dir.exists(), "временная директория не удалена");
+    }
+
+    #[tokio::test]
+    async fn get_classpath_skips_foreign_platform_natives_jars() {
+        let libs = lwjgl_1_21_libraries();
+        let matching = platform_natives_classifier();
+
+        let dir = TempDir::new("classpath_platform_natives");
+        let root = dir.0.clone();
+        let libraries_dir = root.join("libraries");
+        store_library_jar(&libraries_dir, "com/mojang/logging/1.0.0/logging-1.0.0.jar");
+        store_library_jar(
+            &libraries_dir,
+            &format!("org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-{matching}.jar"),
+        );
+        let config = test_launch_config(&root);
+
+        let paths = get_classpath(&libs, &config).await.unwrap_or_else(|error| {
+            panic!("чужие natives-варианты не должны требоваться: {error}")
+        });
+
+        let natives_paths: Vec<&String> = paths
+            .iter()
+            .filter(|p| p.contains("lwjgl-3.3.3-natives-"))
+            .collect();
+        assert_eq!(
+            natives_paths.len(),
+            1,
+            "в classpath должен попасть только natives текущей платформы: {paths:?}"
+        );
+        assert!(
+            natives_paths[0].contains(&format!("lwjgl-3.3.3-{matching}.jar")),
+            "выбран неверный natives-вариант: {natives_paths:?}, ожидался {matching}"
+        );
+
+        drop(dir);
+        assert!(!root.exists(), "временная директория не удалена");
+    }
+
+    #[tokio::test]
+    async fn get_classpath_still_requires_current_platform_natives() {
+        let libs = lwjgl_1_21_libraries();
+        let matching = platform_natives_classifier();
+
+        let (dir, _libraries_dir, config) = logging_jar_setup("classpath_natives_missing");
+
+        let error = get_classpath(&libs, &config)
+            .await
+            .expect_err("отсутствующий natives текущей платформы — ошибка");
+
+        let message = error.to_string();
+        assert!(
+            message.contains(&format!("lwjgl-3.3.3-{matching}.jar")),
+            "ошибка должна называть natives текущей платформы: {message}"
+        );
+        for classifier in foreign_natives_classifiers() {
+            assert!(
+                !message.contains(classifier),
+                "чужой natives-вариант {classifier} не должен требоваться: {message}"
+            );
+        }
+
+        drop(dir);
+        assert!(!_libraries_dir.exists(), "временная директория не удалена");
     }
 }
 
