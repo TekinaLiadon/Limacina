@@ -1,62 +1,15 @@
-use crate::{
-    minecraft::{
-        mod_loader::{
-            config::{build_loader_config, LoaderConfigOptions, VanillaClientJar},
-            installer::setup_loader,
-            manifest::{latest_list_version, versions_with_installed, NEOFORGE},
-        },
-        structs::{GameConfig, ModLoader, VersionMod},
-    },
-    state::dto::ProjectConfig,
-};
-use anyhow::Result;
-use async_trait::async_trait;
+pub mod manifest;
 
-pub struct NeoForge;
-#[async_trait]
-impl ModLoader for NeoForge {
-    async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        versions_with_installed(&NEOFORGE, state).await
-    }
-    async fn latest_version(
-        &self,
-        state: &ProjectConfig,
-        versions: &[VersionMod],
-    ) -> Result<String> {
-        latest_list_version(versions, &state.mc_version, "NeoForge")
-    }
-    async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        setup_loader(
-            NEOFORGE.name,
-            NEOFORGE.manifest_prefix,
-            state,
-            manifest,
-            NEOFORGE.maven_base,
-        )
-        .await
-    }
-    async fn config(
-        &self,
-        state: &ProjectConfig,
-        vanilla_config: GameConfig,
-        version: &VersionMod,
-    ) -> Result<GameConfig> {
-        build_loader_config(
-            &NEOFORGE,
-            state,
-            vanilla_config,
-            version,
-            LoaderConfigOptions {
-                vanilla_client_jar: VanillaClientJar::Drop,
-            },
-        )
-        .await
-    }
-}
+use crate::minecraft::mod_loader::{config::VanillaClientJar, manifest::InstallerLoader};
+
+pub(crate) static LOADER: InstallerLoader = InstallerLoader {
+    def: &manifest::NEOFORGE,
+    client_jar: VanillaClientJar::Drop,
+};
 
 #[cfg(test)]
 mod tests {
-    use super::NeoForge;
+    use super::LOADER;
     use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::{GameConfig, ModLoader};
     use crate::test_support::{
@@ -103,7 +56,7 @@ mod tests {
         let vanilla_config =
             loader_vanilla_config(&game_root, &game_root.join("1.20.4.jar").to_string_lossy());
 
-        let config = NeoForge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг NeoForge");
@@ -181,7 +134,7 @@ mod tests {
             game_root.clone(),
         );
 
-        let config = NeoForge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг NeoForge");
@@ -246,7 +199,7 @@ mod tests {
             game_root.clone(),
         );
 
-        let config = NeoForge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг NeoForge");
@@ -295,7 +248,7 @@ mod tests {
             game_root,
         );
 
-        let config = NeoForge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг NeoForge");

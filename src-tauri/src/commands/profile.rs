@@ -10,7 +10,8 @@ use crate::log_err;
 use crate::log_info;
 use crate::minecraft::manifest::VERSION_MANIFEST_URL;
 use crate::minecraft::mod_loader::fabric::Fabric;
-use crate::minecraft::mod_loader::manifest::{forge_manifest_index, neoforge_manifest_index};
+use crate::minecraft::mod_loader::manifest::loader_index;
+use crate::minecraft::mod_loader::{forge::manifest::FORGE, neoforge::manifest::NEOFORGE};
 use crate::minecraft::structs::{
     ModLoader as ModLoaderTrait, INDEX_CACHE_FILES, INDEX_CACHE_PREFIXES,
 };
@@ -18,6 +19,7 @@ use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
 use crate::state::config::{
     backup_corrupt_config, current_project_config, is_corrupt_config, load_config,
     load_config_or_default, project_config_write_lock, set_project_config, validate_project_name,
+    validated_project_name,
 };
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
@@ -59,7 +61,7 @@ async fn validate_new_project_name(state: &Mutex<GlobalState>, name: &str) -> Re
     }
     match load_config(trimmed).await {
         Ok(_) => bail!(LauncherError::ProjectExists(trimmed.to_string())),
-        Err(e) if is_corrupt_config(&e) => backup_corrupt_config(trimmed, &e).await?,
+        Err(e) if is_corrupt_config(&e) => backup_corrupt_config(trimmed, &e)?,
         Err(_) => {}
     }
     Ok(())
@@ -206,14 +208,11 @@ async fn loader_versions(mod_loader: ModLoader, mc_version: &str) -> Result<Vec<
             .collect()
         }
         ModLoader::Forge => pick_maven_versions(
-            LauncherError::classify(forge_manifest_index().await, LauncherError::ManifestParse)?,
+            LauncherError::classify(loader_index(&FORGE).await, LauncherError::ManifestParse)?,
             mc_version,
         ),
         ModLoader::NeoForge => pick_maven_versions(
-            LauncherError::classify(
-                neoforge_manifest_index().await,
-                LauncherError::ManifestParse,
-            )?,
+            LauncherError::classify(loader_index(&NEOFORGE).await, LauncherError::ManifestParse)?,
             mc_version,
         ),
     };
@@ -326,17 +325,30 @@ async fn delete_project_credentials(project_name: &str, logins: Vec<String>) -> 
     crate::commands::auth::wipe_project_credentials(project_name, &logins).await
 }
 
-async fn delete_current_project(state: &Mutex<GlobalState>) -> Result<LauncherConfig> {
-    let project_name = current_project_config(state).await?.project_name;
-    if project_name.eq_ignore_ascii_case("config") {
-        bail!(LauncherError::ProjectNameReserved);
+async fn delete_named_project(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+) -> Result<LauncherConfig> {
+    let project_name = validated_project_name(project_name)?;
+    let registered = {
+        let guard = state.lock().await;
+        guard
+            .launcher_config
+            .as_ref()
+            .is_some_and(|c| c.has_project(project_name))
+    };
+    if !registered {
+        bail!(LauncherError::InvalidInput(format!(
+            "Проект «{}» не найден",
+            project_name
+        )));
     }
     let env_project = crate::utils::env_info::get_default_project_name();
     if !crate::utils::env_info::is_offline_build()
         && !env_project.is_empty()
         && project_name == env_project
     {
-        bail!(LauncherError::ProjectProtected(project_name.clone()));
+        bail!(LauncherError::ProjectProtected(project_name.to_string()));
     }
 
     let saved_logins = {
@@ -344,36 +356,45 @@ async fn delete_current_project(state: &Mutex<GlobalState>) -> Result<LauncherCo
         guard
             .launcher_config
             .as_ref()
-            .map(|c| c.get_logins(&project_name))
+            .map(|c| c.get_logins(project_name))
             .unwrap_or_default()
     };
-    delete_project_credentials(&project_name, saved_logins).await?;
+    delete_project_credentials(project_name, saved_logins).await?;
 
     let config = update_launcher_config(state, |config| {
-        config.remove_project(&project_name);
+        config.remove_project(project_name);
     })
     .await?;
 
-    delete_project_files(&project_name).await?;
+    delete_project_files(project_name).await?;
 
-    let next_project = config.current_project.clone();
-    let next_config = match next_project.as_deref() {
-        Some(name) if !name.is_empty() => load_config_or_default(name).await?,
-        _ => ProjectConfig::default(),
+    let deleting_current = {
+        let guard = state.lock().await;
+        guard.project_config.project_name == project_name
     };
-    {
-        let mut guard = state.lock().await;
-        guard.session = None;
+    if deleting_current {
+        let next_project = config.current_project.clone();
+        let next_config = match next_project.as_deref() {
+            Some(name) if !name.is_empty() => load_config_or_default(name).await?,
+            _ => ProjectConfig::default(),
+        };
+        {
+            let mut guard = state.lock().await;
+            guard.session = None;
+        }
+        set_project_config(state, next_config).await?;
     }
-    set_project_config(state, next_config).await?;
 
     log_info!("[profile] Проект {} удалён", project_name);
     Ok(config)
 }
 
 #[tauri::command]
-pub async fn delete_project(state: State<'_, Mutex<GlobalState>>) -> CommandResult<LauncherConfig> {
-    Ok(delete_current_project(state.inner()).await?)
+pub async fn delete_project(
+    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
+) -> CommandResult<LauncherConfig> {
+    Ok(delete_named_project(state.inner(), &project_name).await?)
 }
 
 #[tauri::command]
@@ -389,37 +410,49 @@ pub async fn get_loader_versions(
     Ok(loader_versions(mod_loader, &mc_version).await?)
 }
 
-#[tauri::command]
-pub async fn refresh_manifests() -> CommandResult<String> {
-    let manifest_dir = launcher_path(None)?.join("manifest");
+async fn purge_manifest_index_cache(manifest_dir: &std::path::Path) -> Result<usize> {
+    if !tokio::fs::try_exists(manifest_dir).await.unwrap_or(false) {
+        return Ok(0);
+    }
+    let mut entries = LauncherError::classify(
+        fs::read_dir(manifest_dir)
+            .await
+            .with_context(|| format!("Не удалось прочитать {:?}", manifest_dir)),
+        LauncherError::DiskIo,
+    )?;
     let mut removed = 0usize;
-
-    if tokio::fs::try_exists(&manifest_dir).await.unwrap_or(false) {
-        let mut entries = LauncherError::classify(
-            fs::read_dir(&manifest_dir)
-                .await
-                .with_context(|| format!("Не удалось прочитать {:?}", manifest_dir)),
-            LauncherError::DiskIo,
-        )?;
-        while let Some(entry) = LauncherError::classify(
-            entries
-                .next_entry()
-                .await
-                .context("Не удалось прочитать запись в папке manifest"),
-            LauncherError::DiskIo,
-        )? {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let is_index = INDEX_CACHE_FILES.contains(&name.as_str())
-                || INDEX_CACHE_PREFIXES
-                    .iter()
-                    .any(|prefix| name.starts_with(prefix));
-            if is_index {
+    while let Some(entry) = LauncherError::classify(
+        entries
+            .next_entry()
+            .await
+            .context("Не удалось прочитать запись в папке manifest"),
+        LauncherError::DiskIo,
+    )? {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_index = INDEX_CACHE_FILES.contains(&name.as_str())
+            || INDEX_CACHE_PREFIXES
+                .iter()
+                .any(|prefix| name.starts_with(prefix));
+        if !is_index {
+            continue;
+        }
+        match fs::remove_file(entry.path()).await {
+            Ok(()) => {
                 log_info!("[manifests] Удалён кеш: {}", name);
-                let _ = fs::remove_file(entry.path()).await;
                 removed += 1;
+            }
+            Err(e) => {
+                log_err!("[manifests] Не удалось удалить кеш {}: {}", name, e);
             }
         }
     }
+    Ok(removed)
+}
+
+#[tauri::command]
+pub async fn refresh_manifests() -> CommandResult<String> {
+    let manifest_dir = launcher_path(None)?.join("manifest");
+    let removed = purge_manifest_index_cache(&manifest_dir).await?;
 
     log_info!(
         "[manifests] Удалено файлов: {}, перекачивание индексов",
@@ -430,13 +463,86 @@ pub async fn refresh_manifests() -> CommandResult<String> {
         minecraft_versions(false).await,
         LauncherError::ManifestParse,
     )?;
-    LauncherError::classify(forge_manifest_index().await, LauncherError::ManifestParse)?;
-    LauncherError::classify(
-        neoforge_manifest_index().await,
-        LauncherError::ManifestParse,
-    )?;
+    LauncherError::classify(loader_index(&FORGE).await, LauncherError::ManifestParse)?;
+    LauncherError::classify(loader_index(&NEOFORGE).await, LauncherError::ManifestParse)?;
 
     Ok(format!("Манифесты обновлены (удалено кешей: {})", removed))
+}
+
+#[cfg(test)]
+mod refresh_manifests_tests {
+    use super::purge_manifest_index_cache;
+    use crate::test_support::{LauncherDirGuard, TempDir};
+    use std::fs;
+
+    fn seed_cache(dir: &std::path::Path) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("vanilla_index.json"), b"{}").unwrap();
+        fs::write(dir.join("forge.json"), b"{}").unwrap();
+        fs::write(dir.join("fabric_0.16.9.json"), b"{}").unwrap();
+        fs::write(dir.join("forge_47.2.0.json"), b"{}").unwrap();
+        fs::write(dir.join("not-a-cache.txt"), b"keep me").unwrap();
+    }
+
+    #[tokio::test]
+    async fn purge_counts_only_removed_index_files() {
+        let guard = LauncherDirGuard::acquire("manifest_purge").await;
+        let manifest_dir = guard.root().join("manifest");
+        seed_cache(&manifest_dir);
+
+        let removed = purge_manifest_index_cache(&manifest_dir)
+            .await
+            .expect("очистка кешей");
+
+        assert_eq!(
+            removed, 3,
+            "инсталлерный forge_*.json и чужой файл не считаются: {removed}"
+        );
+        assert!(!manifest_dir.join("vanilla_index.json").exists());
+        assert!(!manifest_dir.join("forge.json").exists());
+        assert!(!manifest_dir.join("fabric_0.16.9.json").exists());
+        assert!(
+            manifest_dir.join("forge_47.2.0.json").exists(),
+            "манифесты, созданные инсталлером, не трогаются"
+        );
+        assert!(manifest_dir.join("not-a-cache.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn purge_returns_zero_for_missing_dir() {
+        let guard = LauncherDirGuard::acquire("manifest_purge_missing").await;
+        let manifest_dir = guard.root().join("manifest");
+
+        let removed = purge_manifest_index_cache(&manifest_dir)
+            .await
+            .expect("отсутствующий каталог — не ошибка");
+
+        assert_eq!(removed, 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn purge_skips_files_that_cannot_be_deleted() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new("manifest_purge_readonly");
+        let manifest_dir = dir.0.join("manifest");
+        seed_cache(&manifest_dir);
+        fs::set_permissions(&manifest_dir, fs::Permissions::from_mode(0o500))
+            .expect("каталог без права на запись");
+
+        let removed = purge_manifest_index_cache(&manifest_dir)
+            .await
+            .expect("неудачи удаления не должны прерывать очистку");
+
+        fs::set_permissions(&manifest_dir, fs::Permissions::from_mode(0o755))
+            .expect("восстановление прав");
+        assert_eq!(
+            removed, 0,
+            "счётчик не должен врать при неудачных удалениях: {removed}"
+        );
+        assert!(manifest_dir.join("vanilla_index.json").exists());
+    }
 }
 
 #[cfg(test)]
@@ -452,7 +558,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        activate_project, add_offline_profile, delete_current_project, delete_project_files,
+        activate_project, add_offline_profile, delete_named_project, delete_project_files,
     };
 
     fn empty_state() -> Mutex<GlobalState> {
@@ -673,7 +779,7 @@ mod tests {
                 config.java_path = Some("java-path".to_string());
                 Ok(())
             }),
-            delete_current_project(&state),
+            delete_named_project(&state, "Old"),
         );
         save_result.expect("параллельное сохранение настроек");
         delete_result.expect("удаление проекта");
@@ -686,9 +792,107 @@ mod tests {
         assert!(current.session.is_none());
     }
 
+    #[tokio::test]
+    async fn delete_named_project_targets_the_named_project_not_the_current_one() {
+        let guard = LauncherDirGuard::acquire("delete_named_not_current").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        for name in ["Alpha", "Beta"] {
+            ProjectConfig {
+                project_name: name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            }
+            .save_config()
+            .await
+            .expect("сохранение конфига проекта");
+            let dir = guard.root().join("project").join(name);
+            std::fs::create_dir_all(dir.join("mods")).expect("создание папки проекта");
+            std::fs::write(dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+        }
+
+        let mut state = state_with_current("Beta");
+        if let Some(config) = state.launcher_config.as_mut() {
+            config.add_project("Alpha");
+            config.add_project("Beta");
+        }
+        let state = Mutex::new(state);
+
+        let config = delete_named_project(&state, "Alpha")
+            .await
+            .expect("удаление именованного проекта");
+
+        assert!(
+            !guard.root().join("project").join("Alpha").exists(),
+            "папка Alpha должна удалиться"
+        );
+        assert!(
+            !guard
+                .root()
+                .join("project")
+                .join("config")
+                .join("Alpha.toml")
+                .exists(),
+            "конфиг Alpha должен удалиться"
+        );
+        assert!(
+            guard
+                .root()
+                .join("project")
+                .join("config")
+                .join("Beta.toml")
+                .exists(),
+            "конфиг текущего Beta должен остаться"
+        );
+        assert!(
+            guard
+                .root()
+                .join("project")
+                .join("Beta")
+                .join("mods")
+                .join("mod.jar")
+                .exists(),
+            "файлы текущего Beta должны остаться"
+        );
+
+        let current = state.lock().await;
+        assert_eq!(
+            current.project_config.project_name, "Beta",
+            "удаление чужого проекта не должно менять текущий"
+        );
+        assert_eq!(
+            config.current_project.as_deref(),
+            Some("Beta"),
+            "current_project в конфиге не должен сбрасываться на первый из списка"
+        );
+        assert!(!config.has_project("Alpha"));
+    }
+
+    #[tokio::test]
+    async fn delete_named_project_rejects_unknown_name() {
+        let guard = LauncherDirGuard::acquire("delete_named_unknown").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let state = Mutex::new(state_with_current("Beta"));
+
+        let error = delete_named_project(&state, "Ghost")
+            .await
+            .expect_err("неизвестное имя должно отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::InvalidInput(_))
+            ),
+            "ожидается InvalidInput: {error:#}"
+        );
+        assert!(
+            !guard.root().join("project").join("Ghost").exists(),
+            "файлов быть не должно"
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
-    async fn delete_current_project_aborts_when_toml_removal_fails() {
+    async fn delete_named_project_aborts_when_toml_removal_fails() {
         use std::os::unix::fs::PermissionsExt;
 
         let guard = LauncherDirGuard::acquire("delete_toml_locked").await;
@@ -719,7 +923,7 @@ mod tests {
 
         std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o555))
             .expect("запрет записи в папку конфигов");
-        let result = delete_current_project(&state).await;
+        let result = delete_named_project(&state, "Cordelia").await;
         std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o755))
             .expect("возврат прав");
 

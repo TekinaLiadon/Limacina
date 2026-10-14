@@ -1,16 +1,14 @@
 use crate::utils::errors::LauncherError;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::commands::auth::restore_and_persist_session;
-use crate::commands::auth_offline;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
-use crate::state::config::{current_project_config, load_config_or_default};
-use crate::state::dto::{GlobalState, SessionTokens};
+use crate::state::config::{current_project_config, validated_project_name};
+use crate::state::dto::GlobalState;
 use crate::utils::allowlisted_read::AllowlistedRead;
 use crate::utils::download_file::{download_file, write_atomic};
 use crate::utils::env_info::{ensure_safe_relative_path, launcher_path};
@@ -22,50 +20,6 @@ use crate::{log_err, log_info};
 pub struct SessionInfo {
     pub uuid: String,
     pub username: String,
-}
-
-#[tauri::command]
-pub async fn select_account(
-    state: State<'_, Mutex<GlobalState>>,
-    project_name: String,
-    username: String,
-) -> CommandResult<SessionInfo> {
-    let info = select_account_flow(state.inner(), &project_name, &username).await?;
-    Ok(info)
-}
-
-async fn select_account_flow(
-    state: &Mutex<GlobalState>,
-    project_name: &str,
-    username: &str,
-) -> Result<SessionInfo> {
-    let project = load_config_or_default(project_name).await?;
-
-    let auth_data = if project.online {
-        restore_and_persist_session(project_name, username, None).await?
-    } else {
-        auth_offline::select(username)
-    };
-
-    let uuid = auth_data.uuid();
-    let username_str = auth_data.username(username);
-
-    {
-        let mut state = state.lock().await;
-        state.session = Some(SessionTokens {
-            access_token: auth_data.tokens.access_token.clone(),
-            uuid: uuid.clone(),
-            username: username_str.clone(),
-            project_name: project_name.to_string(),
-        });
-    }
-
-    log_info!("Аккаунт выбран: {}", username_str);
-
-    Ok(SessionInfo {
-        uuid,
-        username: username_str,
-    })
 }
 
 #[tauri::command]
@@ -298,18 +252,27 @@ pub async fn delete_model(state: State<'_, Mutex<GlobalState>>, id: i64) -> Comm
 
 #[tauri::command]
 pub async fn save_offline_skin(
-    state: State<'_, Mutex<GlobalState>>,
-    request: tauri::ipc::Request<'_>,
+    project_name: String,
+    model: String,
+    file_data: Vec<u8>,
 ) -> CommandResult<()> {
-    let (model, file_data) = parse_skin_request(&request, "сохранения скина")?;
-    let model = model.ok_or_else(|| {
-        anyhow!(LauncherError::InvalidInput(
-            "Некорректная модель скина".to_string()
-        ))
-    })?;
+    save_offline_skin_inner(&project_name, &model, file_data).await?;
+    Ok(())
+}
 
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    let (png_path, meta_path) = offline_skin_paths(&project_name)?;
+async fn save_offline_skin_inner(
+    project_name: &str,
+    model: &str,
+    file_data: Vec<u8>,
+) -> Result<()> {
+    let project_name = validated_project_name(project_name)?;
+    if model != "slim" && model != "classic" {
+        bail!(LauncherError::InvalidInput(
+            "Некорректная модель скина".to_string()
+        ));
+    }
+
+    let (png_path, meta_path) = offline_skin_paths(project_name)?;
     let png_parent = png_path.parent().map(|p| p.to_path_buf());
 
     crate::utils::blocking(
@@ -345,11 +308,9 @@ pub async fn save_offline_skin(
 }
 
 #[tauri::command]
-pub async fn get_offline_skin(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<tauri::ipc::Response> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    let (png_path, _) = offline_skin_paths(&project_name)?;
+pub async fn get_offline_skin(project_name: String) -> CommandResult<tauri::ipc::Response> {
+    let project_name = validated_project_name(&project_name)?;
+    let (png_path, _) = offline_skin_paths(project_name)?;
     let bytes = crate::utils::blocking(
         "Не удалось прочитать локальный скин",
         move || match std::fs::read(&png_path) {
@@ -366,11 +327,9 @@ pub async fn get_offline_skin(
 }
 
 #[tauri::command]
-pub async fn get_offline_skin_model(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<Option<String>> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    let (_, meta_path) = offline_skin_paths(&project_name)?;
+pub async fn get_offline_skin_model(project_name: String) -> CommandResult<Option<String>> {
+    let project_name = validated_project_name(&project_name)?;
+    let (_, meta_path) = offline_skin_paths(project_name)?;
     let model = crate::utils::blocking(
         "Не удалось прочитать модель локального скина",
         move || {
@@ -384,93 +343,10 @@ pub async fn get_offline_skin_model(
 }
 
 #[tauri::command]
-pub async fn delete_offline_skin(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    delete_offline_skin_files(&project_name).await?;
+pub async fn delete_offline_skin(project_name: String) -> CommandResult<()> {
+    let project_name = validated_project_name(&project_name)?;
+    delete_offline_skin_files(project_name).await?;
     Ok(())
-}
-
-#[cfg(test)]
-mod select_account_tests {
-    use super::select_account_flow;
-    use crate::auth::storage;
-    use crate::auth::{generate_offline_uuid, OFFLINE_ACCESS_TOKEN};
-    use crate::commands::auth::wipe_project_credentials;
-    use crate::state::dto::{GlobalState, ProjectConfig};
-    use crate::state::launcher_config::LauncherConfig;
-    use crate::test_support::{
-        rotation_payload, seed_offline_project, seed_online_project, LauncherDirGuard,
-    };
-    use mockito::Server;
-    use tokio::sync::Mutex;
-
-    fn state_for(project_name: &str) -> Mutex<GlobalState> {
-        Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: project_name.to_string(),
-                ..ProjectConfig::default()
-            },
-            session: None,
-            launcher_config: Some(LauncherConfig::default()),
-            app_version: String::new(),
-        })
-    }
-
-    #[tokio::test]
-    async fn offline_project_selects_offline_session_without_server() {
-        let _guard = LauncherDirGuard::acquire("select_account_offline").await;
-        seed_offline_project("OffProj").await;
-        let state = state_for("OffProj");
-
-        let info = select_account_flow(&state, "OffProj", "Steve")
-            .await
-            .expect("офлайн-выбор аккаунта");
-
-        assert_eq!(info.uuid, generate_offline_uuid("Steve"));
-        assert_eq!(info.username, "Steve");
-        let guard = state.lock().await;
-        let session = guard
-            .session
-            .as_ref()
-            .expect("сессия должна быть сохранена");
-        assert_eq!(session.access_token, OFFLINE_ACCESS_TOKEN);
-        assert_eq!(session.uuid, generate_offline_uuid("Steve"));
-    }
-
-    #[tokio::test]
-    async fn online_project_restores_session_from_refresh_token() {
-        let _guard = LauncherDirGuard::acquire("select_account_online").await;
-        let mut server = Server::new_async().await;
-        let refresh = server
-            .mock("POST", "/v1/common/auth/refresh")
-            .with_status(200)
-            .with_body(rotation_payload("access-2", "tok-2"))
-            .create_async()
-            .await;
-
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-1")
-            .expect("сохранение токена");
-        let state = state_for("TestProj");
-
-        let info = select_account_flow(&state, "TestProj", "Steve")
-            .await
-            .expect("онлайн-выбор аккаунта");
-
-        refresh.assert_async().await;
-        assert_eq!(info.uuid, "uuid-1");
-        assert_eq!(info.username, "Steve");
-        let guard = state.lock().await;
-        let session = guard
-            .session
-            .as_ref()
-            .expect("сессия должна быть сохранена");
-        assert_eq!(session.access_token, "access-2");
-
-        wipe_project_credentials("TestProj", &["Steve".to_string()])
-            .await
-            .expect("очистка хранилища после теста");
-    }
 }
 
 #[cfg(test)]
@@ -605,6 +481,71 @@ mod skin_origin_tests {
         assert!(
             error.to_string().contains("только с сервера профиля"),
             "ошибка должна объяснять причину: {error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod offline_skin_tests {
+    use super::save_offline_skin_inner;
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
+
+    #[tokio::test]
+    async fn save_offline_skin_writes_into_the_named_project_dir() {
+        let guard = LauncherDirGuard::acquire("offline_skin_named").await;
+
+        save_offline_skin_inner("Alpha", "slim", vec![1, 2, 3])
+            .await
+            .expect("сохранение скина в именованный проект");
+
+        let dir = guard.project_dir("Alpha").join("profile_skins");
+        assert!(dir.join("offline_skin.png").exists(), "png на месте");
+        assert!(
+            dir.join("offline_skin.json").exists(),
+            "метаданные на месте"
+        );
+        assert!(
+            !guard.project_dir("Beta").exists(),
+            "чужой проект не должен создаваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_offline_skin_rejects_path_like_project_name() {
+        let _guard = LauncherDirGuard::acquire("offline_skin_invalid_name").await;
+
+        let error = save_offline_skin_inner("../Evil", "slim", vec![1])
+            .await
+            .expect_err("путь в имени проекта должен отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectNameInvalidChars)
+            ),
+            "ожидается ProjectNameInvalidChars: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_offline_skin_rejects_unknown_model() {
+        let guard = LauncherDirGuard::acquire("offline_skin_invalid_model").await;
+
+        let error = save_offline_skin_inner("Alpha", "hd", vec![1])
+            .await
+            .expect_err("неизвестная модель должна отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::InvalidInput(_))
+            ),
+            "ожидается InvalidInput: {error:#}"
+        );
+        assert!(
+            !guard.project_dir("Alpha").exists(),
+            "файлов быть не должно"
         );
     }
 }

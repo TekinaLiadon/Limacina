@@ -1,10 +1,10 @@
-use crate::log_err;
 use crate::state::dto::GlobalState;
+use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
 use anyhow::{Context, Result};
-use tokio::fs::{create_dir_all, read_to_string, rename};
+use tokio::fs::{create_dir_all, read_to_string};
 use tokio::sync::{Mutex, MutexGuard};
 use toml::{from_str, to_string_pretty};
 
@@ -42,6 +42,12 @@ pub fn validate_project_name(name: &str) -> Result<()> {
         return Err(LauncherError::ProjectNameReserved.into());
     }
     Ok(())
+}
+
+pub fn validated_project_name(name: &str) -> Result<&str> {
+    let trimmed = name.trim();
+    validate_project_name(trimmed)?;
+    Ok(trimmed)
 }
 
 impl ProjectConfig {
@@ -131,30 +137,15 @@ pub(crate) fn is_corrupt_config(e: &anyhow::Error) -> bool {
     e.chain().any(|cause| cause.is::<toml::de::Error>())
 }
 
-pub(crate) async fn backup_corrupt_config(project_name: &str, error: &anyhow::Error) -> Result<()> {
-    let path = config_file_path(project_name)?;
-    let backup_path = path.with_extension("toml.bak");
-    log_err!(
-        "{}: {:?} — {:?} ({})",
-        LauncherError::ConfigCorrupt,
-        path,
-        backup_path,
-        error
-    );
-    rename(&path, &backup_path).await.with_context(|| {
-        format!(
-            "Не удалось сохранить бэкап повреждённого конфига {:?}",
-            backup_path
-        )
-    })?;
-    Ok(())
+pub(crate) fn backup_corrupt_config(project_name: &str, error: &anyhow::Error) -> Result<()> {
+    backup_corrupt_file(&config_file_path(project_name)?, "toml.bak", error)
 }
 
 async fn recover_corrupt_config(
     project_name: &str,
     error: &anyhow::Error,
 ) -> Result<ProjectConfig> {
-    backup_corrupt_config(project_name, error).await?;
+    backup_corrupt_config(project_name, error)?;
     Ok(default_project_config(project_name))
 }
 
@@ -165,7 +156,7 @@ mod tests {
         update_project_config, validate_project_name,
     };
     use crate::state::dto::{GlobalState, ProjectConfig};
-    use crate::test_support::{part_files_in, LauncherDirGuard};
+    use crate::test_support::{part_files_in, seeded_global_state, LauncherDirGuard};
     use crate::utils::errors::LauncherError;
     use tokio::sync::Mutex;
 
@@ -381,20 +372,15 @@ mod tests {
     }
 
     async fn seeded_state(label: &str, name: &str) -> (LauncherDirGuard, Mutex<GlobalState>) {
-        let guard = LauncherDirGuard::acquire(label).await;
-        let base = ProjectConfig {
-            project_name: name.to_string(),
-            mc_version: "1.20.1".to_string(),
-            ..ProjectConfig::default()
-        };
-        base.save_config()
-            .await
-            .expect("сохранение базового конфига");
-        let state = Mutex::new(GlobalState {
-            project_config: base,
-            ..Default::default()
-        });
-        (guard, state)
+        seeded_global_state(
+            label,
+            ProjectConfig {
+                project_name: name.to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+        )
+        .await
     }
 
     #[tokio::test]

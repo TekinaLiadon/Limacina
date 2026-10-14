@@ -7,6 +7,7 @@ use std::sync::{OnceLock, RwLock};
 
 use crate::log_err;
 use crate::state::dto::default_true;
+use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic_sync;
 use crate::utils::errors::LauncherError;
 
@@ -181,14 +182,10 @@ impl LauncherConfig {
         match serde_json::from_str::<LauncherConfig>(&content) {
             Ok(config) => Ok(Some(config)),
             Err(e) => {
-                backup_corrupt_config(&path, &anyhow::Error::from(e));
+                let _ = backup_corrupt_file(&path, "json.bak", &anyhow::Error::from(e));
                 Ok(None)
             }
         }
-    }
-
-    pub(crate) fn config_file_path_public() -> Result<PathBuf> {
-        Self::config_file_path()
     }
 
     pub(crate) fn serialize_for_save(&self) -> Result<String> {
@@ -295,7 +292,9 @@ impl LauncherConfig {
     pub fn remove_project(&mut self, project: &str) {
         self.project_names.retain(|p| p != project);
         self.projects.remove(project);
-        self.current_project = self.project_names.first().cloned();
+        if self.current_project.as_deref() == Some(project) {
+            self.current_project = self.project_names.first().cloned();
+        }
     }
 
     pub fn apply_default_project(&mut self) -> bool {
@@ -335,18 +334,6 @@ pub(crate) fn try_seed_from_installed_exe() -> Option<LauncherConfig> {
 #[cfg(not(all(target_os = "windows", not(debug_assertions))))]
 pub(crate) fn try_seed_from_installed_exe() -> Option<LauncherConfig> {
     None
-}
-
-fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
-    let backup_path = path.with_extension("json.bak");
-    log_err!(
-        "{}: {:?} — {:?} ({})",
-        LauncherError::ConfigCorrupt,
-        path,
-        backup_path,
-        error
-    );
-    let _ = fs::rename(path, &backup_path);
 }
 
 #[cfg(test)]
@@ -481,6 +468,18 @@ mod tests {
     }
 
     #[test]
+    fn remove_project_keeps_current_when_other_project_removed() {
+        let mut config = LauncherConfig::default();
+        config.add_project("Cordelia");
+        config.add_project("Sandbox");
+
+        config.remove_project("Cordelia");
+
+        assert_eq!(config.project_names, vec!["Sandbox"]);
+        assert_eq!(config.current_project.as_deref(), Some("Sandbox"));
+    }
+
+    #[test]
     fn remove_last_project_clears_current() {
         let mut config = LauncherConfig::default();
         config.add_project("Cordelia");
@@ -502,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_corrupt_config_moves_broken_file_aside() {
+    fn load_moves_corrupt_config_to_backup_and_falls_back_to_none() {
         let root = std::env::temp_dir().join(format!(
             "limacina_launcher_config_corrupt_{}",
             std::process::id()
@@ -513,9 +512,14 @@ mod tests {
 
         let path = root.join("config.json");
         fs::write(&path, "not valid json").expect("запись битого конфига");
+        let _config_guard = ConfigFileGuard::acquire(&root, "config.json");
 
-        backup_corrupt_config(&path, &anyhow::Error::msg("ошибка разбора"));
+        let loaded = LauncherConfig::load().expect("битый конфиг не должен ломать загрузку");
 
+        assert!(
+            loaded.is_none(),
+            "после бэкапа конфиг считается отсутствующим"
+        );
         assert!(!path.exists(), "битый конфиг должен быть убран с пути");
         assert!(
             root.join("config.json.bak").exists(),

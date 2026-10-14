@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore, useServerStore, AUTH_LOGIN_TAB } from '@/05-entities'
 import { useAccounts } from '@/04-features/accounts/useAccounts'
+import { resyncGameSession } from '@/04-features/game-session/useGameSession'
 import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
@@ -99,8 +100,9 @@ export function useAccountsPage() {
   const isCancelPending = computed((): boolean => launch.isCancelPending)
   const sessionViewDismissed = computed((): boolean => launch.sessionViewDismissed)
 
-  const dismissSessionView = (): void => {
+  const dismissSessionView = async (): Promise<void> => {
     launch.sessionViewDismissed = true
+    await resyncGameSession()
   }
 
   const showLoginForm = (): void => {

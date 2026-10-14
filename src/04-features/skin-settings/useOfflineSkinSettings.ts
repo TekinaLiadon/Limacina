@@ -22,9 +22,8 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
     const previous = persistQueue
     const run = async (): Promise<void> => {
       await previous
-      if (!scope.isCurrent()) return
       try {
-        await saveOfflineSkin(settings.skinFileBytes.value, settings.modelMode.value)
+        await saveOfflineSkin(scope.project, settings.skinFileBytes.value, settings.modelMode.value)
         if (notify && scope.isCurrent()) notification.show('Скин сохранён')
       } catch (e: unknown) {
         if (!scope.isCurrent()) return
@@ -47,10 +46,11 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
   })
 
   const loadOfflineSkin = async (): Promise<void> => {
+    const project = coreStore.currentProject
     const generation = settings.skinPreviewGuard.next()
     let dataUrl: string | null = null
     try {
-      const bytes = await getOfflineSkin()
+      const bytes = await getOfflineSkin(project)
       if (!settings.skinPreviewGuard.isCurrent(generation)) return
       if (bytes.length === 0) return
       dataUrl = await settings.createPreviewUrl(bytes)
@@ -60,7 +60,7 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
       }
       settings.skinFileBytes.value = bytes
       restoringOfflineModel = true
-      const model = await getOfflineSkinModel()
+      const model = await getOfflineSkinModel(project)
       if (!settings.skinPreviewGuard.isCurrent(generation)) {
         restoringOfflineModel = false
         settings.discardPreviewUrl(dataUrl)
@@ -87,9 +87,9 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     return notification.runConfirmed('Сбросить текущий скин?', async (): Promise<void> => {
       await settings.resetSkinState()
-      if (!isOffline.value || !scope.isCurrent()) return
+      if (!isOffline.value) return
       try {
-        await deleteOfflineSkin()
+        await deleteOfflineSkin(scope.project)
       } catch (e: unknown) {
         if (!scope.isCurrent()) return
         reportError('Не удалось удалить локальный скин', e)

@@ -17,6 +17,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 
 interface GameSessionApi {
   startGameSessionSync: () => Promise<void>
+  resyncGameSession: () => Promise<void>
 }
 
 describe('useGameSession', () => {
@@ -210,5 +211,55 @@ describe('useGameSession', () => {
 
     expect(useLaunchStore().gameUsernames).toEqual(['alice'])
     expect(api.getGameState).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-syncs the running set on demand after a lost exit event', async () => {
+    api.getGameState.mockResolvedValueOnce(['alice'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
+
+    api.getGameState.mockResolvedValue([])
+    await session.resyncGameSession()
+
+    expect(useLaunchStore().gameUsernames).toEqual([])
+  })
+
+  it('retries the listener setup on a resync after a failed start', async () => {
+    api.listenGameExit.mockRejectedValueOnce(new Error('no bus'))
+    const session = await loadSession()
+
+    await session.startGameSessionSync()
+    expect(useLaunchStore().gameUsernames).toEqual([])
+
+    api.getGameState.mockResolvedValue(['alice'])
+    await session.resyncGameSession()
+
+    expect(api.listenGameStarted).toHaveBeenCalledTimes(2)
+    expect(api.listenGameExit).toHaveBeenCalledTimes(2)
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
+  })
+
+  it('keeps an exit event that lands during a resync hydration', async () => {
+    api.getGameState.mockResolvedValue(['alice', 'bob'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    let resolveState: (usernames: string[]) => void = () => {}
+    api.getGameState.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveState = resolve
+        }),
+    )
+    const pending = session.resyncGameSession()
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(2))
+
+    emitExit?.(exitInfo('alice'))
+    resolveState(['alice', 'bob'])
+    await pending
+
+    expect(useLaunchStore().gameUsernames).toEqual(['bob'])
   })
 })

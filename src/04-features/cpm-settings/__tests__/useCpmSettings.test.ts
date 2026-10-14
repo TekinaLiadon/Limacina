@@ -171,12 +171,12 @@ describe('useCpmSettings', () => {
 
     await cpm.handleSaveModelsLimit(3)
 
-    expect(setPlayerModelsLimit).toHaveBeenCalledWith(3)
+    expect(setPlayerModelsLimit).toHaveBeenCalledWith('proj', 3)
     expect(cpm.modelsLimit.value).toBe(3)
     expect(cpm.limitLoadError.value).toBe('')
 
     await cpm.handleSaveModelsLimit(null)
-    expect(setPlayerModelsLimit).toHaveBeenLastCalledWith(null)
+    expect(setPlayerModelsLimit).toHaveBeenLastCalledWith('proj', null)
     expect(cpm.modelsLimit.value).toBeNull()
   })
 
@@ -202,7 +202,7 @@ describe('useCpmSettings', () => {
 
     await cpm.handleSaveModelsLimit(4294967295)
 
-    expect(setPlayerModelsLimit).toHaveBeenCalledWith(4294967295)
+    expect(setPlayerModelsLimit).toHaveBeenCalledWith('proj', 4294967295)
     expect(cpm.limitSaveError.value).toBe('')
   })
 
@@ -438,7 +438,7 @@ describe('useCpmSettings', () => {
 
     expect(exporter.cpmProjectToLinkBase64).toHaveBeenCalledWith(bytes)
     expect(uploadModel).toHaveBeenCalledWith('base64-link')
-    expect(savePlayerModel).toHaveBeenCalledWith({
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', {
       name: 'hero',
       url: 'https://cdn/9.cpm',
       modelId: 9,

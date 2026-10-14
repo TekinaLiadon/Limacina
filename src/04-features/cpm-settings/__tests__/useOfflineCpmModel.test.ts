@@ -63,12 +63,13 @@ describe('useOfflineCpmModel', () => {
   it('saves the model into the game as raw bytes', async () => {
     vi.mocked(savePlayerModel).mockResolvedValue(undefined)
     exporter.cpmProjectToBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+    useCoreStore().currentProject = 'proj'
     const { offline } = setupOffline(new Uint8Array(8), makeCpmData('default'))
 
     await offline.handleSaveModelOffline()
 
     expect(exporter.cpmProjectToBytes).toHaveBeenCalledWith(new Uint8Array(8))
-    expect(savePlayerModel).toHaveBeenCalledWith({
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', {
       name: 'hero',
       url: null,
       modelId: null,
@@ -82,11 +83,12 @@ describe('useOfflineCpmModel', () => {
   it('passes the slim flag from the opened model', async () => {
     vi.mocked(savePlayerModel).mockResolvedValue(undefined)
     exporter.cpmProjectToBytes.mockResolvedValue(new Uint8Array([1]))
+    useCoreStore().currentProject = 'proj'
     const { offline } = setupOffline(new Uint8Array(4), makeCpmData('slim'))
 
     await offline.handleSaveModelOffline()
 
-    expect(savePlayerModel).toHaveBeenCalledWith(expect.objectContaining({ slim: true }))
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ slim: true }))
   })
 
   it('surfaces the offline save failure', async () => {
@@ -109,7 +111,7 @@ describe('useOfflineCpmModel', () => {
     expect(exporter.cpmProjectToBytes).not.toHaveBeenCalled()
   })
 
-  it('skips the write when the project switches before the save is issued', async () => {
+  it('writes to the captured project when it switches before the save is issued', async () => {
     vi.mocked(savePlayerModel).mockResolvedValue(undefined)
     let releaseBytes: (bytes: Uint8Array) => void = () => {}
     exporter.cpmProjectToBytes.mockImplementationOnce(
@@ -127,7 +129,7 @@ describe('useOfflineCpmModel', () => {
     releaseBytes(new Uint8Array([1, 2, 3]))
     await saving
 
-    expect(savePlayerModel).not.toHaveBeenCalled()
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ data: [1, 2, 3] }))
     expect(useNotificationStore().message).not.toBe('Модель сохранена в игру')
     expect(offline.isSaving.value).toBe(false)
   })

@@ -1,6 +1,6 @@
 {
   "minTokens": 50,
-  "threshold": 2.5,
+  "threshold": 1,
   "reporters": ["console"],
   "silent": true,
   "ignore": ["**/assets/themes/**", "**/assets/fonts/**", "**/*.test.ts", "src/test-support/**"]

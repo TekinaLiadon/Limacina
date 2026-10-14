@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Check from "@/06-shared/components/svg/Check.vue";
+import Check from '@/06-shared/components/svg/Check.vue'
 
 defineProps<{
   modelValue: boolean

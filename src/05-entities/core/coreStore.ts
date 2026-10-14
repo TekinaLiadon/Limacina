@@ -47,6 +47,19 @@ export const useCoreStore = defineStore('core', () => {
     applyLauncherProjects(config)
   }
 
+  function applySavedLauncherConfig(config: LauncherConfig): void {
+    if (launcherConfig.value === null) {
+      setLauncherConfig(config)
+      return
+    }
+
+    launcherConfig.value = {
+      ...config,
+      projectNames: [...projects.value],
+      currentProject: currentProject.value || null,
+    }
+  }
+
   function applyProjectSwitch(projectName: string, config: ProjectConfig | null): void {
     currentProject.value = projectName
     projectConfig.value = config
@@ -97,6 +110,7 @@ export const useCoreStore = defineStore('core', () => {
     isOfflineProject,
     isOnlineProject,
     setLauncherConfig,
+    applySavedLauncherConfig,
     applyProjectSwitch,
     addProject,
     setProjectConfig,

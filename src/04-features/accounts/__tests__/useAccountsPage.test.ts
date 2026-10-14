@@ -27,6 +27,8 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   deleteAccount: vi.fn(),
   getGameState: vi.fn(),
   getSessionInfo: vi.fn(),
+  listenGameExit: vi.fn(async (): Promise<() => void> => () => {}),
+  listenGameStarted: vi.fn(async (): Promise<() => void> => () => {}),
   loadSettingsProject: vi.fn(),
   saveCurrentProject: vi.fn(),
 }))
@@ -199,7 +201,7 @@ describe('useAccountsPage', () => {
     launch.gameUsernames = ['alice']
     const page = setupPage()
 
-    page.dismissSessionView()
+    await page.dismissSessionView()
     expect(page.sessionViewDismissed.value).toBe(true)
     expect(launch.sessionViewDismissed).toBe(true)
 
@@ -208,6 +210,29 @@ describe('useAccountsPage', () => {
     await page.handleLaunch()
 
     expect(page.sessionViewDismissed.value).toBe(false)
+  })
+
+  it('re-syncs the ghost session when leaving the session screen', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice']
+    vi.mocked(getGameState).mockResolvedValue([])
+    const page = setupPage()
+
+    await page.dismissSessionView()
+
+    expect(launch.gameUsernames).toEqual([])
+    expect(launch.sessionViewDismissed).toBe(true)
+  })
+
+  it('keeps the running session when the backend confirms it after dismissing', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice']
+    vi.mocked(getGameState).mockResolvedValue(['alice'])
+    const page = setupPage()
+
+    await page.dismissSessionView()
+
+    expect(launch.gameUsernames).toEqual(['alice'])
   })
 
   it('blocks the launch while a project switch is in flight', async () => {

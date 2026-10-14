@@ -194,14 +194,19 @@ describe('useTheme', () => {
     )
   })
 
-  it('stores the config returned by saveTheme through setLauncherConfig', async () => {
+  it('applies the save response without rolling back the live project scope', async () => {
     prepareStore('default-dark', true)
-    const config = {
-      theme: 'lime-dark',
+    const core = useCoreStore()
+    core.setLauncherConfig({
+      theme: 'default-dark',
       projectNames: ['alpha', 'beta'],
       currentProject: 'beta',
-    } as LauncherConfig
-    api.saveTheme.mockResolvedValue(config)
+    } as LauncherConfig)
+    api.saveTheme.mockResolvedValue({
+      theme: 'lime-dark',
+      projectNames: ['alpha'],
+      currentProject: 'alpha',
+    } as LauncherConfig)
     await loadTheme()
 
     useSettingsStore().setTheme('lime-dark')
@@ -209,9 +214,9 @@ describe('useTheme', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(useCoreStore().launcherConfig).toEqual(config)
-    expect(useCoreStore().projects).toEqual(['alpha', 'beta'])
-    expect(useCoreStore().currentProject).toBe('beta')
+    expect(core.launcherConfig?.theme).toBe('lime-dark')
+    expect(core.projects).toEqual(['alpha', 'beta'])
+    expect(core.currentProject).toBe('beta')
   })
 
   it('applies the hydration theme immediately without animation or save', async () => {

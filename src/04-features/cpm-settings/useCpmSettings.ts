@@ -168,6 +168,7 @@ export function useCpmSettings() {
     if (!cpmFileBytes.value || !cpmData.value) return
     if (isUploading.value) return
 
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     isUploading.value = true
     content.errorMessage.value = ''
     let uploaded: UserContentItem | null = null
@@ -176,13 +177,14 @@ export function useCpmSettings() {
       uploaded = await content.handleUpload(base64)
       if (uploaded === null) return
 
-      await savePlayerModel({
+      await savePlayerModel(scope.project, {
         name: modelName.value,
         url: uploaded.url,
         modelId: uploaded.id ?? null,
         slim: cpmData.value.config.skinType === 'slim',
         data: null,
       })
+      if (!scope.isCurrent()) return
       notification.show('Модель добавлена в игру')
     } catch (e: unknown) {
       if (uploaded !== null) await rollbackUploadedModel(uploaded)
@@ -198,7 +200,7 @@ export function useCpmSettings() {
     isLimitLoading.value = true
     limitLoadError.value = ''
     try {
-      const limit = await getPlayerModelsLimit()
+      const limit = await getPlayerModelsLimit(scope.project)
       if (!scope.isCurrent()) return
       modelsLimit.value = limit
     } catch (e: unknown) {
@@ -220,7 +222,7 @@ export function useCpmSettings() {
     isSavingLimit.value = true
     limitSaveError.value = ''
     try {
-      await setPlayerModelsLimit(limit)
+      await setPlayerModelsLimit(scope.project, limit)
       if (!scope.isCurrent()) return
       modelsLimit.value = limit
       limitLoadError.value = ''

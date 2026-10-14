@@ -96,13 +96,24 @@ describe('useAnimationSettings', () => {
     expect(document.documentElement.dataset.animations).toBe('on')
   })
 
-  it('stores the config returned by the command in the core store', async () => {
-    const config = makeConfig(false)
-    vi.mocked(saveAnimationsEnabled).mockResolvedValue(config)
+  it('applies the response without rolling back the live project scope', async () => {
+    const core = useCoreStore()
+    core.setLauncherConfig({
+      ...makeConfig(true),
+      projectNames: ['alpha', 'beta'],
+      currentProject: 'beta',
+    })
+    vi.mocked(saveAnimationsEnabled).mockResolvedValue({
+      ...makeConfig(false),
+      projectNames: ['alpha'],
+      currentProject: 'alpha',
+    })
     const animations = useAnimationSettings()
 
     await animations.setAnimationsEnabled(false)
 
-    expect(useCoreStore().launcherConfig).toEqual(config)
+    expect(core.launcherConfig?.animationsEnabled).toBe(false)
+    expect(core.currentProject).toBe('beta')
+    expect(core.projects).toEqual(['alpha', 'beta'])
   })
 })

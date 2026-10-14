@@ -469,18 +469,9 @@ mod hash_kind_tests {
 #[cfg(test)]
 mod ensure_files_tests {
     use super::*;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard};
     use crate::utils::install_manifest::InstallManifest;
     use mockito::Server;
-
-    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
-        IntegrityTarget {
-            rel_path: PathBuf::from(rel),
-            hash: hash.to_string(),
-            hash_kind: HashKind::Sha1,
-            download: TargetDownload::Url(url),
-        }
-    }
 
     const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
 
@@ -497,7 +488,8 @@ mod ensure_files_tests {
             .with_body(body)
             .create_async()
             .await;
-        let target = url_target(rel, &sha1_hex(body), format!("{}{mock_path}", server.url()));
+        let target =
+            integrity_url_target(rel, &sha1_hex(body), format!("{}{mock_path}", server.url()));
         ensure_files(
             &StepHandle::start("install", "Тест"),
             &dir.project_dir("Cordelia"),
@@ -512,7 +504,7 @@ mod ensure_files_tests {
         rel: &str,
         url: String,
     ) -> Result<IntegrityReport> {
-        let target = url_target(rel, ZERO_SHA1, url);
+        let target = integrity_url_target(rel, ZERO_SHA1, url);
         ensure_files(
             &StepHandle::start("install", "Тест"),
             &dir.project_dir("Cordelia"),
@@ -609,7 +601,7 @@ mod ensure_files_tests {
             .await;
 
         let base = dir.project_dir("Cordelia");
-        let target = url_target(
+        let target = integrity_url_target(
             "installer.jar",
             "",
             format!("{}/installer.jar", server.url()),
@@ -704,7 +696,7 @@ mod ensure_files_tests {
                 .with_body(body.clone())
                 .create_async()
                 .await;
-            targets.push(url_target(
+            targets.push(integrity_url_target(
                 &format!("mods/m{m}.jar"),
                 &sha1_hex(body.as_bytes()),
                 format!("{}/mods/m{m}.jar", server.url()),
@@ -785,7 +777,7 @@ mod ensure_files_tests {
             &StepHandle::start("install", "Тест"),
             &base,
             "Cordelia",
-            vec![url_target(
+            vec![integrity_url_target(
                 "libraries/a.jar",
                 &sha1_hex(b"content"),
                 "http://127.0.0.1:1/a".to_string(),
@@ -802,7 +794,7 @@ mod ensure_files_tests {
             &StepHandle::start("install", "Тест"),
             &base,
             "Cordelia",
-            vec![url_target(
+            vec![integrity_url_target(
                 "libraries/a.jar",
                 ZERO_SHA1,
                 "http://127.0.0.1:1/a".to_string(),
@@ -830,6 +822,7 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn settle_install_step_fails_on_failed_and_finishes_as_skipped_when_intact() {
+        use crate::test_support::step_event_id;
         use crate::utils::step_events::test_capture;
         use crate::utils::step_events::StepEvent;
 
@@ -864,7 +857,7 @@ mod ensure_files_tests {
         ] {
             let terminals: Vec<_> = events
                 .iter()
-                .filter(|(_, event)| event_id(event) == id)
+                .filter(|(_, event)| step_event_id(event) == id)
                 .filter(|(_, event)| {
                     matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
                 })
@@ -897,34 +890,15 @@ mod ensure_files_tests {
                 );
             }
         }
-
-        fn event_id(event: &crate::utils::step_events::StepEvent) -> &str {
-            match event {
-                crate::utils::step_events::StepEvent::Started { id, .. }
-                | crate::utils::step_events::StepEvent::Progress { id, .. }
-                | crate::utils::step_events::StepEvent::Detail { id, .. }
-                | crate::utils::step_events::StepEvent::Finished { id, .. }
-                | crate::utils::step_events::StepEvent::Failed { id, .. } => id,
-            }
-        }
     }
 }
 
 #[cfg(test)]
 mod check_integrity_tests {
     use super::*;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard};
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::Arc;
-
-    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
-        IntegrityTarget {
-            rel_path: PathBuf::from(rel),
-            hash: hash.to_string(),
-            hash_kind: HashKind::Sha1,
-            download: TargetDownload::Url(url),
-        }
-    }
 
     async fn write_file(base: &Path, name: &str, content: &[u8]) {
         tokio::fs::create_dir_all(base).await.unwrap();
@@ -943,12 +917,12 @@ mod check_integrity_tests {
         let report = check_integrity(
             &base,
             vec![
-                url_target(
+                integrity_url_target(
                     "a.txt",
                     &sha1_hex(b"content a"),
                     "http://127.0.0.1:1/a".to_string(),
                 ),
-                url_target(
+                integrity_url_target(
                     "b.txt",
                     &sha1_hex(b"content b"),
                     "http://127.0.0.1:1/b".to_string(),
@@ -986,17 +960,17 @@ mod check_integrity_tests {
         let report = check_integrity(
             &base,
             vec![
-                url_target(
+                integrity_url_target(
                     "a.txt",
                     &sha1_hex(b"good a"),
                     "http://127.0.0.1:1/a".to_string(),
                 ),
-                url_target(
+                integrity_url_target(
                     "b.txt",
                     &sha1_hex(b"good b"),
                     "http://127.0.0.1:1/b".to_string(),
                 ),
-                url_target(
+                integrity_url_target(
                     "c.txt",
                     &sha1_hex(b"good c"),
                     "http://127.0.0.1:1/c".to_string(),
@@ -1046,7 +1020,7 @@ mod check_integrity_tests {
 
         let report = check_integrity(
             &base,
-            vec![url_target(
+            vec![integrity_url_target(
                 "a.txt",
                 &sha1_hex(b"good a"),
                 "http://127.0.0.1:1/a".to_string(),
@@ -1075,7 +1049,7 @@ mod check_integrity_tests {
 
         let report = check_integrity(
             &base,
-            vec![url_target(
+            vec![integrity_url_target(
                 "a.txt",
                 &sha1_hex(b"good a"),
                 "http://127.0.0.1:1/a".to_string(),
@@ -1107,7 +1081,7 @@ mod check_integrity_tests {
 
         let report = check_integrity(
             &base,
-            vec![url_target(
+            vec![integrity_url_target(
                 "libraries/a.jar",
                 &sha1_hex(b"good jar"),
                 "http://127.0.0.1:1/a".to_string(),

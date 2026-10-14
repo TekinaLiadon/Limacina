@@ -220,6 +220,16 @@ fn exit_reason(last_output: &StdMutex<VecDeque<String>>) -> Option<String> {
     None
 }
 
+fn panic_payload_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "неизвестная паника".to_string()
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct GameExitPayload {
     pub success: bool,
@@ -294,6 +304,44 @@ fn mark_game_finalized(exited: &AtomicBool, child: &SharedGameChild) {
     remove_game_session(child);
 }
 
+fn kill_and_reap(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn terminate_session_child(child: &SharedGameChild) -> Option<String> {
+    let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
+    match guard.try_wait() {
+        Ok(Some(_)) => {
+            log_info!("Игра уже завершилась — принудительное завершение не требуется");
+            None
+        }
+        Ok(None) => {
+            let pid = guard.id();
+            if let Err(e) = guard.kill() {
+                return Some(format!("PID {pid}: не удалось завершить: {e}"));
+            }
+            log_info!("Процесс игры принудительно завершён (PID {pid})");
+            None
+        }
+        Err(e) => Some(format!(
+            "PID {}: не удалось получить статус процесса игры: {e}",
+            guard.id()
+        )),
+    }
+}
+
+fn aggregated_kill_error(failures: &[String]) -> Result<()> {
+    if failures.is_empty() {
+        return Ok(());
+    }
+    Err(LauncherError::GameProcess(format!(
+        "Не удалось завершить процесс игры: {}",
+        failures.join("; ")
+    ))
+    .into())
+}
+
 pub fn kill_game_process() -> Result<()> {
     let children = GAME_SESSIONS
         .lock()
@@ -304,32 +352,13 @@ pub fn kill_game_process() -> Result<()> {
     if children.is_empty() {
         return Err(LauncherError::InvalidInput("Игра не запущена".to_string()).into());
     }
-    for child in children {
-        let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
-        match guard.try_wait() {
-            Ok(Some(_)) => {
-                log_info!("Игра уже завершилась — принудительное завершение не требуется");
-            }
-            Ok(None) => {
-                let pid = guard.id();
-                if let Err(e) = guard.kill() {
-                    return Err(LauncherError::GameProcess(format!(
-                        "Не удалось завершить процесс игры (PID {pid}): {e}"
-                    ))
-                    .into());
-                }
-                log_info!("Процесс игры принудительно завершён (PID {pid})");
-            }
-            Err(e) => {
-                return Err(LauncherError::GameProcess(format!(
-                    "Не удалось получить статус процесса игры (PID {}): {e}",
-                    guard.id()
-                ))
-                .into())
-            }
+    let mut failures: Vec<String> = Vec::new();
+    for child in &children {
+        if let Some(failure) = terminate_session_child(child) {
+            failures.push(failure);
         }
     }
-    Ok(())
+    aggregated_kill_error(&failures)
 }
 
 pub struct GameProcess {
@@ -527,16 +556,22 @@ pub fn spawn_game_process(
     let mut child = command.spawn().map_err(|e| {
         LauncherError::GameProcess(format!("Не удалось запустить Java процесс: {e:#}"))
     })?;
-    let stdout = child.stdout.take().ok_or(LauncherError::GameProcess(
-        "Не удалось получить stdout процесса".to_string(),
-    ))?;
-    let stderr = child.stderr.take().ok_or(LauncherError::GameProcess(
-        "Не удалось получить stderr процесса".to_string(),
-    ))?;
+    let Some(stdout) = child.stdout.take() else {
+        kill_and_reap(&mut child);
+        return Err(
+            LauncherError::GameProcess("Не удалось получить stdout процесса".to_string()).into(),
+        );
+    };
+    let Some(stderr) = child.stderr.take() else {
+        kill_and_reap(&mut child);
+        return Err(
+            LauncherError::GameProcess("Не удалось получить stderr процесса".to_string()).into(),
+        );
+    };
     let shared_child = match register_game_session(child, &username) {
         Ok(shared) => shared,
         Err(mut orphan) => {
-            let _ = orphan.kill();
+            kill_and_reap(&mut orphan);
             return Err(LauncherError::GameProcess(format!(
                 "Игра уже запущена с аккаунта {username} — повторный запуск невозможен"
             ))
@@ -593,8 +628,20 @@ pub fn spawn_game_process(
         };
         let (result, payload) = match status {
             Ok(status) => {
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                if let Err(payload) = stdout_reader.join() {
+                    log_err!(
+                        "Поток чтения stdout игры ({}) прерван: {}",
+                        exit_username,
+                        panic_payload_text(payload.as_ref())
+                    );
+                }
+                if let Err(payload) = stderr_reader.join() {
+                    log_err!(
+                        "Поток чтения stderr игры ({}) прерван: {}",
+                        exit_username,
+                        panic_payload_text(payload.as_ref())
+                    );
+                }
                 log_info!("Minecraft завершился ({}): {:?}", exit_username, status);
                 let reason = if status.success() {
                     None
@@ -625,7 +672,13 @@ pub fn spawn_game_process(
         *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
         exited.store(true, AtomicOrdering::Relaxed);
         remove_game_session(&shared_child);
-        let _ = app.emit("game-exit", payload);
+        if let Err(e) = app.emit("game-exit", payload) {
+            log_err!(
+                "Не удалось отправить событие game-exit ({}): {}",
+                exit_username,
+                e
+            );
+        }
         after_game_exit(&app, &exit_username);
         panic_guard.disarm();
     });
@@ -661,7 +714,7 @@ impl Drop for GameExitPanicGuard {
         }
         log_err!("Поток ожидания игры прерван — принудительная очистка состояния игры");
         mark_game_finalized(&self.exited, &self.child);
-        let _ = self.app.emit(
+        if let Err(e) = self.app.emit(
             "game-exit",
             GameExitPayload {
                 success: false,
@@ -669,7 +722,13 @@ impl Drop for GameExitPanicGuard {
                 reason: None,
                 username: self.username.clone(),
             },
-        );
+        ) {
+            log_err!(
+                "Не удалось отправить game-exit после сбоя потока ожидания ({}): {}",
+                self.username,
+                e
+            );
+        }
         after_game_exit(&self.app, &self.username);
     }
 }
@@ -1301,8 +1360,9 @@ mod process_helpers_tests {
 #[cfg(test)]
 mod kill_process_tests {
     use super::{
-        ensure_session_free, game_running, game_usernames, kill_game_process, mark_game_finalized,
-        register_game_session, remove_game_session, GAME_SESSIONS,
+        aggregated_kill_error, ensure_session_free, game_running, game_usernames, kill_and_reap,
+        kill_game_process, mark_game_finalized, register_game_session, remove_game_session,
+        GAME_SESSIONS,
     };
     use crate::utils::errors::LauncherError;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1330,6 +1390,57 @@ mod kill_process_tests {
             .arg("30")
             .spawn()
             .expect("запуск тестового процесса")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn process_state(pid: u32) -> Option<char> {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| {
+                let after_comm = stat.rsplit(')').next()?;
+                after_comm.split_whitespace().next()?.chars().next()
+            })
+    }
+
+    #[test]
+    fn aggregated_kill_error_reports_every_failure() {
+        assert!(aggregated_kill_error(&[]).is_ok());
+
+        let error = aggregated_kill_error(&[
+            "PID 10: не удалось завершить: boom".to_string(),
+            "PID 11: не удалось получить статус процесса игры: gone".to_string(),
+        ])
+        .expect_err("при неудачах завершения должна возвращаться агрегированная ошибка");
+
+        let text = error.to_string();
+        assert!(
+            text.contains("Не удалось завершить процесс игры"),
+            "ошибка должна объяснять общий сбой: {text}"
+        );
+        assert!(text.contains("PID 10"), "первая неудача: {text}");
+        assert!(
+            text.contains("PID 11"),
+            "вторая неудача не потеряна: {text}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_and_reap_terminates_child_without_zombie() {
+        let mut child = spawn_helper();
+        let pid = child.id();
+
+        kill_and_reap(&mut child);
+
+        assert!(
+            child.try_wait().is_ok(),
+            "опрос переапанного процесса не должен давать ошибок"
+        );
+        #[cfg(target_os = "linux")]
+        assert!(
+            process_state(pid).is_none(),
+            "после kill+wait процесс не должен оставаться в таблице процессов как зомби (pid {pid})"
+        );
     }
 
     #[test]
@@ -1493,6 +1604,57 @@ mod kill_process_tests {
         assert!(game_running(), "реестр очищают wait-потоки, а не сам kill");
 
         reset_registry();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_continues_past_already_exited_session() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let exited = register_game_session(
+            std::process::Command::new("sleep")
+                .arg("0")
+                .spawn()
+                .expect("запуск короткоживущего процесса"),
+            "Steve",
+        )
+        .expect("регистрация завершившейся сессии");
+        lock_child(&exited)
+            .wait()
+            .expect("естественный выход первой игры");
+
+        let live = Arc::new(StdMutex::new(spawn_helper()));
+        {
+            let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+            registry.push(super::RegisteredGame {
+                child: Arc::clone(&live),
+                username: "Alex".to_string(),
+            });
+        }
+
+        kill_game_process()
+            .expect("уже завершившаяся сессия не должна прерывать завершение остальных сессий");
+
+        let mut gone = false;
+        for _ in 0..50 {
+            if lock_child(&live)
+                .try_wait()
+                .expect("опрос статуса процесса")
+                .is_some()
+            {
+                gone = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(
+            gone,
+            "живая сессия после уже завершившейся должна быть завершена"
+        );
+
+        remove_game_session(&exited);
+        remove_game_session(&live);
     }
 
     #[cfg(unix)]

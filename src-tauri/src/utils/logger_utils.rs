@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
@@ -22,7 +23,10 @@ pub struct ConsolePayload {
 
 pub fn init_logger(app: AppHandle) {
     let _ = GLOBAL_APP_HANDLE.set(app);
-    let _ = LOG_BUFFER.set(Mutex::new(VecDeque::new()));
+}
+
+fn log_buffer() -> &'static Mutex<VecDeque<ConsolePayload>> {
+    LOG_BUFFER.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
 pub fn global_app_handle() -> Option<&'static AppHandle> {
@@ -39,10 +43,10 @@ pub fn set_game_output_enabled(enabled: bool) {
 
 fn send_log_payload(payload: ConsolePayload) {
     if payload.is_error {
-        eprintln!("[ERR] {}", payload.line);
+        let _ = writeln!(std::io::stderr(), "[ERR] {}", payload.line);
         crate::utils::file_logger::write_error(&payload.line);
     } else {
-        println!("[LOG] {}", payload.line);
+        let _ = writeln!(std::io::stdout(), "[LOG] {}", payload.line);
     }
 
     if CONSOLE_EMIT_ENABLED.load(Ordering::Relaxed) {
@@ -51,13 +55,11 @@ fn send_log_payload(payload: ConsolePayload) {
         }
     }
 
-    if let Some(buffer) = LOG_BUFFER.get() {
-        if let Ok(mut buf) = buffer.lock() {
-            if buf.len() >= LOG_BUFFER_LIMIT {
-                buf.pop_front();
-            }
-            buf.push_back(payload);
+    if let Ok(mut buf) = log_buffer().lock() {
+        if buf.len() >= LOG_BUFFER_LIMIT {
+            buf.pop_front();
         }
+        buf.push_back(payload);
     }
 }
 
@@ -81,9 +83,9 @@ pub fn send_game_output(msg: String, is_error: bool, session: &str) {
 }
 
 pub fn drain_startup_logs() -> Vec<ConsolePayload> {
-    LOG_BUFFER
-        .get()
-        .and_then(|buf| buf.lock().ok())
+    log_buffer()
+        .lock()
+        .ok()
         .map(|mut buf| buf.drain(..).collect())
         .unwrap_or_default()
 }
@@ -98,19 +100,29 @@ pub fn send_frontend_log(line: String, is_error: bool) {
     send_log(line, is_error);
 }
 
+#[macro_export]
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        $crate::logger_utils::send_log(format!($($arg)*), false)
+    };
+}
+
+#[macro_export]
+macro_rules! log_err {
+    ($($arg:tt)*) => {
+        $crate::logger_utils::send_log(format!($($arg)*), true)
+    };
+}
+
 #[cfg(test)]
 mod session_payload_tests {
     use super::{
         drain_startup_logs, send_game_output, send_log, set_game_output_enabled, ConsolePayload,
+        LOG_BUFFER_LIMIT,
     };
-    use std::collections::VecDeque;
     use std::sync::Mutex as StdMutex;
 
     static PAYLOAD_TEST_LOCK: StdMutex<()> = StdMutex::new(());
-
-    fn ensure_log_buffer() {
-        let _ = super::LOG_BUFFER.get_or_init(|| StdMutex::new(VecDeque::new()));
-    }
 
     fn payload_with<'a>(drained: &'a [ConsolePayload], marker: &str) -> Option<&'a ConsolePayload> {
         drained.iter().find(|payload| payload.line.contains(marker))
@@ -119,7 +131,6 @@ mod session_payload_tests {
     #[test]
     fn game_output_carries_session_and_launcher_log_does_not() {
         let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        ensure_log_buffer();
         set_game_output_enabled(true);
 
         send_game_output(
@@ -147,7 +158,6 @@ mod session_payload_tests {
     #[test]
     fn disabled_game_output_skips_payload_entirely() {
         let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        ensure_log_buffer();
         set_game_output_enabled(false);
 
         send_game_output(
@@ -164,18 +174,42 @@ mod session_payload_tests {
         );
         assert!(payload_with(&drained, "session-payload-visible-marker").is_some());
     }
-}
 
-#[macro_export]
-macro_rules! log_info {
-    ($($arg:tt)*) => {
-        $crate::logger_utils::send_log(format!($($arg)*), false)
-    };
-}
+    #[test]
+    fn logs_buffered_before_init_logger() {
+        let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-#[macro_export]
-macro_rules! log_err {
-    ($($arg:tt)*) => {
-        $crate::logger_utils::send_log(format!($($arg)*), true)
-    };
+        send_log("early-before-init-marker".to_string(), false);
+
+        let drained = drain_startup_logs();
+        assert!(
+            payload_with(&drained, "early-before-init-marker").is_some(),
+            "логи до init_logger не теряются"
+        );
+    }
+
+    #[test]
+    fn startup_buffer_caps_and_drops_oldest() {
+        let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let total = LOG_BUFFER_LIMIT + 50;
+        for i in 0..total {
+            send_log(format!("buffer-cap-{i}"), false);
+        }
+
+        let drained = drain_startup_logs();
+        assert_eq!(drained.len(), LOG_BUFFER_LIMIT, "буфер не превышает лимит");
+        assert!(
+            !drained
+                .iter()
+                .any(|payload| payload.line.contains("buffer-cap-0")),
+            "самая старая строка вытеснена из буфера"
+        );
+        assert!(
+            drained
+                .iter()
+                .any(|payload| payload.line.contains("buffer-cap-")),
+            "свежие строки остаются в буфере"
+        );
+    }
 }

@@ -7,7 +7,7 @@ use crate::init::init_project_config;
 use crate::java::find_java_executable;
 use crate::log_info;
 use crate::state::config::{
-    current_project_config, ensure_project_selected, load_config, update_project_config,
+    ensure_project_selected, load_config, update_project_config, validated_project_name,
 };
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::blocking;
@@ -144,8 +144,9 @@ async fn load_settings_project_inner(
 #[tauri::command]
 pub async fn clear_minecraft_config(
     state: tauri::State<'_, Mutex<GlobalState>>,
+    project_name: String,
 ) -> CommandResult<String> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
+    let project_name = validated_project_name(&project_name)?;
     let keep_old_configs = {
         let guard = state.lock().await;
         guard
@@ -155,7 +156,7 @@ pub async fn clear_minecraft_config(
             .unwrap_or(false)
     };
 
-    clear_minecraft_config_inner(&project_name, keep_old_configs)
+    clear_minecraft_config_inner(project_name, keep_old_configs)
         .await
         .map_err(Into::into)
 }
@@ -291,7 +292,7 @@ mod save_settings_tests {
     };
     use crate::state::config::{load_config, update_project_config};
     use crate::state::dto::{GlobalState, ProjectConfig};
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{seeded_global_state, LauncherDirGuard};
     use crate::utils::errors::LauncherError;
     use std::time::Duration;
     use tokio::sync::Mutex;
@@ -377,19 +378,15 @@ mod save_settings_tests {
 
     #[tokio::test]
     async fn settings_save_survives_parallel_config_update() {
-        let _guard = LauncherDirGuard::acquire("project_config_settings_race").await;
-        let base = ProjectConfig {
-            project_name: "RaceSave".to_string(),
-            mc_version: "1.20.1".to_string(),
-            ..ProjectConfig::default()
-        };
-        base.save_config()
-            .await
-            .expect("сохранение базового конфига");
-        let state = Mutex::new(GlobalState {
-            project_config: base,
-            ..Default::default()
-        });
+        let (_guard, state) = seeded_global_state(
+            "project_config_settings_race",
+            ProjectConfig {
+                project_name: "RaceSave".to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+        )
+        .await;
 
         let payload = ProjectConfig {
             project_name: "RaceSave".to_string(),
@@ -473,21 +470,17 @@ mod save_settings_tests {
 
     #[tokio::test]
     async fn settings_save_keeps_java_version_only_while_path_unchanged() {
-        let _guard = LauncherDirGuard::acquire("settings_java_version").await;
-        let base = ProjectConfig {
-            project_name: "JavaVer".to_string(),
-            mc_version: "1.20.1".to_string(),
-            java_path: Some("/old/java".to_string()),
-            java_version: Some(17),
-            ..ProjectConfig::default()
-        };
-        base.save_config()
-            .await
-            .expect("сохранение базового конфига");
-        let state = Mutex::new(GlobalState {
-            project_config: base,
-            ..Default::default()
-        });
+        let (_guard, state) = seeded_global_state(
+            "settings_java_version",
+            ProjectConfig {
+                project_name: "JavaVer".to_string(),
+                mc_version: "1.20.1".to_string(),
+                java_path: Some("/old/java".to_string()),
+                java_version: Some(17),
+                ..ProjectConfig::default()
+            },
+        )
+        .await;
 
         let same_path = ProjectConfig {
             project_name: "JavaVer".to_string(),
@@ -521,20 +514,16 @@ mod save_settings_tests {
 
     #[tokio::test]
     async fn settings_save_rejects_project_name_substitution() {
-        let guard = LauncherDirGuard::acquire("settings_name_substitution").await;
-        let base = ProjectConfig {
-            project_name: "Alpha".to_string(),
-            mc_version: "1.20.1".to_string(),
-            max_memory: "-Xmx4G".to_string(),
-            ..ProjectConfig::default()
-        };
-        base.save_config()
-            .await
-            .expect("сохранение базового конфига");
-        let state = Mutex::new(GlobalState {
-            project_config: base,
-            ..Default::default()
-        });
+        let (guard, state) = seeded_global_state(
+            "settings_name_substitution",
+            ProjectConfig {
+                project_name: "Alpha".to_string(),
+                mc_version: "1.20.1".to_string(),
+                max_memory: "-Xmx4G".to_string(),
+                ..ProjectConfig::default()
+            },
+        )
+        .await;
 
         let payload = ProjectConfig {
             project_name: "Beta".to_string(),
@@ -573,22 +562,18 @@ mod save_settings_tests {
 
     #[tokio::test]
     async fn settings_save_preserves_server_fields_of_online_profile() {
-        let _guard = LauncherDirGuard::acquire("settings_server_fields").await;
-        let base = ProjectConfig {
-            project_name: "Online".to_string(),
-            mc_version: "1.20.1".to_string(),
-            online: true,
-            initialized: true,
-            server_url: Some("https://real.example.com".to_string()),
-            ..ProjectConfig::default()
-        };
-        base.save_config()
-            .await
-            .expect("сохранение базового конфига");
-        let state = Mutex::new(GlobalState {
-            project_config: base,
-            ..Default::default()
-        });
+        let (_guard, state) = seeded_global_state(
+            "settings_server_fields",
+            ProjectConfig {
+                project_name: "Online".to_string(),
+                mc_version: "1.20.1".to_string(),
+                online: true,
+                initialized: true,
+                server_url: Some("https://real.example.com".to_string()),
+                ..ProjectConfig::default()
+            },
+        )
+        .await;
 
         let payload = ProjectConfig {
             project_name: "Online".to_string(),

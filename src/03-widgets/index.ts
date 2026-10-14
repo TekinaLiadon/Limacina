@@ -6,14 +6,9 @@ export { default as StartupError } from './dashboard/StartupError.vue'
 export { default as LoadErrorRow } from './common/LoadErrorRow.vue'
 
 export { default as LaunchScene } from './tabs/accounts/LaunchScene.vue'
-export { default as AuthTabsWidget } from './tabs/accounts/AuthTabsWidget.vue'
 export { default as NoProjectsState } from './tabs/accounts/NoProjectsState.vue'
 
-export { default as AuthForm } from './tabs/login/AuthForm.vue'
-export { default as StepProgress } from './tabs/login/StepProgress.vue'
-
 export { default as AddProfileTab } from './tabs/AddProfileTab.vue'
-export { default as OfflineProfileForm } from './tabs/profile/OfflineProfileForm.vue'
 export { default as DebugTab } from './tabs/DebugTab.vue'
 
 export { default as PathPicker } from './tabs/settings/PathPicker.vue'
@@ -39,5 +34,3 @@ export { default as SettingsSaveBar } from './tabs/settings/SettingsSaveBar.vue'
 export { default as SettingsPageShell } from './tabs/settings/SettingsPageShell.vue'
 
 export { default as ThemeSwitchAnimation } from './theme/ThemeSwitchAnimation.vue'
-
-export type { TabItem } from './types'

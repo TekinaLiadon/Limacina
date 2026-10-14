@@ -220,7 +220,7 @@ export function useLauncherSettings(): {
         loadError.value = 'Не удалось загрузить настройки лаунчера'
         return
       }
-      coreStore.setLauncherConfig(config)
+      coreStore.applySavedLauncherConfig(config)
       applyConfig(config)
       finishLoad()
     } catch (e: unknown) {
@@ -253,7 +253,9 @@ export function useLauncherSettings(): {
   const resyncLauncherConfig = async (): Promise<void> => {
     try {
       const data = await getAppInitData()
-      coreStore.setLauncherConfig(data.launcherConfig)
+      if (data.launcherConfig !== null) {
+        coreStore.applySavedLauncherConfig(data.launcherConfig)
+      }
     } catch (e: unknown) {
       reportError('Не удалось восстановить состояние настроек', e)
     }
@@ -274,12 +276,12 @@ export function useLauncherSettings(): {
     }
     await saveAction.run(async () => {
       const savedSettings = await saveLauncherSettings(settings.value)
-      coreStore.setLauncherConfig(savedSettings)
+      coreStore.applySavedLauncherConfig(savedSettings)
 
       const config = coreStore.launcherConfig
       if (config && launcherPath.value !== config.launcherPath) {
         const parentPath = stripPathSuffix(launcherPath.value, coreStore.launcherName)
-        coreStore.setLauncherConfig(await saveLauncherConfig(parentPath))
+        coreStore.applySavedLauncherConfig(await saveLauncherConfig(parentPath))
       }
 
       dirtyState.captureBaseline()

@@ -131,6 +131,57 @@ describe('useCoreStore', () => {
     expect(store.projects).toEqual(['Alpha'])
   })
 
+  it('applySavedLauncherConfig keeps the live project scope and takes the saved fields', () => {
+    const store = useCoreStore()
+    store.setLauncherConfig(makeConfig(['Alpha', 'Beta'], 'Beta'))
+
+    store.applySavedLauncherConfig({ ...makeConfig(['Alpha'], 'Alpha'), theme: 'lime-dark' })
+
+    expect(store.launcherConfig?.theme).toBe('lime-dark')
+    expect(store.launcherConfig?.projectNames).toEqual(['Alpha', 'Beta'])
+    expect(store.launcherConfig?.currentProject).toBe('Beta')
+    expect(store.projects).toEqual(['Alpha', 'Beta'])
+    expect(store.currentProject).toBe('Beta')
+    expectInvariant(store)
+  })
+
+  it('applySavedLauncherConfig keeps a freshly added project that the response predates', () => {
+    const store = useCoreStore()
+    store.setLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+    store.addProject('Beta', makeProjectConfig({ projectName: 'Beta' }))
+
+    store.applySavedLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+
+    expect(store.projects).toEqual(['Alpha', 'Beta'])
+    expect(store.currentProject).toBe('Beta')
+    expectInvariant(store)
+  })
+
+  it('applySavedLauncherConfig establishes the scope when no config exists yet', () => {
+    const store = useCoreStore()
+
+    store.applySavedLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+
+    expect(store.launcherConfig?.projectNames).toEqual(['Alpha'])
+    expect(store.projects).toEqual(['Alpha'])
+    expect(store.currentProject).toBe('Alpha')
+    expectInvariant(store)
+  })
+
+  it('applySavedLauncherConfig does not resurrect projects after the list became empty', () => {
+    const store = useCoreStore()
+    store.setLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+    store.setLauncherConfig(makeConfig([], null))
+
+    store.applySavedLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+
+    expect(store.launcherConfig?.projectNames).toEqual([])
+    expect(store.launcherConfig?.currentProject).toBeNull()
+    expect(store.projects).toEqual([])
+    expect(store.currentProject).toBe('')
+    expectInvariant(store)
+  })
+
   it('applyProjectSwitch updates the current project, its config and the launcher config', () => {
     const store = useCoreStore()
     store.setLauncherConfig(makeConfig(['Alpha', 'Beta'], 'Alpha'))

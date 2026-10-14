@@ -1,16 +1,3 @@
-/**
- * Сборка шрифтов для NSIS-установщика (`src-tauri/windows/fonts/`).
- *
- * Нативному установщику (GDI, AddFontResourceExW) нужны полные TTF-файлы,
- * где латиница и кириллица лежат в одном файле — woff2-сабсеты из
- * `assets/fonts` для этого не подходят. Здесь берутся те же вариативные
- * TTF, что и у `subset-fonts.ts` (общий кэш), запекается нужный вес и
- * остаётся один файл на начертание.
- *
- * Результат коммитится в репозиторий, чтобы NSIS-сборка не зависела
- * от сети. Запуск после обновления шрифтов проекта:
- *   bun run build:installer-fonts
- */
 import subsetFont from 'subset-font'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -19,39 +6,27 @@ import { CACHE_DIR, SOURCES, loadSource, rangesToText } from './subset-fonts.ts'
 const ROOT: string = path.resolve(import.meta.dir, '..')
 const OUT_DIR: string = path.join(ROOT, 'src-tauri/windows/fonts')
 
-/** Символы, которые могут встретиться в UI установщика. */
 const INSTALLER_RANGES: string[] = [
-  'U+0020-007E', // ASCII: латиница, цифры, пунктуация, пути
-  'U+00A0-00FF', // неразрывный пробел, ©, типографика латиницы
-  'U+0301', 'U+0400-045F', 'U+0490-0491', 'U+04B0-04B1', 'U+2116', // кириллица
-  'U+0460-052F', 'U+1C80-1C8A', 'U+20B4', 'U+2DE0-2DFF', 'U+A640-A69F', 'U+FE2E-FE2F', // кириллица расширенная
-  'U+2010-2039', // тире, кавычки-ёлочки, многоточие
+  'U+0020-007E',
+  'U+00A0-00FF',
+  'U+0301', 'U+0400-045F', 'U+0490-0491', 'U+04B0-04B1', 'U+2116',
+  'U+0460-052F', 'U+1C80-1C8A', 'U+20B4', 'U+2DE0-2DFF', 'U+A640-A69F', 'U+FE2E-FE2F',
+  'U+2010-2039',
 ]
 
 interface InstallerFace {
-  /** Slug из SOURCES subset-fonts.ts. */
   slug: string
   weight: number
-  /** Имя выходного файла в src-tauri/windows/fonts. */
   file: string
-  /** GDI-имя семейства. У Manrope по умолчанию остаётся «ExtraLight»
-   * из name-таблицы вариативного исходника, хотя контуры инстансятся верно. */
   family: string
 }
 
 const FACES: InstallerFace[] = [
-  // Manrope — body тем «Ночная синь», основной текст установщика
   { slug: 'manrope', weight: 400, file: 'manrope-400.ttf', family: 'Manrope' },
   { slug: 'manrope', weight: 500, file: 'manrope-500.ttf', family: 'Manrope Medium' },
-  // Onest — display-шрифт тем default (заголовки страниц)
   { slug: 'onest', weight: 500, file: 'onest-500.ttf', family: 'Onest Medium' },
 ]
 
-/**
- * Перезаписывает name-таблицу: GDI ищет семейство по nameID 1/16, поэтому
- * после инстансирования вариативного шрифта имя надо выравнивать вручную.
- * Чек-суммы GDI не проверяет, поэтому считаем только таблицу name.
- */
 function patchFontNames(font: Buffer, family: string): Buffer {
   const postScript = family.replace(/\s+/g, '-')
   const replacements: Record<number, string> = {
@@ -97,7 +72,7 @@ function patchFontNames(font: Buffer, family: string): Buffer {
     let data = Buffer.from(raw)
     if (replacements[nameId]) {
       data = Buffer.from(replacements[nameId], platform === 3 ? 'utf16le' : 'latin1')
-      if (platform === 3) data.swap16() // строки platform 3 хранятся в big-endian
+      if (platform === 3) data.swap16()
     }
     records.push({
       platform,
@@ -129,7 +104,6 @@ function patchFontNames(font: Buffer, family: string): Buffer {
     cursor += r.data.length
   })
 
-  // Сдвигаем офсеты таблиц, идущих в sfnt после name, на дельту длины.
   const delta = nameTable.length - nameLength
   const patched = Buffer.from(font)
   for (let i = 0; i < numTables; i += 1) {

@@ -1,7 +1,7 @@
 import { watch, type WatchSource } from 'vue'
 import { reportError } from './reportError'
 
-export interface BackoffPollerConfig<T> {
+interface BackoffPollerConfig<T> {
   okIntervalMs: number
   maxIntervalMs: number
   watchSource: WatchSource

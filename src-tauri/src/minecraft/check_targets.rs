@@ -49,12 +49,7 @@ fn url_download_fn(
        + Sync
        + 'static {
     |url: String, dest: std::path::PathBuf| {
-        Box::pin(async move {
-            if dest.exists() {
-                return Ok(());
-            }
-            download_file(&url, &dest).await
-        })
+        Box::pin(async move { download_file(&url, &dest).await })
     }
 }
 
@@ -221,43 +216,22 @@ mod step_event_tests {
     use crate::minecraft::vanilla::download::PHASE_ASSET_INDEX;
     use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
     use crate::state::dto::ProjectConfig;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
-    use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
+    use crate::test_support::{integrity_url_target, sha1_hex, step_event_id, LauncherDirGuard};
     use crate::utils::step_events::test_capture;
     use crate::utils::step_events::{StepChannel, StepEvent};
     use mockito::Server;
-    use std::path::PathBuf;
-
-    fn event_id(event: &StepEvent) -> &str {
-        match event {
-            StepEvent::Started { id, .. }
-            | StepEvent::Progress { id, .. }
-            | StepEvent::Detail { id, .. }
-            | StepEvent::Finished { id, .. }
-            | StepEvent::Failed { id, .. } => id,
-        }
-    }
 
     fn integrity_terminals(id: &str) -> Vec<StepEvent> {
         test_capture::captured()
             .into_iter()
             .filter(|(channel, event)| {
-                matches!(channel, StepChannel::Integrity) && event_id(event) == id
+                matches!(channel, StepChannel::Integrity) && step_event_id(event) == id
             })
             .filter(|(_, event)| {
                 matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
             })
             .map(|(_, event)| event)
             .collect()
-    }
-
-    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
-        IntegrityTarget {
-            rel_path: PathBuf::from(rel),
-            hash: hash.to_string(),
-            hash_kind: HashKind::Sha1,
-            download: TargetDownload::Url(url),
-        }
     }
 
     fn seed_vanilla_index_cache(dir: &LauncherDirGuard) {
@@ -317,7 +291,7 @@ mod step_event_tests {
             report: Default::default(),
         };
         let error = phases
-            .asset_index(url_target(
+            .asset_index(integrity_url_target(
                 "assets/indexes/5.json",
                 &sha1_hex(b"index"),
                 format!("{}/index.json", server.url()),

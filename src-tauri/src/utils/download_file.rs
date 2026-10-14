@@ -196,27 +196,7 @@ pub(crate) async fn write_stream_to_atomic_limited(
         let mut file = tokio::fs::File::create(&tmp).await.map_err(|e| {
             LauncherError::DiskIo(format!("Не удалось создать файл во {tmp:?}: {e:#}"))
         })?;
-        let mut stream = response.bytes_stream();
-        let mut total_bytes: u64 = 0;
-        while let Some(item) = stream.next().await {
-            let chunk = item.map_err(|e| {
-                LauncherError::Download(format!("Ошибка чтения потока при скачивании {url}: {e:#}"))
-            })?;
-            bandwidth::acquire(chunk.len() as u64).await;
-            total_bytes += chunk.len() as u64;
-            if total_bytes > max_bytes.unwrap_or(u64::MAX) {
-                return Err(LauncherError::SizeLimit(format!(
-                    "{url}: получено {total_bytes} байт, ожидалось не более {}",
-                    max_bytes.unwrap_or(u64::MAX)
-                ))
-                .into());
-            }
-            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
-                .await
-                .map_err(|e| {
-                    LauncherError::DiskIo(format!("Ошибка записи в файл {tmp:?}: {e:#}"))
-                })?;
-        }
+        let total_bytes = stream_response_to_writer(response, url, max_bytes, &mut file).await?;
         file.sync_all().await.map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось синхронизировать {tmp:?} с диском: {e:#}"
@@ -243,6 +223,39 @@ pub(crate) async fn write_stream_to_atomic_limited(
             Err(e)
         }
     }
+}
+
+async fn stream_response_to_writer<W>(
+    response: reqwest::Response,
+    url: &str,
+    max_bytes: Option<u64>,
+    writer: &mut W,
+) -> Result<u64>
+where
+    W: tokio::io::AsyncWrite + Unpin + Send,
+{
+    use tokio::io::AsyncWriteExt;
+
+    let mut stream = response.bytes_stream();
+    let mut total_bytes: u64 = 0;
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| {
+            LauncherError::Download(format!("Ошибка чтения потока при скачивании {url}: {e:#}"))
+        })?;
+        bandwidth::acquire(chunk.len() as u64).await;
+        total_bytes += chunk.len() as u64;
+        if total_bytes > max_bytes.unwrap_or(u64::MAX) {
+            return Err(LauncherError::SizeLimit(format!(
+                "{url}: получено {total_bytes} байт, ожидалось не более {}",
+                max_bytes.unwrap_or(u64::MAX)
+            ))
+            .into());
+        }
+        writer.write_all(&chunk).await.map_err(|e| {
+            LauncherError::DiskIo(format!("Ошибка записи при скачивании {url}: {e:#}"))
+        })?;
+    }
+    Ok(total_bytes)
 }
 
 pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) -> Result<T> {
@@ -295,15 +308,8 @@ pub async fn download_xml<T: DeserializeOwned>(url: &str) -> Result<T> {
 }
 
 async fn read_body_through_bucket(response: reqwest::Response, url: &str) -> Result<Vec<u8>> {
-    let mut stream = response.bytes_stream();
     let mut body = Vec::new();
-    while let Some(item) = stream.next().await {
-        let chunk = item.map_err(|e| {
-            LauncherError::Download(format!("Ошибка чтения потока при скачивании {url}: {e:#}"))
-        })?;
-        bandwidth::acquire(chunk.len() as u64).await;
-        body.extend_from_slice(&chunk);
-    }
+    stream_response_to_writer(response, url, None, &mut body).await?;
     Ok(body)
 }
 

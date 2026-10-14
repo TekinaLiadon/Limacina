@@ -41,26 +41,12 @@ pub(crate) async fn update_launcher_config(
 
     mutate(&mut config);
 
-    let content = config.serialize_for_save().map_err(|e| {
-        anyhow::Error::new(LauncherError::DiskIo(format!(
-            "Не удалось сериализовать конфиг: {}",
-            e
-        )))
-    })?;
-    let path = LauncherConfig::config_file_path_public().map_err(|e| {
-        anyhow::Error::new(LauncherError::DiskIo(format!(
-            "Не удалось определить путь конфига: {}",
-            e
-        )))
-    })?;
-
+    let saved_config = config.clone();
     blocking(
         "Не удалось выполнить запись конфига",
-        move || LauncherConfig::write_serialized(&path, &content),
+        move || saved_config.save(),
     )
     .await??;
-
-    config.on_saved_update_path();
 
     {
         let mut guard = state.lock().await;
@@ -71,10 +57,10 @@ pub(crate) async fn update_launcher_config(
 }
 
 async fn load_launcher_config() -> anyhow::Result<LauncherConfig> {
-    match LauncherConfig::load() {
-        Ok(Some(config)) => Ok(config),
-        Ok(None) => Ok(LauncherConfig::default()),
-        Err(e) => Err(anyhow::Error::new(LauncherError::DiskIo(format!(
+    match blocking("Не удалось выполнить чтение конфига", LauncherConfig::load).await
+    {
+        Ok(Ok(config)) => Ok(config.unwrap_or_default()),
+        Ok(Err(e)) | Err(e) => Err(anyhow::Error::new(LauncherError::DiskIo(format!(
             "Не удалось прочитать конфиг лаунчера: {}",
             e
         )))),

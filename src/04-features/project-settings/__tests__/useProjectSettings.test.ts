@@ -6,8 +6,10 @@ import {
   clearSession,
   deleteProject,
   getServerConnectUrl,
+  killGameProcess,
   loadSettingsProject,
   refreshManifests,
+  saveCurrentProject,
   saveSettingsProject,
 } from '@/06-shared/api'
 import {
@@ -19,7 +21,9 @@ import {
   type LauncherConfig,
   type ProjectConfig,
 } from '@/05-entities'
+import { useKillGame } from '@/04-features/game-session/useKillGame'
 import { useProjectSettings } from '../useProjectSettings'
+import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { withSetup } from '@/test-support/withSetup'
 
 const api = vi.hoisted(() => ({
@@ -40,9 +44,11 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   clearSession: vi.fn(),
   deleteProject: vi.fn(),
   getServerConnectUrl: vi.fn(),
+  killGameProcess: vi.fn(),
   loadSettingsProject: vi.fn(),
   probeJavaVersion: api.probeJavaVersion,
   refreshManifests: vi.fn(),
+  saveCurrentProject: vi.fn(),
   saveSettingsProject: vi.fn(),
 }))
 
@@ -101,8 +107,10 @@ describe('useProjectSettings', () => {
     vi.mocked(clearSession).mockReset()
     vi.mocked(deleteProject).mockReset()
     vi.mocked(getServerConnectUrl).mockReset()
+    vi.mocked(killGameProcess).mockReset()
     vi.mocked(loadSettingsProject).mockReset()
     vi.mocked(refreshManifests).mockReset()
+    vi.mocked(saveCurrentProject).mockReset()
     vi.mocked(saveSettingsProject).mockReset()
     api.probeJavaVersion.mockReset()
     api.copyToClipboard.mockReset()
@@ -484,7 +492,23 @@ describe('useProjectSettings', () => {
     await pendingOk
 
     expect(clearMinecraftConfig).toHaveBeenCalledTimes(1)
+    expect(clearMinecraftConfig).toHaveBeenCalledWith('proj')
     expect(useNotificationStore().message).toBe('Папка переименована')
+    expect(settings.isClearingConfig.value).toBe(false)
+  })
+
+  it('aborts the clear when the project switches during the confirmation', async () => {
+    const core = useCoreStore()
+    const settings = await loadReady()
+    vi.mocked(clearMinecraftConfig).mockResolvedValue('Папка удалена')
+
+    const pending = settings.handleClearMinecraftConfig()
+    core.currentProject = 'beta'
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(clearMinecraftConfig).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe('Проект сменился — очистка конфигов отменена')
     expect(settings.isClearingConfig.value).toBe(false)
   })
 
@@ -513,6 +537,26 @@ describe('useProjectSettings', () => {
     expect(deleteProject).not.toHaveBeenCalled()
   })
 
+  it('releases the delete guard after a kill without a game-exit event', async () => {
+    vi.mocked(killGameProcess).mockResolvedValue(undefined)
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice']
+    const kill = useKillGame()
+    await kill.killGame()
+    expect(launch.gameUsernames).toEqual([])
+
+    vi.mocked(deleteProject).mockResolvedValue(makeLauncherConfig(['beta']))
+    vi.mocked(authLogins).mockResolvedValue([])
+    const settings = await loadReady()
+
+    const pending = settings.handleDeleteProject()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(deleteProject).toHaveBeenCalledTimes(1)
+    expect(useNotificationStore().message).not.toBe('Нельзя удалить проект, пока запущена игра')
+  })
+
   it('protects the env project from deletion', async () => {
     const core = useCoreStore()
     core.envProjectName = 'proj'
@@ -533,6 +577,7 @@ describe('useProjectSettings', () => {
     await pending
 
     expect(deleteProject).toHaveBeenCalledTimes(1)
+    expect(deleteProject).toHaveBeenCalledWith('proj')
     const core = useCoreStore()
     expect(core.projects).toEqual(['beta'])
     expect(core.currentProject).toBe('beta')
@@ -566,5 +611,43 @@ describe('useProjectSettings', () => {
 
     expect(deleteProject).not.toHaveBeenCalled()
     expect(useCoreStore().currentProject).toBe('proj')
+  })
+
+  it('aborts the delete when the project switches during the confirmation', async () => {
+    const core = useCoreStore()
+    const settings = await loadReady()
+    vi.mocked(deleteProject).mockResolvedValue(makeLauncherConfig(['beta']))
+
+    const pending = settings.handleDeleteProject()
+    core.currentProject = 'beta'
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(deleteProject).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe('Проект сменился — удаление отменено')
+    expect(settings.isDeleting.value).toBe(false)
+  })
+
+  it('blocks the destructive actions while the project is switching', async () => {
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(saveCurrentProject).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = (): void => resolve()
+        }),
+    )
+    const { result: switcher } = withSetup(() => useProjectSwitch())
+    const switching = switcher.selectProject('beta')
+
+    await settings.handleDeleteProject()
+    expect(useNotificationStore().message).toBe('Дождитесь завершения смены проекта')
+    expect(deleteProject).not.toHaveBeenCalled()
+
+    await settings.handleClearMinecraftConfig()
+    expect(clearMinecraftConfig).not.toHaveBeenCalled()
+
+    release()
+    await switching
   })
 })

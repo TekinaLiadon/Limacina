@@ -16,6 +16,7 @@ import {
   type ModrinthInstalledMod,
   type ModrinthSearchResult,
   type ModrinthUpdateCheck,
+  type ModrinthInstallResult,
 } from '@/05-entities'
 import { runScopedAction } from './runScopedAction'
 
@@ -208,47 +209,52 @@ export function useModrinth() {
     })
   }
 
-  const install = async (projectId: string): Promise<boolean> => {
+  const runInstallAction = async <T>(
+    projectId: string,
+    errorMessage: string,
+    run: () => Promise<T>,
+    apply: () => Promise<boolean>,
+  ): Promise<boolean> => {
     if (installingId.value !== null) return false
     const scope = captureProjectScope((): string => coreStore.currentProject)
     installingId.value = projectId
     return await runScopedAction({
       isCurrent: (): boolean => scope.isCurrent(),
       errorTarget: actionError,
-      errorMessage: 'Не удалось установить мод',
+      errorMessage,
       cleanup: (): void => {
         if (installingId.value === projectId) installingId.value = null
       },
-      run: () => modrinthInstall(projectId),
-      apply: async (): Promise<boolean> => {
+      run,
+      apply,
+    }) ?? false
+  }
+
+  const install = (projectId: string): Promise<boolean> =>
+    runInstallAction(
+      projectId,
+      'Не удалось установить мод',
+      (): Promise<ModrinthInstallResult> => modrinthInstall(projectId),
+      async (): Promise<boolean> => {
         await loadInstalled()
         const { [projectId]: _resolved, ...rest } = updates.value
         updates.value = rest
         return true
       },
-    }) ?? false
-  }
+    )
 
-  const uninstall = async (projectId: string): Promise<boolean> => {
-    if (installingId.value !== null) return false
-    const scope = captureProjectScope((): string => coreStore.currentProject)
-    installingId.value = projectId
-    return await runScopedAction({
-      isCurrent: (): boolean => scope.isCurrent(),
-      errorTarget: actionError,
-      errorMessage: 'Не удалось удалить мод',
-      cleanup: (): void => {
-        if (installingId.value === projectId) installingId.value = null
-      },
-      run: (): Promise<void> => modrinthUninstall(projectId),
-      apply: async (): Promise<boolean> => {
+  const uninstall = (projectId: string): Promise<boolean> =>
+    runInstallAction(
+      projectId,
+      'Не удалось удалить мод',
+      (): Promise<void> => modrinthUninstall(projectId),
+      async (): Promise<boolean> => {
         const { [projectId]: _removed, ...rest } = updates.value
         updates.value = rest
         await loadInstalled()
         return true
       },
-    }) ?? false
-  }
+    )
 
   const openFolder = async (): Promise<void> => {
     if (isOpeningFolder.value) return

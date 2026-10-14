@@ -222,6 +222,31 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
+  it('applies the save response without rolling back the project scope', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    const core = useCoreStore()
+    core.setLauncherConfig({
+      ...makeLauncherConfig(false),
+      projectNames: ['Alpha', 'Beta'],
+      currentProject: 'Beta',
+    })
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(true))
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.behaviorForm.value.debugMode = true
+    await settings.handleSave()
+
+    expect(core.launcherConfig?.debugMode).toBe(true)
+    expect(core.launcherConfig?.projectNames).toEqual(['Alpha', 'Beta'])
+    expect(core.launcherConfig?.currentProject).toBe('Beta')
+    expect(core.projects).toEqual(['Alpha', 'Beta'])
+    expect(core.currentProject).toBe('Beta')
+
+    unmount()
+  })
+
   it('applies the OS autostart state on mount when the toggle is untouched', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(true)
     useCoreStore().launcherConfig = makeLauncherConfig(false)

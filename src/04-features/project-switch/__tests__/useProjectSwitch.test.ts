@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import {
   authLogins,
   clearSession,
+  killGameProcess,
   loadSettingsProject,
   saveCurrentProject,
 } from '@/06-shared/api'
@@ -15,12 +16,14 @@ import {
   useSettingsDirtyStore,
   type ProjectConfig,
 } from '@/05-entities'
+import { useKillGame } from '@/04-features/game-session/useKillGame'
 import { useProjectSwitch } from '../useProjectSwitch'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   authLogins: vi.fn(),
   clearSession: vi.fn(),
+  killGameProcess: vi.fn(),
   loadSettingsProject: vi.fn(),
   saveCurrentProject: vi.fn(),
 }))
@@ -49,6 +52,7 @@ describe('useProjectSwitch', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(authLogins).mockReset()
     vi.mocked(clearSession).mockReset()
+    vi.mocked(killGameProcess).mockReset()
     vi.mocked(loadSettingsProject).mockReset()
     vi.mocked(saveCurrentProject).mockReset()
   })
@@ -169,6 +173,28 @@ describe('useProjectSwitch', () => {
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     await ps.selectProject('beta')
 
+    expect(saveCurrentProject).toHaveBeenCalledWith('beta')
+    expect(core.currentProject).toBe('beta')
+  })
+
+  it('releases the switch guard after a kill without a game-exit event', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice']
+    vi.mocked(killGameProcess).mockResolvedValue(undefined)
+    const ps = setup()
+    const kill = useKillGame()
+
+    await kill.killGame()
+    expect(launch.gameUsernames).toEqual([])
+
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(authLogins).mockResolvedValue(['carol'])
+    await ps.selectProject('beta')
+
+    expect(useNotificationStore().message).not.toBe('Нельзя переключить проект, пока запущена игра')
     expect(saveCurrentProject).toHaveBeenCalledWith('beta')
     expect(core.currentProject).toBe('beta')
   })

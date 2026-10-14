@@ -193,7 +193,7 @@ describe('useOfflineSkinSettings', () => {
     skins.modelMode.value = 'slim'
     await vi.waitFor(() => expect(saveOfflineSkin).toHaveBeenCalledTimes(1))
 
-    expect(saveOfflineSkin).toHaveBeenCalledWith(expect.any(Uint8Array), 'slim')
+    expect(saveOfflineSkin).toHaveBeenCalledWith('proj', expect.any(Uint8Array), 'slim')
   })
 
   it('surfaces the offline skin save error to the user', async () => {
@@ -237,7 +237,7 @@ describe('useOfflineSkinSettings', () => {
     releaseFirst()
     await vi.waitFor(() => expect(saveOfflineSkin).toHaveBeenCalledTimes(2))
 
-    expect(saveOfflineSkin).toHaveBeenLastCalledWith(expect.any(Uint8Array), 'classic')
+    expect(saveOfflineSkin).toHaveBeenLastCalledWith('proj', expect.any(Uint8Array), 'classic')
   })
 
   it('revokes the pending offline skin url when the page unmounts mid-load', async () => {
@@ -274,7 +274,7 @@ describe('useOfflineSkinSettings', () => {
     expect(saveOfflineSkin).not.toHaveBeenCalled()
   })
 
-  it('skips the queued offline save when the project switches before the write runs', async () => {
+  it('writes the queued offline save to the captured project even after a switch', async () => {
     goOffline()
     vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
     vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
@@ -299,10 +299,11 @@ describe('useOfflineSkinSettings', () => {
     releaseFirst()
     await flushPromises()
 
-    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
+    expect(saveOfflineSkin).toHaveBeenCalledTimes(2)
+    expect(saveOfflineSkin).toHaveBeenLastCalledWith('proj', expect.any(Uint8Array), 'classic')
   })
 
-  it('skips the offline delete when the project switches while the confirmation is open', async () => {
+  it('deletes the offline skin of the confirmed project when it switches mid-dialog', async () => {
     goOffline()
     vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
     vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
@@ -315,7 +316,7 @@ describe('useOfflineSkinSettings', () => {
     useNotificationStore().resolvePopup(true)
     await confirmed
 
-    expect(deleteOfflineSkin).not.toHaveBeenCalled()
+    expect(deleteOfflineSkin).toHaveBeenCalledWith('proj')
   })
 
   it('resets the skin after confirmation and clears the offline file', async () => {
@@ -356,7 +357,7 @@ describe('useOfflineSkinSettings', () => {
     vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
     await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
 
-    expect(getOfflineSkin).toHaveBeenCalledTimes(1)
+    expect(getOfflineSkin).toHaveBeenCalledWith('offline-proj')
     expect(getProfileSkin).not.toHaveBeenCalled()
   })
 })

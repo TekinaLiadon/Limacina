@@ -88,6 +88,15 @@ static TEST_SECRET_UNAVAILABLE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(test)]
+static TEST_TRANSIENT_READ_FAILURE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+pub(crate) fn arm_transient_read_failure() {
+    TEST_TRANSIENT_READ_FAILURE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(test)]
 struct SecretUnavailableGuard;
 
 #[cfg(test)]
@@ -366,6 +375,12 @@ fn save_credential_sync(
 }
 
 pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+    #[cfg(test)]
+    {
+        if TEST_TRANSIENT_READ_FAILURE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            anyhow::bail!("Тестовая заглушка: транзиентный сбой чтения хранилища");
+        }
+    }
     run_credential_task(
         project,
         username,

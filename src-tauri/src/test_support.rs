@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use sha1::{Digest, Sha1};
 
 use crate::minecraft::structs::{GameConfig, LaunchConfig, LibraryMod, VersionMod};
-use crate::state::dto::ProjectConfig;
+use crate::state::dto::{GlobalState, ProjectConfig};
+use crate::state::launcher_config::LauncherConfig;
+use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
+use crate::utils::step_events::StepEvent;
 
 pub fn loader_project(project: &str, mc_version: &str, loader_version: &str) -> ProjectConfig {
     ProjectConfig {
@@ -41,6 +44,53 @@ pub fn rotation_payload(access: &str, refresh: &str) -> String {
         "profile": { "uuid": "uuid-1", "username": "Steve" }
     })
     .to_string()
+}
+
+pub fn offline_global_state(project_name: &str) -> tokio::sync::Mutex<GlobalState> {
+    tokio::sync::Mutex::new(GlobalState {
+        project_config: ProjectConfig {
+            project_name: project_name.to_string(),
+            online: false,
+            ..ProjectConfig::default()
+        },
+        session: None,
+        launcher_config: Some(LauncherConfig::default()),
+        app_version: String::new(),
+    })
+}
+
+pub async fn seeded_global_state(
+    label: &str,
+    base: ProjectConfig,
+) -> (LauncherDirGuard, tokio::sync::Mutex<GlobalState>) {
+    let guard = LauncherDirGuard::acquire(label).await;
+    base.save_config()
+        .await
+        .expect("сохранение базового конфига");
+    let state = tokio::sync::Mutex::new(GlobalState {
+        project_config: base,
+        ..Default::default()
+    });
+    (guard, state)
+}
+
+pub fn integrity_url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+    IntegrityTarget {
+        rel_path: PathBuf::from(rel),
+        hash: hash.to_string(),
+        hash_kind: HashKind::Sha1,
+        download: TargetDownload::Url(url),
+    }
+}
+
+pub fn step_event_id(event: &StepEvent) -> &str {
+    match event {
+        StepEvent::Started { id, .. }
+        | StepEvent::Progress { id, .. }
+        | StepEvent::Detail { id, .. }
+        | StepEvent::Finished { id, .. }
+        | StepEvent::Failed { id, .. } => id,
+    }
 }
 
 pub async fn seed_online_project(project_name: &str, server_url: &str) {

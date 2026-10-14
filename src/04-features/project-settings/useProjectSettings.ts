@@ -47,7 +47,7 @@ export function useProjectSettings(): {
   const notification = useNotificationStore()
   const store = useProjectSettingsStore()
   const router = useRouter()
-  const { resetAccountsState, applyProjectSwitch } = useProjectSwitch()
+  const { resetAccountsState, applyProjectSwitch, isSwitching } = useProjectSwitch()
 
   const config = computed((): ProjectSettingsForm => store.config)
   const isLoaded = computed((): boolean => store.isLoaded)
@@ -151,14 +151,26 @@ export function useProjectSettings(): {
   const isClearingConfig = ref<boolean>(false)
   const clearConfigAction = useAsyncAction(reportAndNotify('Не удалось очистить конфиги игры'), isClearingConfig)
 
+  const guardProjectSwitching = (): boolean => {
+    if (!isSwitching.value) return false
+    notification.show('Дождитесь завершения смены проекта')
+    return true
+  }
+
   const handleClearMinecraftConfig = async (): Promise<void> => {
+    if (guardProjectSwitching()) return
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     const confirmed = await notification.confirm(
       'Удалить папку конфигов игры? При включённом сохранении старых конфигов она будет переименована вместо удаления'
     )
     if (!confirmed) return
+    if (!scope.isCurrent()) {
+      notification.show('Проект сменился — очистка конфигов отменена')
+      return
+    }
 
     await clearConfigAction.run(async () => {
-      const message = await clearMinecraftConfig()
+      const message = await clearMinecraftConfig(scope.project)
       notification.show(message)
     })
   }
@@ -167,6 +179,7 @@ export function useProjectSettings(): {
   const manifestsAction = useAsyncAction(reportAndNotify('Не удалось обновить манифесты'), isRefreshingManifests)
 
   const handleRefreshManifests = async (): Promise<void> => {
+    if (guardProjectSwitching()) return
     await manifestsAction.run(async () => {
       const message = await refreshManifests()
       notification.show(message)
@@ -193,14 +206,20 @@ export function useProjectSettings(): {
       notification.show('Дождитесь завершения запуска игры')
       return
     }
+    if (guardProjectSwitching()) return
 
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     const confirmed = await notification.confirm(
       `Удалить проект «${projectName}»? Папка с игрой, модами, конфигами и сохранениями будет удалена безвозвратно`
     )
     if (!confirmed) return
+    if (!scope.isCurrent()) {
+      notification.show('Проект сменился — удаление отменено')
+      return
+    }
 
     await deleteAction.run(async () => {
-      coreStore.setLauncherConfig(await deleteProject())
+      coreStore.setLauncherConfig(await deleteProject(scope.project))
       resetAccountsState()
       notification.show('Проект удалён')
 

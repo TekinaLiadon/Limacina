@@ -18,6 +18,7 @@ use crate::utils::tauri_err::CommandResult;
 pub async fn check_files_integrity(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<IntegrityReport> {
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
     let project = current_project_config(state.inner()).await?;
 
     let mut report = check_minecraft_integrity(&project).await?;

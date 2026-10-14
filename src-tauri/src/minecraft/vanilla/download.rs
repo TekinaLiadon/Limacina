@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
@@ -13,7 +13,8 @@ use crate::{
     minecraft::vanilla::rules::is_rule_allowed,
     minecraft::vanilla::structs::{Artifact, AssetIndexContent, Library, VersionDetailsManifest},
     utils::{
-        env_info::{ensure_safe_relative_path, get_current_os},
+        blocking,
+        env_info::{ensure_safe_relative_path, get_arch_label, get_current_os},
         integrity::{HashKind, IntegrityTarget, TargetDownload},
     },
 };
@@ -114,37 +115,46 @@ pub fn collect_natives_to_extract(
             continue;
         }
 
+        let exclude = lib.extract.as_ref().and_then(|e| e.exclude.clone());
+
         if is_native_jar(&lib.name) {
-            if let Some(downloads) = &lib.downloads {
-                if let Some(artifact) = &downloads.artifact {
-                    if !artifact.url.is_empty() {
-                        ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
-                        let rel_path = PathBuf::from("libraries").join(&artifact.path);
-                        if queued.insert(rel_path.clone()) {
-                            natives_to_extract.push((
-                                rel_path,
-                                lib.extract.as_ref().and_then(|e| e.exclude.clone()),
-                            ));
-                        }
-                    }
+            if let Some(artifact) = lib
+                .downloads
+                .as_ref()
+                .and_then(|downloads| downloads.artifact.as_ref())
+            {
+                if !artifact.url.is_empty() {
+                    queue_native_jar(&mut natives_to_extract, &mut queued, artifact, exclude)?;
                 }
             }
             continue;
         }
 
         if let Some(native_artifact) = native_artifact_for_os(lib, current_os) {
-            ensure_safe_relative_path(&native_artifact.path, "пути библиотеки в манифесте")?;
-            let rel_path = PathBuf::from("libraries").join(&native_artifact.path);
-            if queued.insert(rel_path.clone()) {
-                natives_to_extract.push((
-                    rel_path,
-                    lib.extract.as_ref().and_then(|e| e.exclude.clone()),
-                ));
-            }
+            queue_native_jar(
+                &mut natives_to_extract,
+                &mut queued,
+                native_artifact,
+                exclude,
+            )?;
         }
     }
 
     Ok(natives_to_extract)
+}
+
+fn queue_native_jar(
+    natives_to_extract: &mut Vec<(PathBuf, Option<Vec<String>>)>,
+    queued: &mut HashSet<PathBuf>,
+    artifact: &Artifact,
+    exclude: Option<Vec<String>>,
+) -> Result<()> {
+    ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
+    let rel_path = PathBuf::from("libraries").join(&artifact.path);
+    if queued.insert(rel_path.clone()) {
+        natives_to_extract.push((rel_path, exclude));
+    }
+    Ok(())
 }
 
 pub const NATIVES_VERSION_MARKER: &str = ".mc-version";
@@ -207,47 +217,61 @@ async fn clear_natives_dir(natives_dir: &Path) -> Result<()> {
 }
 
 fn should_download_library(lib_name: &str) -> bool {
-    let suffixes = get_native_suffixes_for_os();
-
-    for suffix in &suffixes {
-        if lib_name.contains(suffix) {
-            return true;
-        }
-    }
-
-    let other_os_markers = match get_current_os() {
-        "windows" => vec!["natives-linux", "natives-osx", "natives-macos"],
-        "osx" => vec!["natives-linux", "natives-windows"],
-        "linux" => vec!["natives-windows", "natives-osx", "natives-macos"],
-        _ => vec![],
-    };
-
-    for marker in other_os_markers {
-        if lib_name.contains(marker) {
-            return false;
-        }
-    }
-
-    !lib_name.contains("natives-")
+    should_download_library_for(lib_name, get_current_os(), get_arch_label())
 }
 
-fn get_native_suffixes_for_os() -> Vec<&'static str> {
-    let os = get_current_os();
-
-    match os {
-        "windows" => vec![
-            "natives-windows",
-            "natives-windows-x86",
-            "natives-windows-arm64",
-        ],
-        "osx" => vec!["natives-osx", "natives-macos", "natives-macos-arm64"],
-        "linux" => vec![
-            "natives-linux",
-            "natives-linux-arm64",
-            "natives-linux-arm32",
-        ],
-        _ => vec![],
+fn should_download_library_for(lib_name: &str, os: &str, arch: &str) -> bool {
+    match maven_classifier(lib_name) {
+        Some(classifier) => {
+            if native_classifiers_for(os, arch).contains(&classifier) {
+                return true;
+            }
+            if is_platform_classifier(classifier) {
+                return false;
+            }
+            !classifier.contains("natives-")
+        }
+        None => !lib_name.contains("natives-"),
     }
+}
+
+fn maven_classifier(lib_name: &str) -> Option<&str> {
+    lib_name.split(':').nth(3)
+}
+
+fn native_classifiers_for(os: &str, arch: &str) -> &'static [&'static str] {
+    match (os, arch) {
+        ("windows", "x86") => &["natives-windows-x86"],
+        ("windows", "aarch64") => &["natives-windows-arm64"],
+        ("windows", _) => &["natives-windows"],
+        ("osx", "x86_64") => &["natives-macos", "natives-osx", "osx-x86_64"],
+        ("osx", "aarch64") => &["natives-macos-arm64", "osx-aarch_64"],
+        ("osx", _) => &["natives-macos", "natives-osx"],
+        ("linux", "x86_64") => &["natives-linux", "linux-x86_64"],
+        ("linux", "aarch64") => &["natives-linux-arm64", "linux-aarch_64"],
+        ("linux", _) => &["natives-linux"],
+        _ => &[],
+    }
+}
+
+const PLATFORM_CLASSIFIERS: &[&str] = &[
+    "natives-windows",
+    "natives-windows-x86",
+    "natives-windows-arm64",
+    "natives-macos",
+    "natives-macos-arm64",
+    "natives-osx",
+    "natives-linux",
+    "natives-linux-arm64",
+    "natives-linux-arm32",
+    "linux-x86_64",
+    "linux-aarch_64",
+    "osx-x86_64",
+    "osx-aarch_64",
+];
+
+fn is_platform_classifier(classifier: &str) -> bool {
+    PLATFORM_CLASSIFIERS.contains(&classifier)
 }
 
 fn is_native_jar(lib_name: &str) -> bool {
@@ -264,18 +288,25 @@ async fn extract_native(
         natives_to_extract.len()
     );
 
-    let mut total_extracted = 0u32;
+    let mut written_by: HashMap<String, PathBuf> = HashMap::new();
     for (jar_path, exclude_rules) in &natives_to_extract {
-        let count = extract_natives_from_jar(jar_path, &natives_dir, exclude_rules)
+        let file_names = extract_natives_from_jar(jar_path, &natives_dir, exclude_rules)
             .await
             .map_err(|e| {
                 LauncherError::GameDownload(format!(
                     "Не удалось распаковать natives из {jar_path:?}: {e:#}"
                 ))
             })?;
-        total_extracted += count;
+        for file_name in file_names {
+            if let Some(first_jar) = written_by.insert(file_name.clone(), jar_path.clone()) {
+                return Err(LauncherError::GameDownload(format!(
+                    "Конфликт имён natives: файл {file_name} содержится и в {first_jar:?}, и в {jar_path:?}"
+                ))
+                .into());
+            }
+        }
     }
-    log_info!("Всего извлечено нативных файлов: {}", total_extracted);
+    log_info!("Всего извлечено нативных файлов: {}", written_by.len());
 
     Ok(())
 }
@@ -284,7 +315,7 @@ async fn extract_natives_from_jar(
     jar_path: &Path,
     natives_dir: &Path,
     exclude_rules: &Option<Vec<String>>,
-) -> Result<u32> {
+) -> Result<Vec<String>> {
     log_info!("  Извлекаем natives из: {:?}", jar_path);
 
     if !jar_path.exists() {
@@ -297,7 +328,7 @@ async fn extract_natives_from_jar(
     let natives_dir_buf = natives_dir.to_path_buf();
     let exclude_rules_owned = exclude_rules.clone();
 
-    let extracted_count = tokio::task::spawn_blocking(move || -> Result<u32> {
+    let extracted_names = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
         std_fs::create_dir_all(&natives_dir_buf).map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось создать директорию: {natives_dir_buf:?}: {e:#}"
@@ -312,7 +343,7 @@ async fn extract_natives_from_jar(
             ))
         })?;
 
-        let mut count = 0u32;
+        let mut written_names: Vec<String> = Vec::new();
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let name = file.name().to_string();
@@ -351,11 +382,11 @@ async fn extract_natives_from_jar(
                 LauncherError::DiskIo(format!("Не удалось записать файл: {out_path:?}: {e:#}"))
             })?;
 
-            count += 1;
+            written_names.push(file_name.clone());
             log_info!("    ✓ {}", file_name);
         }
 
-        Ok(count)
+        Ok(written_names)
     })
     .await
     .map_err(|e| {
@@ -364,7 +395,7 @@ async fn extract_natives_from_jar(
         ))
     })??;
 
-    Ok(extracted_count)
+    Ok(extracted_names)
 }
 
 fn should_exclude(file_name: &str, exclude_rules: &Option<Vec<String>>) -> bool {
@@ -497,7 +528,15 @@ pub async fn preflight_asset_disk_space(
     if needed == 0 {
         return Ok(());
     }
-    let Some(available) = crate::utils::disk_space::available_bytes(base_path) else {
+    let probe_path = base_path.to_path_buf();
+    let available = blocking(
+        "Не удалось определить свободное место на диске",
+        move || crate::utils::disk_space::available_bytes(&probe_path),
+    )
+    .await
+    .ok()
+    .flatten();
+    let Some(available) = available else {
         log_info!(
             "[preflight] Не удалось определить диск для {:?} — проверка свободного места пропущена",
             base_path
@@ -519,9 +558,11 @@ pub async fn preflight_asset_disk_space(
 mod tests {
     use super::{
         collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
-        collect_library_targets, collect_natives_to_extract, extract_natives, get_current_os,
-        natives_match_version, preflight_asset_disk_space, AssetIndexContent,
+        collect_library_targets, collect_natives_to_extract, extract_natives,
+        natives_match_version, preflight_asset_disk_space, should_download_library_for,
+        AssetIndexContent,
     };
+    use crate::utils::env_info::{get_arch_label, get_current_os};
     #[tokio::test]
     async fn preflight_passes_when_assets_already_present() {
         let dir = LauncherDirGuard::acquire("preflight_present").await;
@@ -1106,6 +1147,379 @@ mod tests {
         assert_eq!(
             std_fs::read(base.join("natives/libgood.so")).unwrap(),
             b"good"
+        );
+    }
+
+    #[test]
+    fn library_selection_matrix_matches_arch() {
+        let cases: Vec<(&str, &str, &str, bool)> = vec![
+            (
+                "windows",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows",
+                true,
+            ),
+            (
+                "windows",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows-x86",
+                false,
+            ),
+            (
+                "windows",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows-arm64",
+                false,
+            ),
+            (
+                "windows",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-linux",
+                false,
+            ),
+            (
+                "windows",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-macos",
+                false,
+            ),
+            (
+                "windows",
+                "x86_64",
+                "io.netty:netty:4.1.82:linux-x86_64",
+                false,
+            ),
+            (
+                "windows",
+                "x86_64",
+                "io.netty:netty:4.2.16:osx-x86_64",
+                false,
+            ),
+            (
+                "windows",
+                "x86",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows-x86",
+                true,
+            ),
+            (
+                "windows",
+                "x86",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows",
+                false,
+            ),
+            (
+                "windows",
+                "aarch64",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows-arm64",
+                true,
+            ),
+            (
+                "windows",
+                "aarch64",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows",
+                false,
+            ),
+            (
+                "linux",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-linux",
+                true,
+            ),
+            (
+                "linux",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-windows",
+                false,
+            ),
+            (
+                "linux",
+                "x86_64",
+                "io.netty:netty:4.1.82:linux-x86_64",
+                true,
+            ),
+            (
+                "linux",
+                "x86_64",
+                "io.netty:netty:4.1.82:linux-aarch_64",
+                false,
+            ),
+            (
+                "linux",
+                "aarch64",
+                "org.lwjgl:lwjgl:3.3.1:natives-linux",
+                false,
+            ),
+            (
+                "linux",
+                "aarch64",
+                "org.lwjgl:lwjgl:3.3.1:natives-linux-arm64",
+                true,
+            ),
+            (
+                "linux",
+                "aarch64",
+                "io.netty:netty:4.1.82:linux-aarch_64",
+                true,
+            ),
+            ("osx", "x86_64", "org.lwjgl:lwjgl:3.3.1:natives-macos", true),
+            (
+                "osx",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-macos-arm64",
+                false,
+            ),
+            ("osx", "x86_64", "io.netty:netty:4.2.16:osx-x86_64", true),
+            (
+                "osx",
+                "aarch64",
+                "org.lwjgl:lwjgl:3.3.1:natives-macos-arm64",
+                true,
+            ),
+            (
+                "osx",
+                "aarch64",
+                "org.lwjgl:lwjgl:3.3.1:natives-macos",
+                false,
+            ),
+            ("osx", "aarch64", "io.netty:netty:4.2.16:osx-aarch_64", true),
+            ("osx", "aarch64", "io.netty:netty:4.2.16:osx-x86_64", false),
+            ("windows", "x86_64", "org.lwjgl:lwjgl:3.2.2", true),
+            ("linux", "x86_64", "com.mojang:text2speech:1.12.4", true),
+            (
+                "windows",
+                "x86_64",
+                "org.lwjgl:lwjgl:3.3.1:natives-freebsd",
+                false,
+            ),
+            ("linux", "x86_64", "org.lwjgl:lwjgl:3.3.1:javadoc", true),
+        ];
+        for (os, arch, name, expected) in cases {
+            assert_eq!(
+                should_download_library_for(name, os, arch),
+                expected,
+                "{name} на {os}/{arch}"
+            );
+        }
+    }
+
+    fn new_scheme_lwjgl(classifier: &str, os_rule: &str) -> serde_json::Value {
+        json!({
+            "name": format!("org.lwjgl:lwjgl:3.3.1:{classifier}"),
+            "downloads": {
+                "artifact": {
+                    "path": format!("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-{classifier}.jar"),
+                    "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "size": 1000,
+                    "url": format!("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-{classifier}.jar")
+                }
+            },
+            "rules": [{ "action": "allow", "os": { "name": os_rule } }]
+        })
+    }
+
+    fn netty_epoll(classifier: &str) -> serde_json::Value {
+        json!({
+            "name": format!("io.netty:netty-transport-native-epoll:4.1.82.Final:{classifier}"),
+            "downloads": {
+                "artifact": {
+                    "path": format!("io/netty/netty-transport-native-epoll/4.1.82.Final/netty-transport-native-epoll-4.1.82.Final-{classifier}.jar"),
+                    "sha1": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "size": 1000,
+                    "url": format!("https://libraries.minecraft.net/io/netty/netty-transport-native-epoll/4.1.82.Final/netty-transport-native-epoll-4.1.82.Final-{classifier}.jar")
+                }
+            },
+            "rules": [{ "action": "allow", "os": { "name": "linux" } }]
+        })
+    }
+
+    fn manifest_1_20_1_new_scheme() -> serde_json::Value {
+        json!({
+            "id": "1.20.1",
+            "downloads": {
+                "client": {
+                    "sha1": "2e9a3e3107cca00d6bc9c97bf7d149cae163ef21",
+                    "size": 1,
+                    "url": "https://example.invalid/client.jar"
+                }
+            },
+            "libraries": [
+                json!({
+                    "name": "org.lwjgl:lwjgl:3.3.1",
+                    "downloads": {
+                        "artifact": {
+                            "path": "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
+                            "sha1": "cccccccccccccccccccccccccccccccccccccccc",
+                            "size": 1000,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar"
+                        }
+                    }
+                }),
+                new_scheme_lwjgl("natives-windows", "windows"),
+                new_scheme_lwjgl("natives-windows-arm64", "windows"),
+                new_scheme_lwjgl("natives-windows-x86", "windows"),
+                new_scheme_lwjgl("natives-linux", "linux"),
+                new_scheme_lwjgl("natives-macos", "osx"),
+                new_scheme_lwjgl("natives-macos-arm64", "osx"),
+                netty_epoll("linux-x86_64"),
+                netty_epoll("linux-aarch_64")
+            ],
+            "assetIndex": {
+                "id": "5",
+                "sha1": "d31a2e85ae149dd1b1a7070b22cb8887892fda6c",
+                "size": 1,
+                "url": "https://example.invalid/5.json",
+                "totalSize": 1
+            },
+            "assets": "5",
+            "mainClass": "net.minecraft.client.main.Main"
+        })
+    }
+
+    #[test]
+    fn new_scheme_manifest_downloads_and_extracts_only_matching_arch() {
+        let manifest: VersionDetailsManifest =
+            serde_json::from_value(manifest_1_20_1_new_scheme()).unwrap();
+
+        let expected_lwjgl = match (get_current_os(), get_arch_label()) {
+            ("windows", "x86") => "natives-windows-x86",
+            ("windows", "aarch64") => "natives-windows-arm64",
+            ("windows", _) => "natives-windows",
+            ("osx", "aarch64") => "natives-macos-arm64",
+            ("osx", _) => "natives-macos",
+            ("linux", _) => "natives-linux",
+            other => panic!("неожиданная платформа тестового хоста: {other:?}"),
+        };
+        let expected_netty = match (get_current_os(), get_arch_label()) {
+            ("linux", "x86_64") => Some("linux-x86_64"),
+            ("linux", "aarch64") => Some("linux-aarch_64"),
+            _ => None,
+        };
+
+        let targets = collect_library_targets(&manifest).expect("таргеты библиотек");
+        let rel_paths: Vec<&str> = targets
+            .iter()
+            .map(|t| t.rel_path.to_str().unwrap())
+            .collect();
+
+        let lwjgl_variants: Vec<&str> = rel_paths
+            .iter()
+            .filter(|p| p.contains("lwjgl-3.3.1-natives-"))
+            .copied()
+            .collect();
+        assert_eq!(
+            lwjgl_variants.len(),
+            1,
+            "должен выбираться ровно один вариант natives под текущую платформу: {rel_paths:?}"
+        );
+        assert!(
+            lwjgl_variants[0].contains(expected_lwjgl),
+            "выбран неверный вариант: {lwjgl_variants:?}, ожидался {expected_lwjgl}"
+        );
+        assert!(
+            rel_paths
+                .iter()
+                .any(|p| p.ends_with("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar")),
+            "основной jar lwjgl должен загружаться: {rel_paths:?}"
+        );
+
+        let netty_variants: Vec<&str> = rel_paths
+            .iter()
+            .filter(|p| p.contains("netty-transport-native-epoll"))
+            .copied()
+            .collect();
+        match expected_netty {
+            Some(classifier) => {
+                assert_eq!(
+                    netty_variants.len(),
+                    1,
+                    "на linux нужен только совпадающий по архитектуре netty: {netty_variants:?}"
+                );
+                assert!(netty_variants[0].contains(classifier));
+            }
+            None => assert!(
+                netty_variants.is_empty(),
+                "вне linux netty-epoll не загружается: {netty_variants:?}"
+            ),
+        }
+
+        let natives = collect_natives_to_extract(&manifest).expect("список natives");
+        let natives_paths: Vec<&str> = natives
+            .iter()
+            .map(|(rel, _)| rel.to_str().unwrap())
+            .collect();
+        assert_eq!(
+            natives_paths.len(),
+            1,
+            "распаковывается только совпадающий по архитектуре jar: {natives_paths:?}"
+        );
+        assert!(natives_paths[0].contains(expected_lwjgl));
+    }
+
+    #[tokio::test]
+    async fn extract_natives_flattens_arch_subdir_layout() {
+        let dir = LauncherDirGuard::acquire("natives_subdir_layout").await;
+        let base = dir.project_dir("Cordelia");
+
+        write_test_zip(
+            &base.join("libraries/lwjgl/lwjgl-natives.jar"),
+            &[("linux/x64/org/lwjgl/liblwjgl.so", b"x64 so".as_slice())],
+        );
+
+        extract_natives(
+            &base,
+            vec![(PathBuf::from("libraries/lwjgl/lwjgl-natives.jar"), None)],
+            "1.20.1",
+        )
+        .await
+        .expect("распаковка jar с арх-подпапками новой схемы");
+
+        assert_eq!(
+            std_fs::read(base.join("natives/liblwjgl.so")).unwrap(),
+            b"x64 so"
+        );
+    }
+
+    #[tokio::test]
+    async fn extract_natives_errors_on_name_collision_instead_of_silent_overwrite() {
+        let dir = LauncherDirGuard::acquire("natives_name_collision").await;
+        let base = dir.project_dir("Cordelia");
+
+        write_test_zip(
+            &base.join("libraries/lwjgl/lwjgl-natives-windows.jar"),
+            &[("windows/x64/org/lwjgl/lwjgl.dll", b"x64 dll".as_slice())],
+        );
+        write_test_zip(
+            &base.join("libraries/lwjgl/lwjgl-natives-windows-x86.jar"),
+            &[("windows/x86/org/lwjgl/lwjgl.dll", b"x86 dll".as_slice())],
+        );
+
+        let error = extract_natives(
+            &base,
+            vec![
+                (
+                    PathBuf::from("libraries/lwjgl/lwjgl-natives-windows.jar"),
+                    None,
+                ),
+                (
+                    PathBuf::from("libraries/lwjgl/lwjgl-natives-windows-x86.jar"),
+                    None,
+                ),
+            ],
+            "1.20.1",
+        )
+        .await
+        .expect_err("коллизия lwjgl.dll из разных вариантов должна давать явную ошибку");
+
+        assert!(
+            error.to_string().contains("Конфликт имён natives"),
+            "ошибка должна называть конфликт: {error}"
+        );
+        let natives_clean = std_fs::read_dir(base.join("natives"))
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(true);
+        assert!(
+            natives_clean,
+            "после сбоя папка natives должна быть пуста для чистой повторной попытки"
         );
     }
 }

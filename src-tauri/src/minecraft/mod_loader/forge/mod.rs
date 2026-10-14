@@ -1,65 +1,18 @@
-use crate::{
-    minecraft::{
-        mod_loader::{
-            config::{build_loader_config, LoaderConfigOptions, VanillaClientJar},
-            installer::setup_loader,
-            manifest::{latest_list_version, versions_with_installed, FORGE},
-        },
-        structs::{GameConfig, ModLoader, VersionMod},
-    },
-    state::dto::ProjectConfig,
-};
-use anyhow::Result;
-use async_trait::async_trait;
+pub mod manifest;
 
-pub struct Forge;
-#[async_trait]
-impl ModLoader for Forge {
-    async fn versions(&self, state: &ProjectConfig) -> Result<Vec<VersionMod>> {
-        versions_with_installed(&FORGE, state).await
-    }
-    async fn latest_version(
-        &self,
-        state: &ProjectConfig,
-        versions: &[VersionMod],
-    ) -> Result<String> {
-        latest_list_version(versions, &state.mc_version, "Forge")
-    }
-    async fn setup(&self, state: &ProjectConfig, manifest: &[VersionMod]) -> Result<()> {
-        setup_loader(
-            FORGE.name,
-            FORGE.manifest_prefix,
-            state,
-            manifest,
-            FORGE.maven_base,
-        )
-        .await
-    }
-    async fn config(
-        &self,
-        state: &ProjectConfig,
-        vanilla_config: GameConfig,
-        version: &VersionMod,
-    ) -> Result<GameConfig> {
-        build_loader_config(
-            &FORGE,
-            state,
-            vanilla_config,
-            version,
-            LoaderConfigOptions {
-                vanilla_client_jar: VanillaClientJar::Keep,
-            },
-        )
-        .await
-    }
-}
+use crate::minecraft::mod_loader::{config::VanillaClientJar, manifest::InstallerLoader};
+
+pub(crate) static LOADER: InstallerLoader = InstallerLoader {
+    def: &manifest::FORGE,
+    client_jar: VanillaClientJar::Keep,
+};
 
 #[cfg(test)]
 mod config_tests {
-    use super::*;
+    use super::LOADER;
     use crate::minecraft::mod_loader::installer::setup_loader;
     use crate::minecraft::process::validate_jvm_args;
-    use crate::minecraft::structs::LibraryMod;
+    use crate::minecraft::structs::{GameConfig, LibraryMod, ModLoader, VersionMod};
     use crate::test_support::{
         loader_manifest, loader_project, loader_vanilla_config, loader_version_mod, sha1_hex,
         write_loader_manifest, LauncherDirGuard,
@@ -107,7 +60,7 @@ mod config_tests {
 
         let vanilla_config = loader_vanilla_config(&game_root, "/game/libraries/vanilla.jar");
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");
@@ -181,7 +134,7 @@ mod config_tests {
             game_root.clone(),
         );
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");
@@ -276,7 +229,7 @@ mod config_tests {
         let vanilla_config =
             loader_vanilla_config(&game_root, &game_root.join("1.20.1.jar").to_string_lossy());
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");
@@ -325,7 +278,7 @@ mod config_tests {
         let vanilla_config =
             loader_vanilla_config(&game_root, &game_root.join("1.20.1.jar").to_string_lossy());
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");
@@ -414,7 +367,7 @@ mod config_tests {
             game_root.clone(),
         );
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");
@@ -470,7 +423,7 @@ mod config_tests {
         let game_root = dir.project_dir("ForgeMainManifest");
         let vanilla_config = loader_vanilla_config(&game_root, "/game/libraries/vanilla.jar");
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");
@@ -502,7 +455,7 @@ mod config_tests {
         let game_root = dir.project_dir("ForgeMainEmpty");
         let vanilla_config = loader_vanilla_config(&game_root, "/game/libraries/vanilla.jar");
 
-        let error = Forge
+        let error = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect_err("пустой mainClass манифеста должен давать явную ошибку");
@@ -541,7 +494,7 @@ mod config_tests {
             game_root,
         );
 
-        let config = Forge
+        let config = LOADER
             .config(&state, vanilla_config, &version)
             .await
             .expect("конфиг Forge");

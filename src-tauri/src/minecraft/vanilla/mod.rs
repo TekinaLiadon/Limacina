@@ -201,36 +201,16 @@ mod install_phases_tests {
     use super::InstallPhases;
     use crate::minecraft::vanilla::download::{PHASE_ASSET_INDEX, PHASE_CLIENT};
     use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
-    use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
+    use crate::test_support::{integrity_url_target, sha1_hex, step_event_id, LauncherDirGuard};
     use crate::utils::step_events::test_capture;
     use crate::utils::step_events::StepEvent;
     use mockito::Server;
     use std::path::PathBuf;
 
-    fn url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
-        IntegrityTarget {
-            rel_path: PathBuf::from(rel),
-            hash: hash.to_string(),
-            hash_kind: HashKind::Sha1,
-            download: TargetDownload::Url(url),
-        }
-    }
-
-    fn event_id(event: &StepEvent) -> &str {
-        match event {
-            StepEvent::Started { id, .. }
-            | StepEvent::Progress { id, .. }
-            | StepEvent::Detail { id, .. }
-            | StepEvent::Finished { id, .. }
-            | StepEvent::Failed { id, .. } => id,
-        }
-    }
-
     fn terminals(id: &str) -> Vec<StepEvent> {
         test_capture::captured()
             .into_iter()
-            .filter(|(_, event)| event_id(event) == id)
+            .filter(|(_, event)| step_event_id(event) == id)
             .filter(|(_, event)| {
                 matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
             })
@@ -254,7 +234,7 @@ mod install_phases_tests {
         phases
             .fetch(
                 &PHASE_CLIENT,
-                vec![url_target(
+                vec![integrity_url_target(
                     "libraries/a.jar",
                     &sha1_hex(b"content"),
                     "http://127.0.0.1:1/a".to_string(),
@@ -298,7 +278,7 @@ mod install_phases_tests {
         let error = phases
             .fetch(
                 &PHASE_CLIENT,
-                vec![url_target(
+                vec![integrity_url_target(
                     "libraries/a.jar",
                     &sha1_hex(b"good jar"),
                     format!("{}/libs/a.jar", server.url()),
@@ -341,7 +321,7 @@ mod install_phases_tests {
         std::fs::write(base.join(&rel), index_json).expect("целый индекс");
 
         phases(base)
-            .asset_index(url_target(
+            .asset_index(integrity_url_target(
                 rel.to_string_lossy().as_ref(),
                 &sha1_hex(index_json.as_bytes()),
                 "http://127.0.0.1:1/index".to_string(),
@@ -376,7 +356,7 @@ mod install_phases_tests {
             .await;
 
         let error = phases(dir.project_dir("Cordelia"))
-            .asset_index(url_target(
+            .asset_index(integrity_url_target(
                 "assets/indexes/5.json",
                 &sha1_hex(b"index"),
                 format!("{}/index.json", server.url()),
@@ -411,7 +391,7 @@ mod install_phases_tests {
         std::fs::write(base.join(&rel), broken_json).expect("непарсящийся индекс");
 
         let error = phases(base)
-            .asset_index(url_target(
+            .asset_index(integrity_url_target(
                 rel.to_string_lossy().as_ref(),
                 &sha1_hex(broken_json),
                 "http://127.0.0.1:1/index".to_string(),

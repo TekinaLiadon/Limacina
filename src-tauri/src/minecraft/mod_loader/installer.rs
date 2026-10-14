@@ -137,10 +137,15 @@ async fn version_subdirs(versions_dir: &Path) -> Result<Vec<PathBuf>> {
         LauncherError::DiskIo(format!("Не удалось прочитать запись в versions: {e:#}"))
     })? {
         let path = entry.path();
-        if path.is_dir() {
+        let is_dir = fs::metadata(&path)
+            .await
+            .map(|meta| meta.is_dir())
+            .unwrap_or(false);
+        if is_dir {
             subdirs.push(path);
         }
     }
+    subdirs.sort();
     Ok(subdirs)
 }
 
@@ -273,7 +278,14 @@ pub async fn start_installer(
         })?;
     }
 
-    let _ = fs::remove_dir_all(versions_dir).await;
+    if let Err(e) = fs::remove_dir_all(&versions_dir).await {
+        log_err!(
+            "Не удалось очистить каталог версий {:?} после установки лоадера {}: {}",
+            versions_dir,
+            loader_name,
+            e
+        );
+    }
 
     download_json::<Manifest>(None, &loader_manifest).await
 }
@@ -417,10 +429,76 @@ pub async fn setup_loader(
 #[cfg(test)]
 mod loader_install_tests {
     use super::*;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{sha1_hex, step_event_id, LauncherDirGuard};
     use mockito::Server;
     use serde_json::json;
     use std::fs;
+
+    struct SetupLoaderEnv {
+        dir: LauncherDirGuard,
+        _server: mockito::ServerGuard,
+        state: ProjectConfig,
+        manifest: Vec<VersionMod>,
+        maven_base: String,
+    }
+
+    async fn setup_loader_env(label: &str) -> SetupLoaderEnv {
+        let dir = LauncherDirGuard::acquire(label).await;
+        let mut server = Server::new_async().await;
+
+        server
+            .mock(
+                "GET",
+                "/maven/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
+            )
+            .with_status(200)
+            .with_body(b"loader jar bytes".as_slice())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/maven/org/ow2/asm/asm/9.7/asm-9.7.jar")
+            .with_status(200)
+            .with_body(b"asm lib bytes".as_slice())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/installer/1.20.1-0.16.9.jar")
+            .with_status(200)
+            .with_body(b"installer bytes".as_slice())
+            .create_async()
+            .await;
+
+        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            loader_manifest_json(
+                &sha1_hex(b"loader jar bytes"),
+                &sha1_hex(b"asm lib bytes"),
+                b"loader jar bytes".len() as i64,
+                b"asm lib bytes".len() as i64,
+            )
+            .to_string(),
+        )
+        .unwrap();
+
+        let state = project_config("LoaderProj");
+        let manifest = vec![VersionMod {
+            url: format!("{}/installer/1.20.1-0.16.9.jar", server.url()),
+            id: "1.20.1-0.16.9".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+        let maven_base = format!("{}/maven", server.url());
+
+        SetupLoaderEnv {
+            dir,
+            _server: server,
+            state,
+            manifest,
+            maven_base,
+        }
+    }
 
     #[tokio::test]
     async fn start_installer_rejects_traversal_mc_version_before_installer() {
@@ -482,63 +560,13 @@ mod loader_install_tests {
 
     #[tokio::test]
     async fn setup_loader_fast_path_downloads_loader_and_libraries() {
-        let dir = LauncherDirGuard::acquire("loader_setup").await;
-        let mut server = Server::new_async().await;
+        let env = setup_loader_env("loader_setup").await;
 
-        let loader_jar = b"loader jar bytes".to_vec();
-        let asm_jar = b"asm lib bytes".to_vec();
-        let installer_jar = b"installer bytes".to_vec();
-
-        server
-            .mock(
-                "GET",
-                "/maven/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
-            )
-            .with_status(200)
-            .with_body(loader_jar.clone())
-            .create_async()
-            .await;
-        server
-            .mock("GET", "/maven/org/ow2/asm/asm/9.7/asm-9.7.jar")
-            .with_status(200)
-            .with_body(asm_jar.clone())
-            .create_async()
-            .await;
-        server
-            .mock("GET", "/installer/1.20.1-0.16.9.jar")
-            .with_status(200)
-            .with_body(installer_jar.clone())
-            .create_async()
-            .await;
-
-        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(
-            &manifest_path,
-            loader_manifest_json(
-                &sha1_hex(b"loader jar bytes"),
-                &sha1_hex(b"asm lib bytes"),
-                b"loader jar bytes".len() as i64,
-                b"asm lib bytes".len() as i64,
-            )
-            .to_string(),
-        )
-        .unwrap();
-
-        let state = project_config("LoaderProj");
-        let manifest = vec![VersionMod {
-            url: format!("{}/installer/1.20.1-0.16.9.jar", server.url()),
-            id: "1.20.1-0.16.9".to_string(),
-            main_class: String::new(),
-            library: Vec::new(),
-        }];
-        let maven_base = format!("{}/maven", server.url());
-
-        setup_loader("Forge", "forge", &state, &manifest, &maven_base)
+        setup_loader("Forge", "forge", &env.state, &env.manifest, &env.maven_base)
             .await
             .expect("установка лоадера");
 
-        let project = dir.project_dir("LoaderProj");
+        let project = env.dir.project_dir("LoaderProj");
         assert_eq!(
             fs::read(project.join("1.20.1-0.16.9.jar")).unwrap(),
             b"installer bytes"
@@ -573,56 +601,10 @@ mod loader_install_tests {
         use crate::utils::step_events::test_capture;
         use crate::utils::step_events::StepEvent;
 
-        let dir = LauncherDirGuard::acquire("loader_setup_single_terminal").await;
+        let env = setup_loader_env("loader_setup_single_terminal").await;
         let _capture = test_capture::CaptureGuard::new();
-        let mut server = Server::new_async().await;
 
-        server
-            .mock(
-                "GET",
-                "/maven/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
-            )
-            .with_status(200)
-            .with_body(b"loader jar bytes".as_slice())
-            .create_async()
-            .await;
-        server
-            .mock("GET", "/maven/org/ow2/asm/asm/9.7/asm-9.7.jar")
-            .with_status(200)
-            .with_body(b"asm lib bytes".as_slice())
-            .create_async()
-            .await;
-        server
-            .mock("GET", "/installer/1.20.1-0.16.9.jar")
-            .with_status(200)
-            .with_body(b"installer bytes".as_slice())
-            .create_async()
-            .await;
-
-        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
-        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(
-            &manifest_path,
-            loader_manifest_json(
-                &sha1_hex(b"loader jar bytes"),
-                &sha1_hex(b"asm lib bytes"),
-                b"loader jar bytes".len() as i64,
-                b"asm lib bytes".len() as i64,
-            )
-            .to_string(),
-        )
-        .unwrap();
-
-        let state = project_config("LoaderProj");
-        let manifest = vec![VersionMod {
-            url: format!("{}/installer/1.20.1-0.16.9.jar", server.url()),
-            id: "1.20.1-0.16.9".to_string(),
-            main_class: String::new(),
-            library: Vec::new(),
-        }];
-        let maven_base = format!("{}/maven", server.url());
-
-        setup_loader("Forge", "forge", &state, &manifest, &maven_base)
+        setup_loader("Forge", "forge", &env.state, &env.manifest, &env.maven_base)
             .await
             .expect("установка лоадера");
 
@@ -631,7 +613,7 @@ mod loader_install_tests {
             .filter(|(channel, event)| {
                 matches!(channel, crate::utils::step_events::StepChannel::Launch)
                     && matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
-                    && event_id(event) == "loader"
+                    && step_event_id(event) == "loader"
             })
             .map(|(_, event)| event)
             .collect();
@@ -647,17 +629,6 @@ mod loader_install_tests {
             ),
             "установка со скачиванием не должна помечаться пропущенной: {terminals:?}"
         );
-    }
-
-    fn event_id(event: &crate::utils::step_events::StepEvent) -> &str {
-        use crate::utils::step_events::StepEvent;
-        match event {
-            StepEvent::Started { id, .. }
-            | StepEvent::Progress { id, .. }
-            | StepEvent::Detail { id, .. }
-            | StepEvent::Finished { id, .. }
-            | StepEvent::Failed { id, .. } => id,
-        }
     }
 
     fn neoforge_manifest_json() -> serde_json::Value {
@@ -836,6 +807,37 @@ mod loader_install_tests {
             .expect("поиск манифеста");
 
         assert_eq!(found, versions.join("1.20.1-forge.json"));
+    }
+
+    #[tokio::test]
+    async fn locate_installed_manifest_is_deterministic_across_stale_subdirs() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_deterministic").await;
+        let versions = dir.root().join("game/versions");
+        for _ in 0..3 {
+            fs::create_dir_all(versions.join("zzz-stale")).unwrap();
+            fs::create_dir_all(versions.join("aaa-fresh")).unwrap();
+            fs::write(
+                versions.join("zzz-stale/old-1.20.1.json"),
+                r#"{"inheritsFrom": "1.20.1"}"#,
+            )
+            .unwrap();
+            fs::write(
+                versions.join("aaa-fresh/new-1.20.1.json"),
+                r#"{"inheritsFrom": "1.20.1"}"#,
+            )
+            .unwrap();
+
+            let found = locate_installed_manifest(&versions, "1.20.1")
+                .await
+                .expect("поиск манифеста среди stale-каталогов");
+
+            assert_eq!(
+                found,
+                versions.join("aaa-fresh/new-1.20.1.json"),
+                "лексикографически первый подкаталог побеждает независимо от порядка read_dir"
+            );
+            fs::remove_dir_all(&versions).unwrap();
+        }
     }
 
     #[tokio::test]

@@ -332,7 +332,7 @@ mod tests {
         }
     }
 
-    static TEST_LOCK: StdMutex<()> = StdMutex::new(());
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     struct MockHandles {
         log: Arc<StdMutex<Vec<String>>>,
@@ -376,7 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_presence_records_game_and_restores_on_enable() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
 
@@ -401,7 +401,7 @@ mod tests {
 
     #[tokio::test]
     async fn game_exit_returns_to_launcher_presence() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
 
@@ -424,7 +424,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_client_id_keeps_presence_disconnected() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
 
@@ -447,7 +447,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_activity_failure_disconnects_and_next_apply_reconnects() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
 
@@ -476,7 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn exited_game_flag_skips_activity_recording() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
 
@@ -495,7 +495,7 @@ mod tests {
 
     #[tokio::test]
     async fn slow_ipc_times_out_client_is_not_restored_and_next_apply_recovers() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
         let _ = IPC_TIMEOUT_OVERRIDE.set(Duration::from_millis(50));

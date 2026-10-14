@@ -1,7 +1,6 @@
 use std::sync::{Mutex as StdMutex, OnceLock};
 
 use anyhow::{anyhow, Context, Result};
-use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::cpm::{
@@ -11,7 +10,7 @@ use crate::cpm::{
     SKIN_TYPE_SLIM,
 };
 use crate::launcher_server::user_content;
-use crate::state::config::current_project_config;
+use crate::state::config::{current_project_config, validated_project_name};
 use crate::state::dto::GlobalState;
 use crate::utils::allowlisted_read::{has_extension, AllowlistedRead};
 use crate::utils::download_file::{read_to_string_opt, write_atomic};
@@ -174,20 +173,18 @@ async fn write_link_stub(dir: &std::path::Path, entry: &CpmModelEntry, url: &str
 }
 
 #[tauri::command]
-pub async fn get_player_models_limit(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<Option<u32>> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    let manifest = read_manifest(&project_name).await?;
+pub async fn get_player_models_limit(project_name: String) -> CommandResult<Option<u32>> {
+    let project_name = validated_project_name(&project_name)?;
+    let manifest = read_manifest(project_name).await?;
     Ok(manifest.limit)
 }
 
 #[tauri::command]
 pub async fn set_player_models_limit(
-    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
     limit: Option<u32>,
 ) -> CommandResult<()> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
+    let project_name = validated_project_name(&project_name)?;
     if limit == Some(0) {
         return Err(LauncherError::InvalidInput(
             "Лимит моделей должен быть не меньше 1".to_string(),
@@ -196,12 +193,12 @@ pub async fn set_player_models_limit(
     }
 
     let _guard = MODELS_MANIFEST_LOCK.lock().await;
-    let mut manifest = read_manifest(&project_name).await?;
+    let mut manifest = read_manifest(project_name).await?;
     manifest.limit = limit;
-    let selected = read_selected_model(&project_name).await?;
+    let selected = read_selected_model(project_name).await?;
     let evicted_files = enforce_models_limit(&mut manifest, selected.as_deref());
-    save_manifest(&project_name, &manifest).await?;
-    let dir = player_models_dir(&project_name)?;
+    save_manifest(project_name, &manifest).await?;
+    let dir = player_models_dir(project_name)?;
     remove_model_files(&dir, &evicted_files).await;
 
     log_info!(
@@ -215,15 +212,15 @@ pub async fn set_player_models_limit(
 
 #[tauri::command]
 pub async fn save_player_model(
-    state: State<'_, Mutex<GlobalState>>,
+    project_name: String,
     name: String,
     url: Option<String>,
     model_id: Option<i64>,
     slim: Option<bool>,
     data: Option<Vec<u8>>,
 ) -> CommandResult<()> {
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    save_player_model_inner(&project_name, name, url, model_id, slim, data).await?;
+    let project_name = validated_project_name(&project_name)?;
+    save_player_model_inner(project_name, name, url, model_id, slim, data).await?;
     Ok(())
 }
 
@@ -576,6 +573,59 @@ mod tests {
         serde_json::Value::Array(items.to_vec()).to_string()
     }
 
+    async fn mock_models_endpoint(server: &mut mockito::ServerGuard, body: String) {
+        server
+            .mock("GET", "/v1/common/content/models/uuid-1")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+    }
+
+    async fn manifest_files(project: &str) -> Vec<String> {
+        read_manifest(project)
+            .await
+            .unwrap()
+            .models
+            .iter()
+            .map(|m| m.file.clone())
+            .collect()
+    }
+
+    async fn save_displaced_model() -> Result<()> {
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "new".to_string(),
+            Some("https://cdn.example.com/m/7v2".to_string()),
+            Some(7),
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[cfg(unix)]
+    struct ReadOnlyDir(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl ReadOnlyDir {
+        fn lock(path: std::path::PathBuf) -> Self {
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o500))
+                .expect("каталог переводится в read-only");
+            Self(path)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ReadOnlyDir {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(
+                &self.0,
+                std::os::unix::fs::PermissionsExt::from_mode(0o700),
+            );
+        }
+    }
+
     #[tokio::test]
     async fn sync_player_models_skips_offline_project_without_server_call() {
         let _guard = LauncherDirGuard::acquire("cpm_sync_offline").await;
@@ -604,16 +654,14 @@ mod tests {
     async fn sync_player_models_adds_server_models_and_selects_newest() {
         let _guard = LauncherDirGuard::acquire("cpm_sync_add").await;
         let mut server = mockito::Server::new_async().await;
-        let body = models_mock_body(&[serde_json::json!({
-            "id": 5,
-            "url": "https://cdn.example.com/m/5"
-        })]);
-        server
-            .mock("GET", "/v1/common/content/models/uuid-1")
-            .with_status(200)
-            .with_body(body)
-            .create_async()
-            .await;
+        mock_models_endpoint(
+            &mut server,
+            models_mock_body(&[serde_json::json!({
+                "id": 5,
+                "url": "https://cdn.example.com/m/5"
+            })]),
+        )
+        .await;
         let state = sync_state(&server.url(), true, true);
 
         sync_player_models(&state)
@@ -642,16 +690,14 @@ mod tests {
     async fn sync_player_models_removes_gone_models_and_rebinds_selection() {
         let _guard = LauncherDirGuard::acquire("cpm_sync_remove").await;
         let mut server = mockito::Server::new_async().await;
-        let body = models_mock_body(&[serde_json::json!({
-            "id": 2,
-            "url": "https://cdn.example.com/m/2"
-        })]);
-        server
-            .mock("GET", "/v1/common/content/models/uuid-1")
-            .with_status(200)
-            .with_body(body)
-            .create_async()
-            .await;
+        mock_models_endpoint(
+            &mut server,
+            models_mock_body(&[serde_json::json!({
+                "id": 2,
+                "url": "https://cdn.example.com/m/2"
+            })]),
+        )
+        .await;
         let state = sync_state(&server.url(), true, true);
 
         seed_manifest(vec![
@@ -693,16 +739,14 @@ mod tests {
     async fn sync_player_models_rewrites_stub_when_url_changes() {
         let _guard = LauncherDirGuard::acquire("cpm_sync_url").await;
         let mut server = mockito::Server::new_async().await;
-        let body = models_mock_body(&[serde_json::json!({
-            "id": 1,
-            "url": "https://cdn.example.com/m/new"
-        })]);
-        server
-            .mock("GET", "/v1/common/content/models/uuid-1")
-            .with_status(200)
-            .with_body(body)
-            .create_async()
-            .await;
+        mock_models_endpoint(
+            &mut server,
+            models_mock_body(&[serde_json::json!({
+                "id": 1,
+                "url": "https://cdn.example.com/m/new"
+            })]),
+        )
+        .await;
         let state = sync_state(&server.url(), true, true);
 
         seed_manifest(vec![online_entry(
@@ -730,12 +774,7 @@ mod tests {
     async fn sync_player_models_keeps_offline_entries_without_server_id() {
         let _guard = LauncherDirGuard::acquire("cpm_sync_offline_entry").await;
         let mut server = mockito::Server::new_async().await;
-        server
-            .mock("GET", "/v1/common/content/models/uuid-1")
-            .with_status(200)
-            .with_body(models_mock_body(&[]))
-            .create_async()
-            .await;
+        mock_models_endpoint(&mut server, models_mock_body(&[])).await;
         let state = sync_state(&server.url(), true, true);
 
         let local = CpmModelEntry {
@@ -797,14 +836,10 @@ mod tests {
         .await
         .expect("замена записи");
 
-        let files: Vec<String> = read_manifest(SYNC_PROJECT)
-            .await
-            .unwrap()
-            .models
-            .iter()
-            .map(|m| m.file.clone())
-            .collect();
-        assert_eq!(files, vec!["keep.cpmmodel", "limacina_7_new.cpmmodel"]);
+        assert_eq!(
+            manifest_files(SYNC_PROJECT).await,
+            vec!["keep.cpmmodel", "limacina_7_new.cpmmodel"]
+        );
         assert!(
             !model_file_exists("old.cpmmodel").await,
             "файл предыдущей версии должен быть удалён"
@@ -976,41 +1011,19 @@ mod tests {
             .await
             .unwrap();
 
-        let game_config_dir = cpm_config_path(SYNC_PROJECT)
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        std::fs::set_permissions(
-            &game_config_dir,
-            std::os::unix::fs::PermissionsExt::from_mode(0o500),
-        )
-        .unwrap();
+        let _read_only = ReadOnlyDir::lock(
+            cpm_config_path(SYNC_PROJECT)
+                .unwrap()
+                .parent()
+                .unwrap()
+                .to_path_buf(),
+        );
 
-        let result = save_player_model_inner(
-            SYNC_PROJECT,
-            "new".to_string(),
-            Some("https://cdn.example.com/m/7v2".to_string()),
-            Some(7),
-            None,
-            None,
-        )
-        .await;
-
-        std::fs::set_permissions(
-            &game_config_dir,
-            std::os::unix::fs::PermissionsExt::from_mode(0o700),
-        )
-        .unwrap();
+        let result = save_displaced_model().await;
 
         result.expect_err("сбой записи cpm.json");
-        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
         assert_eq!(
-            manifest
-                .models
-                .iter()
-                .map(|m| m.file.clone())
-                .collect::<Vec<_>>(),
+            manifest_files(SYNC_PROJECT).await,
             vec!["limacina_7_new.cpmmodel"],
             "манифест и файл модели коммитятся до выбора"
         );
@@ -1041,32 +1054,15 @@ mod tests {
             .await
             .unwrap();
 
-        let config_dir = manifest_path(SYNC_PROJECT)
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        std::fs::set_permissions(
-            &config_dir,
-            std::os::unix::fs::PermissionsExt::from_mode(0o500),
-        )
-        .unwrap();
+        let _read_only = ReadOnlyDir::lock(
+            manifest_path(SYNC_PROJECT)
+                .unwrap()
+                .parent()
+                .unwrap()
+                .to_path_buf(),
+        );
 
-        let result = save_player_model_inner(
-            SYNC_PROJECT,
-            "new".to_string(),
-            Some("https://cdn.example.com/m/7v2".to_string()),
-            Some(7),
-            None,
-            None,
-        )
-        .await;
-
-        std::fs::set_permissions(
-            &config_dir,
-            std::os::unix::fs::PermissionsExt::from_mode(0o700),
-        )
-        .unwrap();
+        let result = save_displaced_model().await;
 
         result.expect_err("сохранение манифеста должно провалиться");
         assert!(
@@ -1077,13 +1073,8 @@ mod tests {
             model_file_exists("limacina_7_new.cpmmodel").await,
             "файл модели записывается до манифеста"
         );
-        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
         assert_eq!(
-            manifest
-                .models
-                .iter()
-                .map(|m| m.file.clone())
-                .collect::<Vec<_>>(),
+            manifest_files(SYNC_PROJECT).await,
             vec!["old.cpmmodel"],
             "манифест на диске не меняется при сбое записи"
         );
@@ -1107,12 +1098,7 @@ mod tests {
                 "url": "https://cdn.example.com/m/saved"
             }));
         }
-        server
-            .mock("GET", "/v1/common/content/models/uuid-1")
-            .with_status(200)
-            .with_body(models_mock_body(&items))
-            .create_async()
-            .await;
+        mock_models_endpoint(&mut server, models_mock_body(&items)).await;
         let state = sync_state(&server.url(), true, true);
 
         seed_manifest(vec![online_entry(
@@ -1172,12 +1158,7 @@ mod tests {
                 "url": "https://cdn.example.com/saved"
             }));
         }
-        server
-            .mock("GET", "/v1/common/content/models/uuid-1")
-            .with_status(200)
-            .with_body(models_mock_body(&items))
-            .create_async()
-            .await;
+        mock_models_endpoint(&mut server, models_mock_body(&items)).await;
         let state = sync_state(&server.url(), true, true);
 
         for round in 0..8u32 {

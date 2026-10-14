@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use tokio::sync::Mutex;
 
-use crate::auth::{self, AuthData};
+use crate::auth;
 use crate::commands::auth::{remember_login, store_session};
 use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
 use crate::utils::errors::LauncherError;
@@ -30,10 +30,6 @@ pub(crate) async fn refresh(
     Ok(())
 }
 
-pub(crate) fn select(username: &str) -> AuthData {
-    auth::offline(username)
-}
-
 pub(crate) fn reject_offline_session(session: &SessionTokens, reason: &str) -> Result<()> {
     if session.access_token == auth::OFFLINE_ACCESS_TOKEN {
         bail!(LauncherError::OfflineProfile(reason.to_string()));
@@ -50,25 +46,17 @@ pub(crate) fn reject_offline_project(project: &ProjectConfig, reason: &str) -> R
 
 #[cfg(test)]
 mod auth_offline_tests {
-    use super::{login, refresh, reject_offline_project, reject_offline_session, select};
+    use super::{login, refresh, reject_offline_project, reject_offline_session};
     use crate::auth::{generate_offline_uuid, OFFLINE_ACCESS_TOKEN};
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
-    use crate::state::launcher_config::LauncherConfig;
-    use crate::test_support::{seed_offline_project, ConfigFileGuard, LauncherDirGuard};
+    use crate::test_support::{
+        offline_global_state, seed_offline_project, ConfigFileGuard, LauncherDirGuard,
+    };
     use crate::utils::errors::LauncherError;
     use tokio::sync::Mutex;
 
     fn offline_state(project_name: &str) -> Mutex<GlobalState> {
-        Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: project_name.to_string(),
-                online: false,
-                ..ProjectConfig::default()
-            },
-            session: None,
-            launcher_config: Some(LauncherConfig::default()),
-            app_version: String::new(),
-        })
+        offline_global_state(project_name)
     }
 
     async fn session_token(state: &Mutex<GlobalState>) -> SessionTokens {
@@ -150,16 +138,6 @@ mod auth_offline_tests {
             .expect("конфиг лаунчера")
             .get_logins("OffProj")
             .is_empty());
-    }
-
-    #[test]
-    fn select_builds_offline_auth_data() {
-        let data = select("Steve");
-
-        assert_eq!(data.tokens.access_token, OFFLINE_ACCESS_TOKEN);
-        assert_eq!(data.tokens.refresh_token, "");
-        assert_eq!(data.uuid(), generate_offline_uuid("Steve"));
-        assert_eq!(data.username("fallback"), "Steve");
     }
 
     #[test]

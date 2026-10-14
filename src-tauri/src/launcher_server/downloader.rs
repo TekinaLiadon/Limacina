@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex as StdMutex, OnceLock};
 
@@ -15,26 +15,60 @@ use crate::utils::semaphore::{semaphore_core, SemaphoreInfo, MAX_CONCURRENT_DOWN
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
 
-static AUTH_CLIENT_CACHE: OnceLock<StdMutex<HashMap<String, Client>>> = OnceLock::new();
+const MAX_AUTH_CLIENT_CACHE: usize = 16;
+
+struct AuthClientCache {
+    clients: HashMap<String, Client>,
+    order: VecDeque<String>,
+}
+
+static AUTH_CLIENT_CACHE: OnceLock<StdMutex<AuthClientCache>> = OnceLock::new();
 
 #[cfg(test)]
 static AUTH_CLIENT_BUILD_COUNTS: OnceLock<StdMutex<HashMap<String, usize>>> = OnceLock::new();
 
+#[cfg(test)]
+static AUTH_CLIENT_TEST_LOCK: StdMutex<()> = StdMutex::new(());
+
+#[cfg(test)]
+fn reset_auth_client_cache() {
+    let cache = AUTH_CLIENT_CACHE.get_or_init(|| {
+        StdMutex::new(AuthClientCache {
+            clients: HashMap::new(),
+            order: VecDeque::new(),
+        })
+    });
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    guard.clients.clear();
+    guard.order.clear();
+}
+
 pub(crate) fn build_auth_client(token: &str) -> Result<Client> {
-    let cache = AUTH_CLIENT_CACHE.get_or_init(|| StdMutex::new(HashMap::new()));
+    let cache = AUTH_CLIENT_CACHE.get_or_init(|| {
+        StdMutex::new(AuthClientCache {
+            clients: HashMap::new(),
+            order: VecDeque::new(),
+        })
+    });
     {
         let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(client) = guard.get(token) {
+        if let Some(client) = guard.clients.get(token) {
             return Ok(client.clone());
         }
     }
     let client = build_auth_client_uncached(token)?;
     #[cfg(test)]
     record_build_for_tests(token);
-    cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(token.to_string(), client.clone());
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if !guard.clients.contains_key(token) {
+        while guard.order.len() >= MAX_AUTH_CLIENT_CACHE {
+            if let Some(evicted) = guard.order.pop_front() {
+                guard.clients.remove(&evicted);
+            }
+        }
+        guard.order.push_back(token.to_string());
+    }
+    guard.clients.insert(token.to_string(), client.clone());
     Ok(client)
 }
 
@@ -1183,10 +1217,28 @@ mod mock_server_tests {
 
 #[cfg(test)]
 mod auth_client_cache_tests {
-    use super::{auth_client_builds, build_auth_client};
+    use super::{
+        auth_client_builds, build_auth_client, reset_auth_client_cache, AUTH_CLIENT_TEST_LOCK,
+        MAX_AUTH_CLIENT_CACHE,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static EVICTION_TOKENS: AtomicUsize = AtomicUsize::new(0);
+
+    fn next_eviction_token() -> String {
+        format!(
+            "eviction-probe-token-{}",
+            EVICTION_TOKENS.fetch_add(1, Ordering::SeqCst)
+        )
+    }
 
     #[test]
     fn auth_client_is_rebuilt_only_for_new_tokens() {
+        let _guard = AUTH_CLIENT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reset_auth_client_cache();
+
         build_auth_client("cache-probe-token-a").expect("клиент для первого токена");
         let before = auth_client_builds("cache-probe-token-a");
 
@@ -1202,6 +1254,37 @@ mod auth_client_cache_tests {
             auth_client_builds("cache-probe-token-b"),
             1,
             "новый токен должен собирать отдельный клиент"
+        );
+    }
+
+    #[test]
+    fn auth_client_cache_evicts_oldest_beyond_capacity() {
+        let _guard = AUTH_CLIENT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reset_auth_client_cache();
+
+        let oldest = next_eviction_token();
+        build_auth_client(&oldest).expect("первый токен в кеше");
+        assert_eq!(auth_client_builds(&oldest), 1);
+        for _ in 1..MAX_AUTH_CLIENT_CACHE {
+            build_auth_client(&next_eviction_token()).expect("наполнение кеша");
+        }
+
+        let newest = next_eviction_token();
+        build_auth_client(&newest).expect("токен сверх вместимости");
+
+        build_auth_client(&oldest).expect("вытесненный токен собирается заново");
+        assert_eq!(
+            auth_client_builds(&oldest),
+            2,
+            "самый старый клиент должен вытесняться, а не накапливаться вечно"
+        );
+        build_auth_client(&newest).expect("свежий токен");
+        assert_eq!(
+            auth_client_builds(&newest),
+            1,
+            "свежий токен не должен вытесняться"
         );
     }
 }
