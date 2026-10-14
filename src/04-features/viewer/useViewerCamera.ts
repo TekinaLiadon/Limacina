@@ -1,6 +1,7 @@
 import { watch, type Ref } from 'vue'
 import * as THREE from 'three'
 import type { ViewerControls } from '@/06-shared'
+import type { ViewerModelApi } from './useViewerModel'
 
 interface AutoRotatableControls {
   autoRotate: boolean
@@ -11,12 +12,21 @@ interface ViewerCameraScene {
   getOrbitControls: () => AutoRotatableControls | null
 }
 
+const FIT_MARGIN = 1.08
+
 export function fitFovRadians(camera: THREE.PerspectiveCamera): number {
   const fovV = camera.fov * (Math.PI / 180)
   const { aspect } = camera
   if (!Number.isFinite(aspect) || aspect <= 0) return fovV
   const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect)
   return Number.isFinite(fovH) && fovH > 0 ? Math.min(fovV, fovH) : fovV
+}
+
+export function fitToView(api: ViewerModelApi): void {
+  const camera = api.camera.value
+  const radius = api.modelBoundingSphereRadius()
+  if (!camera || radius === null) return
+  api.setFitDistance((radius / Math.sin(fitFovRadians(camera) / 2)) * FIT_MARGIN)
 }
 
 export function useViewerCamera(

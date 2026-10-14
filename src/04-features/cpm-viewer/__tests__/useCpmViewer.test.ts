@@ -4,17 +4,19 @@ import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
 import { useCpmViewer, type CpmViewerOptions } from '../useCpmViewer'
 import type { ActiveCpmAnimation } from '../cpmAnimationPlayer'
-import type { CPMAnimation, CPMConfig, CPMData } from '@/05-entities'
+import type { CPMAnimation, CPMChild, CPMConfig, CPMData, CPMElement } from '@/05-entities'
 
 const seq = (...animations: CPMAnimation[]): ActiveCpmAnimation[] =>
   animations.map((animation) => ({ animation, startDelayMs: 0 }))
-import type { ViewerControls } from '@/06-shared'
+import { DEFAULT_RGB, type ViewerControls } from '@/06-shared'
 
 const textureLoads = vi.hoisted(() => [] as Array<{
   url: string
   resolve: (texture: THREE.Texture) => void
   fail: (error: unknown) => void
 }>)
+
+const boxGeometryState = vi.hoisted(() => ({ created: [] as Array<{ disposed: boolean }> }))
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()
@@ -32,7 +34,20 @@ vi.mock('three', async (importOriginal) => {
       })
     }
   }
-  return { ...actual, TextureLoader: FakeTextureLoader }
+  class TrackingBoxGeometry extends actual.BoxGeometry {
+    disposed = false
+
+    constructor(...args: ConstructorParameters<typeof actual.BoxGeometry>) {
+      super(...args)
+      boxGeometryState.created.push(this)
+    }
+
+    dispose(): void {
+      this.disposed = true
+      super.dispose()
+    }
+  }
+  return { ...actual, TextureLoader: FakeTextureLoader, BoxGeometry: TrackingBoxGeometry }
 })
 
 const mountedScene = vi.hoisted(() => ({ current: null as ShallowRef<THREE.Scene | null> | null }))
@@ -189,6 +204,29 @@ function makeConfigWithHiddenChild(): CPMConfig {
   }
 }
 
+const makeChild = (overrides: Partial<CPMChild> = {}): CPMChild => ({
+  name: 'skull',
+  size: { x: 8, y: 8, z: 8 },
+  offset: { x: 0, y: 0, z: 0 },
+  pos: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  scale: { x: 1, y: 1, z: 1 },
+  ...overrides,
+})
+
+const makeConfigWithChildren = (children: CPMChild[]): CPMConfig => ({
+  skinSize: { x: 64, y: 64 },
+  elements: [
+    {
+      id: 'head',
+      name: 'head',
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      children,
+    },
+  ],
+})
+
 function makeAnimation(id: string): CPMAnimation {
   return {
     id,
@@ -269,13 +307,20 @@ async function loadModel(harness: ViewerHarness, textureUrl: string): Promise<vo
   await resolveLastLoad(new THREE.Texture())
 }
 
+async function loadModelWithConfig(harness: ViewerHarness, config: CPMConfig, textureUrl: string): Promise<void> {
+  harness.cpmData.value = { config, textureUrl }
+  await nextTick()
+  await resolveLastLoad(new THREE.Texture())
+}
+
 describe('useCpmViewer', () => {
   beforeEach(() => {
     textureLoads.length = 0
+    boxGeometryState.created.length = 0
     mountedScene.current = null
     playerState.disposed = 0
     playerState.instances = []
-    vi.stubGlobal('requestAnimationFrame', vi.fn((): number => 1))
+    vi.stubGlobal('requestAnimationFrame', vi.fn((_callback: FrameRequestCallback): number => 1))
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
 
@@ -298,6 +343,44 @@ describe('useCpmViewer', () => {
 
     const rootGroup = firstModelMesh().parent?.parent
     expect(rootGroup?.userData.isVanillaPart).toBe(true)
+    harness.unmount()
+  })
+
+  it('maps storeID for cape and armor roots from the element config', async () => {
+    const cube = (name: string, storeID: number): CPMChild => ({
+      name,
+      storeID,
+      size: { x: 4, y: 4, z: 4 },
+      offset: { x: 0, y: 0, z: 0 },
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+    const root = (id: string, storeID: number): CPMElement => ({
+      id,
+      name: id,
+      storeID,
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      children: [cube(`${id}-cube`, storeID)],
+    })
+    const harness = await mountViewer()
+    harness.cpmData.value = {
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [root('head', 100), root('cape', 6), root('armor_helmet', 12)],
+      },
+      textureUrl: 'model.png',
+    }
+    await nextTick()
+    await resolveLastLoad(new THREE.Texture())
+
+    const [modelRoot] = modelGroups()
+    if (!modelRoot) throw new Error('model was not added to the scene')
+    const stores = new Map(modelRoot.children.map((group) => [group.name, group.userData.storeID as number | undefined]))
+    expect(stores.get('head')).toBe(0)
+    expect(stores.get('cape')).toBe(6)
+    expect(stores.get('armor_helmet')).toBe(12)
     harness.unmount()
   })
 
@@ -418,6 +501,73 @@ describe('useCpmViewer', () => {
     expect(playerState.disposed).toBe(1)
   })
 
+  it('does not schedule the animation tick without a model or playback', async () => {
+    const raf = vi.mocked(requestAnimationFrame)
+    const harness = await mountViewer()
+
+    expect(raf).not.toHaveBeenCalled()
+
+    await loadModel(harness, 'model.png')
+    expect(raf).not.toHaveBeenCalled()
+
+    harness.unmount()
+    expect(raf).not.toHaveBeenCalled()
+  })
+
+  it('runs and reschedules the animation tick only while the player exists and playback is on', async () => {
+    const raf = vi.mocked(requestAnimationFrame)
+    const harness = await mountViewer()
+    await loadModel(harness, 'model.png')
+    expect(raf).not.toHaveBeenCalled()
+
+    harness.isAnimationPlaying.value = true
+    await nextTick()
+    expect(raf).toHaveBeenCalledTimes(1)
+
+    const [tick] = raf.mock.calls[0] ?? []
+    if (!tick) throw new Error('animation tick was not scheduled')
+    tick(16)
+    expect(playerState.instances[0]?.calls).toContain('update')
+    expect(raf).toHaveBeenCalledTimes(2)
+
+    harness.isAnimationPlaying.value = false
+    await nextTick()
+    expect(cancelAnimationFrame).toHaveBeenCalled()
+
+    const [nextCallback = null] = raf.mock.calls[1] ?? []
+    if (!nextCallback) throw new Error('animation tick was not rescheduled')
+    nextCallback(16)
+    expect(raf).toHaveBeenCalledTimes(2)
+    expect(playerState.instances[0]?.calls.filter((call) => call === 'update')).toHaveLength(1)
+
+    harness.unmount()
+  })
+
+  it('stops the animation tick when the model is cleared', async () => {
+    const raf = vi.mocked(requestAnimationFrame)
+    const harness = await mountViewer()
+    await loadModel(harness, 'model.png')
+
+    harness.isAnimationPlaying.value = true
+    await nextTick()
+    const [tick] = raf.mock.calls[0] ?? []
+    if (!tick) throw new Error('animation tick was not scheduled')
+    tick(16)
+    expect(raf).toHaveBeenCalledTimes(2)
+
+    harness.cpmData.value = null
+    await nextTick()
+    expect(cancelAnimationFrame).toHaveBeenCalled()
+
+    const [nextCallback = null] = raf.mock.calls[1] ?? []
+    if (!nextCallback) throw new Error('animation tick was not rescheduled')
+    nextCallback(16)
+    expect(raf).toHaveBeenCalledTimes(2)
+    expect(playerState.instances[0]?.calls.filter((call) => call === 'update')).toHaveLength(1)
+
+    harness.unmount()
+  })
+
   it('reports the real playing state when the animation selection changes', async () => {
     const onPlayingChanged = vi.fn()
     const harness = await mountViewer({ onPlayingChanged })
@@ -452,5 +602,59 @@ describe('useCpmViewer', () => {
     expect(playerState.instances).toHaveLength(1)
     expect(playerState.instances[0]?.calls).toContain('setAnimations')
     expect(playerState.instances[0]?.calls).toContain('setPlaying')
+  })
+
+  it('disposes the BoxGeometry replaced by the extruded geometry right away', async () => {
+    const harness = await mountViewer()
+    await loadModelWithConfig(harness, makeConfigWithChildren([
+      makeChild({ name: 'plain', storeID: 1 }),
+      makeChild({
+        name: 'perface',
+        storeID: 2,
+        faceUV: { north: { sx: 0, sy: 0, ex: 8, ey: 8, rot: '0', autoUV: true } },
+      }),
+      makeChild({ name: 'extruded', storeID: 3, extrude: true }),
+    ]), 'model.png')
+
+    const [plain, perFace, extruded] = boxGeometryState.created
+    expect(plain?.disposed).toBe(false)
+    expect(perFace?.disposed).toBe(false)
+    expect(extruded?.disposed).toBe(true)
+    harness.unmount()
+  })
+
+  it('does not accumulate undisposed BoxGeometry across model reloads', async () => {
+    const harness = await mountViewer()
+    const config = makeConfigWithChildren([
+      makeChild({ name: 'plain', storeID: 1 }),
+      makeChild({
+        name: 'perface',
+        storeID: 2,
+        faceUV: { north: { sx: 0, sy: 0, ex: 8, ey: 8, rot: '0', autoUV: true } },
+      }),
+      makeChild({ name: 'extruded', storeID: 3, extrude: true }),
+    ])
+    await loadModelWithConfig(harness, config, 'model.png')
+    await loadModelWithConfig(harness, config, 'model2.png')
+
+    harness.unmount()
+
+    expect(boxGeometryState.created.filter((geometry) => !geometry.disposed)).toEqual([])
+  })
+
+  it('renders textureless cubes without a valid color in the shared default color', async () => {
+    const harness = await mountViewer()
+    await loadModelWithConfig(harness, makeConfigWithChildren([
+      makeChild({ name: 'invalid', storeID: 1, texture: false, color: '80808080' }),
+      makeChild({ name: 'missing', storeID: 2, texture: false }),
+    ]), 'model.png')
+
+    const meshes: THREE.Mesh[] = []
+    mountedScene.current?.value?.traverse((object) => {
+      if (object instanceof THREE.Mesh) meshes.push(object)
+    })
+    const colors = meshes.map((mesh) => (mesh.material as THREE.MeshLambertMaterial).color.getHex())
+    expect(colors).toEqual([DEFAULT_RGB, DEFAULT_RGB])
+    harness.unmount()
   })
 })

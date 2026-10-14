@@ -1,16 +1,12 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { reportError } from './reportError'
+import { matchesExtension } from './utils'
 
 interface FileDropOptions {
   accept: readonly string[]
   onDrop: (path: string) => void
   onError: (message: string) => void
-}
-
-const hasAcceptedExtension = (path: string, accept: readonly string[]): boolean => {
-  const extension = path.split('.').pop()?.toLowerCase() ?? ''
-  return accept.some((item) => item.toLowerCase() === extension)
 }
 
 export function useFileDrop(options: FileDropOptions): { isDragOver: Ref<boolean> } {
@@ -23,7 +19,7 @@ export function useFileDrop(options: FileDropOptions): { isDragOver: Ref<boolean
       const stop = await getCurrentWebview().onDragDropEvent((event) => {
         const { payload } = event
         if (payload.type === 'enter') {
-          if (payload.paths.some((path) => hasAcceptedExtension(path, options.accept))) {
+          if (payload.paths.some((path) => matchesExtension(path, options.accept))) {
             isDragOver.value = true
           }
           return
@@ -34,13 +30,13 @@ export function useFileDrop(options: FileDropOptions): { isDragOver: Ref<boolean
         }
         if (payload.type === 'drop') {
           isDragOver.value = false
-          const acceptedPath = payload.paths.find((path) => hasAcceptedExtension(path, options.accept))
+          const acceptedPath = payload.paths.find((path) => matchesExtension(path, options.accept))
           if (acceptedPath !== undefined) {
             options.onDrop(acceptedPath)
             return
           }
           if (payload.paths.length > 0) {
-            options.onError(`Допустимый формат — .${options.accept.join(', .')}`)
+            options.onError(`Допустимый формат: .${options.accept.join(', .')}`)
           }
         }
       })

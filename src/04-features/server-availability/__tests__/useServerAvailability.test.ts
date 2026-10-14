@@ -69,23 +69,23 @@ describe('useServerAvailability', () => {
     expect(useServerStore().isServerReachable).toBe(true)
   })
 
-  it('keeps the flag unknown after a single failed ping', async () => {
+  it('marks the server unreachable on the first failed ping', async () => {
     api.pingLauncherServer.mockResolvedValue(false)
     await startSync()
     await watchProject(true)
 
-    expect(useServerStore().isServerReachable).toBeNull()
+    expect(useServerStore().isServerReachable).toBe(false)
   })
 
-  it('keeps the flag unknown when the ping rejects', async () => {
+  it('marks the server unreachable when the ping rejects', async () => {
     api.pingLauncherServer.mockRejectedValue(new Error('probe failed'))
     await startSync()
     await watchProject(true)
 
-    expect(useServerStore().isServerReachable).toBeNull()
+    expect(useServerStore().isServerReachable).toBe(false)
   })
 
-  it('keeps the reachable flag on an isolated failure', async () => {
+  it('flips to unreachable on an isolated failure', async () => {
     api.pingLauncherServer.mockResolvedValueOnce(true)
     api.pingLauncherServer.mockResolvedValue(false)
     await startSync()
@@ -94,23 +94,20 @@ describe('useServerAvailability', () => {
 
     await advanceAfterFailures(1)
     expect(api.pingLauncherServer).toHaveBeenCalledTimes(2)
-    expect(useServerStore().isServerReachable).toBe(true)
+    expect(useServerStore().isServerReachable).toBe(false)
   })
 
-  it('marks the server unreachable after a failure streak of the threshold length', async () => {
+  it('stays unreachable across a failure streak', async () => {
     api.pingLauncherServer.mockResolvedValue(false)
     await startSync()
     await watchProject(true)
+    expect(useServerStore().isServerReachable).toBe(false)
 
-    for (let failures = 1; failures < FAILURE_THRESHOLD - 1; failures++) {
+    for (let failures = 1; failures < FAILURE_THRESHOLD; failures++) {
       await advanceAfterFailures(failures)
       expect(api.pingLauncherServer).toHaveBeenCalledTimes(failures + 1)
-      expect(useServerStore().isServerReachable).toBeNull()
+      expect(useServerStore().isServerReachable).toBe(false)
     }
-
-    await advanceAfterFailures(FAILURE_THRESHOLD - 1)
-    expect(api.pingLauncherServer).toHaveBeenCalledTimes(FAILURE_THRESHOLD)
-    expect(useServerStore().isServerReachable).toBe(false)
   })
 
   it('recovers instantly after a failure streak', async () => {
@@ -129,7 +126,7 @@ describe('useServerAvailability', () => {
     expect(useServerStore().isServerReachable).toBe(true)
   })
 
-  it('resets the failure streak after an intermittent success', async () => {
+  it('marks the server unreachable again after an intermittent success', async () => {
     api.pingLauncherServer.mockResolvedValueOnce(false)
     api.pingLauncherServer.mockResolvedValueOnce(false)
     api.pingLauncherServer.mockResolvedValueOnce(true)
@@ -144,7 +141,7 @@ describe('useServerAvailability', () => {
 
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
     expect(api.pingLauncherServer).toHaveBeenCalledTimes(4)
-    expect(useServerStore().isServerReachable).toBe(true)
+    expect(useServerStore().isServerReachable).toBe(false)
   })
 
   it('doubles the polling interval after consecutive failures', async () => {

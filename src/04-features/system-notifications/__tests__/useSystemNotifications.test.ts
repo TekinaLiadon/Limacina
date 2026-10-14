@@ -69,6 +69,7 @@ const exitInfo = (overrides: Partial<GameExitInfo>): GameExitInfo => ({
   success: false,
   code: 1,
   reason: null,
+  username: 'Steve',
   ...overrides,
 })
 
@@ -126,7 +127,7 @@ describe('useSystemNotifications', () => {
       await emitExit?.(exitInfo({ reason: 'Недостаточно выделенной памяти (OutOfMemoryError)' }))
 
       expect(notification.visible).toBe(true)
-      expect(notification.message).toBe('Недостаточно выделенной памяти (OutOfMemoryError)')
+      expect(notification.message).toBe('Игра Steve: Недостаточно выделенной памяти (OutOfMemoryError)')
     })
 
     it('keeps the generic code message when no reason is reported', async () => {
@@ -136,7 +137,17 @@ describe('useSystemNotifications', () => {
       await emitExit?.(exitInfo({ code: 1 }))
 
       expect(notification.visible).toBe(true)
-      expect(notification.message).toBe('Игра завершилась с ошибкой (код 1)')
+      expect(notification.message).toBe('Игра Steve завершилась с ошибкой (код 1)')
+    })
+
+    it('falls back to the crash toast when neither reason nor code is reported', async () => {
+      await start()
+      const notification = useNotificationStore()
+
+      await emitExit?.(exitInfo({ code: null }))
+
+      expect(notification.visible).toBe(true)
+      expect(notification.message).toBe('Игра Steve была аварийно завершена')
     })
 
     it('ignores successful exits while the window is visible', async () => {
@@ -158,7 +169,7 @@ describe('useSystemNotifications', () => {
 
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершилась с ошибкой',
-        body: 'Недостаточно выделенной памяти (OutOfMemoryError)',
+        body: 'Игра Steve: Недостаточно выделенной памяти (OutOfMemoryError)',
       })
       expect(notification.visible).toBe(false)
     })
@@ -171,7 +182,19 @@ describe('useSystemNotifications', () => {
 
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершилась с ошибкой',
-        body: 'Процесс игры завершился с кодом -1',
+        body: 'Процесс игры Steve завершился с кодом -1',
+      })
+    })
+
+    it('falls back to the crash body in OS notifications without a code', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await emitExit?.(exitInfo({ code: null }))
+
+      expect(api.sendOsNotification).toHaveBeenCalledWith({
+        title: 'Игра завершилась с ошибкой',
+        body: 'Процесс игры Steve был аварийно завершён',
       })
     })
 
@@ -183,7 +206,25 @@ describe('useSystemNotifications', () => {
 
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершена',
-        body: 'Игра закрыта — лаунчер ждёт в трее',
+        body: 'Игра Steve закрыта, лаунчер ждёт в трее',
+      })
+    })
+
+    it('sends an OS notification for every exited session with its own nick', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await emitExit?.(exitInfo({ success: true, code: 0, username: 'alice' }))
+      await emitExit?.(exitInfo({ success: false, code: 1, username: 'bob' }))
+
+      expect(api.sendOsNotification).toHaveBeenCalledTimes(2)
+      expect(api.sendOsNotification).toHaveBeenNthCalledWith(1, {
+        title: 'Игра завершена',
+        body: 'Игра alice закрыта, лаунчер ждёт в трее',
+      })
+      expect(api.sendOsNotification).toHaveBeenNthCalledWith(2, {
+        title: 'Игра завершилась с ошибкой',
+        body: 'Процесс игры bob завершился с кодом 1',
       })
     })
   })
@@ -197,7 +238,7 @@ describe('useSystemNotifications', () => {
 
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра запущена',
-        body: 'Сессия alice запущена — лаунчер ждёт в трее',
+        body: 'Сессия alice запущена, лаунчер ждёт в трее',
       })
     })
 
@@ -212,7 +253,7 @@ describe('useSystemNotifications', () => {
       await vi.waitFor(() =>
         expect(api.sendOsNotification).toHaveBeenCalledWith({
           title: 'Игра запущена',
-          body: 'Сессия alice запущена — лаунчер ждёт в трее',
+          body: 'Сессия alice запущена, лаунчер ждёт в трее',
         })
       )
     })
@@ -244,7 +285,7 @@ describe('useSystemNotifications', () => {
       await vi.waitFor(() => expect(api.sendOsNotification).toHaveBeenCalledTimes(2))
       expect(api.sendOsNotification).toHaveBeenLastCalledWith({
         title: 'Игра запущена',
-        body: 'Сессия alice запущена — лаунчер ждёт в трее',
+        body: 'Сессия alice запущена, лаунчер ждёт в трее',
       })
     })
 
@@ -297,7 +338,7 @@ describe('useSystemNotifications', () => {
       await emitExit?.(exitInfo({ success: true, code: 0 }))
       expect(api.sendOsNotification).toHaveBeenCalledWith({
         title: 'Игра завершена',
-        body: 'Игра закрыта — лаунчер ждёт в трее',
+        body: 'Игра Steve закрыта, лаунчер ждёт в трее',
       })
 
       await emitExit?.(exitInfo({ success: true, code: 0 }))
@@ -305,7 +346,7 @@ describe('useSystemNotifications', () => {
       expect(api.getNotificationIcon).toHaveBeenCalledTimes(2)
       expect(api.sendOsNotification).toHaveBeenLastCalledWith({
         title: 'Игра завершена',
-        body: 'Игра закрыта — лаунчер ждёт в трее',
+        body: 'Игра Steve закрыта, лаунчер ждёт в трее',
         icon: '/icon.png',
       })
     })

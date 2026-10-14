@@ -47,12 +47,19 @@ export function removeGroupFromScene(
 
 export interface ManagedTexture {
   load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void, onError?: (url: string) => void) => void
+  cancel: () => void
   dispose: () => void
 }
 
 export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): ManagedTexture {
   const guard = useAsyncRaceGuard()
   let currentTexture: THREE.Texture | null = null
+
+  function release(): void {
+    guard.cancel()
+    if (currentTexture) currentTexture.dispose()
+    currentTexture = null
+  }
 
   return {
     load: (url: string, onLoaded: (texture: THREE.Texture, scene: THREE.Scene) => void, onError?: (url: string) => void): void => {
@@ -75,10 +82,7 @@ export function createManagedTextureLoader(scene: Ref<THREE.Scene | null>): Mana
         onError?.(url)
       })
     },
-    dispose: (): void => {
-      guard.cancel()
-      if (currentTexture) currentTexture.dispose()
-      currentTexture = null
-    },
+    cancel: release,
+    dispose: release,
   }
 }

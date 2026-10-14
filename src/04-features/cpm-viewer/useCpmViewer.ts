@@ -1,8 +1,8 @@
 import { watch, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
-import { parseHexColor, type ViewerControls } from '@/06-shared'
+import { DEFAULT_RGB, parseHexColor, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
-import { fitFovRadians } from '@/04-features/viewer/useViewerCamera'
+import { fitToView } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
 import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type SharedClock } from './cpmAnimationPlayer'
 import { computeMeshVisible } from './meshVisibility'
@@ -274,7 +274,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
       const element = node as CPMElement
       const isVanillaRoot = element.customPart !== true && element.dup !== true
       group.userData.storeID = isVanillaRoot
-        ? PLAYER_PART_IDS[element.id]
+        ? (PLAYER_PART_IDS[element.id] ?? element.storeID)
         : element.storeID
       group.userData.isRoot = true
       group.userData.isVanillaPart = isVanillaRoot
@@ -307,7 +307,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
         if (child.texture === false) {
           const rgb = parseHexColor(child.color)
           mat = new THREE.MeshLambertMaterial({
-            color: rgb ?? 0xffffff,
+            color: rgb ?? DEFAULT_RGB,
             side: THREE.DoubleSide,
           })
           mesh = new THREE.Mesh(geo, mat)
@@ -317,6 +317,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
           let meshGeo: THREE.BufferGeometry = geo
           if (!singleTex && child.extrude) {
             meshGeo = buildExtrudedGeometry(child, mcScale, skinW, skinH)
+            geo.dispose()
           } else {
             const effTexSize = child.mirror ? -Math.abs(texSize) : texSize
             if (!singleTex && child.faceUV && Object.keys(child.faceUV).length > 0) {
@@ -435,16 +436,13 @@ export function useCpmViewer(
         player.setPlaying(isAnimationPlaying.value)
 
         updateVisibility()
-
-        const radius = api.modelBoundingSphereRadius()
-        const perspectiveCamera = api.camera.value
-        if (radius !== null && perspectiveCamera) {
-          api.setFitDistance((radius / Math.sin(fitFovRadians(perspectiveCamera) / 2)) * 1.08)
-        }
+        syncAnimationTick()
+        fitToView(api)
       },
       onModelCleared: (): void => {
         player?.dispose()
         player = null
+        syncAnimationTick()
       },
       onTextureError: (url: string): void => {
         options.onTextureError?.(url)
@@ -472,9 +470,26 @@ export function useCpmViewer(
     }
   }
 
+  function stopAnimationTick(): void {
+    if (tickId !== 0) {
+      cancelAnimationFrame(tickId)
+      tickId = 0
+    }
+  }
+
   function tickAnimation(): void {
-    if (player && isAnimationPlaying.value) player.update()
+    tickId = 0
+    if (player === null || !isAnimationPlaying.value) return
+    player.update()
     tickId = requestAnimationFrame(tickAnimation)
+  }
+
+  function syncAnimationTick(): void {
+    if (player !== null && isAnimationPlaying.value) {
+      if (tickId === 0) tickId = requestAnimationFrame(tickAnimation)
+      return
+    }
+    stopAnimationTick()
   }
 
   watch(cpmData, (data) => {
@@ -490,6 +505,7 @@ export function useCpmViewer(
 
   watch(isAnimationPlaying, (playing: boolean) => {
     player?.setPlaying(playing)
+    syncAnimationTick()
   })
 
   watch(animationSpeed, (speed: number) => {
@@ -504,10 +520,8 @@ export function useCpmViewer(
     updateVisibility()
   })
 
-  tickId = requestAnimationFrame(tickAnimation)
-
   onBeforeUnmount(() => {
-    cancelAnimationFrame(tickId)
+    stopAnimationTick()
     clearModel()
   })
 

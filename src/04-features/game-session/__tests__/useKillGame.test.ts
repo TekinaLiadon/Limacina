@@ -1,22 +1,34 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useLaunchStore, useNotificationStore } from '@/05-entities'
-import { killGameProcess } from '@/06-shared/api'
+import { getGameState, killGameProcess, listenGameExit, listenGameStarted } from '@/06-shared/api'
 import { useKillGame } from '../useKillGame'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   killGameProcess: vi.fn(),
+  getGameState: vi.fn(),
+  listenGameStarted: vi.fn(),
+  listenGameExit: vi.fn(),
 }))
 
 describe('useKillGame', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(killGameProcess).mockReset()
+    vi.mocked(getGameState).mockReset()
+    vi.mocked(getGameState).mockResolvedValue([])
+    vi.mocked(listenGameStarted).mockResolvedValue(() => {})
+    vi.mocked(listenGameExit).mockResolvedValue(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('kills the running game without a toast', async () => {
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     vi.mocked(killGameProcess).mockResolvedValue(undefined)
     const { killGame, isKilling, isGameRunning } = useKillGame()
 
@@ -29,12 +41,55 @@ describe('useKillGame', () => {
     expect(useNotificationStore().visible).toBe(false)
   })
 
+  it('clears the running session after a kill without a game-exit event', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice', 'bob']
+    vi.mocked(killGameProcess).mockResolvedValue(undefined)
+    const { killGame, isGameRunning } = useKillGame()
+
+    await killGame()
+
+    expect(launch.gameUsernames).toEqual([])
+    expect(isGameRunning.value).toBe(false)
+    expect(getGameState).not.toHaveBeenCalled()
+  })
+
+  it('reconciles the ghost session with the backend when the kill fails', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice']
+    vi.mocked(killGameProcess).mockRejectedValue(new Error('Игра не запущена'))
+    vi.mocked(getGameState).mockResolvedValue([])
+    const { killGame, isGameRunning } = useKillGame()
+
+    await killGame()
+
+    expect(launch.gameUsernames).toEqual([])
+    expect(isGameRunning.value).toBe(false)
+    const notificationStore = useNotificationStore()
+    expect(notificationStore.visible).toBe(true)
+    expect(notificationStore.message).toContain('Не удалось завершить процесс игры')
+  })
+
+  it('keeps the session when the backend still reports it after a failed kill', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['alice']
+    vi.mocked(killGameProcess).mockRejectedValue(new Error('отказано в доступе'))
+    vi.mocked(getGameState).mockResolvedValue(['alice'])
+    const { killGame, isGameRunning } = useKillGame()
+
+    await killGame()
+
+    expect(launch.gameUsernames).toEqual(['alice'])
+    expect(isGameRunning.value).toBe(true)
+    expect(useNotificationStore().message).toContain('отказано в доступе')
+  })
+
   it('tracks the running state from the session username', () => {
     const { isGameRunning } = useKillGame()
 
     expect(isGameRunning.value).toBe(false)
 
-    useLaunchStore().gameUsername = 'bob'
+    useLaunchStore().gameUsernames = ['bob']
 
     expect(isGameRunning.value).toBe(true)
   })
@@ -50,22 +105,8 @@ describe('useKillGame', () => {
     expect(notificationStore.message).toContain('Игра не запущена')
   })
 
-  it('surfaces the kill failure as a toast with the command message', async () => {
-    useLaunchStore().gameUsername = 'alice'
-    vi.mocked(killGameProcess).mockRejectedValue(new Error('отказано в доступе'))
-    const { killGame, isKilling } = useKillGame()
-
-    await killGame()
-
-    const notificationStore = useNotificationStore()
-    expect(notificationStore.visible).toBe(true)
-    expect(notificationStore.message).toContain('Не удалось завершить процесс игры')
-    expect(notificationStore.message).toContain('отказано в доступе')
-    expect(isKilling.value).toBe(false)
-  })
-
   it('ignores a repeated click while a kill is in flight', async () => {
-    useLaunchStore().gameUsername = 'alice'
+    useLaunchStore().gameUsernames = ['alice']
     let resolveKill: () => void = () => {}
     vi.mocked(killGameProcess).mockImplementationOnce(
       () =>

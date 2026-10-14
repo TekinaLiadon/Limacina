@@ -154,14 +154,14 @@
   font-size: var(--text-body-sm);
 }
 
-@mixin options-panel {
+@mixin options-panel-box($floating: false) {
   position: absolute;
-  top: 100%;
+  top: if(sass($floating): calc(100% + var(--space-4)); else: 100%);
   left: 0;
   right: 0;
   background-color: var(--login-bg-form);
-  border-radius: 0 0 var(--radius-input) var(--radius-input);
-  padding: var(--space-4) 0;
+  border-radius: if(sass($floating): var(--radius-input); else: 0 0 var(--radius-input) var(--radius-input));
+  padding: var(--space-4) if(sass($floating): var(--space-4); else: 0);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -169,6 +169,10 @@
   box-shadow: var(--elevation-modal);
   overflow-y: auto;
   transform-origin: top center;
+}
+
+@mixin options-panel {
+  @include options-panel-box;
 
   &__item {
     cursor: pointer;
@@ -206,10 +210,10 @@
   }
 }
 
-@mixin options-panel-up {
+@mixin options-panel-up($floating: false) {
   top: auto;
-  bottom: 100%;
-  border-radius: var(--radius-input) var(--radius-input) 0 0;
+  bottom: if(sass($floating): calc(100% + var(--space-4)); else: 100%);
+  border-radius: if(sass($floating): var(--radius-input); else: var(--radius-input) var(--radius-input) 0 0);
   transform-origin: bottom center;
 }
 
@@ -319,13 +323,28 @@
   border-radius: var(--radius-pill);
 }
 
+@mixin accent-gradient {
+  background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
+}
+
 @mixin slider-fill {
   position: absolute;
   top: 0;
   height: 100%;
-  background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
+  @include accent-gradient;
   border-radius: var(--radius-pill);
   pointer-events: none;
+}
+
+@mixin slider-thumb-core {
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  border-radius: var(--radius-circle);
+  background: var(--login-accent);
+  border: none;
+  box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 @mixin slider-input {
@@ -341,14 +360,7 @@
 
   &::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: var(--slider-thumb-size);
-    height: var(--slider-thumb-size);
-    border-radius: var(--radius-circle);
-    background: var(--login-accent);
-    border: none;
-    box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
-    cursor: pointer;
-    pointer-events: auto;
+    @include slider-thumb-core;
     transition: transform var(--duration-fast) var(--ease-out);
 
     &:hover {
@@ -357,14 +369,7 @@
   }
 
   &::-moz-range-thumb {
-    width: var(--slider-thumb-size);
-    height: var(--slider-thumb-size);
-    border-radius: var(--radius-circle);
-    background: var(--login-accent);
-    border: none;
-    box-shadow: var(--elevation-glow), inset 0 0 0 1px var(--border-subtle);
-    cursor: pointer;
-    pointer-events: auto;
+    @include slider-thumb-core;
   }
 }
 
@@ -484,9 +489,23 @@
   transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
 }
 
-@mixin page-scaffold {
+@mixin checkbox-box {
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  border: none;
+  box-shadow: var(--elevation-inset);
+  background: var(--surface-input);
+  border-radius: var(--radius-badge);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+  flex-shrink: 0;
+}
+
+@mixin page-scaffold($max-width: var(--page-max-width)) {
   width: 100%;
-  max-width: var(--page-max-width);
+  max-width: $max-width;
   margin: 0 auto;
   padding: var(--page-padding-y) var(--page-padding-x);
   display: flex;

@@ -1,16 +1,15 @@
 use crate::utils::errors::LauncherError;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth;
-use crate::commands::auth::restore_and_persist_session;
 use crate::launcher_server::user_content::{self, UserContentItem};
 use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offline_skin_model};
-use crate::state::config::load_config_or_default;
-use crate::state::dto::{GlobalState, SessionTokens};
+use crate::state::config::{current_project_config, validated_project_name};
+use crate::state::dto::GlobalState;
+use crate::utils::allowlisted_read::AllowlistedRead;
 use crate::utils::download_file::{download_file, write_atomic};
 use crate::utils::env_info::{ensure_safe_relative_path, launcher_path};
 use crate::utils::hex::digest_hex;
@@ -21,41 +20,6 @@ use crate::{log_err, log_info};
 pub struct SessionInfo {
     pub uuid: String,
     pub username: String,
-}
-
-#[tauri::command]
-pub async fn select_account(
-    state: State<'_, Mutex<GlobalState>>,
-    project_name: String,
-    username: String,
-) -> CommandResult<SessionInfo> {
-    let project = load_config_or_default(&project_name).await?;
-
-    let auth_data = if project.online {
-        restore_and_persist_session(&project_name, &username, None).await?
-    } else {
-        auth::offline(&username)
-    };
-
-    let uuid = auth_data.uuid();
-    let username_str = auth_data.username(&username);
-
-    {
-        let mut state = state.lock().await;
-        state.session = Some(SessionTokens {
-            access_token: auth_data.tokens.access_token.clone(),
-            uuid: uuid.clone(),
-            username: username_str.clone(),
-            project_name: project_name.clone(),
-        });
-    }
-
-    log_info!("Аккаунт выбран: {}", username_str);
-
-    Ok(SessionInfo {
-        uuid,
-        username: username_str,
-    })
 }
 
 #[tauri::command]
@@ -71,7 +35,6 @@ pub async fn get_session_info(
 
 #[tauri::command]
 pub async fn clear_session(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    crate::state::launch_state::force_release();
     let mut state = state.lock().await;
     state.session = None;
     Ok(())
@@ -143,55 +106,81 @@ fn skin_cache_name(uuid: &str, url: &str) -> Result<String> {
     Ok(name)
 }
 
+fn ensure_skin_origin(url: &str, server_url: Option<&str>) -> Result<()> {
+    let Some(server_url) = server_url else {
+        return Err(LauncherError::InvalidInput(
+            "Скин можно получить только с сервера профиля".to_string(),
+        )
+        .into());
+    };
+    let skin = url::Url::parse(url)
+        .map_err(|_| LauncherError::InvalidInput("Некорректная ссылка на скин".to_string()))?;
+    if !matches!(skin.scheme(), "http" | "https") {
+        return Err(LauncherError::InvalidInput(
+            "Скин можно получить только по http(s)-ссылке".to_string(),
+        )
+        .into());
+    }
+    let origin = url::Url::parse(server_url).map_err(|_| {
+        LauncherError::LauncherServer("Не удалось разобрать адрес сервера профиля".to_string())
+    })?;
+    if skin.scheme() != origin.scheme()
+        || skin.host() != origin.host()
+        || skin.port_or_known_default() != origin.port_or_known_default()
+    {
+        return Err(LauncherError::InvalidInput(
+            "Скин можно получить только с сервера профиля".to_string(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 async fn get_profile_skin_inner(
     state: &State<'_, Mutex<GlobalState>>,
     url: &str,
 ) -> Result<Vec<u8>> {
-    let (project_name, uuid) = {
-        let guard = state.lock().await;
-        let uuid = guard
-            .session
-            .as_ref()
-            .map(|s| s.uuid.clone())
-            .ok_or(LauncherError::NoSession)?;
-        (guard.project_config.project_name.clone(), uuid)
-    };
+    let config = current_project_config(state.inner()).await?;
+    let server_url = config.resolved_server_url();
+    let project_name = config.project_name;
+    let uuid = state
+        .lock()
+        .await
+        .session
+        .as_ref()
+        .map(|s| s.uuid.clone())
+        .ok_or(LauncherError::NoSession)?;
 
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
-    }
+    ensure_skin_origin(url, server_url.as_deref())?;
 
     let cache_dir = launcher_path(Some(&project_name))?.join("profile_skins");
     let file_name = skin_cache_name(&uuid, url)?;
     let cache_path = cache_dir.join(&file_name);
     let prefix = format!("{}_", uuid);
 
-    crate::utils::blocking(
-        "Не удалось выполнить очистку кэша скинов",
-        {
-            let cache_dir = cache_dir.clone();
-            let file_name = file_name.clone();
-            let prefix = prefix.clone();
-            move || {
-                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-                    for entry in entries.flatten() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if name.starts_with(&prefix) && name != file_name {
-                                let _ = std::fs::remove_file(entry.path());
-                            }
+    crate::utils::blocking("Не удалось очистить кэш скинов", {
+        let cache_dir = cache_dir.clone();
+        let file_name = file_name.clone();
+        let prefix = prefix.clone();
+        move || {
+            if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&prefix) && name != file_name {
+                            let _ = std::fs::remove_file(entry.path());
                         }
                     }
                 }
             }
-        },
-    )
+        }
+    })
     .await?;
 
     download_file(url, &cache_path).await?;
 
     let cache_path_clone = cache_path.clone();
     let bytes = crate::utils::blocking(
-        "Не удалось выполнить чтение кэша скина",
+        "Не удалось прочитать кэш скина",
         move || {
             std::fs::read(&cache_path_clone)
                 .with_context(|| format!("Не удалось прочитать {:?}", cache_path_clone))
@@ -213,6 +202,8 @@ pub async fn get_profile_skin(
 
 const SKIN_EXT: &str = "png";
 const SKIN_MAX_BYTES: u64 = 256 * 1024;
+const SKIN_FILE_READ: AllowlistedRead =
+    AllowlistedRead::new(SKIN_EXT, SKIN_MAX_BYTES, 1024, "КБ", "скина");
 
 fn ensure_skin_size(len: u64) -> Result<()> {
     if len > SKIN_MAX_BYTES {
@@ -226,30 +217,9 @@ fn ensure_skin_size(len: u64) -> Result<()> {
     Ok(())
 }
 
-fn is_skin_path(path: &str) -> bool {
-    std::path::Path::new(path)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case(SKIN_EXT))
-}
-
 #[tauri::command]
 pub async fn read_skin_file(path: String) -> CommandResult<tauri::ipc::Response> {
-    if !is_skin_path(&path) {
-        return Err(LauncherError::InvalidInput(
-            "Открывать можно только файлы с расширением .png".to_string(),
-        )
-        .into());
-    }
-    let metadata = LauncherError::classify(
-        tokio::fs::metadata(&path)
-            .await
-            .with_context(|| format!("Не удалось прочитать файл скина {:?}", path)),
-        LauncherError::DiskIo,
-    )?;
-    ensure_skin_size(metadata.len())?;
-    let bytes = tokio::fs::read(&path)
-        .await
-        .with_context(|| format!("Не удалось прочитать файл скина {:?}", path))?;
+    let bytes = SKIN_FILE_READ.read(&path).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -277,31 +247,29 @@ pub async fn delete_model(state: State<'_, Mutex<GlobalState>>, id: i64) -> Comm
     Ok(())
 }
 
-pub(crate) async fn current_project_name(state: &State<'_, Mutex<GlobalState>>) -> Result<String> {
-    let project_name = {
-        let guard = state.lock().await;
-        guard.project_config.project_name.clone()
-    };
-    if project_name.trim().is_empty() {
-        bail!(LauncherError::ProjectNotSelected);
-    }
-    Ok(project_name)
-}
-
 #[tauri::command]
 pub async fn save_offline_skin(
-    state: State<'_, Mutex<GlobalState>>,
-    request: tauri::ipc::Request<'_>,
+    project_name: String,
+    model: String,
+    file_data: Vec<u8>,
 ) -> CommandResult<()> {
-    let (model, file_data) = parse_skin_request(&request, "сохранения скина")?;
-    let model = model.ok_or_else(|| {
-        anyhow!(LauncherError::InvalidInput(
-            "Некорректная модель скина".to_string()
-        ))
-    })?;
+    save_offline_skin_inner(&project_name, &model, file_data).await?;
+    Ok(())
+}
 
-    let project_name = current_project_name(&state).await?;
-    let (png_path, meta_path) = offline_skin_paths(&project_name)?;
+async fn save_offline_skin_inner(
+    project_name: &str,
+    model: &str,
+    file_data: Vec<u8>,
+) -> Result<()> {
+    let project_name = validated_project_name(project_name)?;
+    if model != "slim" && model != "classic" {
+        bail!(LauncherError::InvalidInput(
+            "Некорректная модель скина".to_string()
+        ));
+    }
+
+    let (png_path, meta_path) = offline_skin_paths(project_name)?;
     let png_parent = png_path.parent().map(|p| p.to_path_buf());
 
     crate::utils::blocking(
@@ -337,11 +305,9 @@ pub async fn save_offline_skin(
 }
 
 #[tauri::command]
-pub async fn get_offline_skin(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<tauri::ipc::Response> {
-    let project_name = current_project_name(&state).await?;
-    let (png_path, _) = offline_skin_paths(&project_name)?;
+pub async fn get_offline_skin(project_name: String) -> CommandResult<tauri::ipc::Response> {
+    let project_name = validated_project_name(&project_name)?;
+    let (png_path, _) = offline_skin_paths(project_name)?;
     let bytes = crate::utils::blocking(
         "Не удалось прочитать локальный скин",
         move || match std::fs::read(&png_path) {
@@ -358,11 +324,9 @@ pub async fn get_offline_skin(
 }
 
 #[tauri::command]
-pub async fn get_offline_skin_model(
-    state: State<'_, Mutex<GlobalState>>,
-) -> CommandResult<Option<String>> {
-    let project_name = current_project_name(&state).await?;
-    let (_, meta_path) = offline_skin_paths(&project_name)?;
+pub async fn get_offline_skin_model(project_name: String) -> CommandResult<Option<String>> {
+    let project_name = validated_project_name(&project_name)?;
+    let (_, meta_path) = offline_skin_paths(project_name)?;
     let model = crate::utils::blocking(
         "Не удалось прочитать модель локального скина",
         move || {
@@ -376,9 +340,9 @@ pub async fn get_offline_skin_model(
 }
 
 #[tauri::command]
-pub async fn delete_offline_skin(state: State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let project_name = current_project_name(&state).await?;
-    delete_offline_skin_files(&project_name).await?;
+pub async fn delete_offline_skin(project_name: String) -> CommandResult<()> {
+    let project_name = validated_project_name(&project_name)?;
+    delete_offline_skin_files(project_name).await?;
     Ok(())
 }
 
@@ -434,6 +398,151 @@ mod skin_cache_name_tests {
                 "069a79f4-44e9-4726-a5be-fca90e38aaf5_{}.png",
                 digest_hex(hash)
             )
+        );
+    }
+}
+
+#[cfg(test)]
+mod skin_origin_tests {
+    use super::ensure_skin_origin;
+    use crate::utils::errors::LauncherError;
+
+    const SERVER: &str = "https://mc.example.com";
+
+    #[test]
+    fn same_origin_url_is_allowed() {
+        ensure_skin_origin("https://mc.example.com/skins/1.png", Some(SERVER))
+            .expect("совпадающий origin должен проходить");
+        ensure_skin_origin("https://mc.example.com:443/skins/1.png", Some(SERVER))
+            .expect("порт по умолчанию эквивалентен отсутствию порта");
+    }
+
+    #[test]
+    fn foreign_host_is_rejected() {
+        let error = ensure_skin_origin("https://evil.example/skins/1.png", Some(SERVER))
+            .expect_err("чужой хост должен отклоняться");
+        assert!(
+            error.to_string().contains("только с сервера профиля"),
+            "ошибка должна объяснять причину: {error}"
+        );
+    }
+
+    #[test]
+    fn localhost_ssrf_target_is_rejected() {
+        for url in [
+            "http://127.0.0.1:8080/admin",
+            "http://localhost/metadata",
+            "http://169.254.169.254/latest/meta-data",
+        ] {
+            assert!(
+                ensure_skin_origin(url, Some(SERVER)).is_err(),
+                "внутренний адрес не должен скачиваться: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn different_port_and_scheme_are_rejected() {
+        assert!(ensure_skin_origin("https://mc.example.com:8443/skin.png", Some(SERVER)).is_err());
+        assert!(ensure_skin_origin("http://mc.example.com/skin.png", Some(SERVER)).is_err());
+    }
+
+    #[test]
+    fn non_http_scheme_is_rejected() {
+        for url in [
+            "file:///etc/passwd",
+            "ftp://mc.example.com/skin.png",
+            "\\\\server\\share\\skin.png",
+        ] {
+            let error = ensure_skin_origin(url, Some(SERVER))
+                .expect_err("не-http схема должна отклоняться: {url}");
+            assert!(
+                matches!(
+                    error.downcast_ref::<LauncherError>(),
+                    Some(LauncherError::InvalidInput(_))
+                ),
+                "ожидается InvalidInput для {url}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn unparseable_url_is_rejected() {
+        assert!(ensure_skin_origin("not a url", Some(SERVER)).is_err());
+    }
+
+    #[test]
+    fn missing_server_url_is_rejected() {
+        let error = ensure_skin_origin("https://mc.example.com/skins/1.png", None)
+            .expect_err("без адреса сервера скачивание запрещено");
+        assert!(
+            error.to_string().contains("только с сервера профиля"),
+            "ошибка должна объяснять причину: {error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod offline_skin_tests {
+    use super::save_offline_skin_inner;
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
+
+    #[tokio::test]
+    async fn save_offline_skin_writes_into_the_named_project_dir() {
+        let guard = LauncherDirGuard::acquire("offline_skin_named").await;
+
+        save_offline_skin_inner("Alpha", "slim", vec![1, 2, 3])
+            .await
+            .expect("сохранение скина в именованный проект");
+
+        let dir = guard.project_dir("Alpha").join("profile_skins");
+        assert!(dir.join("offline_skin.png").exists(), "png на месте");
+        assert!(
+            dir.join("offline_skin.json").exists(),
+            "метаданные на месте"
+        );
+        assert!(
+            !guard.project_dir("Beta").exists(),
+            "чужой проект не должен создаваться"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_offline_skin_rejects_path_like_project_name() {
+        let _guard = LauncherDirGuard::acquire("offline_skin_invalid_name").await;
+
+        let error = save_offline_skin_inner("../Evil", "slim", vec![1])
+            .await
+            .expect_err("путь в имени проекта должен отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectNameInvalidChars)
+            ),
+            "ожидается ProjectNameInvalidChars: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_offline_skin_rejects_unknown_model() {
+        let guard = LauncherDirGuard::acquire("offline_skin_invalid_model").await;
+
+        let error = save_offline_skin_inner("Alpha", "hd", vec![1])
+            .await
+            .expect_err("неизвестная модель должна отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::InvalidInput(_))
+            ),
+            "ожидается InvalidInput: {error:#}"
+        );
+        assert!(
+            !guard.project_dir("Alpha").exists(),
+            "файлов быть не должно"
         );
     }
 }

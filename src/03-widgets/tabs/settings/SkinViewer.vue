@@ -10,9 +10,15 @@ const props = withDefaults(defineProps<{
   slim: false,
 })
 
+const emit = defineEmits<{
+  'load-error': []
+}>()
+
 const container = ref<HTMLDivElement | null>(null)
 
-useSkinViewer(container, toRef(props, 'skinUrl'), useViewerControls(), toRef(props, 'slim'))
+useSkinViewer(container, toRef(props, 'skinUrl'), useViewerControls(), toRef(props, 'slim'), {
+  onTextureError: () => emit('load-error'),
+})
 </script>
 
 <template>

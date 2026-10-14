@@ -1,6 +1,6 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
 import { readCpmProjectZip } from './cpmProjectZip'
-import { parseHexColor } from '@/06-shared'
+import { DEFAULT_RGB, parseHexColor } from '@/06-shared'
 import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
@@ -50,10 +50,10 @@ function texSizeOf(child: CPMChild): number {
   const value = child.mirror ? -Math.abs(raw) : raw
   const rounded = Math.round(value)
   if (Math.abs(value - rounded) > TEX_SIZE_EPSILON) {
-    throw new Error(`texSize куба «${child.name}» должен быть целым числом, получено ${value}`)
+    throw new Error(`texSize куба "${child.name}" должен быть целым числом, получено ${value}`)
   }
   if (rounded < -128 || rounded > 127) {
-    throw new Error(`texSize куба «${child.name}» = ${rounded} не помещается в байт`)
+    throw new Error(`texSize куба "${child.name}" = ${rounded} не помещается в байт`)
   }
   return rounded
 }
@@ -62,7 +62,7 @@ function writeVec3ub(w: CpmBinaryWriter, v: { x: number; y: number; z: number },
   const toByte = (val: number): number => {
     const scaled = Math.round(val * 10)
     if (!(scaled >= 0 && scaled <= 255)) {
-      throw new Error(`Размер куба «${name}» = ${val} не помещается в байт`)
+      throw new Error(`Размер куба "${name}" = ${val} не помещается в байт`)
     }
     return scaled
   }
@@ -189,7 +189,7 @@ function flatten(config: CPMConfig): FlatModel {
         texSize: texSizeOf(child),
         u: child.u ?? 0,
         v: child.v ?? 0,
-        rgb: parseHexColor(child.color) ?? 0,
+        rgb: parseHexColor(child.color) ?? DEFAULT_RGB,
       })
       walk(child.children ?? [], id)
     }
@@ -302,7 +302,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
 
   const writeChildEffects = (child: CPMChild): void => {
     const id = elementIds.get(child) ?? 0
-    const rgb = parseHexColor(child.color) ?? 0
+    const rgb = parseHexColor(child.color) ?? DEFAULT_RGB
 
     if (child.glow) {
       renderEffect(RE.GLOW, (w) => {

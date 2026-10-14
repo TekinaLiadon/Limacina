@@ -3,10 +3,11 @@ use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex as StdMutex, OnceLock};
 
-use crate::launcher_server::api_context;
+use crate::launcher_server::{api_context, with_session_retry};
 use crate::state::dto::GlobalState;
 use crate::utils::download_file::{file_sha1, write_stream_to_atomic};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
@@ -14,7 +15,82 @@ use crate::utils::semaphore::{semaphore_core, SemaphoreInfo, MAX_CONCURRENT_DOWN
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
 
+const MAX_AUTH_CLIENT_CACHE: usize = 16;
+
+struct AuthClientCache {
+    clients: HashMap<String, Client>,
+    order: VecDeque<String>,
+}
+
+static AUTH_CLIENT_CACHE: OnceLock<StdMutex<AuthClientCache>> = OnceLock::new();
+
+#[cfg(test)]
+static AUTH_CLIENT_BUILD_COUNTS: OnceLock<StdMutex<HashMap<String, usize>>> = OnceLock::new();
+
+#[cfg(test)]
+static AUTH_CLIENT_TEST_LOCK: StdMutex<()> = StdMutex::new(());
+
+#[cfg(test)]
+fn reset_auth_client_cache() {
+    let cache = AUTH_CLIENT_CACHE.get_or_init(|| {
+        StdMutex::new(AuthClientCache {
+            clients: HashMap::new(),
+            order: VecDeque::new(),
+        })
+    });
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    guard.clients.clear();
+    guard.order.clear();
+}
+
 pub(crate) fn build_auth_client(token: &str) -> Result<Client> {
+    let cache = AUTH_CLIENT_CACHE.get_or_init(|| {
+        StdMutex::new(AuthClientCache {
+            clients: HashMap::new(),
+            order: VecDeque::new(),
+        })
+    });
+    {
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(client) = guard.clients.get(token) {
+            return Ok(client.clone());
+        }
+    }
+    let client = build_auth_client_uncached(token)?;
+    #[cfg(test)]
+    record_build_for_tests(token);
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if !guard.clients.contains_key(token) {
+        while guard.order.len() >= MAX_AUTH_CLIENT_CACHE {
+            if let Some(evicted) = guard.order.pop_front() {
+                guard.clients.remove(&evicted);
+            }
+        }
+        guard.order.push_back(token.to_string());
+    }
+    guard.clients.insert(token.to_string(), client.clone());
+    Ok(client)
+}
+
+#[cfg(test)]
+fn record_build_for_tests(token: &str) {
+    let counts = AUTH_CLIENT_BUILD_COUNTS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut guard = counts.lock().unwrap_or_else(|e| e.into_inner());
+    *guard.entry(token.to_string()).or_insert(0) += 1;
+}
+
+#[cfg(test)]
+fn auth_client_builds(token: &str) -> usize {
+    AUTH_CLIENT_BUILD_COUNTS
+        .get_or_init(|| StdMutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(token)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn build_auth_client_uncached(token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -60,7 +136,7 @@ async fn download_file(
     url: &str,
     server_url: &str,
 ) -> Result<()> {
-    log_info!("[download] Запрос файла: {} → {:?}", url, file_path);
+    log_info!("[download] Запрос файла: {} -> {:?}", url, file_path);
     let body = BodyFile {
         url: url.to_string(),
     };
@@ -181,10 +257,13 @@ async fn fetch_hash_map(
         let body = response.text().await.unwrap_or_default();
         log_err!("{} Сервер вернул {}: {}", source.log_prefix, status, body);
         list_step.fail(format!("Сервер {} вернул {}", source.noun, status));
-        return Err(LauncherError::LauncherServer(format!(
-            "Сервер {} вернул {status} (проект: {project_name}): {body}",
-            source.noun
-        ))
+        return Err(LauncherError::HttpStatus {
+            status: status.as_u16(),
+            message: format!(
+                "Сервер {} вернул {status} (проект: {project_name}): {body}",
+                source.noun
+            ),
+        }
         .into());
     }
 
@@ -204,6 +283,16 @@ async fn fetch_hash_map(
             ))
         })
     );
+
+    for (key, hash) in &list {
+        if hash.trim().is_empty() {
+            let message = format!("Сервер передал пустой хеш для {key} (проект: {project_name})");
+            log_err!("{} {}", source.log_prefix, message);
+            list_step.fail("Сервер передал пустой хеш файла");
+            return Err(LauncherError::LauncherServer(message).into());
+        }
+    }
+
     log_info!(
         "{} Получено {}: {}",
         source.log_prefix,
@@ -259,7 +348,7 @@ async fn fetch_online_list(
     let online = state.lock().await.project_config.online;
     if !online {
         log_info!(
-            "{} Одиночный профиль {} — {}",
+            "{} Одиночный профиль {}: {}",
             source.log_prefix,
             project_name,
             source.offline_note
@@ -421,7 +510,7 @@ pub async fn download_all_files(
     project_name: String,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
-    let result = async {
+    let result = with_session_retry(state, || async {
         let Some((ctx, file_list)) = fetch_online_list(&project_name, state, &FILES_SOURCE).await?
         else {
             return Ok(FilesSyncReport::default());
@@ -445,7 +534,7 @@ pub async fn download_all_files(
             |key: &str| PathBuf::from(key),
         )
         .await
-    }
+    })
     .await;
 
     LauncherError::classify(result, LauncherError::LauncherServer)
@@ -455,7 +544,7 @@ pub async fn download_mods(
     project_name: String,
     state: &Mutex<GlobalState>,
 ) -> Result<FilesSyncReport> {
-    let result = async {
+    let result = with_session_retry(state, || async {
         let Some((ctx, mods)) = fetch_online_list(&project_name, state, &MODS_SOURCE).await? else {
             return Ok(FilesSyncReport::default());
         };
@@ -493,10 +582,13 @@ pub async fn download_mods(
         .context("Не удалось синхронизировать моды с сервером")?;
 
         let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
-        cleanup_extra_mods(&mods_dir, &server_mods).await?;
+        step_try!(
+            clean_step,
+            cleanup_extra_mods(&mods_dir, &server_mods).await
+        );
         clean_step.finish(false);
         Ok(report)
-    }
+    })
     .await;
 
     LauncherError::classify(result, LauncherError::LauncherServer)
@@ -549,8 +641,10 @@ async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Res
 #[cfg(test)]
 mod mock_server_tests {
     use super::*;
+    use crate::auth::storage;
+    use crate::commands::auth::wipe_project_credentials;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{rotation_payload, seed_online_project, sha1_hex, LauncherDirGuard};
     use crate::utils::http::http_client;
     use mockito::{Matcher, Server};
     use serde_json::json;
@@ -680,6 +774,90 @@ mod mock_server_tests {
         .await;
 
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mods_clean_failure_fails_clean_step() {
+        use crate::utils::step_events::test_capture;
+        use crate::utils::step_events::{StepChannel, StepEvent};
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = LauncherDirGuard::acquire("mods_clean_fail").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+
+        let intact = b"intact mod".to_vec();
+        server
+            .mock("GET", "/v1/launcher/files/mods")
+            .with_status(200)
+            .with_body(json!({ "mods/a.jar": sha1_hex(&intact) }).to_string())
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("mods")).expect("каталог модов");
+        std::fs::write(base.join("mods/a.jar"), &intact).expect("целый мод");
+        std::fs::write(base.join("mods/extra.jar"), b"stale").expect("лишний мод");
+        std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o500))
+            .expect("каталог без права на запись");
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server.url()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "test-token".to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        });
+
+        let result = download_mods("Cordelia".to_string(), &state).await;
+        std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o755))
+            .expect("восстановление прав");
+
+        let error = result
+            .err()
+            .expect("ошибка удаления лишнего мода должна прерывать синхронизацию");
+        assert!(
+            error.to_string().contains("Не удалось удалить лишний мод"),
+            "неожиданная ошибка: {error}"
+        );
+
+        let terminals: Vec<StepEvent> = test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                matches!(channel, StepChannel::Launch)
+                    && matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+                    && step_event_id(event) == "mods.clean"
+            })
+            .map(|(_, event)| event)
+            .collect();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "шаг очистки не должен оставаться активным после ошибки: {terminals:?}"
+        );
+        assert!(
+            matches!(terminals.first(), Some(StepEvent::Failed { .. })),
+            "ошибка очистки должна фейлить шаг: {terminals:?}"
+        );
+    }
+
+    fn step_event_id(event: &crate::utils::step_events::StepEvent) -> &str {
+        use crate::utils::step_events::StepEvent;
+        match event {
+            StepEvent::Started { id, .. }
+            | StepEvent::Progress { id, .. }
+            | StepEvent::Detail { id, .. }
+            | StepEvent::Finished { id, .. }
+            | StepEvent::Failed { id, .. } => id,
+        }
     }
 
     #[tokio::test]
@@ -822,6 +1000,123 @@ mod mock_server_tests {
     }
 
     #[tokio::test]
+    async fn fetch_file_list_rejects_empty_hash() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/files/list")
+            .with_status(200)
+            .with_body(json!({"mods/a.jar": "", "config.json": "   "}).to_string())
+            .create_async()
+            .await;
+
+        let ctx = api_context(&server).await;
+        let error = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+            .await
+            .expect_err("пустой хеш должен отклоняться");
+
+        assert!(
+            error.to_string().contains("пустой хеш"),
+            "ошибка должна называть пустой хеш: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_all_files_retries_after_401_with_rotated_token() {
+        let dir = LauncherDirGuard::acquire("files_auth_retry").await;
+        let mut server = Server::new_async().await;
+
+        let fresh = b"fresh config".to_vec();
+
+        let expired_list = server
+            .mock("GET", "/v1/launcher/files/list")
+            .match_header("authorization", "Bearer access-stale")
+            .with_status(401)
+            .with_body("expired")
+            .create_async()
+            .await;
+        let refresh_mock = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-old"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-2", "tok-new"))
+            .create_async()
+            .await;
+        let rotated_list = server
+            .mock("GET", "/v1/launcher/files/list")
+            .match_header("authorization", "Bearer access-2")
+            .with_status(200)
+            .with_body(json!({"configs/settings.json": sha1_hex(&fresh)}).to_string())
+            .create_async()
+            .await;
+        let download_mock = server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_header("authorization", "Bearer access-2")
+            .with_status(200)
+            .with_body(fresh.clone())
+            .create_async()
+            .await;
+
+        seed_online_project("Cordelia", &server.url()).await;
+        storage::save_fallback("Cordelia", "tester", "refresh_token", "tok-old")
+            .expect("сохранение refresh-токена");
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server.url()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "access-stale".to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        });
+
+        let report = download_all_files("Cordelia".to_string(), &state)
+            .await
+            .expect("синхронизация после ротации токена");
+
+        assert_eq!(report.downloaded, 1);
+        assert!(!report.skipped);
+        assert_eq!(
+            std::fs::read(dir.project_dir("Cordelia").join("configs/settings.json")).unwrap(),
+            fresh
+        );
+        assert_eq!(
+            state
+                .lock()
+                .await
+                .session
+                .as_ref()
+                .expect("сессия")
+                .access_token,
+            "access-2",
+            "токен сессии должен обновиться после ротации"
+        );
+        assert_eq!(
+            storage::get_credential("Cordelia", "tester", "refresh_token")
+                .await
+                .expect("токен хранилища"),
+            "tok-new",
+            "refresh-токен должен перезаписаться ротацией"
+        );
+
+        expired_list.assert_async().await;
+        refresh_mock.assert_async().await;
+        rotated_list.assert_async().await;
+        download_mock.assert_async().await;
+
+        wipe_project_credentials("Cordelia", &["tester".to_string()])
+            .await
+            .expect("очистка хранилища");
+    }
+
+    #[tokio::test]
     async fn download_file_overwrites_existing_content() {
         let dir = LauncherDirGuard::acquire("files_overwrite").await;
         let mut server = Server::new_async().await;
@@ -917,5 +1212,79 @@ mod mock_server_tests {
 
         let dest = dir.project_dir("Cordelia").join("mods/a.jar");
         assert_eq!(std::fs::read(&dest).unwrap(), b"any bytes");
+    }
+}
+
+#[cfg(test)]
+mod auth_client_cache_tests {
+    use super::{
+        auth_client_builds, build_auth_client, reset_auth_client_cache, AUTH_CLIENT_TEST_LOCK,
+        MAX_AUTH_CLIENT_CACHE,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static EVICTION_TOKENS: AtomicUsize = AtomicUsize::new(0);
+
+    fn next_eviction_token() -> String {
+        format!(
+            "eviction-probe-token-{}",
+            EVICTION_TOKENS.fetch_add(1, Ordering::SeqCst)
+        )
+    }
+
+    #[test]
+    fn auth_client_is_rebuilt_only_for_new_tokens() {
+        let _guard = AUTH_CLIENT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reset_auth_client_cache();
+
+        build_auth_client("cache-probe-token-a").expect("клиент для первого токена");
+        let before = auth_client_builds("cache-probe-token-a");
+
+        build_auth_client("cache-probe-token-a").expect("клиент для того же токена");
+        assert_eq!(
+            auth_client_builds("cache-probe-token-a"),
+            before,
+            "повторный вызов с тем же токеном должен переиспользовать клиент"
+        );
+
+        build_auth_client("cache-probe-token-b").expect("клиент для нового токена");
+        assert_eq!(
+            auth_client_builds("cache-probe-token-b"),
+            1,
+            "новый токен должен собирать отдельный клиент"
+        );
+    }
+
+    #[test]
+    fn auth_client_cache_evicts_oldest_beyond_capacity() {
+        let _guard = AUTH_CLIENT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reset_auth_client_cache();
+
+        let oldest = next_eviction_token();
+        build_auth_client(&oldest).expect("первый токен в кеше");
+        assert_eq!(auth_client_builds(&oldest), 1);
+        for _ in 1..MAX_AUTH_CLIENT_CACHE {
+            build_auth_client(&next_eviction_token()).expect("наполнение кеша");
+        }
+
+        let newest = next_eviction_token();
+        build_auth_client(&newest).expect("токен сверх вместимости");
+
+        build_auth_client(&oldest).expect("вытесненный токен собирается заново");
+        assert_eq!(
+            auth_client_builds(&oldest),
+            2,
+            "самый старый клиент должен вытесняться, а не накапливаться вечно"
+        );
+        build_auth_client(&newest).expect("свежий токен");
+        assert_eq!(
+            auth_client_builds(&newest),
+            1,
+            "свежий токен не должен вытесняться"
+        );
     }
 }

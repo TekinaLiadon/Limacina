@@ -22,12 +22,18 @@ import { useCpmSettings } from '../useCpmSettings'
 import { withSetup } from '@/test-support/withSetup'
 
 const exporter = vi.hoisted(() => ({
-  cpmProjectToBytes: vi.fn(),
   cpmProjectToLinkBase64: vi.fn(),
 }))
 
 const parser = vi.hoisted(() => ({
   parseCpmProjectFile: vi.fn(),
+}))
+
+const reportError = vi.hoisted(() => vi.fn())
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  reportError,
 }))
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -43,7 +49,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 
 vi.mock('@/04-features/cpm-convert/cpmProjectExporter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/04-features/cpm-convert/cpmProjectExporter')>()),
-  cpmProjectToBytes: exporter.cpmProjectToBytes,
   cpmProjectToLinkBase64: exporter.cpmProjectToLinkBase64,
 }))
 
@@ -104,9 +109,9 @@ describe('useCpmSettings', () => {
     vi.mocked(uploadModel).mockReset()
     vi.mocked(listModels).mockResolvedValue([])
     vi.mocked(getPlayerModelsLimit).mockResolvedValue(null)
-    exporter.cpmProjectToBytes.mockReset()
     exporter.cpmProjectToLinkBase64.mockReset()
     parser.parseCpmProjectFile.mockReset()
+    reportError.mockClear()
     createObjectURLMock.mockClear()
     const core = useCoreStore()
     core.currentProject = 'proj'
@@ -166,24 +171,39 @@ describe('useCpmSettings', () => {
 
     await cpm.handleSaveModelsLimit(3)
 
-    expect(setPlayerModelsLimit).toHaveBeenCalledWith(3)
+    expect(setPlayerModelsLimit).toHaveBeenCalledWith('proj', 3)
     expect(cpm.modelsLimit.value).toBe(3)
     expect(cpm.limitLoadError.value).toBe('')
 
     await cpm.handleSaveModelsLimit(null)
-    expect(setPlayerModelsLimit).toHaveBeenLastCalledWith(null)
+    expect(setPlayerModelsLimit).toHaveBeenLastCalledWith('proj', null)
     expect(cpm.modelsLimit.value).toBeNull()
   })
 
-  it('rejects a non-positive limit without a command call', async () => {
+  it('rejects a non-integer or out-of-range limit without a command call', async () => {
     vi.mocked(setPlayerModelsLimit).mockResolvedValue(undefined)
     const cpm = setupCpm()
     await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
 
     await cpm.handleSaveModelsLimit(0)
 
-    expect(cpm.limitSaveError.value).toBe('Лимит моделей — положительное число или пустое значение')
+    expect(cpm.limitSaveError.value).toBe(
+      'Лимит моделей: целое число от 1 до 4294967295 или пустое значение',
+    )
     expect(setPlayerModelsLimit).not.toHaveBeenCalled()
+
+    await cpm.handleSaveModelsLimit(2.5)
+    await cpm.handleSaveModelsLimit(1e10)
+    await cpm.handleSaveModelsLimit(Number.NaN)
+    await cpm.handleSaveModelsLimit(4294967296)
+
+    expect(setPlayerModelsLimit).not.toHaveBeenCalled()
+    expect(cpm.limitSaveError.value).not.toBe('')
+
+    await cpm.handleSaveModelsLimit(4294967295)
+
+    expect(setPlayerModelsLimit).toHaveBeenCalledWith('proj', 4294967295)
+    expect(cpm.limitSaveError.value).toBe('')
   })
 
   it('reports the limit save failure', async () => {
@@ -303,6 +323,104 @@ describe('useCpmSettings', () => {
     expect(cpm.displayLayers.value.map((layer) => layer.name)).toContain('Expression Happy')
   })
 
+  it('keeps layer visibility choices across the cpm data reload', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [
+          makeElement([
+            makeChild({ name: 'Body', storeID: 5 }),
+            makeChild({ name: 'Cloak', storeID: 7 }),
+          ]),
+        ],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    cpm.toggleLayer(5)
+    expect(cpm.activeLayerIds.value).toEqual([7])
+
+    core.pendingCpmProjectPath = '/models/hero-reload.cpmproject'
+    await vi.waitFor(() => {
+      const body = cpm.displayLayers.value.find((layer) => layer.name === 'Body')
+      expect(body?.visible).toBe(false)
+    })
+
+    expect(cpm.displayLayers.value.map((layer) => layer.name)).toEqual(['Body', 'Cloak'])
+    expect(cpm.activeLayerIds.value).toEqual([7])
+  })
+
+  it('drops hidden layer ids missing from the reloaded model', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [makeElement([makeChild({ name: 'Body', storeID: 5 })])],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    cpm.toggleLayer(5)
+    expect(cpm.activeLayerIds.value).toEqual([])
+
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [makeElement([makeChild({ name: 'Cape', storeID: 9 })])],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    core.pendingCpmProjectPath = '/models/other.cpmproject'
+    await vi.waitFor(() => expect(cpm.activeLayerIds.value).toEqual([9]))
+  })
+
+  it('ignores toggles for layers without a store id', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [makeElement([makeChild({ name: 'Body', storeID: 5 })])],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    cpm.toggleLayer(null)
+    expect(cpm.activeLayerIds.value).toEqual([5])
+  })
+
+  it('sets the texture load error through the composable action', async () => {
+    const cpm = setupCpm()
+    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
+
+    expect(cpm.errorMessage.value).toBe('')
+    cpm.setTextureError()
+
+    expect(cpm.errorMessage.value).toBe('Не удалось загрузить текстуру модели')
+  })
+
   it('uploads the model as a link and registers it in the game', async () => {
     const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
@@ -320,7 +438,7 @@ describe('useCpmSettings', () => {
 
     expect(exporter.cpmProjectToLinkBase64).toHaveBeenCalledWith(bytes)
     expect(uploadModel).toHaveBeenCalledWith('base64-link')
-    expect(savePlayerModel).toHaveBeenCalledWith({
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', {
       name: 'hero',
       url: 'https://cdn/9.cpm',
       modelId: 9,
@@ -348,6 +466,52 @@ describe('useCpmSettings', () => {
     expect(savePlayerModel).not.toHaveBeenCalled()
   })
 
+  it('deletes the orphaned uploaded model when savePlayerModel fails', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockRejectedValue(new Error('denied'))
+    vi.mocked(deleteModel).mockResolvedValue(undefined)
+    vi.mocked(listModels).mockResolvedValue([])
+    exporter.cpmProjectToLinkBase64.mockResolvedValue('base64-link')
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(savePlayerModel).toHaveBeenCalledOnce()
+    expect(deleteModel).toHaveBeenCalledWith(9)
+    expect(cpm.errorMessage.value).toBe('denied')
+    expect(useNotificationStore().message).not.toBe('Модель добавлена в игру')
+    expect(cpm.isUploading.value).toBe(false)
+  })
+
+  it('keeps the orphaned model deletable when the rollback delete fails too', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockRejectedValue(new Error('denied'))
+    vi.mocked(deleteModel).mockRejectedValue(new Error('also down'))
+    exporter.cpmProjectToLinkBase64.mockResolvedValue('base64-link')
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(cpm.errorMessage.value).toBe('denied')
+    expect(reportError).toHaveBeenCalledWith('Не удалось удалить модель', expect.objectContaining({ message: 'also down' }))
+    expect(reportError).toHaveBeenCalledWith('Не удалось сохранить модель', expect.objectContaining({ message: 'denied' }))
+    expect(cpm.isUploading.value).toBe(false)
+  })
+
   it('skips the upload without an opened model', async () => {
     vi.mocked(uploadModel).mockResolvedValue(makeModel(1))
     const cpm = setupCpm()
@@ -355,31 +519,6 @@ describe('useCpmSettings', () => {
     await cpm.handleUploadModel()
 
     expect(uploadModel).not.toHaveBeenCalled()
-  })
-
-  it('saves the model into the game as raw bytes', async () => {
-    const bytes = new Uint8Array(8)
-    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
-    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
-    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
-    exporter.cpmProjectToBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
-    const core = useCoreStore()
-    const cpm = setupCpm()
-
-    core.pendingCpmProjectPath = '/models/hero.cpmproject'
-    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
-
-    await cpm.handleSaveModelOffline()
-
-    expect(exporter.cpmProjectToBytes).toHaveBeenCalledWith(bytes)
-    expect(savePlayerModel).toHaveBeenCalledWith({
-      name: 'hero',
-      url: null,
-      modelId: null,
-      slim: false,
-      data: [1, 2, 3],
-    })
-    expect(useNotificationStore().message).toBe('Модель сохранена в игру')
   })
 
   it('resets the model after confirmation', async () => {

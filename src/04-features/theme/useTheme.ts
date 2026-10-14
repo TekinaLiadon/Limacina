@@ -47,23 +47,23 @@ export function useTheme(): {
       switchTimerId = null
     }
     if (settingsStore.lastHydratedTheme !== null) {
-      if (newTheme === settingsStore.lastHydratedTheme) {
-        settingsStore.lastHydratedTheme = null
+      const hydratedTheme = settingsStore.lastHydratedTheme
+      settingsStore.clearHydratedTheme()
+      if (newTheme === hydratedTheme) {
         applyTheme(newTheme)
         applyWindowBackground(newTheme)
         return
       }
-      settingsStore.lastHydratedTheme = null
     }
     if (!oldTheme || newTheme === oldTheme) return
 
     saveTheme(newTheme)
       .then((config: LauncherConfig): void => {
-        coreStore.launcherConfig = config
+        coreStore.applySavedLauncherConfig(config)
       })
       .catch((e: unknown) => {
         reportError('Ошибка сохранения темы', e)
-        notification.show('Тема применена, но не сохранена — после перезапуска вернётся прежняя')
+        notification.show('Тема применена, но не сохранена: после перезапуска вернётся прежняя')
       })
 
     const newMode = parseThemeId(newTheme).mode

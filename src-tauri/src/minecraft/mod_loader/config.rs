@@ -18,18 +18,13 @@ use crate::{
 };
 use anyhow::Result;
 
-pub(crate) enum LoaderMainClass {
-    FromVersion,
-    FromManifest,
-}
-
+#[derive(Clone, Copy)]
 pub(crate) enum VanillaClientJar {
     Keep,
     Drop,
 }
 
 pub(crate) struct LoaderConfigOptions {
-    pub main_class: LoaderMainClass,
     pub vanilla_client_jar: VanillaClientJar,
 }
 
@@ -40,21 +35,29 @@ pub(crate) async fn build_loader_config(
     version: &VersionMod,
     options: LoaderConfigOptions,
 ) -> Result<GameConfig> {
-    log_info!("Соединение classpath {}", def.name);
+    log_info!("Сборка classpath {}", def.name);
     let target_version = loader_version_or_err(state)?;
     let manifest_path = loader_manifest_path(def.manifest_prefix, target_version).map_err(|e| {
         LauncherError::LoaderSetup(format!(
             "Не удалось определить путь к файлам лаунчера: {e:#}"
         ))
     })?;
-    let manifest = download_json::<Manifest>(None, &manifest_path)
+    if !tokio::fs::try_exists(&manifest_path).await.unwrap_or(false) {
+        return Err(LauncherError::LoaderSetup(format!(
+            "Манифест {} для версии {target_version} не найден, запустите установку игры, чтобы скачать файлы лоадера",
+            def.name
+        ))
+        .into());
+    }
+    let mut manifest = download_json::<Manifest>(None, &manifest_path)
         .await
         .map_err(|e| {
-            LauncherError::LoaderSetup(format!("Не удалось скачать манифест {}: {e:#}", def.name))
+            LauncherError::LoaderSetup(format!("Не удалось прочитать манифест {}: {e:#}", def.name))
         })?;
 
     let libraries = if version.library.is_empty() {
-        loader_libraries(manifest.libraries.clone(), def.maven_base)
+        let manifest_libraries = std::mem::take(&mut manifest.libraries);
+        loader_libraries(manifest_libraries, def.maven_base)
     } else {
         Ok(version.library.clone())
     }
@@ -84,14 +87,21 @@ pub(crate) async fn build_loader_config(
         &loader_jvm_args(&args_map, &manifest)[..],
     ]
     .concat();
-    let main_class = match options.main_class {
-        LoaderMainClass::FromVersion => version.main_class.clone(),
-        LoaderMainClass::FromManifest => manifest.main_class.clone(),
-    };
+    let main_class = require_main_class(def.name, &manifest.main_class)?;
 
     Ok(vanilla_config
         .with_args(jvm_args, game_args)
         .with_loader(clean_classpath, main_class))
+}
+
+pub(crate) fn require_main_class(loader_name: &str, main_class: &str) -> Result<String> {
+    if main_class.is_empty() {
+        return Err(LauncherError::LoaderSetup(format!(
+            "Манифест {loader_name} не содержит mainClass"
+        ))
+        .into());
+    }
+    Ok(main_class.to_string())
 }
 
 async fn merge_loader_classpath(
@@ -114,15 +124,31 @@ async fn merge_loader_classpath(
         VanillaClientJar::Drop => {
             let mut classpath =
                 merge_classpath(&state.project_name, &version.id, libraries, &[]).await?;
-            let client_jar = format!("{}.jar", state.mc_version);
-            classpath.extend(
-                vanilla_classpath
-                    .iter()
-                    .filter(|p| !p.ends_with(&client_jar))
-                    .cloned(),
-            );
+            let client_jar = launcher_path(Some(&state.project_name))
+                .map_err(|e| {
+                    LauncherError::LoaderSetup(format!(
+                        "Не удалось определить путь к файлам проекта: {e:#}"
+                    ))
+                })?
+                .join(format!("{}.jar", state.mc_version));
+            for entry in vanilla_classpath {
+                if is_vanilla_client_jar(entry, &client_jar).await {
+                    continue;
+                }
+                classpath.push(entry.clone());
+            }
             Ok(classpath)
         }
+    }
+}
+
+async fn is_vanilla_client_jar(entry: &str, client_jar: &Path) -> bool {
+    match (
+        tokio::fs::canonicalize(entry).await,
+        tokio::fs::canonicalize(client_jar).await,
+    ) {
+        (Ok(entry_path), Ok(client_path)) => entry_path == client_path,
+        _ => entry.replace('\\', "/") == client_jar.to_string_lossy().replace('\\', "/"),
     }
 }
 
@@ -221,6 +247,82 @@ async fn build_mod_classpath(
     }
 
     Ok(paths)
+}
+
+#[cfg(test)]
+mod loader_config_tests {
+    use super::{build_loader_config, LoaderConfigOptions, VanillaClientJar};
+    use crate::minecraft::mod_loader::manifest::LoaderDef;
+    use crate::minecraft::structs::{GameConfig, VersionMod};
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
+    use std::path::Path;
+
+    fn forge_def() -> LoaderDef {
+        LoaderDef {
+            name: "Forge",
+            metadata_url: "",
+            cache_file: "forge.json",
+            maven_base: "",
+            manifest_prefix: "forge",
+            group_versions: |_metadata| unreachable!("индекс не нужен для сборки конфига"),
+            installer_url: |_mc, _loader| unreachable!("инсталлер не нужен для сборки конфига"),
+        }
+    }
+
+    fn game_config(game_dir: &Path) -> GameConfig {
+        GameConfig::new(
+            game_dir.join("java"),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "net.minecraft.client.main.Main".to_string(),
+            game_dir.to_path_buf(),
+        )
+    }
+
+    #[tokio::test]
+    async fn missing_loader_manifest_points_to_installation_not_network() {
+        let dir = LauncherDirGuard::acquire("loader_config_missing_manifest").await;
+        let state = ProjectConfig {
+            project_name: "CfgProj".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("47.2.0".to_string()),
+            ..ProjectConfig::default()
+        };
+        let version = VersionMod {
+            id: "1.20.1-forge-47.2.0".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+            url: String::new(),
+        };
+
+        let error = build_loader_config(
+            &forge_def(),
+            &state,
+            game_config(&dir.project_dir("CfgProj")),
+            &version,
+            LoaderConfigOptions {
+                vanilla_client_jar: VanillaClientJar::Keep,
+            },
+        )
+        .await
+        .expect_err("без установленного лоадера сборка конфига должна падать");
+
+        let text = error.to_string();
+        assert!(
+            text.contains("запустите установку"),
+            "ошибка должна вести пользователя к установке, а не рассказывать про сеть: {text}"
+        );
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::LoaderSetup(_))
+            ),
+            "ожидается типизированный LoaderSetup: {error}"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -6,8 +6,10 @@ import { cssDurationMs, isAnimationsEnabled } from '@/06-shared/utils/animations
 const props = withDefaults(defineProps<{
   progress: number
   animated?: boolean
+  ariaLabel?: string
 }>(), {
   animated: true,
+  ariaLabel: 'Прогресс',
 })
 
 const fillRef = ref<HTMLDivElement | null>(null)
@@ -46,7 +48,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="progress-bar" role="progressbar" :aria-valuenow="clampedProgress" aria-valuemin="0" aria-valuemax="100">
+  <div class="progress-bar" role="progressbar" :aria-label="ariaLabel" :aria-valuenow="clampedProgress" aria-valuemin="0" aria-valuemax="100" :aria-valuetext="`${clampedProgress}%`">
     <div class="progress-bar__track">
       <div
         ref="fillRef"
@@ -59,6 +61,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .progress-bar {
   display: flex;
   align-items: center;
@@ -80,7 +84,7 @@ onBeforeUnmount(() => {
     height: 100%;
     transform: scaleX(0);
     transform-origin: left;
-    background: linear-gradient(90deg, var(--login-accent), var(--login-accent-hover));
+    @include mixins.accent-gradient;
     border-radius: var(--radius-pill);
     overflow: hidden;
 

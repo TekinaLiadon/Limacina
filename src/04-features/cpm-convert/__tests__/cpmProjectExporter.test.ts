@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import type { CPMChild, CPMConfig, CPMElement } from '@/05-entities'
+import { DEFAULT_RGB } from '@/06-shared'
 import { bytesToBase64 } from '../cpmBinaryWriter'
 import {
   cpmConfigToBytes,
@@ -89,6 +90,19 @@ describe('cpmProjectExporter', () => {
     ])
   })
 
+  it('writes the shared default rgb for textureless cubes without a valid color', () => {
+    const expectedRgb = [
+      (DEFAULT_RGB >>> 16) & 0xFF,
+      (DEFAULT_RGB >>> 8) & 0xFF,
+      DEFAULT_RGB & 0xFF,
+    ]
+    const missing = cpmConfigToLinkBytes(makeConfig([makeChild({ texture: false })]))
+    expect([missing[25], missing[26], missing[27]]).toEqual(expectedRgb)
+
+    const invalid = cpmConfigToLinkBytes(makeConfig([makeChild({ texture: false, color: '80808080' })]))
+    expect([invalid[25], invalid[26], invalid[27]]).toEqual(expectedRgb)
+  })
+
   it('wraps the definition into the full byte format', () => {
     const bytes = cpmConfigToBytes(makeConfig([makeChild({ textureSize: 64, mirror: true })]))
     expect([...bytes]).toEqual([
@@ -128,10 +142,10 @@ describe('cpmProjectExporter', () => {
 
   it('rejects a cube size that does not fit the unsigned byte range', () => {
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ size: { x: 30, y: 8, z: 8 } })]))).toThrow(
-      /Размер куба «Cube»/,
+      /Размер куба "Cube"/,
     )
     expect(() => cpmConfigToLinkBytes(makeConfig([makeChild({ size: { x: -1, y: 8, z: 8 } })]))).toThrow(
-      /Размер куба «Cube»/,
+      /Размер куба "Cube"/,
     )
   })
 

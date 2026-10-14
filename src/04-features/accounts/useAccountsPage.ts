@@ -1,9 +1,11 @@
 import { computed } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore, useLaunchStore, useServerStore, AUTH_LOGIN_TAB } from '@/05-entities'
 import { useAccounts } from '@/04-features/accounts/useAccounts'
+import { resyncGameSession } from '@/04-features/game-session/useGameSession'
 import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
+import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
 import { reportError, storeBinding, useAsyncAction } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
@@ -31,15 +33,17 @@ export function useAccountsPage() {
   } = useGameLaunch()
 
   const { resetLaunchSteps } = useLaunchStepsStream()
+  const { isSwitching } = useProjectSwitch()
 
   const isServerOffline = computed((): boolean =>
-    coreStore.isOnlineProject && serverStore.isServerReachable === false
+    coreStore.isServerBuild && coreStore.isOnlineProject && serverStore.isServerReachable === false
   )
 
   const handleLaunch = async (): Promise<void> => {
     if (launch.isLaunching) return
-    if (launch.gameUsername !== null) {
-      notificationStore.show('Игра уже запущена')
+    const activeUsername = store.session?.username ?? null
+    if (activeUsername !== null && launch.gameUsernames.includes(activeUsername)) {
+      notificationStore.show('Этот аккаунт уже в игре')
       return
     }
     if (isServerOffline.value) {
@@ -50,20 +54,26 @@ export function useAccountsPage() {
       notificationStore.show('Идёт проверка целостности, запуск невозможен')
       return
     }
-    const launchGeneration = launch.beginLaunch()
+    if (isSwitching.value) {
+      notificationStore.show('Идёт переключение проекта, запуск невозможен')
+      return
+    }
     try {
-      try {
-        const username = await getGameState()
-        if (username !== null) {
-          launch.gameUsername = username
-          notificationStore.show('Игра уже запущена')
-          return
-        }
-      } catch (e: unknown) {
-        reportError('Не удалось проверить состояние игровой сессии', e)
-        notificationStore.show('Не удалось проверить состояние игры, запуск заблокирован')
+      const usernames = await getGameState()
+      if (launch.isLaunching || isSwitching.value) return
+      if (activeUsername !== null && usernames.includes(activeUsername)) {
+        launch.gameUsernames = usernames
+        notificationStore.show('Этот аккаунт уже в игре')
         return
       }
+    } catch (e: unknown) {
+      reportError('Не удалось проверить состояние игровой сессии', e)
+      notificationStore.show('Не удалось проверить состояние игры, запуск заблокирован')
+      return
+    }
+
+    const launchGeneration = launch.beginLaunch()
+    try {
       await executeSteps(() => !launch.isCurrent(launchGeneration))
     } catch (e: unknown) {
       launch.reportFailure(launchGeneration, getErrorMessage(e))
@@ -88,6 +98,12 @@ export function useAccountsPage() {
 
   const launchInterrupted = computed((): boolean => launch.launchInterrupted)
   const isCancelPending = computed((): boolean => launch.isCancelPending)
+  const sessionViewDismissed = computed((): boolean => launch.sessionViewDismissed)
+
+  const dismissSessionView = async (): Promise<void> => {
+    launch.sessionViewDismissed = true
+    await resyncGameSession()
+  }
 
   const showLoginForm = (): void => {
     store.showAuthForm = true
@@ -123,6 +139,7 @@ export function useAccountsPage() {
   })
 
   const deleteAccountAction = useAsyncAction((e: unknown): void => {
+    reportError('Не удалось удалить аккаунт', e)
     notificationStore.show(getErrorMessage(e))
   })
 
@@ -159,6 +176,8 @@ export function useAccountsPage() {
     sceneUsername,
     isCancelPending,
     isServerOffline,
+    sessionViewDismissed,
+    dismissSessionView,
     handleLaunch,
     showLoginForm,
     goToAccounts,

@@ -16,8 +16,7 @@ const MENU_QUIT_ID: &str = "quit";
 const ACCENT_ICON_BYTES: &[u8] = include_bytes!("../icons/tray-accent.png");
 
 static MINIMIZE_TO_TRAY: AtomicBool = AtomicBool::new(false);
-static GAME_RUNNING: AtomicBool = AtomicBool::new(false);
-static GAME_USER: Mutex<String> = Mutex::new(String::new());
+static GAME_USERS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 pub fn minimize_to_tray_enabled() -> bool {
     MINIMIZE_TO_TRAY.load(Ordering::Relaxed)
@@ -27,47 +26,106 @@ pub fn is_available<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.tray_by_id(TRAY_ID).is_some()
 }
 
-pub fn game_username() -> Option<String> {
-    if !GAME_RUNNING.load(Ordering::Relaxed) {
-        return None;
+pub fn game_usernames() -> Vec<String> {
+    GAME_USERS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+fn store_add_game(username: &str) {
+    let username = username.trim();
+    if username.is_empty() {
+        return;
     }
-    let username = GAME_USER
+    let mut users = GAME_USERS.lock().unwrap_or_else(|e| e.into_inner());
+    if !users.iter().any(|user| user == username) {
+        users.push(username.to_string());
+    }
+}
+
+fn store_remove_game(username: &str) {
+    let username = username.trim();
+    GAME_USERS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .trim()
-        .to_string();
-    if username.is_empty() {
-        None
-    } else {
-        Some(username)
+        .retain(|user| user != username);
+}
+
+fn game_tooltip(usernames: &[String]) -> String {
+    match usernames {
+        [] => get_launcher_name(),
+        [single] => format!("{}, игра запущена ({})", get_launcher_name(), single),
+        many => format!(
+            "{}, игры запущены ({}): {}",
+            get_launcher_name(),
+            many.len(),
+            many.join(", ")
+        ),
+    }
+}
+
+fn menu_status_label(usernames: &[String]) -> Option<String> {
+    match usernames {
+        [] => None,
+        [single] => Some(format!("Игра запущена: {single}")),
+        many => Some(format!(
+            "Игры запущены ({}): {}",
+            many.len(),
+            many.join(", ")
+        )),
     }
 }
 
 pub fn set_minimize_to_tray<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     MINIMIZE_TO_TRAY.store(enabled, Ordering::Relaxed);
-    if game_username().is_none() {
-        if let Some(tray) = app.tray_by_id(TRAY_ID) {
-            if let Err(e) = tray.set_visible(enabled) {
-                log_err!("Не удалось обновить видимость иконки в трее: {}", e);
+    if game_usernames().is_empty() {
+        let dispatch = app.clone();
+        if let Err(e) = app.run_on_main_thread(move || {
+            if let Some(tray) = dispatch.tray_by_id(TRAY_ID) {
+                if let Err(e) = tray.set_visible(enabled) {
+                    log_err!("Не удалось обновить видимость иконки в трее: {}", e);
+                }
             }
+        }) {
+            log_err!("Не удалось обновить трей в главном потоке: {}", e);
         }
     }
 }
 
-pub fn set_game_state<R: Runtime>(app: &AppHandle<R>, running: bool, username: &str) {
-    store_game_state(running, username);
+pub fn add_game_session<R: Runtime>(app: &AppHandle<R>, username: &str) {
+    store_add_game(username);
 
+    let dispatch = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        apply_game_state_to_tray(&dispatch);
+    }) {
+        log_err!("Не удалось обновить трей в главном потоке: {}", e);
+    }
+
+    log_info!("Игра запущена ({username}), состояние трея обновлено");
+}
+
+pub fn remove_game_session<R: Runtime>(app: &AppHandle<R>, username: &str) {
+    store_remove_game(username);
+
+    let dispatch = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        apply_game_state_to_tray(&dispatch);
+    }) {
+        log_err!("Не удалось обновить трей в главном потоке: {}", e);
+    }
+
+    log_info!("Игра завершена ({username}), состояние трея обновлено");
+}
+
+fn apply_game_state_to_tray<R: Runtime>(app: &AppHandle<R>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let usernames = game_usernames();
+        let running = !usernames.is_empty();
         let visible = running || minimize_to_tray_enabled();
         if let Err(e) = tray.set_visible(visible) {
             log_err!("Не удалось обновить видимость иконки в трее: {}", e);
         }
 
-        let tooltip = match game_username() {
-            Some(user) => format!("{} — игра запущена ({})", get_launcher_name(), user),
-            None => get_launcher_name(),
-        };
-        if let Err(e) = tray.set_tooltip(Some(tooltip)) {
+        if let Err(e) = tray.set_tooltip(Some(game_tooltip(&usernames))) {
             log_err!("Не удалось обновить тултип иконки в трее: {}", e);
         }
 
@@ -89,30 +147,13 @@ pub fn set_game_state<R: Runtime>(app: &AppHandle<R>, running: bool, username: &
             Err(e) => log_err!("Не удалось собрать меню трея: {}", e),
         }
     }
-
-    if running {
-        log_info!("Игра запущена ({}), состояние трея обновлено", username);
-    } else {
-        log_info!("Игра завершена, состояние трея обновлено");
-    }
-}
-
-fn store_game_state(running: bool, username: &str) {
-    GAME_RUNNING.store(running, Ordering::Relaxed);
-    *GAME_USER.lock().unwrap_or_else(|e| e.into_inner()) = username.trim().to_string();
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>> {
     let open_item = MenuItem::with_id(app, MENU_OPEN_ID, "Открыть лаунчер", true, None::<&str>)?;
-    match game_username() {
-        Some(username) => {
-            let status_item = MenuItem::with_id(
-                app,
-                MENU_STATUS_ID,
-                format!("Игра запущена: {}", username),
-                false,
-                None::<&str>,
-            )?;
+    match menu_status_label(&game_usernames()) {
+        Some(status) => {
+            let status_item = MenuItem::with_id(app, MENU_STATUS_ID, status, false, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, MENU_QUIT_ID, "Выход", true, None::<&str>)?;
             Ok(Menu::with_items(
                 app,
@@ -174,24 +215,82 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 
 #[cfg(test)]
 mod game_state_tests {
-    use super::{game_username, store_game_state};
+    use super::{
+        game_tooltip, game_usernames, get_launcher_name, menu_status_label, store_add_game,
+        store_remove_game,
+    };
+
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn reset_users() {
+        super::GAME_USERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
 
     #[test]
-    fn game_username_reflects_running_state() {
-        store_game_state(false, "Steve");
-        assert_eq!(game_username(), None);
+    fn sessions_add_remove_and_dedupe() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_users();
 
-        store_game_state(true, "  Steve  ");
-        assert_eq!(game_username(), Some("Steve".to_string()));
+        assert!(game_usernames().is_empty());
 
-        store_game_state(true, "   ");
+        store_add_game("  Steve  ");
+        store_add_game("Steve");
         assert_eq!(
-            game_username(),
-            None,
-            "пустое имя не считается запущенной игрой"
+            game_usernames(),
+            vec!["Steve".to_string()],
+            "повторный ник не дублируется, пробелы срезаются"
         );
 
-        store_game_state(false, "Steve");
-        assert_eq!(game_username(), None);
+        store_add_game("Alex");
+        assert_eq!(
+            game_usernames(),
+            vec!["Steve".to_string(), "Alex".to_string()]
+        );
+
+        store_remove_game("Steve");
+        assert_eq!(
+            game_usernames(),
+            vec!["Alex".to_string()],
+            "выход одной игры не трогает другую"
+        );
+
+        store_remove_game("Alex");
+        assert!(game_usernames().is_empty());
+
+        store_add_game("   ");
+        assert!(
+            game_usernames().is_empty(),
+            "пустой ник не считается запущенной игрой"
+        );
+    }
+
+    #[test]
+    fn labels_reflect_single_and_multiple_sessions() {
+        let name = get_launcher_name();
+        assert_eq!(game_tooltip(&[]), name);
+        assert_eq!(menu_status_label(&[]), None);
+
+        let single = vec!["Steve".to_string()];
+        assert_eq!(
+            game_tooltip(&single),
+            format!("{name}, игра запущена (Steve)")
+        );
+        assert_eq!(
+            menu_status_label(&single),
+            Some("Игра запущена: Steve".to_string())
+        );
+
+        let many = vec!["Steve".to_string(), "Alex".to_string()];
+        assert_eq!(
+            game_tooltip(&many),
+            format!("{name}, игры запущены (2): Steve, Alex")
+        );
+        assert_eq!(
+            menu_status_label(&many),
+            Some("Игры запущены (2): Steve, Alex".to_string())
+        );
     }
 }

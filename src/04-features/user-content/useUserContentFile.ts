@@ -1,5 +1,5 @@
 import { type Ref } from 'vue'
-import { selectFile, useFileDrop, fileSizeLimitMessage } from '@/06-shared'
+import { reportError, selectFile, useFileDrop, fileSizeLimitMessage } from '@/06-shared'
 import { getErrorMessage } from '@/06-shared/api'
 
 interface UserContentFileOptions {
@@ -8,6 +8,7 @@ interface UserContentFileOptions {
   maxBytes: number
   readFile: (path: string) => Promise<Uint8Array>
   processFile: (bytes: Uint8Array, name: string) => Promise<void>
+  validateBytes?: ((bytes: Uint8Array, name: string) => string | null) | undefined
   errorMessage: Ref<string>
 }
 
@@ -21,8 +22,14 @@ export function useUserContentFile(options: UserContentFileOptions) {
         return
       }
       const name = path.split(/[\\/]/).pop() ?? path
+      const invalidMessage = options.validateBytes?.(bytes, name) ?? null
+      if (invalidMessage !== null) {
+        options.errorMessage.value = invalidMessage
+        return
+      }
       await options.processFile(bytes, name)
     } catch (e: unknown) {
+      reportError('Не удалось прочитать файл', e)
       options.errorMessage.value = getErrorMessage(e)
     }
   }
@@ -38,8 +45,16 @@ export function useUserContentFile(options: UserContentFileOptions) {
       },
       onLoad: async (file: File, result: string | ArrayBuffer): Promise<void> => {
         try {
-          await options.processFile(new Uint8Array(result as ArrayBuffer), file.name)
+          const bytes = new Uint8Array(result as ArrayBuffer)
+          const invalidMessage = options.validateBytes?.(bytes, file.name) ?? null
+          if (invalidMessage !== null) {
+            options.errorMessage.value = invalidMessage
+            return
+          }
+          options.errorMessage.value = ''
+          await options.processFile(bytes, file.name)
         } catch (e: unknown) {
+          reportError('Не удалось обработать файл', e)
           options.errorMessage.value = getErrorMessage(e)
         }
       },

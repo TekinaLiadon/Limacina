@@ -20,7 +20,7 @@ const emit = defineEmits<{
       :is-loading="isLoading"
       @click="emit('get')"
     >
-      Получить url для подключения сервера
+      Получить url для подключения к серверу
     </Button>
 
     <div v-if="url" class="server-connect__result">
@@ -31,7 +31,7 @@ const emit = defineEmits<{
     </div>
 
     <p v-if="url" class="server-connect__hint">
-      Отправьте ссылку игрокам — они добавят этот сервер через «Добавить профиль»
+      Отправьте ссылку игрокам, они добавят этот сервер через "Добавить профиль"
     </p>
   </div>
 </template>

@@ -13,9 +13,11 @@ use crate::utils::env_info::launcher_path;
 use crate::utils::hex::digest_hex;
 use crate::{log_err, log_info};
 
-pub use server::SkinServer;
-
+mod launch;
 mod server;
+
+pub use launch::AuthlibLaunch;
+use server::SkinServer;
 
 const AUTHLIB_LATEST_URL: &str = "https://authlib-injector.yushi.moe/artifact/latest.json";
 const AUTHLIB_LATEST_TTL: Duration = Duration::from_secs(6 * 60 * 60);
@@ -64,7 +66,7 @@ pub async fn delete_offline_skin_files(project_name: &str) -> Result<()> {
     .await
 }
 
-pub async fn start_offline_skin_server(
+async fn start_offline_skin_server(
     project_name: &str,
     username: &str,
     uuid: &str,
@@ -141,8 +143,16 @@ async fn ensure_authlib_jar_from(game_dir: &Path, latest_url: &str) -> Result<Pa
             installed_version.unwrap_or_default(),
             latest.version
         );
-        let _ = fs::remove_file(&jar_path).await;
-        let _ = fs::remove_file(&version_path).await;
+        fs::remove_file(&jar_path).await.context(format!(
+            "Не удалось удалить устаревший authlib-injector.jar {:?}",
+            jar_path
+        ))?;
+        if let Err(e) = fs::remove_file(&version_path).await {
+            log_err!(
+                "Не удалось удалить устаревшую версию authlib-injector {:?}: {e}",
+                version_path
+            );
+        }
     } else {
         log_info!("Скачивание authlib-injector {}...", latest.version);
     }
@@ -438,5 +448,64 @@ mod tests {
         assert_eq!(std::fs::read(&first).expect("jar"), jar_v1);
         manifest_mock.assert_async().await;
         jar_mock.assert_async().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ensure_authlib_jar_errors_when_stale_jar_not_removable() {
+        let guard = LauncherDirGuard::acquire("authlib_stale_locked").await;
+        let mut server = Server::new_async().await;
+        let game_dir = guard.root().join("project/AuthGame");
+
+        let jar_v1 = b"authlib agent v1".to_vec();
+        let (manifest_v1_mock, jar_v1_mock) = mock_artifact(
+            &mut server,
+            "/artifact/latest.json",
+            "/artifact/authlib-1.jar",
+            "1.0.0",
+            &jar_v1,
+        )
+        .await;
+        let latest_url = format!("{}/artifact/latest.json", server.url());
+        ensure_authlib_jar_from(&game_dir, &latest_url)
+            .await
+            .expect("первая установка authlib-injector");
+        manifest_v1_mock.assert_async().await;
+        jar_v1_mock.assert_async().await;
+
+        tokio::fs::remove_file(authlib_scratch_path().expect("scratch путь"))
+            .await
+            .expect("сброс кеша манифеста — имитация нового релиза");
+        let (_, jar_v2_mock) = mock_artifact(
+            &mut server,
+            "/artifact/latest-2.json",
+            "/artifact/authlib-2.jar",
+            "2.0.0",
+            b"authlib agent v2",
+        )
+        .await;
+
+        let permissions = std::fs::metadata(&game_dir).unwrap().permissions();
+        let mut locked = permissions.clone();
+        use std::os::unix::fs::PermissionsExt;
+        locked.set_mode(0o555);
+        std::fs::set_permissions(&game_dir, locked).unwrap();
+
+        let latest_url_v2 = format!("{}/artifact/latest-2.json", server.url());
+        let error = ensure_authlib_jar_from(&game_dir, &latest_url_v2)
+            .await
+            .expect_err("неудачное удаление устаревшего jar должно давать явную ошибку");
+
+        std::fs::set_permissions(&game_dir, permissions).unwrap();
+
+        assert!(
+            error.to_string().contains("Не удалось удалить"),
+            "ошибка должна называть проблему удаления: {error}"
+        );
+        jar_v2_mock.expect(0).assert_async().await;
+        assert!(
+            game_dir.join("authlib-injector.jar").exists(),
+            "старый jar должен остаться на месте"
+        );
     }
 }

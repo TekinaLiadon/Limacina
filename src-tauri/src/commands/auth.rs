@@ -3,6 +3,7 @@ use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::auth::{self, storage, AuthData};
+use crate::commands::auth_offline;
 use crate::commands::launcher_config::update_launcher_config;
 use crate::log_err;
 use crate::log_info;
@@ -11,7 +12,7 @@ use crate::state::dto::{GlobalState, SessionTokens};
 use crate::utils::errors::LauncherError;
 use crate::utils::tauri_err::CommandResult;
 
-async fn store_session(
+pub(crate) async fn store_session(
     state: &Mutex<GlobalState>,
     data: &AuthData,
     fallback_username: &str,
@@ -31,7 +32,7 @@ async fn store_session(
     (uuid, username)
 }
 
-async fn remember_login(
+pub(crate) async fn remember_login(
     state: &Mutex<GlobalState>,
     project_name: &str,
     username: &str,
@@ -55,7 +56,9 @@ pub(crate) async fn persist_session_credentials(
 ) -> Result<()> {
     let uuid = data.uuid();
     if !uuid.is_empty() {
-        let _ = storage::save_credential(project_name, username, "uuid", &uuid).await;
+        if let Err(e) = storage::save_credential(project_name, username, "uuid", &uuid).await {
+            log_err!("Не удалось сохранить uuid аккаунта \"{username}\": {e:#}");
+        }
     }
     storage::save_credential(
         project_name,
@@ -94,9 +97,7 @@ pub(crate) async fn restore_and_persist_session(
 
 async fn project_server_url(project_name: &str, offline_reason: &str) -> Result<String> {
     let project = load_config_or_default(project_name).await?;
-    if !project.online {
-        bail!(LauncherError::OfflineProfile(offline_reason.to_string()));
-    }
+    auth_offline::reject_offline_project(&project, offline_reason)?;
     project
         .resolved_server_url()
         .ok_or(LauncherError::ServerUrlMissing.into())
@@ -204,8 +205,14 @@ async fn refresh_after_rejection(
                 }
             }
         }
-        _ => {
+        Ok(_) => {
             let _ = storage::delete_credential(project_name, username, "refresh_token").await;
+            Ok(None)
+        }
+        Err(e) => {
+            log_err!(
+                "restore_session: не удалось перечитать refresh-токен ({e}), запись не тронута"
+            );
             Ok(None)
         }
     }
@@ -218,12 +225,12 @@ pub async fn auth_register(
     username: String,
     password: String,
 ) -> CommandResult<()> {
-    register_account(&state, &project_name, &username, &password).await?;
+    register_account(state.inner(), &project_name, &username, &password).await?;
     Ok(())
 }
 
 async fn register_account(
-    state: &State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     project_name: &str,
     username: &str,
     password: &str,
@@ -267,19 +274,13 @@ async fn login_account(
     let project = load_config_or_default(project_name).await?;
 
     if !project.online {
-        if username.is_empty() {
-            bail!(LauncherError::UsernameEmpty);
-        }
-        let data = auth::offline(username);
-        store_session(state, &data, username, project_name).await;
-        remember_login(state, project_name, username, remember_me).await?;
-        return Ok(());
+        return auth_offline::login(state, project_name, username, remember_me).await;
     }
 
     let data = login_online_session(project_name, username, password, remember_me).await?;
 
-    store_session(state, &data, username, project_name).await;
     remember_login(state, project_name, username, remember_me).await?;
+    store_session(state, &data, username, project_name).await;
 
     Ok(())
 }
@@ -322,9 +323,7 @@ async fn auth_refresh_flow(
     let project = load_config_or_default(project_name).await?;
 
     if !project.online {
-        let data = auth::offline(username);
-        store_session(state, &data, username, project_name).await;
-        return Ok(());
+        return auth_offline::refresh(state, project_name, username).await;
     }
 
     let auth_data = restore_and_persist_session(project_name, username, None).await?;
@@ -363,11 +362,7 @@ async fn change_password_flow(
     let (username, access_token) = {
         let state = state.lock().await;
         let session = state.session.as_ref().ok_or(LauncherError::NoSession)?;
-        if session.access_token == crate::auth::OFFLINE_ACCESS_TOKEN {
-            bail!(LauncherError::OfflineProfile(
-                "смена пароля недоступна".to_string()
-            ));
-        }
+        auth_offline::reject_offline_session(session, "смена пароля недоступна")?;
         if project_name != state.project_config.project_name {
             bail!(LauncherError::ProjectNotSelected);
         }
@@ -412,13 +407,23 @@ async fn change_password_session(
         .await
         .context("Не удалось сменить пароль")?;
 
-    storage::save_credential(
-        project_name,
-        username,
-        "refresh_token",
-        &data.tokens.refresh_token,
-    )
-    .await?;
+    let remembered = storage::get_credential(project_name, username, "refresh_token").await;
+    match remembered {
+        Ok(_) => {
+            storage::save_credential(
+                project_name,
+                username,
+                "refresh_token",
+                &data.tokens.refresh_token,
+            )
+            .await?;
+        }
+        Err(e) => {
+            log_info!(
+                "Смена пароля: аккаунт \"{username}\" не запомнен, refresh-токен не сохраняется ({e})"
+            );
+        }
+    }
 
     Ok(data)
 }
@@ -459,7 +464,7 @@ async fn delete_account_flow(
                 project_server_url(project_name, "удаление аккаунта недоступно").await
             {
                 if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                    log_err!("Не удалось инвалидировать токен на сервере: {}", e);
+                    log_err!("Не удалось отозвать токен на сервере: {}", e);
                 }
             }
         }
@@ -483,33 +488,20 @@ async fn delete_account_flow(
 mod account_flow_tests {
     use super::{
         auth_refresh_flow, change_password_flow, change_password_session, delete_account_flow,
-        login_account, restore_and_persist_session, wipe_project_credentials,
+        login_account, register_account, restore_and_persist_session, wipe_project_credentials,
     };
     use crate::auth::generate_offline_uuid;
     use crate::auth::storage;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
-    use crate::state::launcher_config::{set_config_file_path_for_tests, LauncherConfig};
-    use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
+    use crate::state::launcher_config::LauncherConfig;
+    use crate::test_support::{
+        offline_global_state, rotation_payload, seed_offline_project, seed_online_project,
+        ConfigFileGuard, LauncherDirGuard,
+    };
     use crate::utils::errors::LauncherError;
     use mockito::{Matcher, Server};
     use serde_json::json;
-    use std::path::Path;
     use tokio::sync::Mutex;
-
-    struct ConfigFileGuard;
-
-    impl ConfigFileGuard {
-        fn acquire(root: &Path, name: &str) -> Self {
-            set_config_file_path_for_tests(Some(root.join(name)));
-            Self
-        }
-    }
-
-    impl Drop for ConfigFileGuard {
-        fn drop(&mut self) {
-            set_config_file_path_for_tests(None);
-        }
-    }
 
     fn state_with_session(username: &str, project_name: &str) -> Mutex<GlobalState> {
         Mutex::new(GlobalState {
@@ -529,30 +521,8 @@ mod account_flow_tests {
         })
     }
 
-    async fn seed_offline_project(project_name: &str) {
-        let config = ProjectConfig {
-            project_name: project_name.to_string(),
-            mc_version: "1.20.1".to_string(),
-            online: false,
-            ..ProjectConfig::default()
-        };
-        config
-            .save_config()
-            .await
-            .expect("сохранение конфига проекта");
-    }
-
     fn offline_state(project_name: &str) -> Mutex<GlobalState> {
-        Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: project_name.to_string(),
-                online: false,
-                ..ProjectConfig::default()
-            },
-            session: None,
-            launcher_config: Some(LauncherConfig::default()),
-            app_version: String::new(),
-        })
+        offline_global_state(project_name)
     }
 
     async fn assert_trimmed_offline_session(state: &Mutex<GlobalState>) {
@@ -763,9 +733,18 @@ mod account_flow_tests {
             .expect("очистка хранилища после теста");
     }
 
-    #[tokio::test]
-    async fn change_password_persists_rotated_token() {
-        let _guard = LauncherDirGuard::acquire("auth_flow_password_persist").await;
+    struct PasswordChangeEnv {
+        _dir: LauncherDirGuard,
+        _config_guard: ConfigFileGuard,
+        _server: mockito::ServerGuard,
+        login: mockito::Mock,
+        password_change: mockito::Mock,
+        state: Mutex<GlobalState>,
+    }
+
+    async fn password_change_env(label: &str) -> PasswordChangeEnv {
+        let dir = LauncherDirGuard::acquire(label).await;
+        let config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
         let mut server = Server::new_async().await;
         let project = "PwdProj";
         let username = "Steve";
@@ -773,6 +752,12 @@ mod account_flow_tests {
         wipe_project_credentials(project, &[username.to_string()])
             .await
             .expect("очистка хранилища перед тестом");
+        let login = server
+            .mock("POST", "/v1/common/auth/login")
+            .with_status(200)
+            .with_body(rotation_payload("access-1", "tok-old"))
+            .create_async()
+            .await;
         let password_change = server
             .mock("PATCH", "/v1/common/auth/password")
             .with_status(200)
@@ -781,18 +766,87 @@ mod account_flow_tests {
             .await;
 
         seed_online_project(project, &server.url()).await;
+        let state = state_with_session(username, project);
 
-        let data = change_password_session(project, username, "access-1", "old-pass", "new-pass")
+        PasswordChangeEnv {
+            _dir: dir,
+            _config_guard: config_guard,
+            _server: server,
+            login,
+            password_change,
+            state,
+        }
+    }
+
+    #[tokio::test]
+    async fn change_password_after_remembered_login_updates_stored_token() {
+        let env = password_change_env("auth_flow_password_remembered").await;
+        let project = "PwdProj";
+        let username = "Steve";
+
+        login_account(&env.state, project, username, "old-pass", true)
             .await
-            .expect("смена пароля");
+            .expect("вход с запоминанием");
 
-        password_change.assert_async().await;
-        assert_eq!(data.tokens.access_token, "access-new");
         assert_eq!(
             storage::get_credential(project, username, "refresh_token")
                 .await
-                .expect("ротированный токен должен сохраниться"),
+                .expect("вход с запоминанием должен сохранять токен"),
+            "tok-old"
+        );
+
+        change_password_session(project, username, "access-1", "old-pass", "new-pass")
+            .await
+            .expect("смена пароля");
+
+        env.login.assert_async().await;
+        env.password_change.assert_async().await;
+        assert_eq!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .expect("существующая запись должна обновиться ротированным токеном"),
             "tok-new"
+        );
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища после теста");
+    }
+
+    #[tokio::test]
+    async fn change_password_after_unremembered_login_creates_no_entry() {
+        let env = password_change_env("auth_flow_password_unremembered").await;
+        let project = "PwdProj";
+        let username = "Steve";
+
+        login_account(&env.state, project, username, "old-pass", false)
+            .await
+            .expect("вход без запоминания");
+
+        env.login.assert_async().await;
+        assert!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .is_err(),
+            "вход без запоминания не должен оставлять токен"
+        );
+
+        change_password_session(project, username, "access-1", "old-pass", "new-pass")
+            .await
+            .expect("смена пароля");
+
+        env.password_change.assert_async().await;
+        assert!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .is_err(),
+            "смена пароля после входа без запоминания не должна создавать запись токена"
+        );
+        assert!(
+            storage::get_credential(project, username, "uuid")
+                .await
+                .is_err(),
+            "запись uuid не должна создаваться сменой пароля"
         );
 
         wipe_project_credentials(project, &[username.to_string()])
@@ -955,6 +1009,51 @@ mod account_flow_tests {
     }
 
     #[tokio::test]
+    async fn register_rejects_offline_project() {
+        let dir = LauncherDirGuard::acquire("auth_register_offline").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let state = offline_state("OffProj");
+
+        let error = register_account(&state, "OffProj", "Steve", "password")
+            .await
+            .expect_err("регистрация на офлайн-профиле недоступна");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::OfflineProfile(reason)) if reason.contains("регистрация")
+            ),
+            "ожидается OfflineProfile: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_account_on_offline_project_skips_server_and_wipes_credentials() {
+        let dir = LauncherDirGuard::acquire("auth_delete_offline").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        storage::save_fallback("OffProj", "Steve", "refresh_token", "tok-off")
+            .expect("сохранение токена");
+        let state = state_with_session("Steve", "OffProj");
+
+        delete_account_flow(&state, "OffProj", "Steve")
+            .await
+            .expect("удаление аккаунта без сервера");
+
+        assert!(
+            state.lock().await.session.is_none(),
+            "сессия удалённого пользователя должна сбрасываться"
+        );
+        assert!(
+            storage::get_credential("OffProj", "Steve", "refresh_token")
+                .await
+                .is_err(),
+            "креденшелы должны быть стёрты без обращения к серверу"
+        );
+    }
+
+    #[tokio::test]
     async fn delete_account_reports_wipe_failure() {
         let dir = LauncherDirGuard::acquire("auth_flow_delete_wipe_fail").await;
         let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
@@ -982,7 +1081,6 @@ mod account_flow_tests {
 mod restore_session_tests {
     use super::{restore_and_persist_session, restore_session, wipe_project_credentials};
     use crate::auth::storage;
-    use crate::state::dto::ProjectConfig;
     use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
     use mockito::{Matcher, Server};
     use serde_json::json;
@@ -1114,6 +1212,53 @@ mod restore_session_tests {
                 .is_err(),
             "отклонённый токен должен быть удалён"
         );
+    }
+
+    #[tokio::test]
+    async fn transient_read_failure_after_rejection_keeps_refresh_token() {
+        let _guard = LauncherDirGuard::acquire("restore_session_transient_read").await;
+        let mut server = Server::new_async().await;
+        let rejected = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .with_status(401)
+            .with_chunked_body(|writer| {
+                storage::arm_transient_read_failure();
+                writer.write_all(b"{\"message\": \"invalid token\"}")?;
+                Ok(())
+            })
+            .expect(1)
+            .create_async()
+            .await;
+        let recovered = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .with_status(200)
+            .with_body(rotation_payload("access-ok", "tok-ok"))
+            .expect(1)
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
+            .expect("сохранение токена");
+
+        restore_session("TestProj", "Steve", None)
+            .await
+            .expect_err("при сбое чтения восстановление не должно завершаться успешно");
+
+        assert_eq!(
+            storage::get_credential("TestProj", "Steve", "refresh_token")
+                .await
+                .expect("транзиентный сбой чтения не должен стирать токен"),
+            "tok-keep"
+        );
+
+        let data = restore_session("TestProj", "Steve", None)
+            .await
+            .expect("после проходящего сбоя сохранённый токен должен работать");
+        assert_eq!(data.tokens.access_token, "access-ok");
+
+        rejected.assert_async().await;
+        recovered.assert_async().await;
     }
 
     #[tokio::test]

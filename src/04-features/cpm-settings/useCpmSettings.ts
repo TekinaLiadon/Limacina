@@ -1,6 +1,6 @@
-import { ref, computed, reactive, watch, onScopeDispose } from 'vue'
+import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, reportError } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3 } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3, type UserContentItem } from '@/05-entities'
 import {
   getErrorMessage,
   getPlayerModelsLimit,
@@ -8,7 +8,7 @@ import {
   savePlayerModel,
   setPlayerModelsLimit,
 } from '@/06-shared/api'
-import { cpmProjectToLinkBase64, cpmProjectToBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
+import { cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
 import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
@@ -20,18 +20,22 @@ export interface CpmLayer {
   empty: boolean
 }
 
+const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
+const MODELS_LIMIT_MAX = 4294967295
+const MODELS_LIMIT_ERROR = `Лимит моделей: целое число от 1 до ${MODELS_LIMIT_MAX} или пустое значение`
+
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
 function collectLayers(children: CPMChild[] | undefined, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
     const empty = child.size !== undefined && isZeroVec(child.size)
-    result.push(reactive({
+    result.push({
       storeId: child.storeID ?? null,
       name: child.name,
       visible: !empty,
       empty,
-    }))
+    })
     collectLayers(child.children, result)
   }
 }
@@ -41,12 +45,12 @@ export function useCpmSettings() {
   const content = useModelUserContent()
   const notification = useNotificationStore()
 
-  const cpmData = ref<CPMData | null>(null)
+  const cpmData = shallowRef<CPMData | null>(null)
   const cpmFileBytes = ref<Uint8Array | null>(null)
   const cpmFileName = ref<string>('')
-  const isSaving = ref<boolean>(false)
   const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
+  const hiddenLayerIds = ref<Set<number>>(new Set())
   const modelsLimit = ref<number | null>(null)
   const isLimitLoading = ref<boolean>(false)
   const limitLoadError = ref<string>('')
@@ -62,7 +66,10 @@ export function useCpmSettings() {
     cpmData.value.config.elements.forEach((element) => {
       collectLayers(element.children, layers)
     })
-    return layers
+    return layers.map((layer) => ({
+      ...layer,
+      visible: !layer.empty && !(layer.storeId !== null && hiddenLayerIds.value.has(layer.storeId)),
+    }))
   })
 
   const displayLayers = computed((): CpmLayer[] =>
@@ -75,6 +82,33 @@ export function useCpmSettings() {
       .map((layer) => layer.storeId)
       .filter((storeId): storeId is number => storeId !== null),
   )
+
+  const toggleLayer = (storeId: number | null): void => {
+    if (storeId === null) return
+    const next = new Set(hiddenLayerIds.value)
+    if (next.has(storeId)) {
+      next.delete(storeId)
+    } else {
+      next.add(storeId)
+    }
+    hiddenLayerIds.value = next
+  }
+
+  const setTextureError = (): void => {
+    content.errorMessage.value = TEXTURE_LOAD_ERROR
+  }
+
+  watch(cpmData, (data): void => {
+    if (!data) {
+      hiddenLayerIds.value = new Set()
+      return
+    }
+    const known = new Set<number>()
+    allLayers.value.forEach((layer) => {
+      if (layer.storeId !== null) known.add(layer.storeId)
+    })
+    hiddenLayerIds.value = new Set([...hiddenLayerIds.value].filter((id) => known.has(id)))
+  })
 
   function applyCpmProject(project: CpmProject, bytes: Uint8Array, name: string): void {
     const textureUrl = URL.createObjectURL(project.textureBlob)
@@ -102,7 +136,7 @@ export function useCpmSettings() {
 
   watch((): string | null => coreStore.pendingCpmProjectPath, (path: string | null): void => {
     if (!path) return
-    coreStore.pendingCpmProjectPath = null
+    coreStore.setPendingCpmProjectPath(null)
     void loadFromPath(path)
   }, { immediate: true })
 
@@ -112,6 +146,7 @@ export function useCpmSettings() {
     cpmData.value = null
     cpmFileBytes.value = null
     cpmFileName.value = ''
+    hiddenLayerIds.value = new Set()
     content.errorMessage.value = ''
   }
 
@@ -124,51 +159,39 @@ export function useCpmSettings() {
     notification.runConfirmed('Удалить модель из списка загруженных?', (): Promise<void> =>
       content.handleDelete(id))
 
+  const rollbackUploadedModel = async (item: UserContentItem): Promise<void> => {
+    if (item.id === null || item.id === undefined) return
+    await content.handleDelete(item.id)
+  }
+
   const handleUploadModel = async (): Promise<void> => {
     if (!cpmFileBytes.value || !cpmData.value) return
     if (isUploading.value) return
 
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     isUploading.value = true
     content.errorMessage.value = ''
+    let uploaded: UserContentItem | null = null
     try {
       const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value)
-      const item = await content.handleUpload(base64)
-      if (!item) return
+      uploaded = await content.handleUpload(base64)
+      if (uploaded === null) return
 
-      await savePlayerModel({
+      await savePlayerModel(scope.project, {
         name: modelName.value,
-        url: item.url,
-        modelId: item.id ?? null,
+        url: uploaded.url,
+        modelId: uploaded.id ?? null,
         slim: cpmData.value.config.skinType === 'slim',
         data: null,
       })
+      if (!scope.isCurrent()) return
       notification.show('Модель добавлена в игру')
     } catch (e: unknown) {
+      if (uploaded !== null) await rollbackUploadedModel(uploaded)
+      reportError('Не удалось сохранить модель', e)
       content.errorMessage.value = getErrorMessage(e)
     } finally {
       isUploading.value = false
-    }
-  }
-
-  const handleSaveModelOffline = async (): Promise<void> => {
-    if (!cpmFileBytes.value || !cpmData.value) return
-
-    isSaving.value = true
-    content.errorMessage.value = ''
-    try {
-      const bytes = await cpmProjectToBytes(cpmFileBytes.value)
-      await savePlayerModel({
-        name: modelName.value,
-        url: null,
-        modelId: null,
-        slim: cpmData.value.config.skinType === 'slim',
-        data: Array.from(bytes),
-      })
-      notification.show('Модель сохранена в игру')
-    } catch (e: unknown) {
-      content.errorMessage.value = getErrorMessage(e)
-    } finally {
-      isSaving.value = false
     }
   }
 
@@ -177,7 +200,7 @@ export function useCpmSettings() {
     isLimitLoading.value = true
     limitLoadError.value = ''
     try {
-      const limit = await getPlayerModelsLimit()
+      const limit = await getPlayerModelsLimit(scope.project)
       if (!scope.isCurrent()) return
       modelsLimit.value = limit
     } catch (e: unknown) {
@@ -191,20 +214,21 @@ export function useCpmSettings() {
 
   const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
     if (isSavingLimit.value) return
-    if (limit !== null && (!Number.isFinite(limit) || limit < 1)) {
-      limitSaveError.value = 'Лимит моделей — положительное число или пустое значение'
+    if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > MODELS_LIMIT_MAX)) {
+      limitSaveError.value = MODELS_LIMIT_ERROR
       return
     }
     const scope = captureProjectScope((): string => coreStore.currentProject)
     isSavingLimit.value = true
     limitSaveError.value = ''
     try {
-      await setPlayerModelsLimit(limit)
+      await setPlayerModelsLimit(scope.project, limit)
       if (!scope.isCurrent()) return
       modelsLimit.value = limit
       limitLoadError.value = ''
     } catch (e: unknown) {
       if (!scope.isCurrent()) return
+      reportError('Не удалось сохранить лимит моделей', e)
       limitSaveError.value = getErrorMessage(e)
     } finally {
       isSavingLimit.value = false
@@ -225,12 +249,15 @@ export function useCpmSettings() {
 
   return {
     cpmData,
+    cpmFileBytes,
+    modelName,
     errorMessage: content.errorMessage,
     showEmptyLayers,
     displayLayers,
     activeLayerIds,
+    toggleLayer,
+    setTextureError,
     isUploading,
-    isSaving,
     isOffline: content.isOffline,
     uploadedModels: content.items,
     isListLoading: content.isListLoading,
@@ -246,7 +273,6 @@ export function useCpmSettings() {
     resetCpm,
     loadFromPath,
     handleUploadModel,
-    handleSaveModelOffline,
     handleDeleteModel,
     handleCopyUrl: content.handleCopyUrl,
     handleSaveModelsLimit,

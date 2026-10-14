@@ -3,16 +3,15 @@ import { ref, type Ref } from 'vue'
 import { useDropdownPanel } from '../useDropdownPanel'
 import { withSetup } from '@/test-support/withSetup'
 
-const buildDom = (withItem: boolean = true): { root: HTMLDivElement; panel: HTMLDivElement } => {
+const buildDom = (itemCount: number = 1): { root: HTMLDivElement; panel: HTMLDivElement } => {
   const root = document.createElement('div')
   const panel = document.createElement('div')
   panel.setAttribute(
     'style',
     'padding-top: 4px; padding-bottom: 6px; row-gap: 2px; display: flex; flex-direction: column;',
   )
-  if (withItem) {
-    const item = document.createElement('div')
-    panel.appendChild(item)
+  for (let index = 0; index < itemCount; index += 1) {
+    panel.appendChild(document.createElement('div'))
   }
   root.appendChild(panel)
   document.body.appendChild(root)
@@ -52,7 +51,7 @@ describe('useDropdownPanel', () => {
 
     await panel.toggle()
     expect(panel.shown.value).toBe(true)
-    expect(panel.maxHeight.value).toBe('12px')
+    expect(panel.maxHeight.value).toBe('10px')
 
     await panel.toggle()
     expect(panel.shown.value).toBe(false)
@@ -64,6 +63,30 @@ describe('useDropdownPanel', () => {
     const panel = setupPanel(rootRef, () => true)
 
     await panel.toggle()
+
+    expect(panel.shown.value).toBe(false)
+  })
+
+  it('opens and measures the panel via open() and closes via toggle()', async () => {
+    const { root, panel: panelElement } = buildDom()
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef)
+    panel.panelRef.value = panelElement
+
+    await panel.open()
+    expect(panel.shown.value).toBe(true)
+    expect(panel.maxHeight.value).toBe('10px')
+
+    await panel.toggle()
+    expect(panel.shown.value).toBe(false)
+  })
+
+  it('keeps the panel closed on open() while disabled', async () => {
+    const { root } = buildDom()
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef, () => true)
+
+    await panel.open()
 
     expect(panel.shown.value).toBe(false)
   })
@@ -116,14 +139,14 @@ describe('useDropdownPanel', () => {
   })
 
   it('measures the panel and resolves the direction without items', async () => {
-    const { root, panel: panelElement } = buildDom(false)
+    const { root, panel: panelElement } = buildDom(0)
     const rootRef = ref<HTMLDivElement | null>(root)
     const panel = setupPanel(rootRef)
     panel.panelRef.value = panelElement
 
     await panel.toggle()
 
-    expect(panel.maxHeight.value).toBe('12px')
+    expect(panel.maxHeight.value).toBe('10px')
     expect(panel.openUp.value).toBe(false)
   })
 
@@ -134,11 +157,22 @@ describe('useDropdownPanel', () => {
     panel.panelRef.value = panelElement
 
     await panel.toggle()
-    expect(panel.maxHeight.value).toBe('12px')
+    expect(panel.maxHeight.value).toBe('10px')
 
     panelElement.setAttribute('style', 'padding-top: 14px; padding-bottom: 6px; row-gap: 2px; display: flex; flex-direction: column;')
     window.dispatchEvent(new Event('resize'))
 
-    expect(panel.maxHeight.value).toBe('22px')
+    expect(panel.maxHeight.value).toBe('20px')
+  })
+
+  it('clamps the measured height to the real number of items', async () => {
+    const { root, panel: panelElement } = buildDom(3)
+    const rootRef = ref<HTMLDivElement | null>(root)
+    const panel = setupPanel(rootRef, () => false, () => 7)
+    panel.panelRef.value = panelElement
+
+    await panel.toggle()
+
+    expect(panel.maxHeight.value).toBe('14px')
   })
 })

@@ -14,7 +14,7 @@ export function useProjectConfig() {
     try {
       const config = await loadSettingsProject(scope.project)
       if (!scope.isCurrent()) return
-      coreStore.projectConfig = config
+      coreStore.setProjectConfig(config)
     } catch (e: unknown) {
       reportError('Не удалось загрузить конфиг проекта', e)
     }

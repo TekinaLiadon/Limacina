@@ -68,15 +68,24 @@ describe('applyStepEvent', () => {
     expect(stepById(steps, 'unexpected')).toMatchObject({ status: 'active', untracked: true })
   })
 
-  it('started appends an unknown step and resolves the earlier pending steps', () => {
+  it('started appends an unknown step without resolving the earlier pending steps', () => {
     const steps = [pendingStep('a'), pendingStep('b')]
     emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
-    expect(stepById(steps, 'a')).toMatchObject({ status: 'done', skipped: true })
-    expect(stepById(steps, 'b')).toMatchObject({ status: 'done', skipped: true })
-    expect(stepById(steps, 'unexpected').status).toBe('active')
+    expect(stepById(steps, 'a').status).toBe('pending')
+    expect(stepById(steps, 'b').status).toBe('pending')
+    expect(stepById(steps, 'unexpected')).toMatchObject({ status: 'active', untracked: true })
 
     emit(steps, { type: 'finished', id: 'unexpected', skipped: false })
-    expect(computeStepProgress(steps)).toBe(100)
+    expect(computeStepProgress(steps)).toBe(0)
+  })
+
+  it('started for a known step after an unknown one still closes the earlier steps', () => {
+    const steps = [pendingStep('a'), pendingStep('b')]
+    emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
+    emit(steps, { type: 'started', id: 'b', label: 'B' })
+    expect(stepById(steps, 'a')).toMatchObject({ status: 'done', skipped: true })
+    expect(stepById(steps, 'b').status).toBe('active')
+    expect(stepById(steps, 'unexpected')).toMatchObject({ status: 'active', untracked: true })
   })
 
   it('started re-activates an existing step with a fresh label', () => {
@@ -95,7 +104,7 @@ describe('applyStepEvent', () => {
 
     emit(steps, { type: 'started', id: 'unexpected', label: 'Unexpected' })
 
-    expect(computeStepProgress(steps)).toBe(100)
+    expect(computeStepProgress(steps)).toBeCloseTo(75, 5)
 
     emit(steps, { type: 'finished', id: 'b', skipped: false })
     expect(computeStepProgress(steps)).toBe(100)

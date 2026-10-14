@@ -1,29 +1,39 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Button } from '@/06-shared'
 
-defineProps<{
-  sessionUsername: string
+const props = defineProps<{
+  sessionUsernames: string[]
 }>()
 
 const emit = defineEmits<{
-  minimize: []
+  back: []
 }>()
+
+const sessionEyebrow = computed((): string =>
+  props.sessionUsernames.length > 1
+    ? `Игры запущены (${props.sessionUsernames.length})`
+    : 'Игра запущена',
+)
 </script>
 
 <template>
   <div class="launch-scene__session">
     <span class="launch-scene__session-dot"></span>
     <div class="launch-scene__account-info">
-      <span class="eyebrow">Игра запущена</span>
-      <p class="launch-scene__name">{{ sessionUsername }}</p>
+      <span class="eyebrow">{{ sessionEyebrow }}</span>
+      <p
+        v-for="name in sessionUsernames"
+        :key="name"
+        class="launch-scene__name"
+      >
+        {{ name }}
+      </p>
     </div>
   </div>
-  <p class="launch-scene__hint">
-    Лаунчер можно свернуть в трей — игра продолжит работать
-  </p>
   <div class="launch-scene__actions">
-    <Button class="btn-secondary btn-lg btn-block" @click="emit('minimize')">
-      Свернуть в трей
+    <Button class="btn-secondary btn-lg btn-block" @click="emit('back')">
+      Назад к аккаунтам
     </Button>
   </div>
 </template>

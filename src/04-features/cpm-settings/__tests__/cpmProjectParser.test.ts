@@ -22,7 +22,11 @@ const config: CPMConfig = {
   ],
 }
 
-const skinBytes = new Uint8Array([1, 2, 3, 4])
+const skinBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+
+const fakeSkinBytes = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x10, 0x00, 0x57, 0x45, 0x42, 0x50,
+])
 
 async function buildZip(files: Record<string, string | Uint8Array>): Promise<Uint8Array> {
   const zip = new JSZip()
@@ -115,6 +119,30 @@ describe('readCpmProjectZip', () => {
     })
 
     await expect(readCpmProjectZip(data)).rejects.toThrow('Некорректный config.json в файле проекта')
+  })
+
+  it('throws when skin.png is a renamed non-png payload', async () => {
+    const data = await buildZip({
+      'config.json': JSON.stringify(config),
+      'skin.png': fakeSkinBytes,
+    })
+
+    await expect(readCpmProjectZip(data)).rejects.toThrow(
+      'skin.png в файле проекта не является PNG-изображением',
+    )
+  })
+
+  it('rejects a zip bomb exceeding the uncompressed budget', async () => {
+    const bomb = '0'.repeat(33 * 1024 * 1024)
+    const data = await buildZip({
+      'config.json': JSON.stringify(config),
+      'skin.png': skinBytes,
+      'animations/g_bomb.json': JSON.stringify({ name: 'Bomb', frames: bomb }),
+    })
+
+    await expect(parseCpmProjectFile(data)).rejects.toThrow(
+      'Файл проекта слишком большой после распаковки',
+    )
   })
 })
 

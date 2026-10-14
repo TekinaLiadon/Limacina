@@ -1,5 +1,7 @@
+pub mod allowlisted_read;
 pub mod bandwidth;
 pub mod desktop_entry;
+pub mod disk_space;
 pub mod download_file;
 pub mod env_info;
 pub mod errors;
@@ -19,6 +21,10 @@ pub mod zip;
 
 use anyhow::{Context, Result};
 use std::cmp::Ordering;
+use std::path::Path;
+
+use crate::log_err;
+use crate::utils::errors::LauncherError;
 
 pub async fn blocking<T, F>(error_context: &str, task: F) -> Result<T>
 where
@@ -28,6 +34,23 @@ where
     tauri::async_runtime::spawn_blocking(task)
         .await
         .context(error_context.to_string())
+}
+
+pub fn backup_corrupt_file(path: &Path, suffix: &str, error: &anyhow::Error) -> Result<()> {
+    let backup_path = path.with_extension(suffix);
+    log_err!(
+        "{}: {:?} -> {:?} ({})",
+        LauncherError::ConfigCorrupt,
+        path,
+        backup_path,
+        error
+    );
+    std::fs::rename(path, &backup_path).with_context(|| {
+        format!(
+            "Не удалось сохранить бэкап повреждённого конфига {:?}",
+            backup_path
+        )
+    })
 }
 
 fn split_numeric_part(version: &str) -> Vec<u32> {
@@ -129,8 +152,41 @@ pub fn get_classpath_separator() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::compare_versions;
+    use super::{backup_corrupt_file, compare_versions};
+    use crate::test_support::TempDir;
     use std::cmp::Ordering;
+
+    #[test]
+    fn backup_corrupt_file_renames_to_suffix() {
+        let dir = TempDir::new("backup_corrupt");
+        let path = dir.0.join("config.toml");
+        std::fs::write(&path, b"not [valid toml").expect("запись битого конфига");
+
+        backup_corrupt_file(&path, "toml.bak", &anyhow::anyhow!("ошибка разбора"))
+            .expect("бэкап повреждённого конфига");
+
+        assert!(!path.exists(), "битый конфиг убран с пути");
+        assert_eq!(
+            std::fs::read(path.with_extension("toml.bak")).expect("бэкап"),
+            b"not [valid toml"
+        );
+    }
+
+    #[test]
+    fn backup_corrupt_file_errors_when_rename_impossible() {
+        let dir = TempDir::new("backup_corrupt_fail");
+        let path = dir.0.join("config.json");
+        std::fs::write(&path, b"broken").expect("запись битого конфига");
+        std::fs::create_dir(path.with_extension("json.bak")).expect("занятый путь бэкапа");
+
+        let result = backup_corrupt_file(&path, "json.bak", &anyhow::anyhow!("ошибка разбора"));
+
+        assert!(
+            result.is_err(),
+            "переименование поверх директории должно падать"
+        );
+        assert!(path.exists(), "исходный файл остаётся на месте при сбое");
+    }
 
     #[test]
     fn equal_versions() {

@@ -174,9 +174,6 @@ Var DirField
 Var ShortcutCheckbox
 Var ShortcutWanted
 Var RunAppCheckbox
-Var UserDataCheckbox
-Var DeleteUserData
-Var DataStateLabel
 Var ConfirmDataPath
 Var InstOverlay
 Var InstProgress
@@ -944,7 +941,7 @@ Function PageWelcome
   SendMessage $0 ${WM_SETFONT} $FontText 1
   IntOp $2 $BodyTop + $1
   IntOp $2 $2 + $1
-  ${NSD_CreateLabel} $ContentX $2 $ContentW $1 "Перед продолжением рекомендуем закрыть другие приложения."
+  ${NSD_CreateLabel} $ContentX $2 $ContentW $1 "Перед продолжением рекомендуется закрыть другие приложения."
   Pop $0
   SetCtlColors $0 ${COLOR_BODY} ${COLOR_BG}
   SendMessage $0 ${WM_SETFONT} $FontText 1
@@ -996,12 +993,13 @@ Function PageReinstall
   ${IfThen} "$R0$R1" == "" ${|} Abort ${|}
 
   compare_version:
+  StrCpy $R4 "$(older)"
   ${If} $WixMode = 1
     ReadRegStr $R0 HKLM "$R6" "DisplayVersion"
   ${Else}
     ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${EndIf}
-  ${IfThen} $R0 == "" ${|} StrCpy $R4 "unknown" ${|}
+  ${IfThen} $R0 == "" ${|} StrCpy $R4 "$(unknown)" ${|}
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
@@ -1037,7 +1035,7 @@ Function PageReinstall
     SetCtlColors $DIALOG "" ${COLOR_BG}
     ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
 
-    !insertmacro DrawSidebar 1 "Приветствие" "Папка установки" "Установка" "Завершение" 0
+    !insertmacro DrawSidebar 1 "Приветствие" "Папка установки" "Установка" "Завершение" 1
     !insertmacro PageHeading 1 "$(alreadyInstalled)" "$R1" $SubH2
 
     !insertmacro ScaleTo $1 44
@@ -1192,7 +1190,7 @@ Function PageDirectory
 
   !insertmacro ScaleTo $1 44
   !insertmacro ScaleTo $2 10
-  StrCpy $BtnText "Обзор…"
+  StrCpy $BtnText "Обзор..."
 Call BtnWidth
 StrCpy $3 $BtnW
   IntOp $4 $ContentW - $3
@@ -1209,7 +1207,7 @@ StrCpy $3 $BtnW
   IntOp $4 $ContentX + $4
   IntOp $4 $4 + $2
   IntOp $5 $BodyTop - 1
-  ${NSD_CreateLabel} $4 $5 $3 $1 "Обзор…"
+  ${NSD_CreateLabel} $4 $5 $3 $1 "Обзор..."
   Pop $0
   ${NSD_AddStyle} $0 ${STYLE_CENTER}
   SetCtlColors $0 ${COLOR_BODY} ${COLOR_INPUT}
@@ -1534,7 +1532,6 @@ Function un.onInit
     StrCpy $UpdateMode 1
   ${EndIf}
 
-  StrCpy $DeleteUserData 0
   Call un.InitWizardFonts
 FunctionEnd
 
@@ -1572,18 +1569,6 @@ Function un.InitWizardFonts
   ${EndIf}
 FunctionEnd
 
-Function un.PageConfirmToggle
-  ${NSD_GetState} $UserDataCheckbox $0
-  StrCpy $DeleteUserData $0
-  ${If} $DeleteUserData = 1
-    ${NSD_SetText} $DataStateLabel "Настройки и данные игр (БУДУТ УДАЛЕНЫ): $ConfirmDataPath"
-    SetCtlColors $DataStateLabel ${COLOR_ACCENT} ${COLOR_BG}
-  ${Else}
-    ${NSD_SetText} $DataStateLabel "Настройки и данные игр (будут сохранены): $ConfirmDataPath"
-    SetCtlColors $DataStateLabel ${COLOR_MUTED} ${COLOR_BG}
-  ${EndIf}
-FunctionEnd
-
 Function un.PageConfirm
   ${If} $PassiveMode = 1
     Abort
@@ -1599,16 +1584,11 @@ Function un.PageConfirm
   System::Call 'user32::SetWindowPos(p $DIALOG, p 0, i 0, i 0, i $WinW, i $WinH, i ${SWP_ZSIZE})'
   SetCtlColors $DIALOG "" ${COLOR_BG}
 
-  ReadRegStr $ConfirmDataPath SHCTX "${MANUPRODUCTKEY}" "DataPath"
-  ${If} $ConfirmDataPath == ""
-    StrCpy $ConfirmDataPath "$PROFILE\${PRODUCTNAME}"
-  ${EndIf}
-
   !insertmacro DrawSidebar 1 "Подтверждение" "Удаление" "Завершение" "" 1
   !insertmacro PageHeading 1 "Удаление ${PRODUCTNAME}" "Приложение будет удалено с этого компьютера" $SubH
 
   !insertmacro ScaleTo $1 18
-  ${NSD_CreateLabel} $ContentX $BodyTop $ContentW $1 "Папка, из которой будет удалён ${PRODUCTNAME}:"
+  ${NSD_CreateLabel} $ContentX $BodyTop $ContentW $1 "Папка установки ${PRODUCTNAME}:"
   Pop $0
   SetCtlColors $0 ${COLOR_BODY} ${COLOR_BG}
   SendMessage $0 ${WM_SETFONT} $FontText 1
@@ -1622,25 +1602,6 @@ Function un.PageConfirm
   ${NSD_AddStyle} $0 ${SS_CENTERIMAGE}
   SetCtlColors $0 ${COLOR_TEXT} ${COLOR_INPUT}
   SendMessage $0 ${WM_SETFONT} $FontText 1
-
-  !insertmacro ScaleTo $2 14
-  IntOp $3 $3 + 44
-  IntOp $3 $3 + $2
-  ${NSD_CreateCheckbox} $ContentX $3 $ContentW $1 "Удалить настройки и данные пользователя"
-  Pop $UserDataCheckbox
-  System::Call 'uxtheme::SetWindowTheme(p $UserDataCheckbox, w "", w "")'
-  SendMessage $UserDataCheckbox ${WM_SETFONT} $FontText 1
-  SetCtlColors $UserDataCheckbox ${COLOR_BODY} ${COLOR_BG}
-  ${NSD_OnClick} $UserDataCheckbox un.PageConfirmToggle
-
-  !insertmacro ScaleTo $1 16
-  !insertmacro ScaleTo $2 10
-  IntOp $3 $3 + 44
-  IntOp $3 $3 + $2
-  ${NSD_CreateLabel} $ContentX $3 $ContentW $1 "Настройки и данные игр (будут сохранены): $ConfirmDataPath"
-  Pop $DataStateLabel
-  SetCtlColors $DataStateLabel ${COLOR_MUTED} ${COLOR_BG}
-  SendMessage $DataStateLabel ${WM_SETFONT} $FontCap 1
 
   IntOp $FooterX $WinW - $PadR
   !insertmacro FooterLine
@@ -2063,12 +2024,8 @@ Section Uninstall
     ${If} $ConfirmDataPath == ""
       StrCpy $ConfirmDataPath "$PROFILE\${PRODUCTNAME}"
     ${EndIf}
-    ${If} $DeleteUserData = 1
-      DetailPrint "Удаление настроек и данных игр: $ConfirmDataPath"
-      RmDir /r "$ConfirmDataPath"
-    ${Else}
-      DetailPrint "Настройки и данные игр сохранены: $ConfirmDataPath"
-    ${EndIf}
+    DetailPrint "Удаление настроек и данных игр: $ConfirmDataPath"
+    RmDir /r "$ConfirmDataPath"
 
     DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty SHCTX "${MANUKEY}"

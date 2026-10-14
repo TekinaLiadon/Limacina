@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { readZipEntryText, type ZipReadBudget } from '../cpm-convert/cpmProjectZip'
 import { reportError } from '@/06-shared'
 import type {
   CPMAnimation,
@@ -118,25 +119,27 @@ function classify(fileName: string, displayName: string): { kind: CPMAnimationKi
   return { kind: 'gesture', name: displayName || fileName }
 }
 
-function normalizeInterpolator(raw: unknown): CPMAnimationInterpolator {
-  return INTERPOLATORS.find((value) => value === raw) ?? 'poly_loop'
+function findInterpolator(raw: unknown): CPMAnimationInterpolator | undefined {
+  return INTERPOLATORS.find((value) => value === raw)
 }
 
-export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
+export async function parseCpmAnimations(zip: JSZip, budget: ZipReadBudget): Promise<CPMAnimation[]> {
   const files = Object.keys(zip.files)
     .filter((path) => path.startsWith('animations/') && path.endsWith('.json'))
     .sort()
 
   const animations: CPMAnimation[] = []
   const brokenFiles: string[] = []
+  const unknownInterpolators: string[] = []
 
   for (const path of files) {
     const file = zip.file(path)
     if (!file) continue
 
+    const text = await readZipEntryText(budget, file)
     let raw: Record<string, unknown> | null
     try {
-      const parsed: unknown = JSON.parse(await file.async('string'))
+      const parsed: unknown = JSON.parse(text)
       raw = isRecord(parsed) ? parsed : null
     } catch {
       raw = null
@@ -149,6 +152,12 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
     const fileName = path.slice('animations/'.length)
     const { kind, name } = classify(fileName, asString(raw.name) ?? 'Unnamed')
 
+    const rawInterpolator = raw.interpolator
+    const hasInterpolator = rawInterpolator !== undefined && rawInterpolator !== null
+    if (hasInterpolator && findInterpolator(rawInterpolator) === undefined) {
+      unknownInterpolators.push(fileName)
+    }
+
     animations.push({
       id: fileName,
       name: name || fileName,
@@ -157,7 +166,7 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
       priority: asNumber(raw.priority) ?? 0,
       loop: asBoolean(raw.loop) ?? false,
       additive: asBoolean(raw.additive) ?? true,
-      interpolator: normalizeInterpolator(raw.interpolator),
+      interpolator: findInterpolator(rawInterpolator) ?? 'poly_single',
       hidden: asBoolean(raw.hidden) ?? false,
       frames: sanitizeFrames(raw.frames),
     })
@@ -165,6 +174,10 @@ export async function parseCpmAnimations(zip: JSZip): Promise<CPMAnimation[]> {
 
   if (brokenFiles.length > 0) {
     reportError(`Не удалось разобрать файлы анимаций: ${brokenFiles.join(', ')}`)
+  }
+
+  if (unknownInterpolators.length > 0) {
+    reportError(`Неизвестные интерполяторы в файлах анимаций: ${unknownInterpolators.join(', ')}`)
   }
 
   return animations

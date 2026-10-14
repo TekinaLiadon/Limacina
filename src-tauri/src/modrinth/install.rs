@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
@@ -10,8 +11,11 @@ use super::client;
 use super::structs::{ManifestEntry, ModrinthFile, ModrinthManifest, ModrinthVersion};
 use crate::log_err;
 use crate::log_info;
-use crate::utils::download_file::{download_file, write_atomic};
+use crate::utils::download_file::{
+    download_and_verify_with, download_file_limited, file_sha1, sha1_matches, write_atomic,
+};
 use crate::utils::env_info::is_safe_relative_path;
+use crate::utils::semaphore::{semaphore_core, SemaphoreInfo};
 
 static MANIFEST_WRITE_LOCK: Mutex<()> = Mutex::const_new(());
 
@@ -22,6 +26,7 @@ pub struct InstallContext {
     pub manifest_path: PathBuf,
 }
 
+#[derive(Debug)]
 pub struct InstallReport {
     pub installed: Vec<String>,
     pub skipped: Vec<String>,
@@ -84,14 +89,22 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
         skipped: Vec::new(),
     };
     let mut installed_entries: Vec<ManifestEntry> = Vec::new();
+    let mut pending: Vec<PendingModFile> = Vec::new();
 
-    let display_info = fetch_project_display_info(&resolved).await;
+    let project_ids: Vec<String> = resolved
+        .iter()
+        .map(|version| version.project_id.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let display_info = fetch_project_display_info(&project_ids).await;
+    let manifest_before = load_manifest(&ctx.manifest_path).await?;
 
     for version in &resolved {
         let file = primary_file(version)?;
         let sha1 = file.hashes.get("sha1").cloned().ok_or_else(|| {
             LauncherError::Modrinth(format!(
-                "Файл версии {} без SHA1 хеша",
+                "Файл версии {} без SHA1-хеша",
                 version.version_number
             ))
         })?;
@@ -117,23 +130,32 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
         };
         let dest = ctx.mods_dir.join(&entry.filename);
 
-        if install_file(&dest, &entry.sha1, &file.url).await? {
-            log_info!(
-                "[modrinth] Установлен: {} ({})",
-                entry.filename,
-                entry.version_number
-            );
-            report.installed.push(entry.filename.clone());
-        } else {
+        if sha1_matches(&dest, &entry.sha1).await {
             log_info!(
                 "[modrinth] Уже установлен: {} ({})",
                 entry.filename,
                 entry.version_number
             );
             report.skipped.push(entry.filename.clone());
+        } else {
+            pending.push(PendingModFile {
+                entry: entry.clone(),
+                url: file.url.clone(),
+                max_bytes: (file.size > 0).then_some(file.size),
+            });
         }
-
         installed_entries.push(entry);
+    }
+
+    download_mod_files(ctx, &manifest_before, &pending).await?;
+
+    for file in &pending {
+        log_info!(
+            "[modrinth] Установлен: {} ({})",
+            file.entry.filename,
+            file.entry.version_number
+        );
+        report.installed.push(file.entry.filename.clone());
     }
 
     let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
@@ -148,6 +170,115 @@ pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<I
     }
     save_manifest(&ctx.manifest_path, &manifest).await?;
     Ok(report)
+}
+
+struct PendingModFile {
+    entry: ManifestEntry,
+    url: String,
+    max_bytes: Option<u64>,
+}
+
+async fn download_mod_files(
+    ctx: &InstallContext,
+    manifest_before: &ModrinthManifest,
+    pending: &[PendingModFile],
+) -> Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    let mut sha_by_url: HashMap<String, String> = HashMap::new();
+    let mut limit_by_url: HashMap<String, Option<u64>> = HashMap::new();
+    for file in pending {
+        sha_by_url.insert(file.url.clone(), file.entry.sha1.clone());
+        limit_by_url.insert(file.url.clone(), file.max_bytes);
+    }
+    let sha_by_url = Arc::new(sha_by_url);
+    let limit_by_url = Arc::new(limit_by_url);
+
+    let list: Vec<SemaphoreInfo> = pending
+        .iter()
+        .map(|file| SemaphoreInfo {
+            url: file.url.clone(),
+            dest: PathBuf::from(&file.entry.filename),
+        })
+        .collect();
+
+    let futures = semaphore_core(
+        ctx.mods_dir.clone(),
+        list,
+        move |url, dest| {
+            let sha_by_url = Arc::clone(&sha_by_url);
+            let limit_by_url = Arc::clone(&limit_by_url);
+            async move {
+                let expected = sha_by_url.get(&url).cloned();
+                let max_bytes = limit_by_url.get(&url).copied().flatten();
+                download_and_verify_with(
+                    &dest,
+                    expected.as_deref(),
+                    false,
+                    move |path| async move { download_file_limited(&url, &path, max_bytes).await },
+                )
+                .await
+                .map(|_| ())
+            }
+        },
+        None::<fn(&str)>,
+    );
+    let results = futures::future::join_all(futures).await;
+
+    let mut first_error: Option<anyhow::Error> = None;
+    let mut downloaded: Vec<&PendingModFile> = Vec::new();
+    for (file, result) in pending.iter().zip(results) {
+        match result {
+            Ok(()) => downloaded.push(file),
+            Err(e) => {
+                log_err!(
+                    "[modrinth] Файл мода {} не скачан: {:?}",
+                    file.entry.filename,
+                    e
+                );
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+
+    let Some(error) = first_error else {
+        return Ok(());
+    };
+    remove_partial_download(ctx, manifest_before, &downloaded).await;
+    Err(error)
+}
+
+async fn remove_partial_download(
+    ctx: &InstallContext,
+    manifest_before: &ModrinthManifest,
+    downloaded: &[&PendingModFile],
+) {
+    for file in downloaded {
+        let tracked_same_file = manifest_before
+            .mods
+            .get(&file.entry.project_id)
+            .is_some_and(|previous| previous.filename == file.entry.filename);
+        if tracked_same_file {
+            continue;
+        }
+        let dest = ctx.mods_dir.join(&file.entry.filename);
+        if !dest.exists() {
+            continue;
+        }
+        match tokio::fs::remove_file(&dest).await {
+            Ok(()) => log_info!(
+                "[modrinth] Удалён файл частично неудавшейся установки: {}",
+                file.entry.filename
+            ),
+            Err(e) => log_err!(
+                "[modrinth] Не удалось удалить файл частично неудавшейся установки {dest:?}: {e}"
+            ),
+        }
+    }
 }
 
 async fn resolve_project(
@@ -202,17 +333,11 @@ async fn resolve_project(
 
 type ProjectDisplayInfo = HashMap<String, (String, Option<String>, Option<String>)>;
 
-async fn fetch_project_display_info(versions: &[ModrinthVersion]) -> ProjectDisplayInfo {
-    let project_ids: Vec<String> = versions
-        .iter()
-        .map(|version| version.project_id.clone())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
+async fn fetch_project_display_info(project_ids: &[String]) -> ProjectDisplayInfo {
     if project_ids.is_empty() {
         return HashMap::new();
     }
-    match client::get_projects(&project_ids).await {
+    match client::get_projects(project_ids).await {
         Ok(list) => list
             .into_iter()
             .map(|project| {
@@ -228,7 +353,7 @@ async fn fetch_project_display_info(versions: &[ModrinthVersion]) -> ProjectDisp
             .collect(),
         Err(e) => {
             log_err!(
-                "[modrinth] Не удалось получить информацию проектов ({:?}): {}, в манифест попадут имена версий",
+                "[modrinth] Не удалось получить информацию проектов ({:?}): {}, будут использованы имена версий",
                 project_ids,
                 e
             );
@@ -253,17 +378,6 @@ fn primary_file(version: &ModrinthVersion) -> Result<&ModrinthFile> {
         .ok_or_else(|| {
             LauncherError::Modrinth(format!("Версия {} без файлов", version.version_number)).into()
         })
-}
-
-async fn install_file(dest: &Path, expected_sha1: &str, url: &str) -> Result<bool> {
-    let url = url.to_string();
-    crate::utils::download_file::download_and_verify_with(
-        dest,
-        Some(expected_sha1),
-        true,
-        move |path| async move { download_file(&url, &path).await },
-    )
-    .await
 }
 
 async fn remove_replaced_mod_file(mods_dir: &Path, filename: &str) -> Result<()> {
@@ -294,7 +408,6 @@ pub async fn uninstall_project(ctx: &InstallContext, project_id: &str) -> Result
     let entry = manifest.mods.remove(project_id).ok_or_else(|| {
         LauncherError::Modrinth(format!("Мод {} не установлен через Modrinth", project_id))
     })?;
-    manifest.known_hashes.clear();
 
     if !is_safe_relative_path(&entry.filename) {
         return Err(LauncherError::InvalidModFilename(entry.filename.clone()).into());
@@ -341,7 +454,7 @@ pub async fn check_updates(ctx: &InstallContext) -> Result<Vec<UpdateCheck>> {
     for entry in entries {
         let Some(version) = latest.get(&entry.sha1) else {
             log_info!(
-                "[modrinth] Файл {} не распознан Modrinth — обновления для него недоступны",
+                "[modrinth] Файл {} не распознан Modrinth, обновления для него недоступны",
                 entry.filename
             );
             result.push(UpdateCheck {
@@ -361,14 +474,82 @@ pub async fn check_updates(ctx: &InstallContext) -> Result<Vec<UpdateCheck>> {
     Ok(result)
 }
 
+async fn collect_installed_hashes(mods_dir: &Path) -> HashMap<String, String> {
+    let mut local_hashes: HashMap<String, String> = HashMap::new();
+
+    let mut entries = match tokio::fs::read_dir(mods_dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return local_hashes,
+        Err(e) => {
+            log_err!(
+                "[modrinth] Не удалось прочитать папку модов {:?}: {}",
+                mods_dir,
+                e
+            );
+            return local_hashes;
+        }
+    };
+
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => break,
+            Err(e) => {
+                log_err!(
+                    "[modrinth] Не удалось прочитать запись в папке модов: {}",
+                    e
+                );
+                break;
+            }
+        };
+
+        if !entry
+            .file_type()
+            .await
+            .map(|t| t.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "part") {
+            continue;
+        }
+        let filename = entry.file_name().to_string_lossy().to_string();
+        match file_sha1(&path).await {
+            Ok(hash) => {
+                local_hashes.insert(filename, hash);
+            }
+            Err(e) => {
+                log_err!("[modrinth] Не удалось вычислить хеш {:?}: {}", path, e);
+            }
+        }
+    }
+
+    local_hashes
+}
+
+pub async fn sync_installed_from_scan(ctx: &InstallContext) -> Result<ModrinthManifest> {
+    let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
+    let local_hashes = collect_installed_hashes(&ctx.mods_dir).await;
+    sync_locked(ctx, local_hashes).await
+}
+
+#[cfg(test)]
 pub async fn sync_installed_from_hashes(
     ctx: &InstallContext,
     local_hashes: HashMap<String, String>,
 ) -> Result<ModrinthManifest> {
     let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
+    sync_locked(ctx, local_hashes).await
+}
+
+async fn sync_locked(
+    ctx: &InstallContext,
+    local_hashes: HashMap<String, String>,
+) -> Result<ModrinthManifest> {
     let mut manifest = load_manifest(&ctx.manifest_path).await?;
     let mut changed = false;
-    let mut dropped_entries = false;
 
     manifest.mods.retain(|_, entry| {
         let present = local_hashes.values().any(|h| *h == entry.sha1);
@@ -379,13 +560,9 @@ pub async fn sync_installed_from_hashes(
                 entry.version_number
             );
             changed = true;
-            dropped_entries = true;
         }
         present
     });
-    if dropped_entries {
-        manifest.known_hashes.clear();
-    }
 
     let foreign_hashes: Vec<String> = local_hashes
         .values()
@@ -406,21 +583,7 @@ pub async fn sync_installed_from_hashes(
                     .into_iter()
                     .filter(|id| !manifest.mods.contains_key(id))
                     .collect();
-                let projects: HashMap<String, (String, Option<String>)> =
-                    if missing_projects.is_empty() {
-                        HashMap::new()
-                    } else {
-                        match client::get_projects(&missing_projects).await {
-                            Ok(list) => list
-                                .into_iter()
-                                .map(|p| (p.id.clone(), (p.title.clone(), p.icon_url.clone())))
-                                .collect(),
-                            Err(e) => {
-                                log_err!("[modrinth] Не удалось получить проекты по id: {}", e);
-                                HashMap::new()
-                            }
-                        }
-                    };
+                let projects = fetch_project_display_info(&missing_projects).await;
                 let hash_to_filename: HashMap<&str, &str> = local_hashes
                     .iter()
                     .map(|(filename, hash)| (hash.as_str(), filename.as_str()))
@@ -438,10 +601,10 @@ pub async fn sync_installed_from_hashes(
                         }
                         continue;
                     }
-                    let (title, icon_url) = projects
+                    let (title, icon_url, _) = projects
                         .get(&project_id)
                         .cloned()
-                        .unwrap_or_else(|| (version.name.clone(), None));
+                        .unwrap_or_else(|| (version.name.clone(), None, None));
                     log_info!(
                         "[modrinth] Обнаружен мод Modrinth по хешу: {} ({})",
                         filename,
@@ -469,6 +632,14 @@ pub async fn sync_installed_from_hashes(
         }
     }
 
+    let known_before = manifest.known_hashes.len();
+    manifest
+        .known_hashes
+        .retain(|known| local_hashes.values().any(|h| h == known));
+    if manifest.known_hashes.len() != known_before {
+        changed = true;
+    }
+
     if changed {
         save_manifest(&ctx.manifest_path, &manifest).await?;
     }
@@ -479,7 +650,7 @@ pub async fn sync_installed_from_hashes(
 mod tests {
     use super::*;
     use crate::modrinth::client::{clear_response_cache_for_tests, override_api_base_for_tests};
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
+    use crate::test_support::{part_files_in, sha1_hex, LauncherDirGuard};
     use mockito::{Matcher, Server, ServerGuard};
     use serde_json::json;
 
@@ -518,6 +689,7 @@ mod tests {
         version_number: &str,
         url: String,
         sha1: String,
+        size: u64,
         deps: serde_json::Value,
     ) -> serde_json::Value {
         json!({
@@ -534,7 +706,7 @@ mod tests {
                 "url": url,
                 "filename": format!("{}.jar", project_id),
                 "primary": true,
-                "size": 4,
+                "size": size,
                 "file_type": null
             }]
         })
@@ -610,6 +782,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(&jar_a),
+            jar_a.len() as u64,
             json!([{"version_id": null, "project_id": "B", "file_name": null, "dependency_type": "required"}]),
         );
         let version_b = version_json(
@@ -618,6 +791,7 @@ mod tests {
             "0.2.0",
             format!("{}/cdn/b.jar", env.server.url()),
             sha1_hex(&jar_b),
+            jar_b.len() as u64,
             json!([]),
         );
 
@@ -693,6 +867,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(b"mod a jar"),
+            b"mod a jar".len() as u64,
             json!([]),
         );
         env.server
@@ -743,6 +918,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(b"expected content"),
+            b"expected content".len() as u64,
             json!([]),
         );
         mock_install_env(&mut env, version_a, b"corrupted content", 1).await;
@@ -769,6 +945,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(b"mod a jar"),
+            b"mod a jar".len() as u64,
             json!([]),
         );
         version_a["files"][0]["filename"] = json!("../evil.jar");
@@ -806,6 +983,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(&jar_a),
+            jar_a.len() as u64,
             json!([]),
         );
         mock_install_env(&mut env, version_a, &jar_a, 0).await;
@@ -898,6 +1076,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a-1.0.0.jar", env.server.url()),
             sha1_hex(&jar_v1),
+            jar_v1.len() as u64,
             json!([]),
         );
         let mut version_v2 = version_json(
@@ -906,6 +1085,7 @@ mod tests {
             "2.0.0",
             format!("{}/cdn/a-2.0.0.jar", env.server.url()),
             sha1_hex(&jar_v2),
+            jar_v2.len() as u64,
             json!([]),
         );
         version_v2["files"][0]["filename"] = json!("A-2.0.0.jar");
@@ -956,6 +1136,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a-1.0.0.jar", env.server.url()),
             sha1_hex(&jar_v1),
+            jar_v1.len() as u64,
             json!([]),
         );
         let version_v2 = version_json(
@@ -964,6 +1145,7 @@ mod tests {
             "2.0.0",
             format!("{}/cdn/a-2.0.0.jar", env.server.url()),
             sha1_hex(&jar_v2),
+            jar_v2.len() as u64,
             json!([]),
         );
 
@@ -1468,6 +1650,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(&jar_a),
+            jar_a.len() as u64,
             json!([]),
         );
         mock_version_env(&mut env, version_a, &jar_a).await;
@@ -1515,6 +1698,7 @@ mod tests {
             "1.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(&jar_v1),
+            jar_v1.len() as u64,
             json!([]),
         );
         let version_v2 = version_json(
@@ -1523,6 +1707,7 @@ mod tests {
             "2.0.0",
             format!("{}/cdn/a.jar", env.server.url()),
             sha1_hex(b"mod a v2"),
+            b"mod a v2".len() as u64,
             json!([]),
         );
 
@@ -1537,7 +1722,7 @@ mod tests {
         mock_version_list(&mut env, version_v2).await;
         env.server
             .mock("GET", "/cdn/a.jar")
-            .with_status(500)
+            .with_status(404)
             .create_async()
             .await;
 
@@ -1559,5 +1744,396 @@ mod tests {
             "1.0.0",
             "манифест остаётся на старой версии"
         );
+    }
+
+    #[tokio::test]
+    async fn install_retries_transient_cdn_failure() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_retry").await;
+
+        let jar_a = b"mod a jar".to_vec();
+        let version_a = version_json(
+            "verA",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a.jar", env.server.url()),
+            sha1_hex(&jar_a),
+            jar_a.len() as u64,
+            json!([]),
+        );
+        mock_version_list(&mut env, version_a).await;
+
+        let transient_mock = env
+            .server
+            .mock("GET", "/cdn/a.jar")
+            .with_status(503)
+            .expect(1)
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/a.jar")
+            .with_status(200)
+            .with_body(jar_a.clone())
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let report = install_project(&ctx, "A")
+            .await
+            .expect("транзиентный сбой CDN не должен валить установку");
+
+        transient_mock.assert_async().await;
+        assert_eq!(report.installed, vec!["A.jar".to_string()]);
+        assert_eq!(
+            std::fs::read(ctx.mods_dir.join("A.jar")).expect("jar после ретрая"),
+            jar_a
+        );
+    }
+
+    #[tokio::test]
+    async fn install_rejects_oversized_download() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_size_limit").await;
+
+        let jar_a = b"unexpectedly long jar body".to_vec();
+        let version_a = version_json(
+            "verA",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a.jar", env.server.url()),
+            sha1_hex(&jar_a),
+            2,
+            json!([]),
+        );
+        mock_version_list(&mut env, version_a).await;
+        env.server
+            .mock("GET", "/cdn/a.jar")
+            .with_status(200)
+            .with_body(jar_a.clone())
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let result = install_project(&ctx, "A").await;
+
+        let error = result.expect_err("заявленный размер должен ограничивать скачивание");
+        assert!(
+            error.to_string().contains("превысил ожидаемый"),
+            "ошибка должна называть превышение размера: {error:#}"
+        );
+        assert!(!ctx.mods_dir.join("A.jar").exists());
+        assert!(
+            part_files_in(&ctx.mods_dir).is_empty(),
+            "временные файлы превышенного размера должны быть убраны"
+        );
+        assert!(load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn install_cleans_partial_download_on_failure() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_partial_fail").await;
+
+        let jar_a = b"mod a jar".to_vec();
+        let jar_c = b"mod c jar".to_vec();
+        let version_a = version_json(
+            "verA",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a.jar", env.server.url()),
+            sha1_hex(&jar_a),
+            jar_a.len() as u64,
+            json!([{"version_id": null, "project_id": "B", "file_name": null, "dependency_type": "required"}]),
+        );
+        let version_b = version_json(
+            "verB",
+            "B",
+            "0.2.0",
+            format!("{}/cdn/b.jar", env.server.url()),
+            sha1_hex(b"mod b jar"),
+            b"mod b jar".len() as u64,
+            json!([{"version_id": null, "project_id": "C", "file_name": null, "dependency_type": "required"}]),
+        );
+        let version_c = version_json(
+            "verC",
+            "C",
+            "0.3.0",
+            format!("{}/cdn/c.jar", env.server.url()),
+            sha1_hex(&jar_c),
+            jar_c.len() as u64,
+            json!([]),
+        );
+
+        for (path, version) in [("A", version_a), ("B", version_b), ("C", version_c)] {
+            env.server
+                .mock("GET", format!("/v2/project/{path}/version").as_str())
+                .match_query(Matcher::Any)
+                .with_status(200)
+                .with_body(json!([version]).to_string())
+                .create_async()
+                .await;
+        }
+        env.server
+            .mock("GET", "/v2/projects")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(
+                json!([
+                    project_json("A", "Mod A"),
+                    project_json("B", "Mod B"),
+                    project_json("C", "Mod C")
+                ])
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/a.jar")
+            .with_status(200)
+            .with_body(jar_a.clone())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/b.jar")
+            .with_status(404)
+            .expect(1)
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/c.jar")
+            .with_status(200)
+            .with_body(jar_c.clone())
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let result = install_project(&ctx, "A").await;
+        assert!(
+            result.is_err(),
+            "отказ одного файла должен валить установку"
+        );
+
+        assert!(
+            mods_dir_file_names(&ctx).is_empty(),
+            "успешно скачанные файлы неудавшейся установки не должны оставаться orphan'ами"
+        );
+        assert!(load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn partial_failure_keeps_file_of_tracked_project() {
+        let mut env = ModrinthEnv::acquire("modrinth_partial_tracked").await;
+
+        let jar_v1 = b"mod a v1".to_vec();
+        let jar_v2 = b"mod a v2".to_vec();
+        let version_v2 = version_json(
+            "ver2",
+            "A",
+            "2.0.0",
+            format!("{}/cdn/a.jar", env.server.url()),
+            sha1_hex(&jar_v2),
+            jar_v2.len() as u64,
+            json!([{"version_id": null, "project_id": "B", "file_name": null, "dependency_type": "required"}]),
+        );
+        let version_b = version_json(
+            "verB",
+            "B",
+            "0.2.0",
+            format!("{}/cdn/b.jar", env.server.url()),
+            sha1_hex(b"mod b jar"),
+            b"mod b jar".len() as u64,
+            json!([]),
+        );
+
+        env.server
+            .mock("GET", "/v2/project/A/version")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(json!([version_v2]).to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/project/B/version")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(json!([version_b]).to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/v2/projects")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_body(json!([project_json("A", "Mod A"), project_json("B", "Mod B")]).to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/a.jar")
+            .with_status(200)
+            .with_body(jar_v2.clone())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/b.jar")
+            .with_status(404)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let tracked = manifest_entry("A", &sha1_hex(&jar_v1), "ver1", "1.0.0");
+        seed_mod_manifest(&ctx, vec![("A", tracked)]).await;
+        tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
+        tokio::fs::write(ctx.mods_dir.join("A.jar"), &jar_v1)
+            .await
+            .unwrap();
+
+        let result = install_project(&ctx, "A").await;
+        assert!(result.is_err());
+
+        assert!(
+            ctx.mods_dir.join("A.jar").exists(),
+            "файл отслеживаемого проекта не должен удаляться при частичном отказе"
+        );
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert_eq!(
+            manifest.mods.get("A").expect("запись A").version_number,
+            "1.0.0",
+            "манифест возвращается к состоянию до установки"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_waiting_on_manifest_lock_keeps_mod_installed_during_wait() {
+        let env = ModrinthEnv::acquire("modrinth_sync_lock_race").await;
+        let ctx = env.install_ctx();
+        tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
+
+        let jar_b = b"mod b jar".to_vec();
+        tokio::fs::write(ctx.mods_dir.join("B.jar"), &jar_b)
+            .await
+            .unwrap();
+        seed_mod_manifest(
+            &ctx,
+            vec![(
+                "B",
+                manifest_entry("B", &sha1_hex(&jar_b), "verB1", "2.0.0"),
+            )],
+        )
+        .await;
+
+        let lock_guard = MANIFEST_WRITE_LOCK.lock().await;
+        let sync_ctx = env.install_ctx();
+        let sync_handle = tokio::spawn(async move { sync_installed_from_scan(&sync_ctx).await });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let jar_a = b"mod a jar".to_vec();
+        tokio::fs::write(ctx.mods_dir.join("A.jar"), &jar_a)
+            .await
+            .unwrap();
+        let mut manifest = load_manifest(&ctx.manifest_path).await.unwrap();
+        manifest.mods.insert(
+            "A".to_string(),
+            manifest_entry("A", &sha1_hex(&jar_a), "verA1", "1.0.0"),
+        );
+        save_manifest(&ctx.manifest_path, &manifest).await.unwrap();
+
+        drop(lock_guard);
+        let result = sync_handle.await.unwrap().expect("синхронизация");
+
+        assert!(
+            result.mods.contains_key("A"),
+            "мод, установленный пока sync ждал лок, не должен выпадать из манифеста"
+        );
+        assert!(result.mods.contains_key("B"));
+        let saved = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert!(saved.mods.contains_key("A"));
+        assert!(saved.mods.contains_key("B"));
+    }
+
+    #[tokio::test]
+    async fn sync_prunes_known_hashes_without_files() {
+        let env = ModrinthEnv::acquire("modrinth_prune_known").await;
+        let ctx = env.install_ctx();
+        tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
+
+        let jar_a = b"mod a jar".to_vec();
+        tokio::fs::write(ctx.mods_dir.join("A.jar"), &jar_a)
+            .await
+            .unwrap();
+        let manifest = ModrinthManifest {
+            mods: [(
+                "A".to_string(),
+                manifest_entry("A", &sha1_hex(&jar_a), "verA1", "1.0.0"),
+            )]
+            .into_iter()
+            .collect(),
+            known_hashes: vec![sha1_hex(&jar_a), "hash-gone".to_string()],
+        };
+        save_manifest(&ctx.manifest_path, &manifest).await.unwrap();
+
+        let synced = sync_installed_from_scan(&ctx)
+            .await
+            .expect("синхронизация с пруном");
+
+        assert_eq!(
+            synced.known_hashes,
+            vec![sha1_hex(&jar_a)],
+            "хеши без файла в mods не должны накапливаться"
+        );
+        let saved = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert_eq!(saved.known_hashes, vec![sha1_hex(&jar_a)]);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod collect_installed_hashes_tests {
+    use super::collect_installed_hashes;
+    use crate::test_support::LauncherDirGuard;
+
+    #[tokio::test]
+    async fn collect_installed_hashes_skips_entries_with_read_error() {
+        let guard = LauncherDirGuard::acquire("modrinth_installed_scan").await;
+        let mods_dir = guard.project_dir("Proj").join("mods");
+        tokio::fs::create_dir_all(&mods_dir)
+            .await
+            .expect("создание папки модов");
+        tokio::fs::write(mods_dir.join("good.jar"), b"jar-content")
+            .await
+            .expect("запись мода");
+
+        let unreadable = mods_dir.join("broken.jar");
+        tokio::fs::write(&unreadable, b"broken")
+            .await
+            .expect("запись проблемного мода");
+        deny_read_permission(&unreadable);
+
+        let hashes = collect_installed_hashes(&mods_dir).await;
+        assert_eq!(
+            hashes.len(),
+            1,
+            "скан должен продолжиться после ошибки чтения"
+        );
+        assert!(hashes.contains_key("good.jar"));
+    }
+
+    fn deny_read_permission(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(path)
+            .expect("метаданные проблемного мода")
+            .permissions();
+        permissions.set_mode(0o000);
+        std::fs::set_permissions(path, permissions).expect("права на проблемный мод");
     }
 }

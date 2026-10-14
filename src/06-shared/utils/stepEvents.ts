@@ -34,8 +34,11 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
   switch (event.type) {
     case 'started': {
       const index = steps.findIndex((item) => item.key === event.id)
-      const markLimit = index === -1 ? steps.length : index
-      for (let i = 0; i < markLimit; i += 1) {
+      if (index === -1) {
+        steps.push({ ...createStepItem(event.id, event.label, Date.now()), untracked: true })
+        break
+      }
+      for (let i = 0; i < index; i += 1) {
         const before = steps[i]
         if (
           before !== undefined &&
@@ -44,10 +47,6 @@ export function applyStepEvent(steps: StepProgressItem[], event: StepEvent): voi
           before.status = 'done'
           before.skipped = true
         }
-      }
-      if (index === -1) {
-        steps.push({ ...createStepItem(event.id, event.label, Date.now()), untracked: true })
-        break
       }
       const step = steps[index]
       if (step) {

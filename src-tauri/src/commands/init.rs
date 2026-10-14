@@ -20,7 +20,7 @@ pub async fn initialize_project(
     state: State<'_, Mutex<GlobalState>>,
     project_name: String,
 ) -> CommandResult<ProjectConfig> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
     initialize_project_inner(state, project_name).await
 }
 

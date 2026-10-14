@@ -120,7 +120,7 @@ export function useLaunchStepsStream(): {
       reportError('Не удалось получить состояние запуска игры', e)
       return
     }
-    if (!inProgress || launch.isLaunching || launch.gameUsername !== null) return
+    if (!inProgress || launch.isLaunching || launch.gameUsernames.length > 0) return
     launch.markInterrupted()
   }
 

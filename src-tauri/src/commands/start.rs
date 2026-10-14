@@ -1,6 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
@@ -28,7 +26,16 @@ pub async fn start_minecraft(
     app: AppHandle,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::acquire_launch_step();
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
+    let username = {
+        let state = state.lock().await;
+        let session = state
+            .session
+            .as_ref()
+            .ok_or_else(|| anyhow!(LauncherError::NoSession))?;
+        session.username.clone()
+    };
+    crate::minecraft::process::ensure_session_free(&username)?;
     start_minecraft_inner(app, state).await
 }
 
@@ -49,8 +56,7 @@ async fn start_minecraft_inner(
     let (ctx, mut project_config) = read_launch_context(&state, config_step.clone()).await?;
     project_config = repair_stale_java_path(&state, project_config).await;
 
-    let (mut skin_server, authlib_server_url) =
-        start_offline_skin_server_if_needed(&project_config, &ctx.username, &ctx.uuid).await;
+    let authlib = offline::AuthlibLaunch::resolve(&project_config, &ctx.username, &ctx.uuid).await;
     if project_config.online {
         if let Err(e) = crate::commands::cpm_models::sync_player_models(&state).await {
             log_err!("Не удалось синхронизировать модели CPM: {}", e);
@@ -62,26 +68,18 @@ async fn start_minecraft_inner(
     config_step.finish(false);
 
     if let Err(e) = force_narrator_off(&game_config.game_dir).await {
-        log_err!("[start] Не удалось выключить нарратор: {}", e);
+        log_err!("[start] Не удалось выключить диктор: {}", e);
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
     let process = step_try!(
         process_step,
-        spawn_game_step(
-            &app,
-            game_config,
-            authlib_server_url.as_deref(),
-            &ctx,
-            &mut skin_server
-        )
+        spawn_game_step(&app, game_config, authlib.server_url(), &ctx)
     );
     process_step.finish(false);
     let _ = app.emit("game-started", ctx.username.clone());
 
-    if let Some(server) = skin_server.take() {
-        spawn_skin_server_stop_monitor(server, process.exited_flag());
-    }
+    authlib.stop_on_game_exit(process.exited_flag());
 
     wait_for_game_window(&process, &ctx.project).await?;
     notify_game_activity(&process, &ctx);
@@ -156,27 +154,28 @@ async fn read_launch_context(
     ))
 }
 
-async fn start_offline_skin_server_if_needed(
-    project_config: &ProjectConfig,
-    username: &str,
-    uuid: &str,
-) -> (Option<offline::SkinServer>, Option<String>) {
-    if project_config.online {
-        return (None, project_config.resolved_server_url());
-    }
-    match offline::start_offline_skin_server(&project_config.project_name, username, uuid).await {
-        Ok(Some(server)) => {
-            let url = server.url().to_string();
-            (Some(server), Some(url))
-        }
-        Ok(None) => (None, None),
+fn spawn_game_step(
+    app: &AppHandle,
+    game_config: GameConfig,
+    authlib_server_url: Option<&str>,
+    ctx: &LaunchContext,
+) -> anyhow::Result<GameProcess> {
+    crate::tray::add_game_session(app, &ctx.username);
+    let spawn_result = LauncherError::classify(
+        spawn_game_process(
+            app.clone(),
+            game_config,
+            authlib_server_url,
+            ctx.username.clone(),
+        )
+        .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
+        LauncherError::GameProcess,
+    );
+    match spawn_result {
+        Ok(process) => Ok(process),
         Err(e) => {
-            log_err!(
-                "[start] Офлайн-скин недоступен, запуск без скина ({}): {}",
-                project_config.project_name,
-                e
-            );
-            (None, None)
+            crate::tray::remove_game_session(app, &ctx.username);
+            Err(e)
         }
     }
 }
@@ -204,7 +203,7 @@ async fn assemble_game_config(
                 .config(project_config, &config)
                 .await
                 .with_context(|| format!(
-                    "Не удалось получить Vanilla конфиг (проект: {})",
+                    "Не удалось получить конфиг Vanilla (проект: {})",
                     ctx.project
                 )),
             LauncherError::ManifestParse
@@ -222,7 +221,7 @@ async fn assemble_game_config(
                 .versions(project_config)
                 .await
                 .with_context(|| format!(
-                    "Не удалось получить список версий лоадера (проект: {})",
+                    "Не удалось получить список версий загрузчика модов (проект: {})",
                     ctx.project
                 )),
             LauncherError::ManifestParse
@@ -235,7 +234,7 @@ async fn assemble_game_config(
                 .version_current(project_config, &versions)
                 .await
                 .with_context(|| format!(
-                    "Не удалось получить текущую версию лоадера (проект: {})",
+                    "Не удалось получить текущую версию загрузчика модов (проект: {})",
                     ctx.project
                 )),
             LauncherError::ManifestParse
@@ -297,43 +296,6 @@ async fn apply_auto_join(
     Ok(())
 }
 
-fn spawn_game_step(
-    app: &AppHandle,
-    game_config: GameConfig,
-    authlib_server_url: Option<&str>,
-    ctx: &LaunchContext,
-    skin_server: &mut Option<offline::SkinServer>,
-) -> anyhow::Result<GameProcess> {
-    crate::tray::set_game_state(app, true, &ctx.username);
-    let spawn_result = LauncherError::classify(
-        spawn_game_process(app.clone(), game_config, authlib_server_url)
-            .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
-        LauncherError::GameProcess,
-    );
-    match spawn_result {
-        Ok(process) => Ok(process),
-        Err(e) => {
-            crate::tray::set_game_state(app, false, "");
-            if let Some(server) = skin_server.take() {
-                server.stop();
-            }
-            Err(e)
-        }
-    }
-}
-
-fn spawn_skin_server_stop_monitor(server: offline::SkinServer, exited: Arc<AtomicBool>) {
-    tauri::async_runtime::spawn_blocking(move || {
-        loop {
-            if exited.load(Ordering::Relaxed) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        server.stop();
-    });
-}
-
 async fn wait_for_game_window(process: &GameProcess, project: &str) -> CommandResult<()> {
     let window_step = StepHandle::start("launch.window", "Ожидание окна игры");
     step_try!(
@@ -347,7 +309,7 @@ async fn wait_for_game_window(process: &GameProcess, project: &str) -> CommandRe
         )
     );
     if !process.window_opened() {
-        window_step.detail("Окно игры не обнаружено за 120 сек — оно может открыться позже");
+        window_step.detail("Окно игры не обнаружено за 120 сек, оно может открыться позже");
     }
     window_step.finish(false);
     Ok(())
@@ -361,8 +323,8 @@ fn notify_game_activity(process: &GameProcess, ctx: &LaunchContext) {
     let mc_version = ctx.mc_version.clone();
     let project = ctx.project.clone();
     let discord_enabled = ctx.discord_enabled;
-    tauri::async_runtime::spawn_blocking(move || {
-        discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited));
+    tauri::async_runtime::spawn(async move {
+        discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited)).await;
     });
 }
 
@@ -402,8 +364,8 @@ pub async fn exit_launcher(app: AppHandle) -> CommandResult<()> {
 }
 
 #[tauri::command]
-pub async fn get_game_state() -> CommandResult<Option<String>> {
-    Ok(crate::tray::game_username())
+pub async fn get_game_state() -> CommandResult<Vec<String>> {
+    Ok(crate::minecraft::process::game_usernames())
 }
 
 #[tauri::command]
@@ -429,7 +391,7 @@ async fn repair_stale_java_path(
         return config;
     };
     let stored_path = PathBuf::from(&stored);
-    if stored_path.exists() {
+    if tokio::fs::try_exists(&stored_path).await.unwrap_or(false) {
         return config;
     }
     let Some(repaired) = repair_java_path(&stored_path) else {

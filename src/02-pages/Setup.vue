@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { useSetup } from '@/04-features'
+import { useSetup, useOfflineSetup } from '@/04-features'
 import { Button, Input } from '@/06-shared'
 import { AddProfileTab } from '@/03-widgets'
 
 const {
   selectedPath,
   isLoading,
-  step,
-  needsProfile,
   fullDisplayPath,
   selectFolder,
   save,
 } = useSetup()
+
+const { step, needsProfile } = useOfflineSetup()
 </script>
 
 <template>
@@ -20,7 +20,7 @@ const {
       <div class="setup-card">
         <div v-if="needsProfile" class="setup-steps">
           <span class="setup-steps__item" :class="{ 'setup-steps__item--active': step === 1 }">Папка установки</span>
-          <span class="setup-steps__arrow">→</span>
+          <span class="setup-steps__arrow">-&gt;</span>
           <span class="setup-steps__item" :class="{ 'setup-steps__item--active': step === 2 }">Профиль</span>
         </div>
 

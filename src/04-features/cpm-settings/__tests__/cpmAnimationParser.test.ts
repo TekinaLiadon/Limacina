@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import JSZip from 'jszip'
 import { parseCpmAnimations } from '../cpmAnimationParser'
+import { createZipReadBudget } from '../../cpm-convert/cpmProjectZip'
 
 const reportError = vi.hoisted(() => vi.fn())
 
@@ -35,7 +36,7 @@ describe('parseCpmAnimations', () => {
       }),
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations).toHaveLength(1)
     expect(animations[0]).toMatchObject({
@@ -58,7 +59,7 @@ describe('parseCpmAnimations', () => {
       'animations/g_$layer$hat.json': JSON.stringify({ name: '$layer$Hat' }),
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations).toHaveLength(3)
     expect(animations.find((animation) => animation.id === 'c_dance.json')).toMatchObject({
@@ -78,7 +79,7 @@ describe('parseCpmAnimations', () => {
   it('applies defaults for a minimal animation file', async () => {
     const zip = await buildZip({ 'animations/extra.json': JSON.stringify({}) })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations[0]).toEqual({
       id: 'extra.json',
@@ -88,20 +89,23 @@ describe('parseCpmAnimations', () => {
       priority: 0,
       loop: false,
       additive: true,
-      interpolator: 'poly_loop',
+      interpolator: 'poly_single',
       hidden: false,
       frames: [],
     })
+    expect(reportError).not.toHaveBeenCalled()
   })
 
-  it('falls back to the default interpolator for unknown values', async () => {
+  it('falls back to a single-pass interpolator and reports unknown values', async () => {
     const zip = await buildZip({
       'animations/weird.json': JSON.stringify({ interpolator: 'turbo' }),
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
-    expect(animations[0]?.interpolator).toBe('poly_loop')
+    expect(animations[0]?.interpolator).toBe('poly_single')
+    expect(reportError).toHaveBeenCalledOnce()
+    expect(reportError).toHaveBeenCalledWith(expect.stringContaining('weird.json'))
   })
 
   it('reports broken json files by name and keeps the valid ones', async () => {
@@ -110,7 +114,7 @@ describe('parseCpmAnimations', () => {
       'animations/broken.json': '{ not json',
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations).toHaveLength(1)
     expect(animations[0]?.id).toBe('ok.json')
@@ -125,7 +129,7 @@ describe('parseCpmAnimations', () => {
       'animations/list.json': '[1, 2]',
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations).toHaveLength(1)
     expect(animations[0]?.id).toBe('ok.json')
@@ -146,7 +150,7 @@ describe('parseCpmAnimations', () => {
       }),
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations[0]).toMatchObject({
       name: 'Unnamed',
@@ -182,7 +186,7 @@ describe('parseCpmAnimations', () => {
       }),
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations).toHaveLength(1)
     expect(animations[0]?.frames).toEqual([
@@ -205,7 +209,7 @@ describe('parseCpmAnimations', () => {
       'animations/no-frames.json': JSON.stringify({ name: 'NoFrames', frames: { all: true } }),
     })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations[0]?.frames).toEqual([])
   })
@@ -213,7 +217,7 @@ describe('parseCpmAnimations', () => {
   it('returns an empty list when the archive has no animations', async () => {
     const zip = await buildZip({ 'config.json': '{}' })
 
-    const animations = await parseCpmAnimations(zip)
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
 
     expect(animations).toEqual([])
     expect(reportError).not.toHaveBeenCalled()

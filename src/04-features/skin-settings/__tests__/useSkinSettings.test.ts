@@ -10,7 +10,6 @@ import {
   getProfileSkin,
   listSkins,
   readSkinFile,
-  saveOfflineSkin,
   setActiveSkin,
   uploadSkin,
 } from '@/06-shared/api'
@@ -19,7 +18,6 @@ import {
   useCoreStore,
   useNotificationStore,
   type ProjectConfig,
-  type SkinModelMode,
   type UserContentItem,
 } from '@/05-entities'
 import { useSkinSettings } from '../useSkinSettings'
@@ -34,9 +32,17 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   getProfileSkin: vi.fn(),
   listSkins: vi.fn(),
   readSkinFile: vi.fn(),
-  saveOfflineSkin: vi.fn(),
   setActiveSkin: vi.fn(),
   uploadSkin: vi.fn(),
+}))
+
+const shared = vi.hoisted(() => ({
+  selectFile: vi.fn(),
+}))
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  selectFile: shared.selectFile,
 }))
 
 const createObjectURLMock = vi.fn((): string => 'blob:mock-url')
@@ -87,12 +93,11 @@ describe('useSkinSettings', () => {
     vi.mocked(getProfileSkin).mockReset()
     vi.mocked(listSkins).mockReset()
     vi.mocked(readSkinFile).mockReset()
-    vi.mocked(saveOfflineSkin).mockReset()
     vi.mocked(setActiveSkin).mockReset()
     vi.mocked(uploadSkin).mockReset()
+    shared.selectFile.mockReset()
     vi.mocked(listSkins).mockResolvedValue([])
     vi.mocked(getProfileSkin).mockResolvedValue(new Uint8Array([1, 2, 3]))
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array())
     createImageBitmapMock.mockClear()
     createObjectURLMock.mockClear()
     revokeObjectURLMock.mockClear()
@@ -112,10 +117,6 @@ describe('useSkinSettings', () => {
     const core = useCoreStore()
     core.projectConfig = makeProjectConfig(true)
     useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
-  }
-
-  const goOffline = (): void => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
   }
 
   it('auto-loads the active skin preview for the online project', async () => {
@@ -152,117 +153,15 @@ describe('useSkinSettings', () => {
     expect(skins.hasSkin.value).toBe(false)
   })
 
-  it('surfaces the offline skin load error to the user', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockRejectedValue(new Error('disk gone'))
-    const skins = setupSkins()
-
-    await vi.waitFor(() => expect(skins.errorMessage.value).toBe('disk gone'))
-
-    expect(skins.hasSkin.value).toBe(false)
-  })
-
-  it('loads the offline skin with the stored model', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockResolvedValue('slim')
-    const skins = setupSkins()
-
-    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
-
-    expect(skins.modelMode.value).toBe('slim')
-    expect(getProfileSkin).not.toHaveBeenCalled()
-  })
-
-  it('stays empty for an offline project without a stored skin', async () => {
-    goOffline()
+  it('does not touch the offline skin storage for an offline project', async () => {
+    useCoreStore().projectConfig = makeProjectConfig(false)
     const skins = setupSkins()
     await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
 
-    expect(skins.hasSkin.value).toBe(false)
+    expect(getOfflineSkin).not.toHaveBeenCalled()
     expect(getOfflineSkinModel).not.toHaveBeenCalled()
-  })
-
-  it('accepts the legacy 64x32 skin format', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    createImageBitmapMock.mockResolvedValueOnce({ width: 64, height: 32, close: () => {} })
-    const skins = setupSkins()
-
-    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
-
-    expect(skins.hasSkin.value).toBe(true)
-  })
-
-  it('rejects a skin whose size does not match the Minecraft formats', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    createImageBitmapMock.mockResolvedValueOnce({ width: 100, height: 50, close: () => {} })
-    const skins = setupSkins()
-
-    await vi.waitFor(() => expect(console.error).toHaveBeenCalled())
-
+    expect(getProfileSkin).not.toHaveBeenCalled()
     expect(skins.hasSkin.value).toBe(false)
-    expect(skins.skinUrl.value).toBe('')
-    expect(URL.createObjectURL).not.toHaveBeenCalled()
-  })
-
-  it('does not re-persist the offline skin while restoring the stored model', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockResolvedValue('slim')
-    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
-    const skins = setupSkins()
-
-    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
-
-    expect(skins.modelMode.value).toBe('slim')
-    await nextTick()
-    expect(saveOfflineSkin).not.toHaveBeenCalled()
-    expect(skins.errorMessage.value).toBe('')
-  })
-
-  it('saves the offline skin when the model changes', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
-    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
-    const skins = setupSkins()
-    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
-
-    skins.modelMode.value = 'slim'
-    await vi.waitFor(() => expect(saveOfflineSkin).toHaveBeenCalledTimes(1))
-
-    expect(saveOfflineSkin).toHaveBeenCalledWith(expect.any(Uint8Array), 'slim')
-  })
-
-  it('serializes the offline skin writes when the model flips rapidly', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
-    let releaseFirst: () => void = () => {}
-    vi.mocked(saveOfflineSkin).mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseFirst = resolve
-        }),
-    )
-    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
-    const skins = setupSkins()
-    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
-
-    skins.modelMode.value = 'slim'
-    await nextTick()
-    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
-
-    skins.modelMode.value = 'classic'
-    await nextTick()
-    expect(saveOfflineSkin).toHaveBeenCalledTimes(1)
-
-    releaseFirst()
-    await vi.waitFor(() => expect(saveOfflineSkin).toHaveBeenCalledTimes(2))
-
-    expect(saveOfflineSkin).toHaveBeenLastCalledWith(expect.any(Uint8Array), 'classic')
   })
 
   it('revokes the pending preview url when the page unmounts mid-decode', async () => {
@@ -287,40 +186,6 @@ describe('useSkinSettings', () => {
     expect(result.skinUrl.value).toBe('')
   })
 
-  it('revokes the pending offline skin url when the page unmounts mid-load', async () => {
-    goOffline()
-    let releaseModel: (model: SkinModelMode) => void = () => {}
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockImplementationOnce(
-      () =>
-        new Promise<SkinModelMode>((resolve) => {
-          releaseModel = resolve
-        }),
-    )
-    createObjectURLMock.mockReturnValueOnce('blob:pending-offline')
-    const { result, unmount } = withSetup(() => useSkinSettings())
-    await vi.waitFor(() => expect(getOfflineSkinModel).toHaveBeenCalled())
-
-    unmount()
-    releaseModel('classic')
-    await flushPromises()
-
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pending-offline')
-    expect(result.skinUrl.value).toBe('')
-  })
-
-  it('skips the offline persistence without skin bytes', async () => {
-    goOffline()
-    vi.mocked(saveOfflineSkin).mockResolvedValue(undefined)
-    const skins = setupSkins()
-    await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
-
-    skins.modelMode.value = 'slim'
-    await Promise.resolve()
-
-    expect(saveOfflineSkin).not.toHaveBeenCalled()
-  })
-
   it('skips the upload without pending skin bytes', async () => {
     goOnline()
     vi.mocked(uploadSkin).mockResolvedValue(makeSkin(2))
@@ -330,6 +195,65 @@ describe('useSkinSettings', () => {
     await skins.handleUpload()
 
     expect(uploadSkin).not.toHaveBeenCalled()
+  })
+
+  it('rejects a renamed non-png skin before accepting the file', async () => {
+    goOnline()
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
+
+    skins.selectSkin()
+    const options = shared.selectFile.mock.calls[0]?.[0] as {
+      onLoad: (file: { name: string }, result: string | ArrayBuffer) => Promise<void>
+    }
+
+    const fakePng = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x57, 0x45, 0x42, 0x50])
+    await options.onLoad({ name: 'avatar.png' }, fakePng)
+
+    expect(skins.errorMessage.value).toBe('Выбранный файл не является PNG-изображением')
+    expect(skins.skinFileBytes.value.length).toBe(0)
+    expect(createImageBitmapMock).not.toHaveBeenCalled()
+
+    const realPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+    await options.onLoad({ name: 'skin.png' }, realPng)
+
+    expect(skins.errorMessage.value).toBe('')
+    expect(skins.skinFileBytes.value).toEqual(realPng)
+    expect(createImageBitmapMock).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the manually selected model mode when the list reloads', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([{ ...makeSkin(1, true), model: 'slim' }])
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+    expect(skins.modelMode.value).toBe('slim')
+
+    skins.modelMode.value = 'classic'
+    await skins.loadList()
+    await nextTick()
+
+    expect(skins.modelMode.value).toBe('classic')
+  })
+
+  it('adopts the model of the newly activated skin', async () => {
+    goOnline()
+    let activeId = 1
+    vi.mocked(listSkins).mockImplementation(async () => [
+      { ...makeSkin(1, activeId === 1), model: 'classic' },
+      { ...makeSkin(2, activeId === 2), model: 'slim' },
+    ])
+    vi.mocked(setActiveSkin).mockImplementation(async (id: number): Promise<void> => {
+      activeId = id
+    })
+    const skins = setupSkins()
+    await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
+    expect(skins.modelMode.value).toBe('classic')
+
+    await skins.handleActivate(2)
+    await nextTick()
+
+    expect(skins.modelMode.value).toBe('slim')
   })
 
   it('activates a skin and reloads the preview', async () => {
@@ -345,26 +269,18 @@ describe('useSkinSettings', () => {
     expect(getProfileSkin).toHaveBeenCalledTimes(2)
   })
 
-  it('resets the skin after confirmation and clears the offline file', async () => {
-    goOffline()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
-    vi.mocked(deleteOfflineSkin).mockResolvedValue(undefined)
+  it('resets the skin after confirmation without touching the offline storage', async () => {
+    goOnline()
+    vi.mocked(listSkins).mockResolvedValue([makeSkin(1, true)])
     const skins = setupSkins()
     await vi.waitFor(() => expect(skins.skinUrl.value).not.toBe(''))
-
-    const declined = skins.resetSkin()
-    useNotificationStore().resolvePopup(false)
-    await declined
-    expect(deleteOfflineSkin).not.toHaveBeenCalled()
-    expect(skins.hasSkin.value).toBe(true)
 
     const confirmed = skins.resetSkin()
     useNotificationStore().resolvePopup(true)
     await confirmed
 
-    expect(deleteOfflineSkin).toHaveBeenCalledTimes(1)
     expect(skins.hasSkin.value).toBe(false)
+    expect(deleteOfflineSkin).not.toHaveBeenCalled()
   })
 
   it('deletes a skin from the list after confirmation', async () => {
@@ -468,23 +384,12 @@ describe('useSkinSettings', () => {
     expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 
-  it('reloads the offline skin when the project switches to an offline project', async () => {
-    goOnline()
-    vi.mocked(listSkins).mockResolvedValue([])
-    const core = useCoreStore()
-    core.currentProject = 'proj'
+  it('sets the texture load error through the composable action', async () => {
     const skins = setupSkins()
-    await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
-    expect(skins.hasSkin.value).toBe(false)
 
-    core.projectConfig = makeProjectConfig(false)
-    core.currentProject = 'offline-proj'
-    useAccountsStore().clearSessionState()
-    vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))
-    vi.mocked(getOfflineSkinModel).mockResolvedValue('classic')
-    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:mock-url'))
+    expect(skins.errorMessage.value).toBe('')
+    skins.setTextureError()
 
-    expect(getOfflineSkin).toHaveBeenCalledTimes(1)
-    expect(getProfileSkin).not.toHaveBeenCalled()
+    expect(skins.errorMessage.value).toBe('Не удалось загрузить текстуру скина')
   })
 })

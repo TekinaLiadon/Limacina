@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import {
@@ -116,6 +117,46 @@ describe('useGameOptions', () => {
 
     expect(options.options.value.fov).toBe(60)
     expect(options.loadError.value).toBe('')
+  })
+
+  it('drops a pending load when the project is cleared', async () => {
+    let releaseAlpha: (data: GameOptionsData) => void = () => {}
+    vi.mocked(getGameOptions).mockImplementationOnce(
+      () =>
+        new Promise<GameOptionsData>((resolve) => {
+          releaseAlpha = resolve
+        }),
+    )
+    const core = useCoreStore()
+    const options = setupOptions()
+    await vi.waitFor(() => expect(getGameOptions).toHaveBeenCalledTimes(1))
+
+    core.currentProject = ''
+    releaseAlpha(makeData({ fov: 110 }))
+    await flushPromises()
+
+    expect(options.options.value.fov).toBe(DEFAULT_GAME_OPTIONS.fov)
+    expect(options.loadError.value).toBe('')
+    expect(options.isLoading.value).toBe(false)
+  })
+
+  it('drops a pending load after unmount', async () => {
+    let releaseAlpha: (data: GameOptionsData) => void = () => {}
+    vi.mocked(getGameOptions).mockImplementationOnce(
+      () =>
+        new Promise<GameOptionsData>((resolve) => {
+          releaseAlpha = resolve
+        }),
+    )
+    const { result, unmount } = withSetup(() => useGameOptions())
+    await vi.waitFor(() => expect(getGameOptions).toHaveBeenCalledTimes(1))
+
+    unmount()
+    releaseAlpha(makeData({ fov: 110 }))
+    await flushPromises()
+
+    expect(result.options.value.fov).toBe(DEFAULT_GAME_OPTIONS.fov)
+    expect(result.loadError.value).toBe('')
   })
 
   it('does not save while the options are still loading', async () => {

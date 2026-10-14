@@ -22,7 +22,7 @@ pub fn http_client() -> &'static Client {
     HTTP_CLIENT.get_or_init(|| {
         base_client_builder()
             .build()
-            .expect("Не удалось создать HTTP клиент")
+            .unwrap_or_else(|_| Client::new())
     })
 }
 

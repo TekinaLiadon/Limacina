@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button } from '@/06-shared'
-import { useAddProfile } from '@/04-features'
+import { Button, useRovingTabs } from '@/06-shared'
+import { useAddProfile, useOfflineProfileForm } from '@/04-features'
 import ServerProfileForm from '@/03-widgets/tabs/profile/ServerProfileForm.vue'
 import OfflineProfileForm from '@/03-widgets/tabs/profile/OfflineProfileForm.vue'
 import type { ProfileKind, ProjectConfig } from '@/05-entities'
@@ -14,10 +14,15 @@ const props = defineProps<{
 const router = useRouter()
 
 const {
-  kind,
   isSubmitting,
   errorMessage,
   serverForm,
+  isServerValid,
+  submitServer,
+} = useAddProfile()
+
+const {
+  kind,
   offlineForm,
   mcVersionOptions,
   loaderOptions,
@@ -25,40 +30,24 @@ const {
   needsLoaderVersion,
   isLoadingMcVersions,
   isLoadingLoaderVersions,
-  isServerValid,
   isOfflineValid,
   selectKind,
-  submitServer,
   submitOffline,
-} = useAddProfile()
+} = useOfflineProfileForm({ isSubmitting, errorMessage })
 
 const kindTabs: Array<{ key: ProfileKind; label: string }> = [
   { key: 'server', label: 'Сервер' },
   { key: 'offline', label: 'Одиночная игра' },
 ]
 
-const moveKind = (delta: number): void => {
-  const count = kindTabs.length
-  const currentIndex = kindTabs.findIndex((tab) => tab.key === kind.value)
-  const nextTab = kindTabs[(currentIndex + delta + count) % count]
-  if (!nextTab) return
-  selectKind(nextTab.key)
-  void nextTick((): void => {
-    document.getElementById(`add-profile-kind-${nextTab.key}`)?.focus({ preventScroll: true })
-  })
-}
-
-const handleKindKeydown = (event: KeyboardEvent): void => {
-  if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    moveKind(1)
-    return
-  }
-  if (event.key === 'ArrowLeft') {
-    event.preventDefault()
-    moveKind(-1)
-  }
-}
+const { handleKeydown: handleKindKeydown } = useRovingTabs<ProfileKind>({
+  tabs: (): Array<{ key: ProfileKind; label: string }> => kindTabs,
+  isActive: (key: ProfileKind): boolean => kind.value === key,
+  tabId: (key: ProfileKind): string => `add-profile-kind-${key}`,
+  select: (key: ProfileKind): void => {
+    void selectKind(key)
+  },
+})
 
 const canGoBack = computed((): boolean => !(props.embedded ?? false))
 

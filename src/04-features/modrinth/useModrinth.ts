@@ -1,6 +1,5 @@
 import { computed, ref, watch } from 'vue'
 import {
-  getErrorMessage,
   modrinthSearch,
   modrinthProject,
   modrinthInstalled,
@@ -15,7 +14,11 @@ import {
   type ModrinthSearchHit,
   type ModrinthProjectDetails,
   type ModrinthInstalledMod,
+  type ModrinthSearchResult,
+  type ModrinthUpdateCheck,
+  type ModrinthInstallResult,
 } from '@/05-entities'
+import { runScopedAction } from './runScopedAction'
 
 export interface ModrinthCategory {
   value: string
@@ -84,6 +87,7 @@ export function useModrinth() {
   const hits = ref<ModrinthSearchHit[]>([])
   const total = ref(0)
   const versionNumbers = ref<Record<string, string>>({})
+  const searchVersionsFailed = ref(false)
   const isSearching = ref(false)
   const searchError = ref('')
 
@@ -96,6 +100,13 @@ export function useModrinth() {
   const actionError = ref('')
   const installedError = ref('')
 
+  const activeHit = ref<ModrinthSearchHit | null>(null)
+  const isPopupVisible = ref(false)
+  const popupDetails = ref<ModrinthProjectDetails | null>(null)
+  const isPopupLoading = ref(false)
+  const popupError = ref('')
+  const detailsGuard = useAsyncRaceGuard()
+
   const totalPages = computed((): number => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
   const installedIds = computed((): Set<string> => {
@@ -107,26 +118,25 @@ export function useModrinth() {
 
   const search = async (newOffset: number = 0): Promise<void> => {
     const generation = searchGuard.next()
-    isSearching.value = true
-    searchError.value = ''
-    try {
-      const result = await modrinthSearch({
+    await runScopedAction({
+      isCurrent: (): boolean => searchGuard.isCurrent(generation),
+      errorTarget: searchError,
+      errorMessage: 'Не удалось выполнить поиск Modrinth',
+      busyFlag: isSearching,
+      run: (): Promise<ModrinthSearchResult> => modrinthSearch({
         query: query.value,
         index: sort.value,
         categories: categories.value,
         offset: newOffset,
-      })
-      if (!searchGuard.isCurrent(generation)) return
-      versionNumbers.value = result.version_numbers
-      hits.value = result.hits
-      total.value = result.total
-      currentPage.value = Math.floor(newOffset / PAGE_SIZE) + 1
-    } catch (e: unknown) {
-      if (!searchGuard.isCurrent(generation)) return
-      searchError.value = getErrorMessage(e)
-    } finally {
-      if (searchGuard.isCurrent(generation)) isSearching.value = false
-    }
+      }),
+      apply: (result: ModrinthSearchResult): void => {
+        versionNumbers.value = result.version_numbers
+        searchVersionsFailed.value = result.version_numbers_failed
+        hits.value = result.hits
+        total.value = result.total
+        currentPage.value = Math.floor(newOffset / PAGE_SIZE) + 1
+      },
+    })
   }
 
   const loadPage = async (page: number): Promise<void> => {
@@ -139,110 +149,140 @@ export function useModrinth() {
   const loadInstalled = async (): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     const generation = installedGuard.next()
-    isLoadingInstalled.value = true
-    installedError.value = ''
-    try {
-      const list = await modrinthInstalled()
-      if (!installedGuard.isCurrent(generation) || !scope.isCurrent()) return
-      installed.value = list
-    } catch (e: unknown) {
-      if (!installedGuard.isCurrent(generation) || !scope.isCurrent()) return
-      installedError.value = getErrorMessage(e)
-    } finally {
-      if (installedGuard.isCurrent(generation) && scope.isCurrent()) isLoadingInstalled.value = false
-    }
+    await runScopedAction({
+      isCurrent: (): boolean => installedGuard.isCurrent(generation) && scope.isCurrent(),
+      errorTarget: installedError,
+      errorMessage: 'Не удалось загрузить список установленных модов',
+      busyFlag: isLoadingInstalled,
+      run: (): Promise<ModrinthInstalledMod[]> => modrinthInstalled(),
+      apply: (list: ModrinthInstalledMod[]): void => {
+        installed.value = list
+      },
+    })
   }
 
   const updatesGuard = useAsyncRaceGuard()
 
+  const loadProjectDetails = async (projectId: string): Promise<void> => {
+    const scope = captureProjectScope((): string => coreStore.currentProject)
+    const generation = detailsGuard.next()
+    popupDetails.value = null
+    await runScopedAction({
+      isCurrent: (): boolean => detailsGuard.isCurrent(generation) && scope.isCurrent(),
+      errorTarget: popupError,
+      errorMessage: 'Не удалось загрузить информацию о моде',
+      busyFlag: isPopupLoading,
+      run: (): Promise<ModrinthProjectDetails> => fetchModrinthProjectDetails(projectId),
+      apply: (result: ModrinthProjectDetails): void => {
+        popupDetails.value = result
+      },
+    })
+  }
+
+  const openDetails = (hit: ModrinthSearchHit): void => {
+    activeHit.value = hit
+    isPopupVisible.value = true
+    void loadProjectDetails(hit.project_id)
+  }
+
+  const closeDetails = (): void => {
+    isPopupVisible.value = false
+  }
+
   const checkForUpdates = async (): Promise<void> => {
     const generation = updatesGuard.next()
-    isCheckingUpdates.value = true
-    actionError.value = ''
-    try {
-      const checks = await modrinthCheckUpdates()
-      if (!updatesGuard.isCurrent(generation)) return
-      const next: Record<string, string> = {}
-      for (const check of checks) {
-        if (check.available_version !== null) {
-          next[check.project_id] = check.available_version
+    await runScopedAction({
+      isCurrent: (): boolean => updatesGuard.isCurrent(generation),
+      errorTarget: actionError,
+      errorMessage: 'Не удалось проверить обновления модов',
+      busyFlag: isCheckingUpdates,
+      run: (): Promise<ModrinthUpdateCheck[]> => modrinthCheckUpdates(),
+      apply: (checks: ModrinthUpdateCheck[]): void => {
+        const next: Record<string, string> = {}
+        for (const check of checks) {
+          if (check.available_version !== null) {
+            next[check.project_id] = check.available_version
+          }
         }
-      }
-      updates.value = next
-    } catch (e: unknown) {
-      if (!updatesGuard.isCurrent(generation)) return
-      actionError.value = getErrorMessage(e)
-    } finally {
-      if (updatesGuard.isCurrent(generation)) isCheckingUpdates.value = false
-    }
+        updates.value = next
+      },
+    })
   }
 
-  const install = async (projectId: string): Promise<boolean> => {
+  const runInstallAction = async <T>(
+    projectId: string,
+    errorMessage: string,
+    run: () => Promise<T>,
+    apply: () => Promise<boolean>,
+  ): Promise<boolean> => {
     if (installingId.value !== null) return false
     const scope = captureProjectScope((): string => coreStore.currentProject)
     installingId.value = projectId
-    actionError.value = ''
-    try {
-      await modrinthInstall(projectId)
-      if (!scope.isCurrent()) return false
-      await loadInstalled()
-      const { [projectId]: _resolved, ...rest } = updates.value
-      updates.value = rest
-      return true
-    } catch (e: unknown) {
-      if (!scope.isCurrent()) return false
-      actionError.value = getErrorMessage(e)
-      return false
-    } finally {
-      if (installingId.value === projectId) installingId.value = null
-    }
+    return await runScopedAction({
+      isCurrent: (): boolean => scope.isCurrent(),
+      errorTarget: actionError,
+      errorMessage,
+      cleanup: (): void => {
+        if (installingId.value === projectId) installingId.value = null
+      },
+      run,
+      apply,
+    }) ?? false
   }
 
-  const uninstall = async (projectId: string): Promise<boolean> => {
-    if (installingId.value !== null) return false
-    const scope = captureProjectScope((): string => coreStore.currentProject)
-    installingId.value = projectId
-    actionError.value = ''
-    try {
-      await modrinthUninstall(projectId)
-      if (!scope.isCurrent()) return false
-      const { [projectId]: _removed, ...rest } = updates.value
-      updates.value = rest
-      await loadInstalled()
-      return true
-    } catch (e: unknown) {
-      if (!scope.isCurrent()) return false
-      actionError.value = getErrorMessage(e)
-      return false
-    } finally {
-      if (installingId.value === projectId) installingId.value = null
-    }
-  }
+  const install = (projectId: string): Promise<boolean> =>
+    runInstallAction(
+      projectId,
+      'Не удалось установить мод',
+      (): Promise<ModrinthInstallResult> => modrinthInstall(projectId),
+      async (): Promise<boolean> => {
+        await loadInstalled()
+        const { [projectId]: _resolved, ...rest } = updates.value
+        updates.value = rest
+        return true
+      },
+    )
+
+  const uninstall = (projectId: string): Promise<boolean> =>
+    runInstallAction(
+      projectId,
+      'Не удалось удалить мод',
+      (): Promise<void> => modrinthUninstall(projectId),
+      async (): Promise<boolean> => {
+        const { [projectId]: _removed, ...rest } = updates.value
+        updates.value = rest
+        await loadInstalled()
+        return true
+      },
+    )
 
   const openFolder = async (): Promise<void> => {
     if (isOpeningFolder.value) return
     const scope = captureProjectScope((): string => coreStore.currentProject)
     isOpeningFolder.value = true
-    actionError.value = ''
-    try {
-      await openModsFolder()
-    } catch (e: unknown) {
-      if (scope.isCurrent()) actionError.value = getErrorMessage(e)
-    } finally {
-      isOpeningFolder.value = false
-    }
+    await runScopedAction({
+      isCurrent: (): boolean => scope.isCurrent(),
+      errorTarget: actionError,
+      errorMessage: 'Не удалось открыть папку модов',
+      cleanup: (): void => {
+        isOpeningFolder.value = false
+      },
+      run: (): Promise<void> => openModsFolder(),
+    })
   }
 
   const resetTabState = (): void => {
     searchGuard.cancel()
     installedGuard.cancel()
     updatesGuard.cancel()
+    detailsGuard.cancel()
     query.value = ''
     sort.value = 'relevance'
     categories.value = []
     hits.value = []
     total.value = 0
     versionNumbers.value = {}
+    searchVersionsFailed.value = false
     currentPage.value = 1
     isSearching.value = false
     searchError.value = ''
@@ -254,6 +294,11 @@ export function useModrinth() {
     isOpeningFolder.value = false
     actionError.value = ''
     installedError.value = ''
+    activeHit.value = null
+    isPopupVisible.value = false
+    popupDetails.value = null
+    isPopupLoading.value = false
+    popupError.value = ''
   }
 
   watch((): string => coreStore.currentProject, (projectName: string): void => {
@@ -272,6 +317,7 @@ export function useModrinth() {
     totalPages,
     currentPage,
     versionNumbers,
+    searchVersionsFailed,
     isSearching,
     searchError,
     installed,
@@ -283,6 +329,11 @@ export function useModrinth() {
     isOpeningFolder,
     actionError,
     installedError,
+    activeHit,
+    isPopupVisible,
+    popupDetails,
+    isPopupLoading,
+    popupError,
     search,
     loadPage,
     loadInstalled,
@@ -290,5 +341,7 @@ export function useModrinth() {
     install,
     uninstall,
     openFolder,
+    openDetails,
+    closeDetails,
   }
 }

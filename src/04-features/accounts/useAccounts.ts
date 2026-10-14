@@ -41,6 +41,7 @@ export function useAccounts() {
       if (session) store.applySession(session)
     } catch (e: unknown) {
       if (!scope.isCurrent()) return
+      reportError('Не удалось выбрать аккаунт', e)
       selectedUsername.value = previousUsername
       errorMessage.value = getErrorMessage(e)
     } finally {

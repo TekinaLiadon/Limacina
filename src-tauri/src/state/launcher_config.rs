@@ -7,6 +7,7 @@ use std::sync::{OnceLock, RwLock};
 
 use crate::log_err;
 use crate::state::dto::default_true;
+use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic_sync;
 use crate::utils::errors::LauncherError;
 
@@ -125,17 +126,7 @@ impl LauncherConfig {
             ))
         })?;
         let launcher_name = crate::utils::env_info::get_launcher_name();
-        let primary = config_dir.join(&launcher_name).join("config.json");
-        if primary.exists() {
-            return Ok(primary);
-        }
-        let fallback = config_dir
-            .join(launcher_name.to_lowercase())
-            .join("config.json");
-        if fallback.exists() {
-            return Ok(fallback);
-        }
-        Ok(primary)
+        Ok(config_dir.join(launcher_name).join("config.json"))
     }
 
     fn fallback_path() -> PathBuf {
@@ -162,7 +153,7 @@ impl LauncherConfig {
             }
             Err(e) => {
                 log_err!(
-                    "Не удалось прочитать конфиг лаунчера для определения пути данных: {e:#} — временно используем резервный путь"
+                    "Не удалось прочитать конфиг лаунчера для определения пути данных: {e:#}, временно используем резервный путь"
                 );
                 Self::fallback_path()
             }
@@ -189,21 +180,12 @@ impl LauncherConfig {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Не удалось прочитать {:?}", path))?;
         match serde_json::from_str::<LauncherConfig>(&content) {
-            Ok(mut config) => {
-                if migrate_flattened_projects(&mut config, &content)? {
-                    let _ = config.save();
-                }
-                Ok(Some(config))
-            }
+            Ok(config) => Ok(Some(config)),
             Err(e) => {
-                backup_corrupt_config(&path, &anyhow::Error::from(e));
+                let _ = backup_corrupt_file(&path, "json.bak", &anyhow::Error::from(e));
                 Ok(None)
             }
         }
-    }
-
-    pub(crate) fn config_file_path_public() -> Result<PathBuf> {
-        Self::config_file_path()
     }
 
     pub(crate) fn serialize_for_save(&self) -> Result<String> {
@@ -217,7 +199,8 @@ impl LauncherConfig {
 
     pub(crate) fn write_serialized(path: &Path, content: &str) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Не удалось создать каталог {parent:?}"))?;
         }
         write_atomic_sync(path, content.as_bytes())
     }
@@ -247,6 +230,25 @@ impl LauncherConfig {
         Self::write_serialized(&path, &content)?;
         self.on_saved_update_path();
         Ok(())
+    }
+
+    #[cfg(any(test, all(target_os = "windows", not(debug_assertions))))]
+    pub(crate) fn seed_from_install_dir(install_dir: &Path) -> Result<Self> {
+        let mut config = Self::default();
+        config.apply_default_project();
+        config.launcher_path = install_dir.to_string_lossy().to_string();
+        for dir in ["project", "manifest", "java"] {
+            let path = install_dir.join(dir);
+            fs::create_dir_all(&path).map_err(|e| {
+                anyhow::Error::new(LauncherError::DiskIo(format!(
+                    "Не удалось создать папку \"{}\": {}",
+                    path.display(),
+                    e
+                )))
+            })?;
+        }
+        config.save()?;
+        Ok(config)
     }
 
     pub fn add_login(&mut self, project: &str, username: &str) {
@@ -290,7 +292,9 @@ impl LauncherConfig {
     pub fn remove_project(&mut self, project: &str) {
         self.project_names.retain(|p| p != project);
         self.projects.remove(project);
-        self.current_project = self.project_names.first().cloned();
+        if self.current_project.as_deref() == Some(project) {
+            self.current_project = self.project_names.first().cloned();
+        }
     }
 
     pub fn apply_default_project(&mut self) -> bool {
@@ -309,51 +313,27 @@ impl LauncherConfig {
     }
 }
 
-fn backup_corrupt_config(path: &Path, error: &anyhow::Error) {
-    let backup_path = path.with_extension("json.bak");
-    log_err!(
-        "{}: {:?} — {:?} ({})",
-        LauncherError::ConfigCorrupt,
-        path,
-        backup_path,
-        error
-    );
-    let _ = fs::rename(path, &backup_path);
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct LegacyLauncherConfig {
-    #[serde(flatten)]
-    rest: serde_json::Map<String, serde_json::Value>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-struct LegacyAuthProjectConfig {
-    logins: Vec<SavedLogin>,
-}
-
-fn migrate_flattened_projects(config: &mut LauncherConfig, content: &str) -> Result<bool> {
-    let raw: LegacyLauncherConfig =
-        serde_json::from_str(content).context("Неверный формат конфигурации")?;
-
-    let mut migrated = false;
-    for (key, value) in raw.rest {
-        if key == "projects" {
-            continue;
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
+pub(crate) fn try_seed_from_installed_exe() -> Option<LauncherConfig> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()));
+    let Some(exe_dir) = exe_dir else {
+        log_err!("Не удалось определить папку установки для создания конфига");
+        return None;
+    };
+    match LauncherConfig::seed_from_install_dir(&exe_dir) {
+        Ok(config) => Some(config),
+        Err(e) => {
+            log_err!("Не удалось создать конфиг из папки установки: {e:#}");
+            None
         }
-        let Ok(project_config) = serde_json::from_value::<LegacyAuthProjectConfig>(value.clone())
-        else {
-            continue;
-        };
-        if project_config.logins.is_empty() {
-            continue;
-        }
-        config.projects.entry(key).or_default().logins = project_config.logins;
-        migrated = true;
     }
-    Ok(migrated)
+}
+
+#[cfg(not(all(target_os = "windows", not(debug_assertions))))]
+pub(crate) fn try_seed_from_installed_exe() -> Option<LauncherConfig> {
+    None
 }
 
 #[cfg(test)]
@@ -400,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn current_project_survives_json_round_trip_with_flattened_logins() {
+    fn current_project_survives_json_round_trip() {
         let mut config = LauncherConfig {
             launcher_path: "/home/user/Limacina".to_string(),
             ..Default::default()
@@ -420,43 +400,6 @@ mod tests {
                 ["logins"][0]["username"],
             "player"
         );
-    }
-
-    #[test]
-    fn migration_moves_flattened_logins_into_projects() {
-        let legacy = r#"{
-            "launcherPath": "/home/user/Limacina",
-            "theme": "default-dark",
-            "projectNames": ["Cordelia"],
-            "Cordelia": { "logins": [{ "username": "player" }] }
-        }"#;
-        let mut config: LauncherConfig = serde_json::from_str(legacy).expect("разбор старого JSON");
-
-        assert!(config.projects.is_empty());
-        assert!(migrate_flattened_projects(&mut config, legacy).expect("миграция"));
-        assert_eq!(config.get_logins("Cordelia"), vec!["player".to_string()]);
-        assert_eq!(config.theme, "default-dark");
-
-        let json = serde_json::to_string(&config).expect("сериализация в JSON");
-        let mut reparsed: LauncherConfig = serde_json::from_str(&json).expect("повторный разбор");
-        assert_eq!(reparsed.get_logins("Cordelia"), vec!["player".to_string()]);
-        assert!(!migrate_flattened_projects(&mut reparsed, &json).expect("повторная миграция"));
-        assert_eq!(reparsed.get_logins("Cordelia"), vec!["player".to_string()]);
-    }
-
-    #[test]
-    fn migration_skips_non_project_keys() {
-        let legacy = r#"{
-            "launcherPath": "/home/user/Limacina",
-            "theme": "default-dark",
-            "currentProject": "Cordelia",
-            "projectNames": ["Cordelia"]
-        }"#;
-        let mut config: LauncherConfig = serde_json::from_str(legacy).expect("разбор старого JSON");
-
-        assert!(!migrate_flattened_projects(&mut config, legacy).expect("миграция"));
-        assert!(config.projects.is_empty());
-        assert_eq!(config.theme, "default-dark");
     }
 
     #[test]
@@ -525,6 +468,18 @@ mod tests {
     }
 
     #[test]
+    fn remove_project_keeps_current_when_other_project_removed() {
+        let mut config = LauncherConfig::default();
+        config.add_project("Cordelia");
+        config.add_project("Sandbox");
+
+        config.remove_project("Cordelia");
+
+        assert_eq!(config.project_names, vec!["Sandbox"]);
+        assert_eq!(config.current_project.as_deref(), Some("Sandbox"));
+    }
+
+    #[test]
     fn remove_last_project_clears_current() {
         let mut config = LauncherConfig::default();
         config.add_project("Cordelia");
@@ -546,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_corrupt_config_moves_broken_file_aside() {
+    fn load_moves_corrupt_config_to_backup_and_falls_back_to_none() {
         let root = std::env::temp_dir().join(format!(
             "limacina_launcher_config_corrupt_{}",
             std::process::id()
@@ -557,9 +512,14 @@ mod tests {
 
         let path = root.join("config.json");
         fs::write(&path, "not valid json").expect("запись битого конфига");
+        let _config_guard = ConfigFileGuard::acquire(&root, "config.json");
 
-        backup_corrupt_config(&path, &anyhow::Error::msg("ошибка разбора"));
+        let loaded = LauncherConfig::load().expect("битый конфиг не должен ломать загрузку");
 
+        assert!(
+            loaded.is_none(),
+            "после бэкапа конфиг считается отсутствующим"
+        );
         assert!(!path.exists(), "битый конфиг должен быть убран с пути");
         assert!(
             root.join("config.json.bak").exists(),
@@ -613,6 +573,48 @@ mod tests {
         assert!(!kept.apply_default_project());
         assert_eq!(kept.project_names, vec!["Her"]);
         assert!(kept.current_project.is_none());
+    }
+
+    #[tokio::test]
+    async fn seed_from_install_dir_creates_dirs_and_persists_config() {
+        let dir = LauncherDirGuard::acquire("seed_install_dir").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let install = dir.root().join("install");
+
+        let config =
+            LauncherConfig::seed_from_install_dir(&install).expect("конфиг из папки установки");
+
+        assert_eq!(PathBuf::from(&config.launcher_path), install);
+        for sub in ["project", "manifest", "java"] {
+            assert!(
+                install.join(sub).is_dir(),
+                "папка {sub} должна быть создана"
+            );
+        }
+        let saved = LauncherConfig::load()
+            .expect("чтение конфига")
+            .expect("конфиг должен быть записан");
+        assert_eq!(saved.launcher_path, config.launcher_path);
+    }
+
+    #[tokio::test]
+    async fn seed_from_install_dir_fails_before_config_write() {
+        let dir = LauncherDirGuard::acquire("seed_install_dir_fail").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let blocked = dir.root().join("blocked");
+        std::fs::write(&blocked, b"not a directory").expect("файл-заглушка вместо папки");
+
+        let error = LauncherConfig::seed_from_install_dir(&blocked)
+            .expect_err("создание папок под файлом-заглушкой должно падать");
+
+        assert!(
+            error.to_string().contains("os error"),
+            "ожидается ошибка создания папок, получено: {error}"
+        );
+        assert!(
+            !dir.root().join("config.json").exists(),
+            "конфиг не должен записываться при неудачном создании папок"
+        );
     }
 
     #[test]

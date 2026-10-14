@@ -94,4 +94,12 @@ describe('SelectBase', () => {
     const items = wrapper.findAll('.select-base-options__item')
     expect(scrollIntoViewCalls).toEqual([items[1]?.element])
   })
+
+  it('names the listbox with the trigger title', async () => {
+    const wrapper = mountSelect()
+
+    await pressKey(wrapper, 'ArrowDown')
+
+    expect(wrapper.find('.select-base-options').attributes('aria-label')).toBe('Pick one')
+  })
 })

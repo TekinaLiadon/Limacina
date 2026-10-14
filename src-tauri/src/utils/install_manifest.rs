@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::Result;
+use tokio::sync::Mutex;
 
 use crate::log_err;
 use crate::utils::env_info::launcher_path;
@@ -10,6 +12,18 @@ use crate::utils::errors::LauncherError;
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct InstallManifest {
     pub files: HashMap<String, String>,
+}
+
+static MANIFEST_LOCKS: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) async fn manifest_lock(project_name: &str) -> Arc<Mutex<()>> {
+    MANIFEST_LOCKS
+        .lock()
+        .await
+        .entry(project_name.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 fn manifest_path(project_name: &str) -> Result<PathBuf> {

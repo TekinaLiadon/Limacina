@@ -17,13 +17,13 @@ export function useServerStatus(): {
       okIntervalMs: OK_INTERVAL_MS,
       fetch: getServerStatus,
       applySuccess: (status: ServerStatus): void => {
-        serverStore.serverStatus = status
+        serverStore.setServerStatus(status)
       },
       applyIdle: (): void => {
-        serverStore.serverStatus = null
+        serverStore.setServerStatus(null)
       },
       onFailureStreak: (): void => {
-        serverStore.serverStatus = null
+        serverStore.setServerStatus(null)
       },
     })
   }

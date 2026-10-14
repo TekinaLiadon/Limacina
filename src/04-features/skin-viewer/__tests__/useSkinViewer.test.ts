@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, ref, type Ref, type ShallowRef } from 'vue'
 import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
-import { useSkinViewer } from '../useSkinViewer'
+import { useSkinViewer, type SkinViewerOptions } from '../useSkinViewer'
 import type { ViewerControls } from '@/06-shared'
 
 const textureLoads = vi.hoisted(() => [] as Array<{
@@ -108,11 +108,11 @@ async function resolveLastLoad(texture: THREE.Texture): Promise<void> {
   await nextTick()
 }
 
-async function mountViewer(): Promise<{ skinUrl: Ref<string>; slim: Ref<boolean>; unmount: () => void }> {
+async function mountViewer(options: SkinViewerOptions = {}): Promise<{ skinUrl: Ref<string>; slim: Ref<boolean>; unmount: () => void }> {
   const container = ref<HTMLDivElement | null>(document.createElement('div'))
   const skinUrl = ref('')
   const slim = ref(false)
-  const { unmount } = withSetup(() => useSkinViewer(container, skinUrl, createControls(), slim))
+  const { unmount } = withSetup(() => useSkinViewer(container, skinUrl, createControls(), slim, options))
   return { skinUrl, slim, unmount }
 }
 
@@ -153,6 +153,21 @@ describe('useSkinViewer', () => {
 
     expect(modelGroups()).toHaveLength(0)
     expect(geometryDispose).toHaveBeenCalledOnce()
+    unmount()
+  })
+
+  it('reports texture load failures through onTextureError', async () => {
+    const onTextureError = vi.fn()
+    const { skinUrl, unmount } = await mountViewer({ onTextureError })
+
+    skinUrl.value = 'broken.png'
+    await nextTick()
+    const load = textureLoads[textureLoads.length - 1]
+    if (!load) throw new Error('no pending texture load')
+    load.fail(new Error('decode failed'))
+    await nextTick()
+
+    expect(onTextureError).toHaveBeenCalledWith('broken.png')
     unmount()
   })
 

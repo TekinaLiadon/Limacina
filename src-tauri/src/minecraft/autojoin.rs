@@ -34,6 +34,34 @@ fn split_server_address(address: &str) -> (&str, Option<&str>) {
     }
 }
 
+const QUICK_PLAY_RELEASE: &str = "1.20.3";
+const QUICK_PLAY_SNAPSHOT: (u32, u32) = (23, 41);
+
+fn snapshot_year_week(base_version: &str) -> Option<(u32, u32)> {
+    let year = base_version.get(0..2)?.parse::<u32>().ok()?;
+    if base_version.get(2..3) != Some("w") {
+        return None;
+    }
+    let week = base_version.get(3..5)?.parse::<u32>().ok()?;
+    let revision = base_version.get(5..)?;
+    if revision.is_empty() || !revision.chars().all(|c| c.is_ascii_lowercase()) {
+        return None;
+    }
+    Some((year, week))
+}
+
+fn supports_quick_play(base_version: &str) -> bool {
+    let is_release = base_version.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && base_version.chars().any(|c| c.is_ascii_digit());
+    if is_release {
+        return compare_versions(base_version, QUICK_PLAY_RELEASE) != Ordering::Less;
+    }
+    match snapshot_year_week(base_version) {
+        Some((year, week)) => (year, week) >= QUICK_PLAY_SNAPSHOT,
+        None => false,
+    }
+}
+
 pub fn auto_join_args(address: &str, mc_version: &str) -> Vec<String> {
     let trimmed = address.trim();
     if trimmed.is_empty() {
@@ -43,7 +71,7 @@ pub fn auto_join_args(address: &str, mc_version: &str) -> Vec<String> {
     let (host, port) = split_server_address(trimmed);
     let base_version = mc_version.split('-').next().unwrap_or(mc_version);
 
-    if compare_versions(base_version, "1.20.3") != Ordering::Less {
+    if supports_quick_play(base_version) {
         match port {
             Some(port) if host.contains(':') => vec![
                 "--quickPlayMultiplayer".to_string(),
@@ -200,6 +228,13 @@ mod tests {
                 "play.example.com".to_string()
             ]
         );
+        assert_eq!(
+            auto_join_args("play.example.com", "1.20.13"),
+            vec![
+                "--quickPlayMultiplayer".to_string(),
+                "play.example.com".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -215,6 +250,51 @@ mod tests {
                 "play.example.com".to_string()
             ]
         );
+        assert_eq!(
+            auto_join_args("play.example.com", "1.20.3-forge-47.1.3"),
+            vec![
+                "--quickPlayMultiplayer".to_string(),
+                "play.example.com".to_string()
+            ],
+            "форк-суффикс не должен опускать границу 1.20.3"
+        );
+    }
+
+    #[test]
+    fn snapshots_decide_quick_play_by_year_and_week() {
+        for old_snapshot in ["18w14a", "20w14a", "23w40a"] {
+            assert_eq!(
+                auto_join_args("play.example.com", old_snapshot),
+                vec!["--server".to_string(), "play.example.com".to_string()],
+                "снапшот {old_snapshot} старше 23w41a не знает quickPlay"
+            );
+        }
+        for modern_snapshot in ["23w41a", "23w42a", "24w13a", "25w03a"] {
+            assert_eq!(
+                auto_join_args("play.example.com", modern_snapshot),
+                vec![
+                    "--quickPlayMultiplayer".to_string(),
+                    "play.example.com".to_string()
+                ],
+                "снапшот {modern_snapshot} не старше 23w41a поддерживает quickPlay"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_version_formats_fall_back_to_legacy_args() {
+        for unknown in [
+            "1.19_deep_dark_experimental_snapshot",
+            "experiment_snapshot_3",
+            "w41a",
+            "23W41A",
+        ] {
+            assert_eq!(
+                auto_join_args("play.example.com", unknown),
+                vec!["--server".to_string(), "play.example.com".to_string()],
+                "неизвестный формат {unknown} должен уходить в legacy-ветку"
+            );
+        }
     }
 
     #[test]

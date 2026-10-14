@@ -26,21 +26,24 @@ export function useCpmAnimations(cpmData: Ref<CPMData | null>) {
   )
 
   const compositions = computed((): Map<string, GestureComposition> => {
-    const mains = new Map<string, CPMAnimation>()
+    const mainIdsByName = new Map<string, string[]>()
     for (const animation of availableAnimations.value) {
-      if (serviceTargetName(animation) === null) mains.set(animation.name, animation)
+      if (serviceTargetName(animation) !== null) continue
+      const ids = mainIdsByName.get(animation.name)
+      if (ids) ids.push(animation.id)
+      else mainIdsByName.set(animation.name, [animation.id])
     }
 
     const links = new Map<string, GestureComposition>()
     for (const animation of availableAnimations.value) {
       const target = serviceTargetName(animation)
       if (target === null) continue
-      const main = mains.get(target)
-      if (!main) continue
-      const composition = links.get(main.id) ?? { setup: null, finish: null }
-      if (animation.kind === 'setup') composition.setup ??= animation
-      else composition.finish ??= animation
-      links.set(main.id, composition)
+      for (const mainId of mainIdsByName.get(target) ?? []) {
+        const composition = links.get(mainId) ?? { setup: null, finish: null }
+        if (animation.kind === 'setup') composition.setup ??= animation
+        else composition.finish ??= animation
+        links.set(mainId, composition)
+      }
     }
     return links
   })
@@ -70,25 +73,31 @@ export function useCpmAnimations(cpmData: Ref<CPMData | null>) {
 
   const activeAnimations = computed((): ActiveCpmAnimation[] => {
     const result: ActiveCpmAnimation[] = []
+    const queued = new Set<string>()
+    const push = (animation: CPMAnimation, startDelayMs: number): void => {
+      if (queued.has(animation.id)) return
+      queued.add(animation.id)
+      result.push({ animation, startDelayMs })
+    }
     for (const id of selectedAnimationIds.value) {
       const animation = availableAnimations.value.find((item) => item.id === id)
       if (!animation) continue
 
       const composition = compositions.value.get(animation.id)
       if (!composition) {
-        result.push({ animation, startDelayMs: 0 })
+        push(animation, 0)
         continue
       }
 
       let offset = 0
       if (composition.setup) {
-        result.push({ animation: composition.setup, startDelayMs: offset })
+        push(composition.setup, offset)
         offset += Math.max(composition.setup.duration, 1)
       }
-      result.push({ animation, startDelayMs: offset })
+      push(animation, offset)
       if (composition.finish && !animation.loop) {
         offset += Math.max(animation.duration, 1)
-        result.push({ animation: composition.finish, startDelayMs: offset })
+        push(composition.finish, offset)
       }
     }
     return result

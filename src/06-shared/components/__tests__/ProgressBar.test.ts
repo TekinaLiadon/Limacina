@@ -61,4 +61,19 @@ describe('ProgressBar', () => {
 
     expect(animeMock.remove).toHaveBeenCalledWith(fill)
   })
+
+  it('exposes an accessible name and value text', () => {
+    const wrapper = mount(ProgressBar, { props: { progress: 42 } })
+
+    const bar = wrapper.find('[role="progressbar"]')
+    expect(bar.attributes('aria-label')).toBe('Прогресс')
+    expect(bar.attributes('aria-valuenow')).toBe('42')
+    expect(bar.attributes('aria-valuetext')).toBe('42%')
+  })
+
+  it('accepts a custom accessible name', () => {
+    const wrapper = mount(ProgressBar, { props: { progress: 10, ariaLabel: 'Проверка файлов' } })
+
+    expect(wrapper.find('[role="progressbar"]').attributes('aria-label')).toBe('Проверка файлов')
+  })
 })

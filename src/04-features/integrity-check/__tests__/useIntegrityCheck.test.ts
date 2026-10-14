@@ -225,6 +225,29 @@ describe('useIntegrityCheck', () => {
     expect(check.isChecking.value).toBe(false)
   })
 
+  it('applies step events and the report on a rerun after the project switches between checks', async () => {
+    const core = useCoreStore()
+    core.projectConfig = makeProjectConfig(true)
+    core.currentProject = 'alpha'
+    api.checkFilesIntegrity.mockResolvedValue(makeReport())
+    const { check } = await setupCheck()
+
+    await check.handleCheck()
+
+    core.currentProject = 'beta'
+    const pending = check.handleCheck()
+    emitStep?.({ type: 'started', id: STEP_IDS.mcJar, label: 'Клиент игры' })
+    emitStep?.({ type: 'finished', id: STEP_IDS.mcJar, skipped: false })
+
+    expect(check.steps.value.find((step) => step.key === STEP_IDS.mcManifest)?.status).toBe('done')
+    expect(check.steps.value.find((step) => step.key === STEP_IDS.mcJar)?.status).toBe('done')
+
+    await pending
+
+    expect(api.listenIntegritySteps).toHaveBeenCalledTimes(1)
+    expect(check.report.value).toEqual(makeReport())
+  })
+
   it('surfaces the command error and shows a toast for the hidden popup', async () => {
     useCoreStore().projectConfig = makeProjectConfig(true)
     api.checkFilesIntegrity.mockRejectedValue(new Error('ipc down'))
@@ -265,7 +288,7 @@ describe('useIntegrityCheck', () => {
     await pending
 
     expect(check.report.value).not.toBeNull()
-    expect(useNotificationStore().message).toBe('Проверка целостности: не удалось восстановить 2 файлов')
+    expect(useNotificationStore().message).toBe('Проверка целостности: не удалось восстановить 2 файла')
   })
 
   it('toasts the all-good summary when the popup was hidden', async () => {

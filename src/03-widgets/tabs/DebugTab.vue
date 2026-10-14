@@ -107,20 +107,15 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       @scroll.passive="onScroll"
     >
       <div
-        :style="{ height: `${virtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }"
+        class="debug-tab__viewport"
+        :style="{ height: `${virtualizer.getTotalSize()}px` }"
       >
         <div
           v-for="row in virtualizer.getVirtualItems()"
           :key="row.index"
           :data-index="row.index"
           :ref="measureRow"
-          :style="{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            transform: `translateY(${row.start}px)`,
-          }"
+          :style="{ transform: `translateY(${row.start}px)` }"
           class="debug-tab__line"
         >
           <span class="debug-tab__num">{{ String(row.index + 1).padStart(4, ' ') }}</span>
@@ -150,7 +145,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
           :disabled="!isGameRunning || isKilling"
           @click="killGame"
         >
-          {{ isKilling ? 'Завершаем…' : 'Убить процесс' }}
+          {{ isKilling ? 'Завершаем...' : 'Убить процесс' }}
         </button>
         <button class="debug-tab__copy-btn" @click="handleCopy">
           Копировать
@@ -173,10 +168,11 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   border: 1px solid var(--debug-btn-border);
   border-radius: var(--debug-radius);
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out);
 
   &:hover {
     background: var(--debug-btn-hover-bg);
+    border-color: var(--debug-btn-hover-border);
   }
 }
 
@@ -228,10 +224,6 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     font-family: inherit;
     white-space: nowrap;
 
-    &:hover {
-      border-color: var(--debug-btn-hover-border);
-    }
-
     &--active {
       background: var(--debug-btn-active-bg);
       color: var(--debug-error);
@@ -268,7 +260,16 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     }
   }
 
+  &__viewport {
+    position: relative;
+    width: 100%;
+  }
+
   &__line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
     display: flex;
     align-items: baseline;
     padding: 0 var(--space-12);
@@ -338,10 +339,6 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     height: var(--debug-control-height);
     color: var(--debug-accent);
 
-    &:hover {
-      border-color: var(--debug-btn-hover-border);
-    }
-
     &--off {
       color: var(--debug-line-num);
     }
@@ -358,7 +355,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     white-space: nowrap;
 
     &:hover {
-      background: var(--debug-btn-hover-bg);
+      border-color: var(--debug-error);
     }
 
     &:disabled {
@@ -374,10 +371,6 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
     color: var(--debug-text);
     font-size: var(--text-caption);
     font-family: inherit;
-
-    &:hover {
-      border-color: var(--debug-btn-hover-border);
-    }
 
     &:active {
       background: var(--debug-btn-active-bg);

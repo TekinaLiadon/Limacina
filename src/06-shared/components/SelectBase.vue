@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { DropdownOption } from '@/06-shared/types'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
+import { useListboxNavigation } from '@/06-shared/utils/useListboxNavigation'
 import { randomId } from '@/06-shared/utils/utils'
 
 const props = withDefaults(defineProps<{
@@ -37,36 +38,23 @@ const { shown, openUp, maxHeight, panelRef, toggle, close } = useDropdownPanel(
 )
 
 const listboxId = randomId()
-const activeIndex = ref(0)
+const { activeIndex, resetActive, confirmActive, navigationActions } = useListboxNavigation(
+  (): number => props.options.length,
+  panelRef,
+  (index: number): void => {
+    const option = props.options[index]
+    if (option) emit('select', option.value)
+  },
+)
 
 watch(shown, (isShown: boolean): void => {
   if (!isShown) return
   const selectedIndex = props.options.findIndex((option) => props.isSelected?.(option.value) ?? false)
-  activeIndex.value = selectedIndex >= 0 ? selectedIndex : 0
-  void nextTick(scrollActiveIntoView)
+  resetActive(selectedIndex >= 0 ? selectedIndex : 0)
 })
 
-const scrollActiveIntoView = (): void => {
-  const option = panelRef.value?.children[activeIndex.value]
-  if (option instanceof HTMLElement) option.scrollIntoView({ block: 'nearest' })
-}
-
-const moveActive = (delta: number): void => {
-  const count = props.options.length
-  if (count === 0) return
-  activeIndex.value = (activeIndex.value + delta + count) % count
-  void nextTick(scrollActiveIntoView)
-}
-
-const confirmActive = (): void => {
-  const option = props.options[activeIndex.value]
-  if (option) emit('select', option.value)
-}
-
 const openActions: Record<string, () => void> = {
-  ArrowDown: (): void => moveActive(1),
-  ArrowUp: (): void => moveActive(-1),
-  Enter: confirmActive,
+  ...navigationActions,
   ' ': confirmActive,
   Escape: close,
 }
@@ -108,7 +96,7 @@ defineExpose({ close })
       <slot name="trailing" />
     </div>
     <slot name="trigger-overlay" />
-    <div v-if="shown" ref="panelRef" :id="listboxId" class="select-base-options" role="listbox" :style="{ maxHeight }">
+    <div v-if="shown" ref="panelRef" :id="listboxId" class="select-base-options" role="listbox" :aria-label="title" :style="{ maxHeight }">
       <div
         v-for="(option, index) in props.options"
         :key="option.value"

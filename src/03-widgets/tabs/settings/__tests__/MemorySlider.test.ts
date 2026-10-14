@@ -9,20 +9,20 @@ describe('MemorySlider', () => {
   it('renders in-range values as they are', () => {
     const wrapper = mountSlider([512, 4096])
 
-    expect(wrapper.find('.memory-slider__values').text()).toBe('512M — 4G')
+    expect(wrapper.find('.memory-slider__values').text()).toBe('512M-4G')
   })
 
   it('clamps saved values above the limit in the display and the handles', () => {
     const wrapper = mountSlider([512, 8192], 2048)
 
-    expect(wrapper.find('.memory-slider__values').text()).toBe('512M — 2G')
+    expect(wrapper.find('.memory-slider__values').text()).toBe('512M-2G')
     expect(wrapper.find('input.memory-slider__input--max').attributes('value')).toBe('2048')
   })
 
   it('clamps both ends when the saved range sits entirely above the limit', () => {
     const wrapper = mountSlider([8192, 8192], 4096)
 
-    expect(wrapper.find('.memory-slider__values').text()).toBe('4G — 4G')
+    expect(wrapper.find('.memory-slider__values').text()).toBe('4G-4G')
   })
 
   it('emits a clamped value when the handle moves back into range', async () => {

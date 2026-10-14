@@ -15,7 +15,7 @@ export async function loadProjectConfig(project: string, force: boolean = false)
   try {
     const loaded = await loadSettingsProject(project)
     store.applyLoaded(project, projectSettingsFormFromConfig(loaded))
-    if (scope.project === project && scope.isCurrent()) coreStore.projectConfig = loaded
+    if (scope.project === project && scope.isCurrent()) coreStore.setProjectConfig(loaded)
     return true
   } catch (e: unknown) {
     reportError('Не удалось загрузить настройки проекта', e)

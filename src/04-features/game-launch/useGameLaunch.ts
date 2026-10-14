@@ -120,6 +120,7 @@ export function useGameLaunch() {
   const failStep = async (error: unknown, isCancelled?: () => boolean): Promise<void> => {
     if (isCancelled?.()) return
     await flushLaunchSteps()
+    reportError('Не удалось запустить игру', error)
     launch.failActiveStep(getErrorMessage(error))
   }
 
@@ -130,11 +131,12 @@ export function useGameLaunch() {
     } catch (e: unknown) {
       if (isCancelled?.()) return
       resetLaunchSteps()
+      reportError('Не удалось подготовить запуск игры', e)
       launch.failActive(getErrorMessage(e))
       return
     }
     if (isCancelled?.()) return
-    coreStore.projectConfig = config
+    coreStore.setProjectConfig(config)
 
     const isInstall = !config.initialized
     const actionSteps: ActionStep[] = isInstall
@@ -156,7 +158,7 @@ export function useGameLaunch() {
           skipKeys.add(key)
         }
       } catch (e: unknown) {
-        reportJournalFailure('Не удалось прочитать журнал установки — возможно повторное скачивание файлов', e)
+        reportJournalFailure('Не удалось прочитать журнал установки, возможно повторное скачивание файлов', e)
       }
       if (skipKeys.size > 0) {
         const skippedPlanKeys = new Set<string>(
@@ -178,7 +180,7 @@ export function useGameLaunch() {
           try {
             await recordInstallStep(coreStore.currentProject, fingerprint, step.key)
           } catch (e: unknown) {
-            reportJournalFailure('Не удалось записать журнал установки — при прерывании шаг повторится', e)
+            reportJournalFailure('Не удалось записать журнал установки, при прерывании шаг повторится', e)
           }
         }
       } catch (error: unknown) {
@@ -193,10 +195,10 @@ export function useGameLaunch() {
       try {
         await clearInstallJournal(coreStore.currentProject)
       } catch (e: unknown) {
-        reportJournalFailure('Не удалось очистить журнал установки — на запуск это не повлияет', e)
+        reportJournalFailure('Не удалось очистить журнал установки, на запуск это не повлияет', e)
       }
       try {
-        coreStore.projectConfig = await setInitialized()
+        coreStore.setProjectConfig(await setInitialized())
       } catch (error: unknown) {
         await failStep(error, isCancelled)
         return

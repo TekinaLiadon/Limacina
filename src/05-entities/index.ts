@@ -4,32 +4,25 @@ export { LOADER_LABELS } from './core/loaders'
 export type {
   LauncherConfig,
   AppInitData,
-  AuthUserData,
   UpdateInfo,
   ServerStatus,
   TabKey,
   AuthSubTab,
   ConsoleLog,
   StepEvent,
-  StepStatus,
   StepProgressItem,
   ProjectConfig,
-  LoginForm,
-  RegisterForm,
   ModLoaderKind,
   ProfileKind,
   ServerProfileForm,
   OfflineProfileForm,
   IntegrityReport,
-  SavedLogin,
-  AuthProjectConfig,
   UserContentItem,
   SessionInfo,
   SkinModelMode,
   JavaDistribution,
   GameExitInfo,
   LauncherSettingsPayload,
-  SavePlayerModelPayload,
   CPMVec3,
   CPMFaceUV,
   CPMChild,
@@ -51,7 +44,7 @@ export { useSettingsStore } from './settings/settingsStore'
 export { useSettingsDirtyStore, bindSettingsDirtyTab } from './settings/settingsDirtyStore'
 export type { SettingsDirtyTab } from './settings/settingsDirtyStore'
 export { THEME_FAMILIES, parseThemeId, normalizeTheme } from './settings/themes'
-export type { ThemeFamily, ThemeMode, ThemePreview } from './settings/types'
+export type { ThemeFamily, ThemeMode, ThemePreview, LauncherBehaviorForm } from './settings/types'
 
 export { useNotificationStore } from './notification/notificationStore'
 
@@ -67,16 +60,11 @@ export type { ProjectSettingsForm } from './project-settings/projectSettingsStor
 export type {
   ModrinthSearchHit,
   ModrinthSearchResult,
-  ModrinthLicense,
-  ModrinthProject,
-  ModrinthProjectType,
   ModrinthSide,
   ModrinthVersionType,
-  ModrinthVersionFile,
-  ModrinthDependency,
   ModrinthVersion,
   ModrinthProjectDetails,
   ModrinthInstalledMod,
   ModrinthUpdateCheck,
   ModrinthInstallResult,
-} from '@/06-shared'
+} from '@/06-shared/types/modrinth'

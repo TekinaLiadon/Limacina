@@ -71,8 +71,8 @@ export async function saveLauncherSettings(settings: LauncherSettingsPayload): P
   return invoke<LauncherConfig>('save_launcher_settings', { settings })
 }
 
-export async function clearMinecraftConfig(): Promise<string> {
-  return invoke<string>('clear_minecraft_config')
+export async function clearMinecraftConfig(projectName: string): Promise<string> {
+  return invoke<string>('clear_minecraft_config', { projectName })
 }
 
 export async function getGameOptions(projectName: string): Promise<GameOptionsData> {
@@ -182,8 +182,8 @@ export async function saveCurrentProject(projectName: string): Promise<void> {
   return invoke('save_current_project', { projectName })
 }
 
-export async function deleteProject(): Promise<LauncherConfig> {
-  return invoke<LauncherConfig>('delete_project')
+export async function deleteProject(projectName: string): Promise<LauncherConfig> {
+  return invoke<LauncherConfig>('delete_project', { projectName })
 }
 
 export async function getMinecraftVersions(includeSnapshots: boolean): Promise<string[]> {
@@ -262,8 +262,6 @@ export async function getStartupLogs(): Promise<ConsoleLog[]> {
   return invoke<ConsoleLog[]>('get_startup_logs')
 }
 
-export { sendConsoleLog } from './consoleLog'
-
 export async function getNotificationIcon(): Promise<string | null> {
   return invoke<string | null>('get_notification_icon')
 }
@@ -308,8 +306,8 @@ export async function getSessionInfo(): Promise<SessionInfo | null> {
   return invoke<SessionInfo | null>('get_session_info')
 }
 
-export async function getGameState(): Promise<string | null> {
-  return invoke<string | null>('get_game_state')
+export async function getGameState(): Promise<string[]> {
+  return invoke<string[]>('get_game_state')
 }
 
 export async function getLaunchState(): Promise<boolean> {
@@ -326,10 +324,6 @@ export async function listenGameStarted(
   return listen<string>('game-started', (event) => {
     callback(event.payload)
   })
-}
-
-export async function hideMainWindow(): Promise<void> {
-  await getCurrentWebviewWindow().hide()
 }
 
 export async function isWindowMinimized(): Promise<boolean> {
@@ -372,23 +366,25 @@ export async function readSkinFile(path: string): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
-export async function saveOfflineSkin(fileData: Uint8Array, model: SkinModelMode): Promise<void> {
-  return invoke('save_offline_skin', fileData, {
-    headers: { 'Skin-Model': model },
+export async function saveOfflineSkin(projectName: string, fileData: Uint8Array, model: SkinModelMode): Promise<void> {
+  return invoke('save_offline_skin', {
+    projectName,
+    model,
+    fileData: Array.from(fileData),
   })
 }
 
-export async function getOfflineSkin(): Promise<Uint8Array> {
-  const buffer = await invoke<ArrayBuffer>('get_offline_skin')
+export async function getOfflineSkin(projectName: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('get_offline_skin', { projectName })
   return new Uint8Array(buffer)
 }
 
-export async function getOfflineSkinModel(): Promise<SkinModelMode | null> {
-  return invoke<SkinModelMode | null>('get_offline_skin_model')
+export async function getOfflineSkinModel(projectName: string): Promise<SkinModelMode | null> {
+  return invoke<SkinModelMode | null>('get_offline_skin_model', { projectName })
 }
 
-export async function deleteOfflineSkin(): Promise<void> {
-  return invoke('delete_offline_skin')
+export async function deleteOfflineSkin(projectName: string): Promise<void> {
+  return invoke('delete_offline_skin', { projectName })
 }
 
 export async function uploadModel(fileContent: string): Promise<UserContentItem> {
@@ -403,16 +399,16 @@ export async function deleteModel(id: number): Promise<void> {
   return invoke('delete_model', { id })
 }
 
-export async function savePlayerModel(payload: SavePlayerModelPayload): Promise<void> {
-  return invoke('save_player_model', { ...payload })
+export async function savePlayerModel(projectName: string, payload: SavePlayerModelPayload): Promise<void> {
+  return invoke('save_player_model', { ...payload, projectName })
 }
 
-export async function getPlayerModelsLimit(): Promise<number | null> {
-  return invoke<number | null>('get_player_models_limit')
+export async function getPlayerModelsLimit(projectName: string): Promise<number | null> {
+  return invoke<number | null>('get_player_models_limit', { projectName })
 }
 
-export async function setPlayerModelsLimit(limit: number | null): Promise<void> {
-  return invoke('set_player_models_limit', { limit })
+export async function setPlayerModelsLimit(projectName: string, limit: number | null): Promise<void> {
+  return invoke('set_player_models_limit', { projectName, limit })
 }
 
 export async function readCpmProjectFile(path: string): Promise<Uint8Array> {

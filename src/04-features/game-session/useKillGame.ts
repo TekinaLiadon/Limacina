@@ -1,6 +1,8 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { useLaunchStore, useNotificationStore } from '@/05-entities'
 import { getErrorMessage, killGameProcess } from '@/06-shared/api'
+import { reportError } from '@/06-shared'
+import { resyncGameSession } from './useGameSession'
 
 export function useKillGame(): {
   isGameRunning: ComputedRef<boolean>
@@ -11,7 +13,7 @@ export function useKillGame(): {
   const notificationStore = useNotificationStore()
   const isKilling = ref<boolean>(false)
 
-  const isGameRunning = computed((): boolean => launchStore.gameUsername !== null)
+  const isGameRunning = computed((): boolean => launchStore.gameUsernames.length > 0)
 
   const killGame = async (): Promise<void> => {
     if (isKilling.value) return
@@ -22,8 +24,13 @@ export function useKillGame(): {
     isKilling.value = true
     try {
       await killGameProcess()
+      for (const username of [...launchStore.gameUsernames]) {
+        launchStore.removeGameSession(username)
+      }
     } catch (e: unknown) {
+      reportError('Не удалось завершить процесс игры', e)
       notificationStore.show(`Не удалось завершить процесс игры: ${getErrorMessage(e)}`)
+      await resyncGameSession()
     } finally {
       isKilling.value = false
     }

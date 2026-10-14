@@ -46,10 +46,12 @@ export function useDirtySnapshot<T extends object>(source: () => T): DirtySnapsh
       captureBaseline()
       return
     }
+    const patched = { ...snapshot }
     for (const key of Object.keys(partial) as (keyof T)[]) {
       const value = partial[key]
-      if (value !== undefined) snapshot[key] = JSON.stringify(value)
+      if (value !== undefined) patched[key] = JSON.stringify(value)
     }
+    baseline.value = patched
   }
 
   const clearBaseline = (): void => {

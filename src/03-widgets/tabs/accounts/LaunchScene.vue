@@ -19,7 +19,8 @@ const props = withDefaults(defineProps<{
   isInterrupted?: boolean
   progress: number
   steps: StepProgressItem[]
-  sessionUsername?: string | null
+  sessionUsernames: string[]
+  sessionViewDismissed?: boolean
   serverOffline?: boolean
   loginError?: string
   selectError?: string
@@ -27,7 +28,7 @@ const props = withDefaults(defineProps<{
   showAuth: boolean
   showBack: boolean
 }>(), {
-  sessionUsername: null,
+  sessionViewDismissed: false,
   serverOffline: false,
   loginError: '',
   selectError: '',
@@ -44,7 +45,7 @@ const emit = defineEmits<{
   'retry-logins': []
   'cancel': []
   'auth-back': []
-  'minimize': []
+  'back-to-accounts': []
 }>()
 
 const accountLabel = computed((): string =>
@@ -66,14 +67,14 @@ const displayName = computed((): string => props.hasSession ? props.username : '
     </div>
 
     <LaunchSessionScene
-      v-else-if="sessionUsername"
-      :session-username="sessionUsername"
-      @minimize="emit('minimize')"
+      v-else-if="sessionUsernames.length > 0 && !sessionViewDismissed && !isLaunching"
+      :session-usernames="sessionUsernames"
+      @back="emit('back-to-accounts')"
     />
 
     <template v-else>
       <div class="launch-scene__account">
-        <Identicon v-if="hasSession" :username="username" :size="64" />
+        <Identicon v-if="hasSession" :username="username" size="lg" />
         <div class="launch-scene__account-info">
           <span class="eyebrow">{{ accountLabel }}</span>
           <p class="launch-scene__name">{{ displayName }}</p>
@@ -92,6 +93,7 @@ const displayName = computed((): string => props.hasSession ? props.username : '
           :steps="steps"
           :is-interrupted="isInterrupted ?? false"
           :is-cancel-pending="isCancelPending"
+          :is-game-started="sessionUsernames.length > 0"
           @cancel="emit('cancel')"
         />
         <LaunchActionsScene
@@ -144,6 +146,7 @@ const displayName = computed((): string => props.hasSession ? props.username : '
     flex-direction: column;
     gap: var(--space-4);
     min-width: 0;
+    text-align: left;
   }
 
   &__name {

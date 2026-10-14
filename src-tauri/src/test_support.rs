@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use sha1::{Digest, Sha1};
 
 use crate::minecraft::structs::{GameConfig, LaunchConfig, LibraryMod, VersionMod};
-use crate::state::dto::ProjectConfig;
+use crate::state::dto::{GlobalState, ProjectConfig};
+use crate::state::launcher_config::LauncherConfig;
+use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
+use crate::utils::step_events::StepEvent;
 
 pub fn loader_project(project: &str, mc_version: &str, loader_version: &str) -> ProjectConfig {
     ProjectConfig {
@@ -43,6 +46,53 @@ pub fn rotation_payload(access: &str, refresh: &str) -> String {
     .to_string()
 }
 
+pub fn offline_global_state(project_name: &str) -> tokio::sync::Mutex<GlobalState> {
+    tokio::sync::Mutex::new(GlobalState {
+        project_config: ProjectConfig {
+            project_name: project_name.to_string(),
+            online: false,
+            ..ProjectConfig::default()
+        },
+        session: None,
+        launcher_config: Some(LauncherConfig::default()),
+        app_version: String::new(),
+    })
+}
+
+pub async fn seeded_global_state(
+    label: &str,
+    base: ProjectConfig,
+) -> (LauncherDirGuard, tokio::sync::Mutex<GlobalState>) {
+    let guard = LauncherDirGuard::acquire(label).await;
+    base.save_config()
+        .await
+        .expect("сохранение базового конфига");
+    let state = tokio::sync::Mutex::new(GlobalState {
+        project_config: base,
+        ..Default::default()
+    });
+    (guard, state)
+}
+
+pub fn integrity_url_target(rel: &str, hash: &str, url: String) -> IntegrityTarget {
+    IntegrityTarget {
+        rel_path: PathBuf::from(rel),
+        hash: hash.to_string(),
+        hash_kind: HashKind::Sha1,
+        download: TargetDownload::Url(url),
+    }
+}
+
+pub fn step_event_id(event: &StepEvent) -> &str {
+    match event {
+        StepEvent::Started { id, .. }
+        | StepEvent::Progress { id, .. }
+        | StepEvent::Detail { id, .. }
+        | StepEvent::Finished { id, .. }
+        | StepEvent::Failed { id, .. } => id,
+    }
+}
+
 pub async fn seed_online_project(project_name: &str, server_url: &str) {
     let config = ProjectConfig {
         project_name: project_name.to_string(),
@@ -57,10 +107,36 @@ pub async fn seed_online_project(project_name: &str, server_url: &str) {
         .expect("сохранение конфига проекта");
 }
 
+pub async fn seed_offline_project(project_name: &str) {
+    let config = ProjectConfig {
+        project_name: project_name.to_string(),
+        mc_version: "1.20.1".to_string(),
+        online: false,
+        ..ProjectConfig::default()
+    };
+    config
+        .save_config()
+        .await
+        .expect("сохранение конфига проекта");
+}
+
 pub fn sha1_hex(data: &[u8]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(data);
     crate::utils::hex::digest_hex(hasher.finalize())
+}
+
+pub fn part_files_in(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("part"))
+        })
+        .collect()
 }
 
 pub fn library_mod(name: &str, path: &str) -> LibraryMod {
@@ -70,6 +146,17 @@ pub fn library_mod(name: &str, path: &str) -> LibraryMod {
         url: String::new(),
         hash: String::new(),
         size: 1,
+    }
+}
+
+pub fn cpm_model_entry(id: Option<i64>, file: &str, offline: bool) -> crate::cpm::CpmModelEntry {
+    crate::cpm::CpmModelEntry {
+        id,
+        file: file.to_string(),
+        name: file.to_string(),
+        url: None,
+        skin_type: None,
+        offline,
     }
 }
 
@@ -102,6 +189,12 @@ pub fn write_loader_manifest(
         .expect("создание каталога манифеста");
     std::fs::write(&path, manifest.to_string()).expect("запись манифеста лоадера");
     path
+}
+
+pub static BANDWIDTH_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub async fn lock_bandwidth_tests() -> tokio::sync::MutexGuard<'static, ()> {
+    BANDWIDTH_TEST_LOCK.lock().await
 }
 
 pub static LAUNCHER_DIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

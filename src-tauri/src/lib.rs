@@ -1,5 +1,6 @@
 mod auth;
 mod commands;
+mod cpm;
 mod discord;
 mod init;
 mod java;
@@ -64,7 +65,7 @@ use commands::update::{
 use commands::user_content::{
     clear_session, delete_model, delete_offline_skin, delete_skin, get_offline_skin,
     get_offline_skin_model, get_profile_skin, get_session_info, list_models, list_skins,
-    read_skin_file, save_offline_skin, select_account, set_active_skin, upload_model, upload_skin,
+    read_skin_file, save_offline_skin, set_active_skin, upload_model, upload_skin,
 };
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -90,7 +91,7 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
+    let run_result = tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
             logger_utils::init_logger(handle);
@@ -99,9 +100,12 @@ pub fn run() {
                 log_err!("Не удалось обновить запись в меню приложений: {e:#}");
             }
 
-            let launcher_config = crate::state::launcher_config::LauncherConfig::load()
+            let mut launcher_config = crate::state::launcher_config::LauncherConfig::load()
                 .ok()
                 .flatten();
+            if launcher_config.is_none() {
+                launcher_config = crate::state::launcher_config::try_seed_from_installed_exe();
+            }
             if let Some(id) = launcher_config
                 .as_ref()
                 .and_then(|c| c.install_id.as_deref())
@@ -144,6 +148,12 @@ pub fn run() {
                 if removed > 0 {
                     log_info!("Удалено временных .part-файлов после сбоя: {removed}");
                 }
+                let removed_staging = java::cleanup_stale_java_staging(&part_cleanup_root);
+                if removed_staging > 0 {
+                    log_info!(
+                        "Удалено временных папок распаковки Java после сбоя: {removed_staging}"
+                    );
+                }
             });
 
             crate::utils::winreg::init_uninstall_registry_key(app.config());
@@ -172,11 +182,7 @@ pub fn run() {
             };
             app.manage(Mutex::new(gs));
 
-            tauri::async_runtime::spawn_blocking(updater::cleanup_old_binaries);
-
-            tauri::async_runtime::spawn_blocking(move || {
-                discord::init(discord_enabled);
-            });
+            tauri::async_runtime::spawn(discord::init(discord_enabled));
 
             if let Some(path) =
                 commands::cpm_models::extract_cpm_project_path(std::env::args().skip(1))
@@ -272,7 +278,6 @@ pub fn run() {
             get_startup_logs,
             get_notification_icon,
             logger_utils::send_frontend_log,
-            select_account,
             get_session_info,
             clear_session,
             upload_skin,
@@ -300,8 +305,12 @@ pub fn run() {
             modrinth_install,
             modrinth_uninstall,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(e) = run_result {
+        log_err!("Не удалось запустить приложение: {e:#}");
+        std::process::exit(1);
+    }
 }
 
 fn install_panic_hook() {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import shigureGif from './assets/shigure-ui-smol.gif'
+import shigureAnim from './assets/shigure-ui-smol.webp'
 
 defineProps<{
   visible: boolean
@@ -14,7 +14,7 @@ defineProps<{
         class="theme-switch-overlay__girl"
         :class="`theme-switch-overlay__girl--${direction}`"
       >
-        <img :src="shigureGif" alt="" class="theme-switch-overlay__girl-gif">
+        <img :src="shigureAnim" alt="" class="theme-switch-overlay__girl-anim">
       </div>
     </div>
   </Transition>
@@ -33,51 +33,49 @@ defineProps<{
 }
 
 .theme-switch-overlay__girl {
+  padding: var(--space-40);
+  filter: drop-shadow(0 var(--switch-glow-offset) var(--switch-glow-blur) var(--switch-girl-glow));
   animation: theme-switch-girl-pop var(--switch-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.theme-switch-overlay__girl--to-dark .theme-switch-overlay__girl-gif {
-  filter: drop-shadow(0 4px 16px var(--switch-glow));
+.theme-switch-overlay__girl--to-dark {
+  --switch-girl-glow: var(--switch-glow);
 }
 
-.theme-switch-overlay__girl--to-light .theme-switch-overlay__girl-gif {
-  filter: invert(1) drop-shadow(0 4px 16px var(--switch-glow-invert));
+.theme-switch-overlay__girl--to-light {
+  --switch-girl-glow: var(--switch-glow-invert);
 }
 
-.theme-switch-overlay__girl-gif {
+.theme-switch-overlay__girl--to-dark .theme-switch-overlay__girl-anim {
+  filter: brightness(0);
+}
+
+.theme-switch-overlay__girl--to-light .theme-switch-overlay__girl-anim {
+  filter: brightness(0) invert(1);
+}
+
+.theme-switch-overlay__girl-anim {
   width: var(--theme-switch-size);
   height: auto;
-  -webkit-mask-image: radial-gradient(circle, black 60%, transparent 100%);
-  mask-image: radial-gradient(circle, black 60%, transparent 100%);
 }
 
 @keyframes theme-switch-girl-pop {
   0% {
-    transform: scale(0.1) translateY(40px);
+    transform: scale(0.2) translateY(var(--switch-girl-drop));
     opacity: 0;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
-  10% {
-    transform: scale(0.3) translateY(20px);
-    opacity: 1;
-  }
-  30% {
-    transform: scale(0.6) translateY(5px);
-    opacity: 1;
-  }
-  50% {
+  15% {
     transform: scale(1) translateY(0);
     opacity: 1;
   }
-  70% {
-    transform: scale(1.5) translateY(-10px);
+  80% {
+    transform: scale(1) translateY(0);
     opacity: 1;
-  }
-  85% {
-    transform: scale(2.2) translateY(-20px);
-    opacity: 0.8;
+    animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
   }
   100% {
-    transform: scale(3) translateY(-30px);
+    transform: scale(1.2) translateY(calc(-1 * var(--switch-girl-rise)));
     opacity: 0;
   }
 }

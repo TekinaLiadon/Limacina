@@ -20,18 +20,16 @@ export function useAuth() {
     isPasswordConfirmed(store.registerFormData.password, store.registerFormData.confirmPassword)
   )
 
-  const isOffline = computed((): boolean => coreStore.isOfflineProject)
-
   const isLoginValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
-    if (store.loginFormData.username.length < MIN_LOGIN_LENGTH) return false
-    return isOffline.value || store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
+    if (store.loginFormData.username.trim().length < MIN_LOGIN_LENGTH) return false
+    return store.loginFormData.password.length >= MIN_PASSWORD_LENGTH
   })
 
   const isRegisterValid = computed((): boolean => {
     if (!coreStore.currentProject) return false
     return (
-      store.registerFormData.login.length >= MIN_LOGIN_LENGTH &&
+      store.registerFormData.login.trim().length >= MIN_LOGIN_LENGTH &&
       store.registerFormData.password.length >= MIN_PASSWORD_LENGTH &&
       store.registerFormData.confirmPassword.length > 0 &&
       passwordsMatch.value
@@ -40,14 +38,14 @@ export function useAuth() {
 
   const registerLoginHint = computed((): string | null => {
     const { login } = store.registerFormData
-    if (!login || login.length >= MIN_LOGIN_LENGTH) return null
-    return `Логин — ${minLengthMessage(MIN_LOGIN_LENGTH)}`
+    if (!login || login.trim().length >= MIN_LOGIN_LENGTH) return null
+    return `Логин: ${minLengthMessage(MIN_LOGIN_LENGTH)}`
   })
 
   const registerPasswordHint = computed((): string | null => {
     const { password } = store.registerFormData
     if (!password || password.length >= MIN_PASSWORD_LENGTH) return null
-    return `Пароль — ${minLengthMessage(MIN_PASSWORD_LENGTH)}`
+    return `Пароль: ${minLengthMessage(MIN_PASSWORD_LENGTH)}`
   })
 
   const loadSavedCredentials = (): void => {
@@ -68,17 +66,19 @@ export function useAuth() {
     errorMessage.value = getErrorMessage(e)
   }
 
-  const handleLogin = async (): Promise<void> => {
-    if (!isLoginValid.value || isLoading.value) return
+  const submitLogin = async (): Promise<void> => {
+    if (isLoading.value) return
 
     isLoading.value = true
     errorMessage.value = ''
     const scope = captureProjectScope((): string => coreStore.currentProject)
+    const username = store.loginFormData.username.trim()
+    store.loginFormData.username = username
 
     try {
       await authLogin(
         scope.project,
-        store.loginFormData.username,
+        username,
         store.loginFormData.password,
         store.loginFormData.rememberMe
       )
@@ -86,6 +86,7 @@ export function useAuth() {
 
       try {
         const session = await getSessionInfo()
+        if (!scope.isCurrent()) return
         if (session) store.applySession(session)
       } catch (e: unknown) {
         reportError('Не удалось обновить сессию после входа', e)
@@ -99,8 +100,13 @@ export function useAuth() {
       if (!scope.isCurrent()) return
       reportAuthError(e)
     } finally {
-      isLoading.value = false
+      if (scope.isCurrent()) isLoading.value = false
     }
+  }
+
+  const handleLogin = async (): Promise<void> => {
+    if (!isLoginValid.value) return
+    await submitLogin()
   }
 
   const handleRegister = async (): Promise<void> => {
@@ -110,8 +116,9 @@ export function useAuth() {
     errorMessage.value = ''
     const scope = captureProjectScope((): string => coreStore.currentProject)
 
-    const {login} = store.registerFormData
-    const {password} = store.registerFormData
+    const { login: rawLogin, password } = store.registerFormData
+    const login = rawLogin.trim()
+    store.registerFormData.login = login
 
     try {
       await authRegister(
@@ -132,7 +139,7 @@ export function useAuth() {
       if (!scope.isCurrent()) return
       reportAuthError(e)
     } finally {
-      isLoading.value = false
+      if (scope.isCurrent()) isLoading.value = false
     }
   }
 
@@ -146,11 +153,11 @@ export function useAuth() {
     loginFormData,
     registerFormData,
     passwordsMatch,
-    isOffline,
     isLoginValid,
     isRegisterValid,
     registerLoginHint,
     registerPasswordHint,
+    submitLogin,
     handleLogin,
     handleRegister,
   }

@@ -13,14 +13,14 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 }))
 
 interface ConsoleApi {
-  logs: { value: { line: string; isError: boolean }[] }
+  logs: { value: { line: string; isError: boolean; session: string | null }[] }
   streamError: { value: string }
   startConsoleStream: () => Promise<void>
   setConsoleActive: (active: boolean) => void
 }
 
 describe('useConsoleStream', () => {
-  let ingest: ((log: { line: string; isError: boolean }) => void) | undefined
+  let ingest: ((log: { line: string; isError: boolean; session: string | null }) => void) | undefined
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -31,7 +31,7 @@ describe('useConsoleStream', () => {
     api.getStartupLogs.mockReset()
     api.listenGameConsole.mockReset()
     api.listenGameConsole.mockImplementation(
-      async (handler: (log: { line: string; isError: boolean }) => void) => {
+      async (handler: (log: { line: string; isError: boolean; session: string | null }) => void) => {
         ingest = handler
         return () => {}
       },
@@ -50,8 +50,8 @@ describe('useConsoleStream', () => {
 
   it('keeps the startup logs in the backlog until the console opens', async () => {
     api.getStartupLogs.mockResolvedValue([
-      { line: '\x1B[32m[render]\x1B[0m ready', isError: false },
-      { line: 'crash\x07', isError: true },
+      { line: '\x1B[32m[render]\x1B[0m ready', isError: false, session: null },
+      { line: 'crash\x07', isError: true, session: null },
     ])
     const stream = await loadStream()
 
@@ -61,16 +61,16 @@ describe('useConsoleStream', () => {
     stream.setConsoleActive(true)
 
     expect(stream.logs.value).toEqual([
-      { line: '[render] ready', isError: false },
-      { line: 'crash', isError: true },
+      { line: '[render] ready', isError: false, session: null },
+      { line: 'crash', isError: true, session: null },
     ])
     expect(stream.streamError.value).toBe('')
   })
 
   it('strips OSC sequences with both BEL and ST terminators', async () => {
     api.getStartupLogs.mockResolvedValue([
-      { line: '\x1B]0;window title\x07after-bel', isError: false },
-      { line: '\x1B]8;;http://example.com\x1B\\after-st', isError: false },
+      { line: '\x1B]0;window title\x07after-bel', isError: false, session: null },
+      { line: '\x1B]8;;http://example.com\x1B\\after-st', isError: false, session: null },
     ])
     const stream = await loadStream()
     await stream.startConsoleStream()
@@ -85,15 +85,31 @@ describe('useConsoleStream', () => {
     const stream = await loadStream()
     await stream.startConsoleStream()
 
-    ingest?.({ line: 'boot', isError: false })
-    ingest?.({ line: '\x1B[31mboom\x1B[0m', isError: true })
+    ingest?.({ line: 'boot', isError: false, session: null })
+    ingest?.({ line: '\x1B[31mboom\x1B[0m', isError: true, session: null })
     expect(stream.logs.value).toEqual([])
 
     stream.setConsoleActive(true)
 
     expect(stream.logs.value).toEqual([
-      { line: 'boot', isError: false },
-      { line: 'boom', isError: true },
+      { line: 'boot', isError: false, session: null },
+      { line: 'boom', isError: true, session: null },
+    ])
+  })
+
+  it('keeps the session marker alongside the stripped line', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    ingest?.({ line: '[MC|Steve] Sound engine started', isError: false, session: 'Steve' })
+    ingest?.({ line: 'launcher line', isError: false, session: null })
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(stream.logs.value).toEqual([
+      { line: '[MC|Steve] Sound engine started', isError: false, session: 'Steve' },
+      { line: 'launcher line', isError: false, session: null },
     ])
   })
 
@@ -103,8 +119,8 @@ describe('useConsoleStream', () => {
     await stream.startConsoleStream()
     stream.setConsoleActive(true)
 
-    ingest?.({ line: 'tick 1', isError: false })
-    ingest?.({ line: 'tick 2', isError: false })
+    ingest?.({ line: 'tick 1', isError: false, session: null })
+    ingest?.({ line: 'tick 2', isError: false, session: null })
     await vi.advanceTimersByTimeAsync(500)
 
     expect(stream.logs.value.map((log) => log.line)).toEqual(['tick 1', 'tick 2'])
@@ -116,7 +132,7 @@ describe('useConsoleStream', () => {
     await stream.startConsoleStream()
     stream.setConsoleActive(true)
 
-    ingest?.({ line: 'tick 1', isError: false })
+    ingest?.({ line: 'tick 1', isError: false, session: null })
     await vi.advanceTimersByTimeAsync(500)
     expect(stream.logs.value.map((log) => log.line)).toEqual(['tick 1'])
     expect(vi.getTimerCount()).toBe(0)
@@ -124,7 +140,7 @@ describe('useConsoleStream', () => {
     await vi.advanceTimersByTimeAsync(5000)
     expect(stream.logs.value).toHaveLength(1)
 
-    ingest?.({ line: 'tick 2', isError: false })
+    ingest?.({ line: 'tick 2', isError: false, session: null })
     await vi.advanceTimersByTimeAsync(500)
 
     expect(stream.logs.value.map((log) => log.line)).toEqual(['tick 1', 'tick 2'])
@@ -138,7 +154,7 @@ describe('useConsoleStream', () => {
     stream.setConsoleActive(true)
 
     for (let i = 0; i < 2100; i += 1) {
-      ingest?.({ line: `line ${i}`, isError: false })
+      ingest?.({ line: `line ${i}`, isError: false, session: null })
     }
     expect(vi.getTimerCount()).toBe(1)
 
@@ -157,7 +173,7 @@ describe('useConsoleStream', () => {
     stream.setConsoleActive(true)
 
     for (let i = 0; i < 2100; i += 1) {
-      ingest?.({ line: `line ${i}`, isError: false })
+      ingest?.({ line: `line ${i}`, isError: false, session: null })
     }
     await vi.advanceTimersByTimeAsync(500 * 22)
 
@@ -172,7 +188,7 @@ describe('useConsoleStream', () => {
     await stream.startConsoleStream()
 
     for (let i = 0; i < 2100; i += 1) {
-      ingest?.({ line: `line ${i}`, isError: false })
+      ingest?.({ line: `line ${i}`, isError: false, session: null })
     }
     stream.setConsoleActive(true)
     expect(stream.logs.value).toHaveLength(100)
@@ -200,8 +216,8 @@ describe('useConsoleStream', () => {
   })
 
   it('keeps the live lines that arrive while the startup logs are loading', async () => {
-    let resolveStartup: (logs: { line: string; isError: boolean }[]) => void = () => {}
-    const startupPromise = new Promise<{ line: string; isError: boolean }[]>((resolve) => {
+    let resolveStartup: (logs: { line: string; isError: boolean; session: string | null }[]) => void = () => {}
+    const startupPromise = new Promise<{ line: string; isError: boolean; session: string | null }[]>((resolve) => {
       resolveStartup = resolve
     })
     api.getStartupLogs.mockImplementationOnce(() => startupPromise)
@@ -210,8 +226,8 @@ describe('useConsoleStream', () => {
     const pending = stream.startConsoleStream()
     expect(api.listenGameConsole).toHaveBeenCalledTimes(1)
 
-    ingest?.({ line: 'live line', isError: false })
-    resolveStartup([{ line: 'startup line', isError: false }])
+    ingest?.({ line: 'live line', isError: false, session: null })
+    resolveStartup([{ line: 'startup line', isError: false, session: null }])
     await pending
 
     stream.setConsoleActive(true)
@@ -238,7 +254,7 @@ describe('useConsoleStream', () => {
   })
 
   it('loads the startup logs only once across restarts', async () => {
-    api.getStartupLogs.mockResolvedValue([{ line: 'boot', isError: false }])
+    api.getStartupLogs.mockResolvedValue([{ line: 'boot', isError: false, session: null }])
     const stream = await loadStream()
     await stream.startConsoleStream()
     await stream.startConsoleStream()
@@ -247,6 +263,6 @@ describe('useConsoleStream', () => {
     expect(stream.logs.value).toEqual([])
 
     stream.setConsoleActive(true)
-    expect(stream.logs.value).toEqual([{ line: 'boot', isError: false }])
+    expect(stream.logs.value).toEqual([{ line: 'boot', isError: false, session: null }])
   })
 })

@@ -284,12 +284,18 @@ export class CpmAnimationPlayer {
   setAnimations(entries: ActiveCpmAnimation[]): void {
     this.resetNodes()
 
-    const activeIds = new Set(entries.map((entry) => entry.animation.id))
+    const unique: ActiveCpmAnimation[] = []
+    const activeIds = new Set<string>()
+    for (const entry of entries) {
+      if (activeIds.has(entry.animation.id)) continue
+      activeIds.add(entry.animation.id)
+      unique.push(entry)
+    }
     this.clocks.forEach((_clock, id) => {
       if (!activeIds.has(id)) this.clocks.delete(id)
     })
 
-    this.entries = [...entries]
+    this.entries = unique
       .sort((a, b) => a.animation.priority - b.animation.priority)
       .map((entry) => {
         let clock = this.clocks.get(entry.animation.id)

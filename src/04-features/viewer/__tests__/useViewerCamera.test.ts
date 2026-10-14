@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { nextTick, ref, shallowRef, type ShallowRef } from 'vue'
 import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
-import { fitFovRadians, useViewerCamera } from '../useViewerCamera'
+import { fitFovRadians, fitToView, useViewerCamera } from '../useViewerCamera'
 import type { ViewerControls } from '@/06-shared'
 
 function createControls(): ViewerControls {
@@ -73,6 +73,42 @@ describe('fitFovRadians', () => {
 
     camera.aspect = Number.NaN
     expect(fitFovRadians(camera)).toBeCloseTo(35 * Math.PI / 180)
+  })
+})
+
+describe('fitToView', () => {
+  const makeApi = (
+    camera: ShallowRef<THREE.PerspectiveCamera | null>,
+    radius: number | null,
+  ): { api: Parameters<typeof fitToView>[0]; setFitDistance: ReturnType<typeof vi.fn> } => {
+    const setFitDistance = vi.fn()
+    return {
+      api: { camera, setFitDistance, modelBoundingSphereRadius: (): number | null => radius },
+      setFitDistance,
+    }
+  }
+
+  it('fits the model bounding sphere into the camera fov with a margin', () => {
+    const camera = shallowRef<THREE.PerspectiveCamera | null>(new THREE.PerspectiveCamera(35, 1))
+    const { api, setFitDistance } = makeApi(camera, 10)
+
+    fitToView(api)
+
+    const expected = (10 / Math.sin(fitFovRadians(camera.value ?? new THREE.PerspectiveCamera(35, 1)) / 2)) * 1.08
+    expect(setFitDistance).toHaveBeenCalledTimes(1)
+    expect(setFitDistance.mock.calls[0]?.[0]).toBeCloseTo(expected, 6)
+  })
+
+  it('skips the fit when the camera or the model is missing', () => {
+    const setFitDistance = vi.fn()
+    fitToView({ camera: shallowRef(null), setFitDistance, modelBoundingSphereRadius: (): number | null => 10 })
+    fitToView({
+      camera: shallowRef<THREE.PerspectiveCamera | null>(new THREE.PerspectiveCamera(35, 1)),
+      setFitDistance,
+      modelBoundingSphereRadius: (): number | null => null,
+    })
+
+    expect(setFitDistance).not.toHaveBeenCalled()
   })
 })
 

@@ -12,10 +12,10 @@ export interface CpmProject {
 }
 
 export async function parseCpmProjectFile(data: Uint8Array): Promise<CpmProject> {
-  const { zip, config, skinPng } = await readCpmProjectZip(data)
+  const { zip, config, skinPng, budget } = await readCpmProjectZip(data)
   if (skinPng === null) throw new Error('Файл не содержит skin.png')
 
-  const animations = await parseCpmAnimations(zip)
+  const animations = await parseCpmAnimations(zip, budget)
   const textureBlob = new Blob([skinPng])
 
   return { config, textureBlob, animations }

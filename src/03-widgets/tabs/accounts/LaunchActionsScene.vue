@@ -94,7 +94,7 @@ const openLoginForm = (): void => {
       </Button>
     </template>
     <div v-if="serverOffline" class="launch-scene__error">
-      Сервер лаунчера недоступен — запуск заблокирован, ждём восстановления соединения
+      Сервер лаунчера недоступен, запуск заблокирован, ждём восстановления соединения
     </div>
     <Button
       class="btn-primary btn-lg btn-block"
@@ -163,7 +163,7 @@ const openLoginForm = (): void => {
                 :class="{ 'launch-scene__menu-item--active': login === selectedUsername }"
                 @click="selectAccount(login)"
               >
-                <Identicon :username="login" :size="28" />
+                <Identicon :username="login" size="sm" />
                 <span class="launch-scene__menu-name">{{ login }}</span>
                 <span v-if="login === selectedUsername" class="launch-scene__menu-check">
                   <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
@@ -201,6 +201,8 @@ const openLoginForm = (): void => {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .launch-scene {
   &__switcher {
     position: relative;
@@ -220,26 +222,11 @@ const openLoginForm = (): void => {
   }
 
   &__menu {
-    position: absolute;
-    top: calc(100% + var(--space-4));
-    left: 0;
-    right: 0;
-    z-index: var(--z-dropdown);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    padding: var(--space-4);
-    background: var(--login-bg-form);
-    border-radius: var(--radius-input);
-    box-shadow: var(--elevation-modal);
-    overflow-y: auto;
-    transform-origin: top center;
+    @include mixins.options-panel-box($floating: true);
   }
 
   &__switcher--up &__menu {
-    top: auto;
-    bottom: calc(100% + var(--space-4));
-    transform-origin: bottom center;
+    @include mixins.options-panel-up($floating: true);
   }
 
   &__menu-row {

@@ -21,13 +21,16 @@ export function useServerAvailability(): {
         return reachable
       },
       applySuccess: (reachable: boolean): void => {
-        serverStore.isServerReachable = reachable
+        serverStore.setReachable(reachable)
+      },
+      applyError: (): void => {
+        serverStore.setReachable(false)
       },
       onFailureStreak: (): void => {
-        serverStore.isServerReachable = false
+        serverStore.setReachable(false)
       },
       applyIdle: (): void => {
-        serverStore.isServerReachable = null
+        serverStore.setReachable(null)
       },
     })
   }

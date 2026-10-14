@@ -3,6 +3,7 @@ name = "Limacina"
 version = "0.6.0"
 description = "Limacina — Minecraft launcher"
 authors = ["Tekina"]
+license = "MIT"
 edition = "2021"
 
 [lib]
@@ -18,7 +19,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros", "process", "io-util", "time", "sync"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "multipart", "query", "native-tls", "charset", "http2", "system-proxy"] }
 anyhow = "1"
 thiserror = "2"

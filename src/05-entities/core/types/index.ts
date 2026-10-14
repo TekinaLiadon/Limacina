@@ -1,21 +1,16 @@
-import type { ModLoaderKind } from '@/06-shared'
+import type { ModLoaderKind } from '@/06-shared/types/ipc'
 
 export type {
-  SavedLogin,
-  AuthProjectConfig,
   LauncherConfig,
   AppInitData,
   UpdateInfo,
   ServerStatus,
   StepEvent,
-  StepStatus,
-  StepProgressItem,
   UserContentItem,
   SkinModelMode,
   SessionInfo,
   ConsoleLog,
   ProjectConfig,
-  ModLoaderKind,
   JavaDistribution,
   GameExitInfo,
   IntegrityReport,
@@ -24,16 +19,14 @@ export type {
   GameOptions,
   GameOptionsData,
   LauncherSettingsPayload,
-  SavePlayerModelPayload,
-} from '@/06-shared'
+} from '@/06-shared/types/ipc'
+
+export type { StepProgressItem } from '@/06-shared/utils/stepEvents'
+export type { ModLoaderKind }
 
 export type TabKey = 'accounts' | 'add-profile' | 'mods' | 'settings' | 'debug'
 
 export type AuthSubTab = 'login' | 'register'
-
-export interface AuthUserData extends LoginForm {
-  projectName: string
-}
 
 export type ProfileKind = 'server' | 'offline'
 

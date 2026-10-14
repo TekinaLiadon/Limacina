@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
 import Button from './Button.vue'
-import { useFocusTrap } from '@/06-shared/utils/useFocusTrap'
+import PopupShell from './PopupShell.vue'
+import { randomId } from '@/06-shared/utils/utils'
 
-const props = defineProps<{
+defineProps<{
   message: string
   visible: boolean
 }>()
@@ -13,55 +13,29 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-const popupRef = ref<HTMLDivElement | null>(null)
-
-useFocusTrap(popupRef, (): boolean => props.visible)
-
-function handleKeydown(e: KeyboardEvent): void {
-  if (props.visible && e.key === 'Escape') emit('cancel')
-}
-
-watch((): boolean => props.visible, (visible) => {
-  if (visible) {
-    window.addEventListener('keydown', handleKeydown)
-  } else window.removeEventListener('keydown', handleKeydown)
-}, { immediate: true })
-
-onUnmounted((): void => {
-  window.removeEventListener('keydown', handleKeydown)
-})
+const messageId = randomId()
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="popup">
-      <div v-if="visible" class="confirm-popup-overlay" @click.self="emit('cancel')">
-        <div ref="popupRef" class="confirm-popup popup-panel" role="dialog" aria-modal="true">
-          <p class="confirm-popup__message">{{ message }}</p>
-          <div class="confirm-popup__actions">
-            <Button class="btn-primary confirm-popup__btn" @click="emit('confirm')">
-              Да
-            </Button>
-            <Button
-              v-focus
-              class="btn-quiet confirm-popup__btn confirm-popup__btn--cancel"
-              @click="emit('cancel')"
-            >
-              Нет
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PopupShell :visible="visible" :aria-labelled-by="messageId" panel-class="confirm-popup" @close="emit('cancel')">
+    <p :id="messageId" class="confirm-popup__message">{{ message }}</p>
+    <div class="confirm-popup__actions">
+      <Button class="btn-primary confirm-popup__btn" @click="emit('confirm')">
+        Да
+      </Button>
+      <Button
+        v-focus
+        class="btn-quiet confirm-popup__btn confirm-popup__btn--cancel"
+        @click="emit('cancel')"
+      >
+        Нет
+      </Button>
+    </div>
+  </PopupShell>
 </template>
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
-
-.confirm-popup-overlay {
-  @include mixins.popup-overlay;
-}
 
 .confirm-popup {
   @include mixins.popup-card(var(--confirm-popup-max-width));

@@ -85,6 +85,8 @@ function clear(): void {
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .multi-select__clear {
   position: absolute;
   right: var(--space-8);
@@ -117,16 +119,7 @@ function clear(): void {
 }
 
 .multi-select__check {
-  width: var(--checkbox-size);
-  height: var(--checkbox-size);
-  box-shadow: var(--elevation-inset);
-  background: var(--surface-input);
-  border-radius: var(--radius-badge);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color var(--duration-base) var(--ease-out);
-  flex-shrink: 0;
+  @include mixins.checkbox-box;
 }
 
 .multi-select__check--selected {

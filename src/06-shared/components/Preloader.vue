@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="scss">
 @use '@/01-app/assets/mixins';
 
 .preloader {

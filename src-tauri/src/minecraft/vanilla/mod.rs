@@ -13,8 +13,8 @@ use crate::minecraft::manifest::get_manifest_version;
 use crate::minecraft::vanilla::config::get_classpath;
 use crate::minecraft::vanilla::config::{get_game_args, get_jvm_args, ArgumentsMap};
 use crate::minecraft::vanilla::download::{
-    extract_natives, natives_match_version, read_asset_index, VanillaPhaseInfo, PHASE_ASSET_INDEX,
-    PHASE_NATIVES,
+    extract_natives, natives_match_version, preflight_asset_disk_space, read_asset_index,
+    VanillaPhaseInfo, PHASE_ASSET_INDEX, PHASE_NATIVES,
 };
 use crate::minecraft::vanilla::manifest::load_vanilla_index;
 use crate::minecraft::vanilla::pipeline::{run_vanilla_phases, VanillaPhaseExecutor};
@@ -28,7 +28,7 @@ use crate::{
         blocking,
         env_info::launcher_path,
         errors::LauncherError,
-        integrity::{ensure_files, IntegrityTarget},
+        integrity::{ensure_files, settle_install_step, IntegrityTarget},
         java::find_java,
         step_events::StepHandle,
     },
@@ -49,12 +49,11 @@ impl VanillaPhaseExecutor for InstallPhases {
         targets: Vec<IntegrityTarget>,
     ) -> Result<()> {
         let step = StepHandle::start(phase.id, phase.label);
-        step_try!(
+        let report = step_try!(
             step,
             ensure_files(&step, &self.base_path, &self.project_name, targets).await
         );
-        step.finish(false);
-        Ok(())
+        settle_install_step(step, &report)
     }
 
     async fn natives(
@@ -80,20 +79,24 @@ impl VanillaPhaseExecutor for InstallPhases {
     async fn asset_index(&mut self, target: IntegrityTarget) -> Result<AssetIndexContent> {
         let step = StepHandle::start(PHASE_ASSET_INDEX.id, PHASE_ASSET_INDEX.label);
         let index_rel = target.rel_path.clone();
-        step_try!(
+        let report = step_try!(
             step,
             ensure_files(&step, &self.base_path, &self.project_name, vec![target]).await
         );
-
+        if !report.failed.is_empty() {
+            let error = match settle_install_step(step, &report) {
+                Err(e) => e,
+                Ok(()) => anyhow::Error::msg("Не удалось скачать индекс ассетов"),
+            };
+            return Err(error);
+        }
         let index_path = self.base_path.join(&index_rel);
-        let asset_index = match read_asset_index(&index_path).await {
-            Ok(index) => index,
-            Err(e) => {
-                step.fail(e.to_string());
-                return Err(e);
-            }
-        };
-        step.finish(false);
+        let asset_index = step_try!(step, read_asset_index(&index_path).await);
+        step_try!(
+            step,
+            preflight_asset_disk_space(&self.base_path, &asset_index).await
+        );
+        settle_install_step(step, &report)?;
         Ok(asset_index)
     }
 }
@@ -101,7 +104,7 @@ impl VanillaPhaseExecutor for InstallPhases {
 #[async_trait]
 impl MinecraftLoader for Vanilla {
     async fn versions(&self) -> Result<Vec<Versions>> {
-        log_info!("Загрузка индекс манифеста");
+        log_info!("Загрузка индекса манифеста");
         let versions = load_vanilla_index().await.map_err(|e| {
             LauncherError::ManifestParse(format!(
                 "Не удалось загрузить индекс манифеста версий: {e:#}"
@@ -172,7 +175,7 @@ impl MinecraftLoader for Vanilla {
         let jvm_args = get_jvm_args(&manifest_version, config, &args_map);
         let game_args = get_game_args(&manifest_version, &args_map);
 
-        log_info!("Поиск java");
+        log_info!("Поиск Java");
         let java_config = state.java_path.clone();
         let java_path = LauncherError::classify(
             blocking("Поиск Java в системе", move || {
@@ -190,5 +193,227 @@ impl MinecraftLoader for Vanilla {
             manifest_version.main_class,
             game_dir,
         ))
+    }
+}
+
+#[cfg(test)]
+mod install_phases_tests {
+    use super::InstallPhases;
+    use crate::minecraft::vanilla::download::{PHASE_ASSET_INDEX, PHASE_CLIENT};
+    use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
+    use crate::test_support::{integrity_url_target, sha1_hex, step_event_id, LauncherDirGuard};
+    use crate::utils::step_events::test_capture;
+    use crate::utils::step_events::StepEvent;
+    use mockito::Server;
+    use std::path::PathBuf;
+
+    fn terminals(id: &str) -> Vec<StepEvent> {
+        test_capture::captured()
+            .into_iter()
+            .filter(|(_, event)| step_event_id(event) == id)
+            .filter(|(_, event)| {
+                matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+            })
+            .map(|(_, event)| event)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn fetch_intact_files_finish_step_once_as_skipped() {
+        let dir = LauncherDirGuard::acquire("vanilla_fetch_intact").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
+        std::fs::write(base.join("libraries/a.jar"), b"content").expect("целый файл");
+
+        let mut phases = InstallPhases {
+            base_path: base,
+            project_name: "Cordelia".to_string(),
+        };
+
+        phases
+            .fetch(
+                &PHASE_CLIENT,
+                vec![integrity_url_target(
+                    "libraries/a.jar",
+                    &sha1_hex(b"content"),
+                    "http://127.0.0.1:1/a".to_string(),
+                )],
+            )
+            .await
+            .expect("фаза с целыми файлами");
+
+        let step_terminals = terminals(PHASE_CLIENT.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие на шаг: {step_terminals:?}"
+        );
+        assert!(
+            matches!(
+                step_terminals.first(),
+                Some(StepEvent::Finished { skipped: true, .. })
+            ),
+            "шаг без скачиваний должен финишировать как пропущенный: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_failed_download_fails_step_once() {
+        let dir = LauncherDirGuard::acquire("vanilla_fetch_failed").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(404)
+            .create_async()
+            .await;
+        let base = dir.project_dir("Cordelia");
+
+        let mut phases = InstallPhases {
+            base_path: base,
+            project_name: "Cordelia".to_string(),
+        };
+
+        let error = phases
+            .fetch(
+                &PHASE_CLIENT,
+                vec![integrity_url_target(
+                    "libraries/a.jar",
+                    &sha1_hex(b"good jar"),
+                    format!("{}/libs/a.jar", server.url()),
+                )],
+            )
+            .await
+            .expect_err("неудачное скачивание должно прерывать фазу");
+
+        assert!(
+            error.to_string().contains("Не удалось скачать файлы"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = terminals(PHASE_CLIENT.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться, а не финишировать: {step_terminals:?}"
+        );
+    }
+
+    fn phases(base: PathBuf) -> InstallPhases {
+        InstallPhases {
+            base_path: base,
+            project_name: "Cordelia".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn asset_index_intact_finishes_step_once_as_skipped() {
+        let dir = LauncherDirGuard::acquire("vanilla_index_intact").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        let index_json = r#"{"objects": {}}"#;
+        let rel = PathBuf::from("assets/indexes/5.json");
+        std::fs::create_dir_all(base.join(&rel).parent().unwrap()).expect("директория индекса");
+        std::fs::write(base.join(&rel), index_json).expect("целый индекс");
+
+        phases(base)
+            .asset_index(integrity_url_target(
+                rel.to_string_lossy().as_ref(),
+                &sha1_hex(index_json.as_bytes()),
+                "http://127.0.0.1:1/index".to_string(),
+            ))
+            .await
+            .expect("фаза индекса ассетов по целому файлу");
+
+        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие на шаг: {step_terminals:?}"
+        );
+        assert!(
+            matches!(
+                step_terminals.first(),
+                Some(StepEvent::Finished { skipped: true, .. })
+            ),
+            "целый индекс должен финишировать как пропущенный: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn asset_index_failed_download_fails_step_once() {
+        let dir = LauncherDirGuard::acquire("vanilla_index_failed").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/index.json")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let error = phases(dir.project_dir("Cordelia"))
+            .asset_index(integrity_url_target(
+                "assets/indexes/5.json",
+                &sha1_hex(b"index"),
+                format!("{}/index.json", server.url()),
+            ))
+            .await
+            .expect_err("неудачное скачивание индекса должно прерывать фазу");
+
+        assert!(
+            error.to_string().contains("Не удалось скачать файлы"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "ровно одно терминальное событие: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться: {step_terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn asset_index_unparseable_file_fails_step_once() {
+        let dir = LauncherDirGuard::acquire("vanilla_index_corrupt").await;
+        let _capture = test_capture::CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        let broken_json = b"not json at all";
+        let rel = PathBuf::from("assets/indexes/5.json");
+        std::fs::create_dir_all(base.join(&rel).parent().unwrap()).expect("директория индекса");
+        std::fs::write(base.join(&rel), broken_json).expect("непарсящийся индекс");
+
+        let error = phases(base)
+            .asset_index(integrity_url_target(
+                rel.to_string_lossy().as_ref(),
+                &sha1_hex(broken_json),
+                "http://127.0.0.1:1/index".to_string(),
+            ))
+            .await
+            .expect_err("битый индекс должен прерывать фазу после проверки хеша");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Не удалось разобрать индекс ресурсов"),
+            "неожиданная ошибка: {error}"
+        );
+        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
+        assert_eq!(
+            step_terminals.len(),
+            1,
+            "после успешного скачивания сбой чтения должен давать единственный Failed: {step_terminals:?}"
+        );
+        assert!(
+            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг должен фейлиться, а не финишировать: {step_terminals:?}"
+        );
     }
 }

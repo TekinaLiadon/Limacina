@@ -644,9 +644,10 @@ mod for_loader_tests {
         let map = ArgumentsMap::for_loader(&project("MapProj3", "1.20.1")).expect("карта лоадера");
 
         assert_eq!(
-            map.substitute_all(vec![format!(
-                "${{library_directory}}/a.jar${{classpath_separator}}${{library_directory}}/b.jar"
-            )]),
+            map.substitute_all(vec![
+                "${library_directory}/a.jar${classpath_separator}${library_directory}/b.jar"
+                    .to_string(),
+            ]),
             vec![format!(
                 "{}/a.jar{sep}{}/b.jar",
                 base.join("libraries").display(),

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Button, Input, Checkbox } from '@/06-shared'
-import { useAuth } from '@/04-features'
+import { useAuth, useOfflineLogin } from '@/04-features'
 import AuthForm from '@/03-widgets/tabs/login/AuthForm.vue'
 import { AUTH_LOGIN_TAB, AUTH_REGISTER_TAB, type AuthSubTab } from '@/05-entities'
 
@@ -23,14 +23,18 @@ const {
   loginFormData,
   registerFormData,
   passwordsMatch,
-  isOffline,
-  isLoginValid,
+  isLoginValid: isServerLoginValid,
   isRegisterValid,
   registerLoginHint,
   registerPasswordHint,
-  handleLogin,
+  submitLogin,
   handleRegister,
 } = useAuth()
+
+const { isOffline, isLoginValid, handleLogin } = useOfflineLogin({
+  isLoginValid: isServerLoginValid,
+  submitLogin,
+})
 
 interface AuthButtonTab  {
   text: string

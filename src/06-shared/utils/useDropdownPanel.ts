@@ -10,6 +10,7 @@ export function useDropdownPanel(
   openUp: ComputedRef<boolean>
   maxHeight: ComputedRef<string>
   panelRef: Ref<HTMLDivElement | null>
+  open: () => Promise<void>
   toggle: () => Promise<void>
   close: () => void
 } {
@@ -32,7 +33,7 @@ export function useDropdownPanel(
     const style = getComputedStyle(panel)
     const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
     const gap = Number.parseFloat(style.rowGap) || 0
-    const visible = maxVisible()
+    const visible = Math.min(maxVisible(), panel.children.length)
     const itemHeight = firstItem?.offsetHeight ?? 0
     measuredHeight.value =
       visible * itemHeight + padding + gap * Math.max(visible - 1, 0)
@@ -50,14 +51,21 @@ export function useDropdownPanel(
     shown.value = false
   }
 
+  const open = async (): Promise<void> => {
+    if (isDisabled()) return
+    shown.value = true
+    await nextTick()
+    measurePanel()
+    computeDirection()
+  }
+
   const toggle = async (): Promise<void> => {
     if (isDisabled()) return
-    shown.value = !shown.value
-    if (shown.value) {
-      await nextTick()
-      measurePanel()
-      computeDirection()
+    if (!shown.value) {
+      await open()
+      return
     }
+    close()
   }
 
   const handleClickOutside = (e: MouseEvent): void => {
@@ -86,5 +94,5 @@ export function useDropdownPanel(
     window.removeEventListener('resize', handleResize)
   })
 
-  return { shown, openUp, maxHeight, panelRef, toggle, close }
+  return { shown, openUp, maxHeight, panelRef, open, toggle, close }
 }

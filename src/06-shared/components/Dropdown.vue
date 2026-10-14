@@ -28,6 +28,10 @@ const selectedTitle = computed((): string => {
   return selected?.title ?? value
 })
 
+function isSelected(value: string): boolean {
+  return String(value) === String(props.modelValue)
+}
+
 function handleSelect(value: string): void {
   emit('update:modelValue', value)
   baseRef.value?.close()
@@ -43,6 +47,7 @@ function handleSelect(value: string): void {
     :max-visible="props.maxVisible"
     :disabled="props.disabled"
     :open-up="props.openUp"
+    :is-selected="isSelected"
     @select="handleSelect"
   >
     <template #trailing>

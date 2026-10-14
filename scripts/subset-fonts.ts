@@ -1,26 +1,3 @@
-/**
- * Сабсеттер шрифтов.
- *
- * Берёт полный вариативный TTF, выбрасывает всё, кроме латиницы, кириллицы
- * и общих спецсимволов, пинит нужные веса и складывает результат в woff2 +
- * генерирует `fonts.scss` с корректными `@font-face` и `unicode-range`.
- *
- * Запуск:
- *   bun run fonts            — пересобрать все семейства из манифеста
- *   bun run fonts inter jost — только указанные (по slug)
- *
- * Как добавить новый шрифт:
- *   1. Найти вариативный TTF (обычно https://github.com/google/fonts/tree/main/ofl/<slug>).
- *   2. Дописать запись в SOURCES ниже: family, slug, url, нужные веса.
- *   3. `bun run fonts <slug>` — файлы и fonts.scss появятся в
- *      `src/01-app/assets/fonts/<slug>/`.
- *   4. Подключить в `src/01-app/assets/fonts/fonts.scss` и указать семейство
- *      в токенах темы (`--font-body` / `--font-display` / `--font-mono`).
- *
- * ВАЖНО: у одного `@font-face` должен быть ровно один `url()`. Несколько url()
- * в `src` — это список фолбэков формата, браузер берёт первый доступный
- * и остальные файлы не грузит (на этом уже один раз погорели).
- */
 import subsetFont from 'subset-font'
 import { convert } from 'fontverter'
 import { mkdir, readFile, writeFile, readdir, unlink } from 'node:fs/promises'
@@ -32,17 +9,10 @@ const OUT_DIR: string = path.join(ROOT, 'src/01-app/assets/fonts')
 export const CACHE_DIR: string = path.join(ROOT, 'node_modules/.cache/limacina-fonts')
 
 interface SubsetGroup {
-  /** Имя попадает в имя файла: `{slug}-{weight}-{name}.woff2`. */
   name: string
-  /** Диапазоны в синтаксисе CSS `unicode-range`. */
   ranges: string[]
 }
 
-/**
- * Границы подмножеств повторяют разбивку Google Fonts, чтобы браузер
- * догружал только нужный файл. В `latin` добавлены общие спецсимволы:
- * стрелки, математика, типографика.
- */
 export const GROUPS: SubsetGroup[] = [
   {
     name: 'latin',
@@ -113,17 +83,11 @@ export const GROUPS: SubsetGroup[] = [
 ]
 
 export interface FontSource {
-  /** Имя семейства в CSS. */
   family: string
-  /** Папка и префикс файлов. */
   slug: string
-  /** Полный вариативный (или статический) TTF. */
   url: string
-  /** Веса, которые нужно запечь в статические файлы. */
   weights: number[]
-  /** Прочие оси, которые нужно зафиксировать (например opsz у Inter). */
   axes?: Record<string, number>
-  /** Зачем этот шрифт в проекте. */
   note: string
 }
 
@@ -173,7 +137,6 @@ export const SOURCES: FontSource[] = [
   },
 ]
 
-/** Разворачивает диапазоны `U+XXXX-YYYY` в строку с кодовыми точками. */
 export function rangesToText(ranges: string[]): string {
   const chars: string[] = []
   for (const cp of rangesToCodePoints(ranges)) {
@@ -190,7 +153,6 @@ function rangesToCodePoints(ranges: string[]): number[] {
     const from: number = parseInt(fromRaw, 16)
     const to: number = toRaw === undefined ? from : parseInt(toRaw, 16)
     for (let cp = from; cp <= to; cp += 1) {
-      // суррогатные половины не являются самостоятельными символами
       if (cp >= 0xd800 && cp <= 0xdfff) continue
       points.push(cp)
     }
@@ -198,11 +160,6 @@ function rangesToCodePoints(ranges: string[]): number[] {
   return points
 }
 
-/**
- * Читает cmap шрифта и возвращает множество доступных кодовых точек.
- * Нужно, чтобы не плодить пустые файлы для подмножеств, которых в шрифте нет
- * (например, cyrillic-ext есть далеко не везде).
- */
 function readCoverage(font: Buffer): Set<number> {
   const coverage = new Set<number>()
   const numTables: number = font.readUInt16BE(4)
@@ -224,7 +181,6 @@ function readCoverage(font: Buffer): Set<number> {
     const record = cmapOffset + 4 + i * 8
     const offset = cmapOffset + font.readUInt32BE(record + 4)
     const format = font.readUInt16BE(offset)
-    // формат 12 покрывает всё, формат 4 — только BMP
     if (format === 12 && bestFormat !== 12) {
       best = offset
       bestFormat = 12
@@ -259,7 +215,6 @@ function readCoverage(font: Buffer): Set<number> {
   return coverage
 }
 
-/** Скачивает полный TTF источника или берёт его из кэша. */
 export async function loadSource(source: FontSource): Promise<Buffer> {
   await mkdir(CACHE_DIR, { recursive: true })
   const cachePath: string = path.join(CACHE_DIR, `${source.slug}.ttf`)
@@ -276,7 +231,6 @@ export async function loadSource(source: FontSource): Promise<Buffer> {
   return buffer
 }
 
-/** Удаляет ранее сгенерированные woff2, чтобы не оставлять мусор от прошлых запусков. */
 async function cleanOutput(dir: string): Promise<void> {
   if (!existsSync(dir)) return
   for (const file of await readdir(dir)) {
@@ -354,8 +308,6 @@ async function buildFamily(source: FontSource): Promise<number> {
         variationAxes: { wght: weight, ...source.axes },
       })
 
-      // Проверяем, что в файле реально лежат все ожидаемые символы:
-      // молча потерянные глифы приводят к фолбэку на системный шрифт.
       const produced: Set<number> = readCoverage(
         Buffer.from(await convert(subset, 'truetype')),
       )

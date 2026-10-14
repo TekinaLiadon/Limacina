@@ -311,6 +311,33 @@ describe('createBackoffPoller', () => {
     expect(harness.applySuccess).toHaveBeenCalledWith('ok')
   })
 
+  it('resets the backoff and applies idle while shouldPoll pauses the chain', async () => {
+    const harness = setupHarness()
+    harness.fetch.mockRejectedValue(new Error('down'))
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+
+    harness.state.shouldPollFlag = false
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 4)
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+    expect(harness.applyIdle).toHaveBeenCalledTimes(2)
+
+    harness.state.shouldPollFlag = true
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS)
+    expect(harness.fetch).toHaveBeenCalledTimes(3)
+
+    await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2 - 1)
+    expect(harness.fetch).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(harness.fetch).toHaveBeenCalledTimes(4)
+  })
+
   it('keeps polling when applyError throws', async () => {
     const harness = setupHarness()
     harness.fetch.mockRejectedValue(new Error('down'))

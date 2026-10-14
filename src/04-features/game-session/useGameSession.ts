@@ -1,24 +1,32 @@
-import { useLaunchStore } from '@/05-entities'
-import { getGameState, hideMainWindow, listenGameExit, listenGameStarted } from '@/06-shared/api'
+import { useLaunchStore, type GameExitInfo } from '@/05-entities'
+import { getGameState, listenGameExit, listenGameStarted } from '@/06-shared/api'
 import { createSingletonListeners, reportError } from '@/06-shared'
 
 let syncGameSessionPromise: Promise<void> | null = null
+let eventDuringHydration = false
 const gameSessionListeners = createSingletonListeners()
 
-const runSessionSync = async (): Promise<void> => {
+const hydrateSessionState = async (): Promise<void> => {
   const launchStore = useLaunchStore()
+  eventDuringHydration = false
+  try {
+    const usernames = await getGameState()
+    if (!eventDuringHydration) launchStore.gameUsernames = usernames
+  } catch (e: unknown) {
+    reportError('Не удалось получить состояние игровой сессии', e)
+  }
+}
 
-  let eventBeforeHydrate = false
-
+const runSessionSync = async (): Promise<void> => {
   try {
     await gameSessionListeners.start(async (track): Promise<void> => {
       track(await listenGameStarted((username: string): void => {
-        eventBeforeHydrate = true
-        launchStore.gameUsername = username
+        eventDuringHydration = true
+        useLaunchStore().addGameSession(username)
       }))
-      track(await listenGameExit((): void => {
-        eventBeforeHydrate = true
-        launchStore.gameUsername = null
+      track(await listenGameExit((info: GameExitInfo): void => {
+        eventDuringHydration = true
+        useLaunchStore().removeGameSession(info.username)
       }))
     })
   } catch (e: unknown) {
@@ -27,12 +35,7 @@ const runSessionSync = async (): Promise<void> => {
     return
   }
 
-  try {
-    const username = await getGameState()
-    if (!eventBeforeHydrate) launchStore.gameUsername = username
-  } catch (e: unknown) {
-    reportError('Не удалось получить состояние игровой сессии', e)
-  }
+  await hydrateSessionState()
 }
 
 export const syncGameSession = (): Promise<void> => {
@@ -40,18 +43,17 @@ export const syncGameSession = (): Promise<void> => {
   return syncGameSessionPromise
 }
 
+export const resyncGameSession = async (): Promise<void> => {
+  await syncGameSession()
+  await hydrateSessionState()
+}
+
 export function useGameSession(): {
   startGameSessionSync: () => Promise<void>
-  minimizeToTray: () => Promise<void>
+  resyncGameSession: () => Promise<void>
 } {
   return {
     startGameSessionSync: syncGameSession,
-    minimizeToTray: async (): Promise<void> => {
-      try {
-        await hideMainWindow()
-      } catch (e: unknown) {
-        reportError('Не удалось свернуть окно в трей', e)
-      }
-    },
+    resyncGameSession,
   }
 }

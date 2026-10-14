@@ -1,3 +1,5 @@
+use crate::log_info;
+use crate::state::config::current_project_config;
 use crate::state::dto::GlobalState;
 use crate::updater::{
     compare_with_current, get_launcher_versions as fetch_launcher_versions, is_timeout_error,
@@ -7,7 +9,6 @@ use crate::updater::{
 use crate::utils::errors::LauncherError;
 use crate::utils::http::with_launcher_id;
 use crate::utils::tauri_err::CommandResult;
-use crate::{log_err, log_info};
 use anyhow::{bail, Context};
 use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,20 +41,16 @@ pub struct ServerStatus {
 pub async fn get_server_status(
     state: State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ServerStatus> {
-    let (online, server_url) = {
-        let guard = state.lock().await;
-        (
-            guard.project_config.online,
-            guard.project_config.resolved_server_url(),
-        )
-    };
-    if !online {
+    let config = current_project_config(state.inner()).await?;
+    if !config.online {
         return Err(LauncherError::OfflineProfile(
-            "статус доступен только для серверных профилей".to_string(),
+            "статус доступен только в серверных профилях".to_string(),
         )
         .into());
     }
-    let server_url = server_url.ok_or(LauncherError::ServerUrlMissing)?;
+    let server_url = config
+        .resolved_server_url()
+        .ok_or(LauncherError::ServerUrlMissing)?;
     let url = format!("{server_url}/v1/common/status");
     let request = with_launcher_id(
         crate::utils::http::http_client()
@@ -137,7 +134,7 @@ pub async fn check_update(app: AppHandle) -> CommandResult<Option<UpdateInfo>> {
 pub async fn get_launcher_versions() -> CommandResult<Vec<UpdateRelease>> {
     let result = async {
         let mut releases = fetch_launcher_versions().await?;
-        retain_current_platform(&mut releases);
+        retain_current_platform(&mut releases)?;
         Ok(releases)
     }
     .await;
@@ -165,16 +162,16 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
         let target_version = match version {
             Some(v) => {
                 if v == current_version {
-                    log_err!("Версия v{} уже установлена", v);
+                    log_info!("Версия v{} уже установлена", v);
                     bail!(LauncherError::Update(format!(
                         "Версия v{} уже установлена",
                         v
                     )));
                 }
                 let mut releases = fetch_launcher_versions().await?;
-                retain_current_platform(&mut releases);
+                retain_current_platform(&mut releases)?;
                 if !releases.iter().any(|release| release.version == v) {
-                    log_err!("Версия v{} отсутствует на сервере", v);
+                    log_info!("Версия v{} отсутствует на сервере", v);
                     return Err(anyhow::Error::new(LauncherError::UpdateVersionMissing(
                         v.clone(),
                     )));

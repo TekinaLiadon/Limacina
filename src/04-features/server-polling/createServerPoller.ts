@@ -8,6 +8,7 @@ export interface ServerPollerConfig<T> {
   okIntervalMs: number
   fetch: () => Promise<T>
   applySuccess: (result: T) => void
+  applyError?: (error: unknown) => void
   applyIdle: () => void
   onFailureStreak: () => void
 }
@@ -20,10 +21,11 @@ export function createServerPoller<T>(config: ServerPollerConfig<T>): BackoffPol
     maxIntervalMs: MAX_INTERVAL_MS,
     failureThreshold: SERVER_POLL_FAILURE_THRESHOLD,
     watchSource: () => coreStore.projectConfig,
-    isWatched: (): boolean => coreStore.isOnlineProject,
-    shouldPoll: (): boolean => coreStore.isOnlineProject,
+    isWatched: (): boolean => coreStore.isServerBuild && coreStore.isOnlineProject,
+    shouldPoll: (): boolean => coreStore.isServerBuild && coreStore.isOnlineProject,
     fetch: config.fetch,
     applySuccess: config.applySuccess,
+    applyError: config.applyError,
     applyIdle: config.applyIdle,
     onFailureStreak: config.onFailureStreak,
   })

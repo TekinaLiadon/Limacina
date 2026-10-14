@@ -4,6 +4,7 @@ use tokio::fs;
 use tokio::sync::Mutex;
 
 use crate::commands::launcher_config::update_launcher_config;
+use crate::launcher_server::fetch_project_config;
 use crate::log_err;
 use crate::state::config::validate_project_name;
 use crate::state::dto::{GlobalState, ProjectConfig};
@@ -12,8 +13,8 @@ use crate::utils::blocking;
 use crate::utils::download_file::write_atomic;
 use crate::utils::env_info::{default_server_url, get_launcher_name, normalize_server_url};
 use crate::utils::errors::LauncherError;
-use crate::utils::http::{http_client, with_launcher_id};
 
+#[derive(Debug)]
 pub struct InitPaths {
     pub base: PathBuf,
     pub project: PathBuf,
@@ -25,8 +26,7 @@ pub struct InitPaths {
 impl InitPaths {
     pub fn new(parent_path: &str) -> Result<Self> {
         let name = get_launcher_name();
-        let base =
-            PathBuf::from(parent_path.replace('/', std::path::MAIN_SEPARATOR_STR)).join(&name);
+        let base = crate::utils::env_info::canonicalize_parent_path(parent_path)?.join(&name);
         Ok(Self {
             project: base.join("project"),
             config: base.join("project").join("config"),
@@ -60,7 +60,7 @@ pub async fn init_launcher(
 ) -> Result<LauncherConfig> {
     let parent = parent_path.to_string();
     let launcher_path = blocking(
-        "Не удалось выполнить инициализацию лаунчера",
+        "Не удалось инициализировать лаунчер",
         move || -> Result<String> {
             let paths = InitPaths::new(&parent)?;
             paths.create_dirs()?;
@@ -105,7 +105,7 @@ pub async fn init_project_config(
                 Ok(config) => return Ok(config),
                 Err(e) => {
                     log_err!(
-                        "Конфиг проекта {project_name} повреждён: {e:#} — пересоздаём с сервера"
+                        "Конфиг проекта {project_name} повреждён: {e:#}, пересоздаём с сервера"
                     );
                     let broken_path = config_dir.join(format!("{project_name}.toml.broken"));
                     let _ = fs::remove_file(&broken_path).await;
@@ -127,37 +127,7 @@ pub async fn init_project_config(
             ))
         })?,
     };
-    let response = LauncherError::classify(
-        with_launcher_id(http_client().get(format!("{}/v1/launcher/config", base_url)))
-            .send()
-            .await
-            .context("Не удалось подключиться к серверу конфига проекта"),
-        LauncherError::LauncherServer,
-    )?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
-        anyhow::bail!(LauncherError::LauncherServer(format!(
-            "Сервер {} вернул {} при запросе конфига проекта",
-            base_url, status
-        )));
-    }
-
-    let mut config: ProjectConfig = LauncherError::classify(
-        response
-            .json()
-            .await
-            .context("Не удалось распарсить конфиг с сервера"),
-        LauncherError::LauncherServer,
-    )?;
-
-    if config.project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::LauncherServer(
-            "Сервер не вернул название проекта".to_string()
-        ));
-    }
+    let mut config = fetch_project_config(&base_url).await?;
 
     if !project_name.is_empty() {
         config.project_name = project_name.to_string();
@@ -182,8 +152,10 @@ mod tests {
     use crate::state::dto::GlobalState;
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use crate::utils::env_info::get_launcher_name;
     use mockito::Server;
     use std::fs;
+    use std::path::PathBuf;
     use tokio::sync::Mutex;
 
     use super::{init_launcher, init_project_config, InitPaths};
@@ -241,6 +213,27 @@ mod tests {
             .map(|entries| entries.count())
             .unwrap_or(0);
         assert_eq!(written, 0, "в config не должно быть записей");
+    }
+
+    #[test]
+    fn init_paths_reject_traversal_parent() {
+        let error = InitPaths::new("/tmp/limacina_test/../etc")
+            .expect_err("обход «..» в родительском пути должен отклоняться");
+        assert!(
+            error.to_string().contains("\"..\""),
+            "ошибка должна называть причину: {error}"
+        );
+    }
+
+    #[test]
+    fn init_paths_normalize_separators_and_keep_tail() {
+        let paths = InitPaths::new("/tmp/limacina_init_paths_probe/selected")
+            .expect("несуществующий хвост допустим");
+
+        assert_eq!(
+            paths.base,
+            PathBuf::from("/tmp/limacina_init_paths_probe/selected").join(get_launcher_name())
+        );
     }
 
     #[tokio::test]

@@ -462,6 +462,34 @@ describe('CpmAnimationPlayer', () => {
     expect(mesh.parent?.position.y).toBe(24)
   })
 
+  it('applies a duplicated animation once per frame', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds, true)
+    const frameAt = (y: number) => ({
+      components: [{
+        storeID: 0,
+        pos: { x: 0, y, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        show: true,
+      }],
+    })
+    const additive = (id: string, y: number): CPMAnimation =>
+      makeAnimation({ id, additive: true, duration: 1000, frames: [frameAt(y), frameAt(y)] })
+
+    player.setAnimations([
+      { animation: additive('dance-pre', 8), startDelayMs: 0 },
+      { animation: additive('dance-a', 0), startDelayMs: 300 },
+      { animation: additive('dance-pre', 8), startDelayMs: 0 },
+      { animation: additive('dance-b', 0), startDelayMs: 300 },
+    ])
+
+    advance(500)
+    player.update()
+
+    expect(mesh.parent?.position.y).toBe(-8)
+  })
+
   it('holds a sequenced animation until its start delay passes', () => {
     const activeLayerIds = ref<number[]>([7])
     const { player, mesh } = makePlayerWithModel(activeLayerIds, true)

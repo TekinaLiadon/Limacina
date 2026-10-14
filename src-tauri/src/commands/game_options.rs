@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::log_info;
-use crate::state::config::load_config_or_default;
+use crate::state::config::{ensure_project_selected, load_config_or_default};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::tauri_err::CommandResult;
 
@@ -433,10 +433,13 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
         LauncherError::DiskIo,
     )? {
         let path = entry.path();
-        let is_pack = if path.is_file() {
-            true
-        } else {
-            path.is_dir() && path.join("pack.mcmeta").is_file()
+        let is_pack = match fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => true,
+            Ok(metadata) if metadata.is_dir() => fs::metadata(path.join("pack.mcmeta"))
+                .await
+                .map(|meta| meta.is_file())
+                .unwrap_or(false),
+            _ => false,
         };
         if is_pack {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -466,9 +469,7 @@ pub async fn get_game_options(project_name: String) -> CommandResult<GameOptions
 }
 
 async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
-    if project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::ProjectNotSelected);
-    }
+    ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
     let content = read_to_string_opt(&path).await?;
     let file_exists = content.is_some();
@@ -507,9 +508,7 @@ async fn write_options_file(path: &PathBuf, content: &str) -> Result<()> {
 }
 
 async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> Result<()> {
-    if project_name.trim().is_empty() {
-        anyhow::bail!(LauncherError::ProjectNotSelected);
-    }
+    ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
     let content = read_to_string_opt(&path).await?;
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
@@ -570,7 +569,7 @@ mod tests {
         get_game_options_inner, merge_options, parse_options, save_game_options_inner,
         write_options_file,
     };
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{part_files_in, LauncherDirGuard};
 
     #[test]
     fn merge_replaces_owned_keys_and_keeps_others() {
@@ -768,7 +767,11 @@ mod tests {
             .await
             .expect("повторная запись options.txt");
         assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "fov:90\n");
-        assert!(!part.exists(), ".part не должен оставаться после записи");
+        assert_eq!(
+            part_files_in(path.parent().expect("родительская директория")),
+            vec![part],
+            "успешная запись не должна оставлять своих .part — чужой убирает стартовая чистка"
+        );
     }
 
     #[tokio::test]

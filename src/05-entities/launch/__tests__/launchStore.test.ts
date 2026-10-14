@@ -236,10 +236,58 @@ describe('useLaunchStore', () => {
   it('resets a ghost game session username', () => {
     setActivePinia(createPinia())
     const launch = useLaunchStore()
-    launch.gameUsername = 'alice'
+    launch.gameUsernames = ['alice']
 
     launch.reset()
 
-    expect(launch.gameUsername).toBeNull()
+    expect(launch.gameUsernames).toEqual([])
+  })
+
+  it('tracks concurrent game sessions per account', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+
+    launch.addGameSession('alice')
+    launch.addGameSession('bob')
+    launch.addGameSession('alice')
+
+    expect(launch.gameUsernames).toEqual(['alice', 'bob'])
+
+    launch.removeGameSession('alice')
+
+    expect(launch.gameUsernames).toEqual(['bob'])
+
+    launch.removeGameSession('carol')
+
+    expect(launch.gameUsernames).toEqual(['bob'])
+  })
+
+  it('restores the session view when a new launch begins after dismissing it', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.sessionViewDismissed = true
+
+    launch.beginLaunch()
+
+    expect(launch.sessionViewDismissed).toBe(false)
+  })
+
+  it('clears the dismissed session view on reset', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.sessionViewDismissed = true
+
+    launch.reset()
+
+    expect(launch.sessionViewDismissed).toBe(false)
+  })
+
+  it('keeps the dismissed session view while no new launch begins', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.sessionViewDismissed = true
+    launch.gameUsernames = []
+
+    expect(launch.sessionViewDismissed).toBe(true)
   })
 })

@@ -4,12 +4,15 @@ import { Button, ProgressBar } from '@/06-shared'
 import StepProgress from '@/03-widgets/tabs/login/StepProgress.vue'
 import type { StepProgressItem } from '@/05-entities'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   progress: number
   steps: StepProgressItem[]
   isCancelPending: boolean
   isInterrupted: boolean
-}>()
+  isGameStarted?: boolean
+}>(), {
+  isGameStarted: false,
+})
 
 const emit = defineEmits<{
   cancel: []
@@ -29,25 +32,26 @@ const progressLabel = computed((): string =>
   <div class="launch-scene__progress">
     <div class="launch-scene__progress-header">
       <span class="eyebrow">{{ progressLabel }}</span>
-      <ProgressBar :progress="progress" />
+      <ProgressBar :progress="progress" :aria-label="progressLabel" />
     </div>
 
     <StepProgress :steps="steps" hide-completed />
 
     <p v-if="isInterrupted" class="launch-scene__hint">
-      Запуск был прерван перезагрузкой окна — отмените и запустите заново
+      Запуск был прерван перезагрузкой окна, отмените и запустите заново
     </p>
 
     <p v-if="isLaunchingGame" class="launch-scene__hint">
-      Игра запускается — окно откроется автоматически
+      Игра запускается, окно откроется автоматически
     </p>
 
     <Button
+      v-if="!isGameStarted"
       class="btn-quiet btn-block"
       :is-disabled="isCancelPending"
       @click="emit('cancel')"
     >
-      {{ isCancelPending ? 'Завершаем текущий шаг…' : 'Отменить запуск' }}
+      {{ isCancelPending ? 'Завершаем текущий шаг...' : 'Отменить запуск' }}
     </Button>
   </div>
 </template>

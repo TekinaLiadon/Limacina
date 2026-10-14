@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { copyToClipboard } from '@/06-shared'
+import { copyToClipboard, reportError } from '@/06-shared'
 import { useAccountsStore, useCoreStore, useNotificationStore, type ProjectConfig, type UserContentItem } from '@/05-entities'
 import { useUserContent } from '../useUserContent'
 
 vi.mock('@/06-shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared')>()),
   copyToClipboard: vi.fn(),
+  reportError: vi.fn(),
 }))
 
 interface FakePayload {
@@ -22,6 +23,9 @@ const makeApi = () => ({
   delete: vi.fn<(id: number) => Promise<void>>(),
   activate: vi.fn<(id: number) => Promise<void>>(),
   uploadSuccessMessage: 'Контент загружен',
+  uploadErrorMessage: 'Не удалось загрузить контент',
+  deleteErrorMessage: 'Не удалось удалить контент',
+  activateErrorMessage: 'Не удалось установить контент',
   listLoadErrorMessage: 'Не удалось загрузить список',
 })
 
@@ -46,6 +50,7 @@ describe('useUserContent', () => {
     setActivePinia(createPinia())
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(copyToClipboard).mockReset()
+    vi.mocked(reportError).mockClear()
   })
 
   afterEach(() => {
@@ -144,15 +149,17 @@ describe('useUserContent', () => {
     expect(content.isUploading.value).toBe(false)
   })
 
-  it('keeps the error message on the upload failure', async () => {
+  it('keeps the error message on the upload failure and reports it', async () => {
     loginSession()
     const { content, api } = setupContent()
-    api.upload.mockRejectedValue(new Error('bad png'))
+    const failure = new Error('bad png')
+    api.upload.mockRejectedValue(failure)
 
     const uploaded = await content.handleUpload({ data: 'base64' })
 
     expect(uploaded).toBeNull()
     expect(content.errorMessage.value).toBe('bad png')
+    expect(reportError).toHaveBeenCalledWith('Не удалось загрузить контент', failure)
     expect(useNotificationStore().visible).toBe(false)
   })
 
@@ -214,11 +221,26 @@ describe('useUserContent', () => {
   it('reports the delete failure', async () => {
     loginSession()
     const { content, api } = setupContent()
-    api.delete.mockRejectedValue(new Error('locked'))
+    const failure = new Error('locked')
+    api.delete.mockRejectedValue(failure)
 
     await content.handleDelete(3)
 
     expect(content.errorMessage.value).toBe('locked')
+    expect(reportError).toHaveBeenCalledWith('Не удалось удалить контент', failure)
+    expect(content.isMutating.value).toBe(false)
+  })
+
+  it('reports the activate failure with the api message', async () => {
+    loginSession()
+    const { content, api } = setupContent()
+    const failure = new Error('denied')
+    api.activate.mockRejectedValue(failure)
+
+    await content.handleActivate(2)
+
+    expect(content.errorMessage.value).toBe('denied')
+    expect(reportError).toHaveBeenCalledWith('Не удалось установить контент', failure)
     expect(content.isMutating.value).toBe(false)
   })
 
@@ -283,6 +305,37 @@ describe('useUserContent', () => {
     expect(content.isListLoading.value).toBe(false)
     expect(content.listError.value).toBe('')
     expect(api.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('resets the mutation state and the error message when the project switches', async () => {
+    loginSession()
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+
+    let releaseUpload: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseUpload = resolve
+        }),
+    )
+    const pendingUpload = content.handleUpload({ data: 'base64' })
+    api.delete.mockRejectedValueOnce(new Error('locked'))
+    await content.handleDelete(3)
+    expect(content.isUploading.value).toBe(true)
+    expect(content.errorMessage.value).toBe('locked')
+
+    core.currentProject = 'new'
+    useAccountsStore().clearSessionState()
+    await nextTick()
+
+    expect(content.errorMessage.value).toBe('')
+    expect(content.isUploading.value).toBe(false)
+    expect(content.isMutating.value).toBe(false)
+
+    releaseUpload(makeItem(1))
+    await pendingUpload
   })
 
   it('drops the stale list response when the project switches mid-load', async () => {

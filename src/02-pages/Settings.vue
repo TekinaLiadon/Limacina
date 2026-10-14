@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Button, Tooltip } from '@/06-shared'
+import { Button, Tooltip, useRovingTabs } from '@/06-shared'
 import { useProjectSettings, useSettingsNav, useSettingsDirtyGuard } from '@/04-features'
 
 const router = useRouter()
@@ -10,6 +10,21 @@ const route = useRoute()
 const { config, isLoaded } = useProjectSettings()
 const { items: tabs } = useSettingsNav()
 useSettingsDirtyGuard()
+
+const settingsTabPanelId = 'settings-tabpanel'
+
+const tabId = (key: string): string => `settings-tab-${key}`
+
+const activeTabKey = computed<string | null>(() => {
+  const active = tabs.value.find((tab) => tab.routeName === route.name)
+  return active?.key ?? null
+})
+
+const { handleKeydown: handleTabsKeydown } = useRovingTabs<string>({
+  tabs: (): typeof tabs.value => tabs.value,
+  isActive: (key: string): boolean => activeTabKey.value === key,
+  tabId,
+})
 
 watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   if (offline && route.name === 'SettingsAccount') router.replace({ name: 'SettingsLauncher' })
@@ -20,7 +35,7 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
   <div class="settings-page">
     <h2 class="settings-page__title heading-display">Настройки</h2>
 
-    <div class="settings-page__tabs" role="tablist">
+    <div class="settings-page__tabs" role="tablist" aria-label="Настройки" @keydown="handleTabsKeydown">
       <Tooltip
         v-for="tab in tabs"
         :key="tab.key"
@@ -29,10 +44,13 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
         :disabled="tab.isAvailable"
       >
         <Button
+          :id="tabId(tab.key)"
           class="settings-page__tab"
           :class="{ 'settings-page__tab--active': route.name === tab.routeName }"
           role="tab"
           :aria-selected="route.name === tab.routeName"
+          :tabindex="route.name === tab.routeName ? 0 : -1"
+          :aria-controls="settingsTabPanelId"
           :is-disabled="!tab.isAvailable"
           @click="tab.isAvailable && router.push({ name: tab.routeName })"
         >
@@ -41,7 +59,12 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
       </Tooltip>
     </div>
 
-    <div class="settings-page__content">
+    <div
+      :id="settingsTabPanelId"
+      class="settings-page__content"
+      role="tabpanel"
+      :aria-labelledby="activeTabKey !== null ? tabId(activeTabKey) : undefined"
+    >
       <router-view v-slot="{ Component }">
         <Transition name="page" mode="out-in">
           <component :is="Component" />
@@ -56,12 +79,8 @@ watch((): boolean => isLoaded.value && !config.value.online, (offline) => {
 @use '@/01-app/assets/breakpoints';
 
 .settings-page {
-  width: 100%;
-  max-width: var(--page-max-width-wide);
-  margin: 0 auto;
-  padding: var(--page-padding-y) var(--page-padding-x);
-  display: flex;
-  flex-direction: column;
+  @include mixins.page-scaffold(var(--page-max-width-wide));
+
   flex: 1;
   min-height: 0;
   height: 0;

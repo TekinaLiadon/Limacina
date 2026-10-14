@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Checkbox, Input } from '@/06-shared'
 import SettingsSection from './SettingsSection.vue'
-import type { LauncherBehaviorForm } from '../../types'
+import type { LauncherBehaviorForm } from '@/05-entities'
 
 defineProps<{
   form: LauncherBehaviorForm

@@ -11,6 +11,7 @@ export { default as Skeleton } from './components/Skeleton.vue'
 export { default as Tooltip } from './components/Tooltip.vue'
 export { default as MarkdownText } from './components/MarkdownText.vue'
 export { default as Preloader } from './components/Preloader.vue'
+export { default as PopupShell } from './components/PopupShell.vue'
 
 export * from './api'
 
@@ -19,47 +20,14 @@ export type {
   DropdownOption,
   IconType,
   ViewerControls,
-  SavedLogin,
-  AuthProjectConfig,
-  LauncherConfig,
-  AppInitData,
-  UpdateInfo,
-  ServerStatus,
   StepEvent,
-  UserContentItem,
-  SkinModelMode,
-  SessionInfo,
-  ConsoleLog,
-  ProjectConfig,
   ModLoaderKind,
-  JavaDistribution,
-  GameExitInfo,
-  IntegrityReport,
-  GameCloudsMode,
-  GameChatVisibility,
-  GameOptions,
-  GameOptionsData,
-  LauncherSettingsPayload,
-  SavePlayerModelPayload,
-  ModrinthProjectType,
-  ModrinthSide,
-  ModrinthVersionType,
-  ModrinthSearchHit,
-  ModrinthSearchResult,
-  ModrinthLicense,
-  ModrinthProject,
-  ModrinthVersionFile,
-  ModrinthDependency,
-  ModrinthVersion,
-  ModrinthProjectDetails,
-  ModrinthInstalledMod,
-  ModrinthUpdateCheck,
-  ModrinthInstallResult,
 } from './types'
 export { generateIdenticon } from './utils/identicon'
 export { copyToClipboard, joinPath, stripPathSuffix } from './utils/utils'
+export { hasPngSignature } from './utils/png'
 export { reportError } from './utils/reportError'
-export { parseHexColor } from './utils/parseHexColor'
+export { DEFAULT_RGB, parseHexColor } from './utils/parseHexColor'
 export { selectFile, fileSizeLimitMessage } from './utils/useFileUpload'
 export { selectDirectory } from './utils/dialogs'
 export { openExternalUrl } from './utils/externalUrl'
@@ -67,28 +35,24 @@ export { isAutostartEnabled, enableAutostart, disableAutostart } from './utils/a
 export { isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification } from './utils/notifications'
 export type { NotificationOptions } from './utils/notifications'
 export { useThreeScene } from './utils/useThreeScene'
-export type { ManagedTexture } from './utils/three'
 export { createManagedTextureLoader, removeGroupFromScene } from './utils/three'
 export { applyStepEvent, computeStepProgress, createStepItem } from './utils/stepEvents'
-export type { StepStatus, StepProgressItem } from './utils/stepEvents'
-export { STEP_IDS, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_CATALOG, stepPlanItems } from './utils/stepIds'
-export type { StepId, StepPlanItem } from './utils/stepIds'
+export type { StepProgressItem } from './utils/stepEvents'
+export { STEP_IDS, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, stepPlanItems } from './utils/stepIds'
+export type { StepPlanItem } from './utils/stepIds'
 export { useDropdownPanel } from './utils/useDropdownPanel'
 export { useDirtySnapshot } from './utils/useDirtySnapshot'
-export type { AsyncRaceGuard } from './utils/useAsyncRaceGuard'
 export { useAsyncRaceGuard } from './utils/useAsyncRaceGuard'
+export type { RovingTabItem } from './utils/useRovingTabs'
+export { useRovingTabs } from './utils/useRovingTabs'
 export { useAsyncAction } from './utils/useAsyncAction'
-export type { AsyncAction } from './utils/useAsyncAction'
 export { captureProjectScope } from './utils/captureProjectScope'
 export type { ProjectScope } from './utils/captureProjectScope'
 export { createBackoffPoller } from './utils/createBackoffPoller'
 export type { BackoffPoller } from './utils/createBackoffPoller'
 export { createSingletonListeners } from './utils/createSingletonListeners'
-export type { SingletonListeners, RegisterSingletonListeners, ListenerStop, TrackListenerStop } from './utils/createSingletonListeners'
 export { isAnimationsEnabled, prefersReducedMotion, cssDurationMs } from './utils/animations'
-export { useFocusTrap } from './utils/useFocusTrap'
 export { vFocus } from './directives/focus'
 export { useFileDrop } from './utils/useFileDrop'
-export { renderMarkdown, resolveMarkdownUrl } from './utils/markdown'
 export { formatNumber, formatDate } from './utils/formatters'
 export { storeBinding } from './utils/storeBinding'

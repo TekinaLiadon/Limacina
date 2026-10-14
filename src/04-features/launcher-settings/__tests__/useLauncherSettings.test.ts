@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveLauncherSettings, getAppInitData } from '@/06-shared/api'
-import { isAutostartEnabled } from '@/06-shared'
-import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type AppInitData, type LauncherConfig } from '@/05-entities'
+import { isAutostartEnabled, selectDirectory } from '@/06-shared'
+import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type AppInitData, type LauncherBehaviorForm, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
 import { useLauncherSettings } from '../useLauncherSettings'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -96,12 +96,63 @@ describe('useLauncherSettings', () => {
 
     expect(settings.isLoading.value).toBe(false)
     expect(settings.loadError.value).toBe('')
-    expect(settings.debugMode.value).toBe(true)
+    expect(settings.behaviorForm.value.debugMode).toBe(true)
     expect(settings.launcherPath.value).toBe('/launcher')
     expect(useCoreStore().launcherConfig).toEqual(makeLauncherConfig(true))
     expect(settings.isDirty.value).toBe(false)
 
     unmount()
+  })
+
+  it('drops a stale fetch when a forced reload supersedes it', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    let releaseFirst: (data: AppInitData) => void = () => {}
+    vi.mocked(getAppInitData).mockImplementationOnce(
+      () =>
+        new Promise<AppInitData>((resolve) => {
+          releaseFirst = resolve
+        }),
+    )
+    vi.mocked(getAppInitData).mockResolvedValueOnce(makeAppInitData(makeLauncherConfig(false)))
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    expect(settings.isLoading.value).toBe(true)
+
+    await settings.retryLoad()
+
+    expect(settings.behaviorForm.value.debugMode).toBe(false)
+    expect(settings.isLoading.value).toBe(false)
+
+    releaseFirst(makeAppInitData(makeLauncherConfig(true)))
+    await flushPromises()
+
+    expect(settings.behaviorForm.value.debugMode).toBe(false)
+    expect(useCoreStore().launcherConfig?.debugMode).toBe(false)
+    expect(settings.loadError.value).toBe('')
+
+    unmount()
+  })
+
+  it('drops the pending fetch after unmount', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    let releaseInit: (data: AppInitData) => void = () => {}
+    vi.mocked(getAppInitData).mockImplementationOnce(
+      () =>
+        new Promise<AppInitData>((resolve) => {
+          releaseInit = resolve
+        }),
+    )
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    expect(settings.isLoading.value).toBe(true)
+
+    unmount()
+    releaseInit(makeAppInitData(makeLauncherConfig(true)))
+    await flushPromises()
+
+    expect(settings.behaviorForm.value.debugMode).toBe(false)
+    expect(useCoreStore().launcherConfig).toBeNull()
+    expect(settings.loadError.value).toBe('')
   })
 
   it('blocks the save while the load failed and recovers through retry', async () => {
@@ -143,10 +194,10 @@ describe('useLauncherSettings', () => {
 
     expect(settings.isDirty.value).toBe(false)
 
-    settings.debugMode.value = true
+    settings.behaviorForm.value.debugMode = true
     expect(settings.isDirty.value).toBe(true)
 
-    settings.debugMode.value = false
+    settings.behaviorForm.value.debugMode = false
     expect(settings.isDirty.value).toBe(false)
 
     unmount()
@@ -160,13 +211,38 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    settings.debugMode.value = true
+    settings.behaviorForm.value.debugMode = true
     expect(settings.isDirty.value).toBe(true)
 
     await settings.handleSave()
 
     expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
     expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('applies the save response without rolling back the project scope', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    const core = useCoreStore()
+    core.setLauncherConfig({
+      ...makeLauncherConfig(false),
+      projectNames: ['Alpha', 'Beta'],
+      currentProject: 'Beta',
+    })
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(true))
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.behaviorForm.value.debugMode = true
+    await settings.handleSave()
+
+    expect(core.launcherConfig?.debugMode).toBe(true)
+    expect(core.launcherConfig?.projectNames).toEqual(['Alpha', 'Beta'])
+    expect(core.launcherConfig?.currentProject).toBe('Beta')
+    expect(core.projects).toEqual(['Alpha', 'Beta'])
+    expect(core.currentProject).toBe('Beta')
 
     unmount()
   })
@@ -178,7 +254,7 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    expect(settings.startWithSystem.value).toBe(true)
+    expect(settings.behaviorForm.value.startWithSystem).toBe(true)
     expect(settings.isDirty.value).toBe(false)
 
     unmount()
@@ -196,16 +272,16 @@ describe('useLauncherSettings', () => {
 
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
 
-    settings.debugMode.value = true
+    settings.behaviorForm.value.debugMode = true
     expect(settings.isDirty.value).toBe(true)
 
     releaseAutostart(true)
     await flushPromises()
 
-    expect(settings.startWithSystem.value).toBe(true)
+    expect(settings.behaviorForm.value.startWithSystem).toBe(true)
     expect(settings.isDirty.value).toBe(true)
 
-    settings.debugMode.value = false
+    settings.behaviorForm.value.debugMode = false
     expect(settings.isDirty.value).toBe(false)
 
     unmount()
@@ -217,11 +293,33 @@ describe('useLauncherSettings', () => {
 
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
 
-    settings.startWithSystem.value = true
+    settings.behaviorForm.value.startWithSystem = true
     await flushPromises()
 
-    expect(settings.startWithSystem.value).toBe(true)
+    expect(settings.behaviorForm.value.startWithSystem).toBe(true)
     expect(settings.isDirty.value).toBe(true)
+
+    unmount()
+  })
+
+  it('drops the autostart sync when the project switches before the state resolves', async () => {
+    let releaseAutostart: (enabled: boolean) => void = () => {}
+    vi.mocked(isAutostartEnabled).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseAutostart = resolve
+        }),
+    )
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    useCoreStore().currentProject = 'other'
+
+    releaseAutostart(true)
+    await flushPromises()
+
+    expect(settings.behaviorForm.value.startWithSystem).toBe(false)
+    expect(settings.isDirty.value).toBe(false)
 
     unmount()
   })
@@ -234,7 +332,7 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    settings.startWithSystem.value = true
+    settings.behaviorForm.value.startWithSystem = true
     vi.mocked(isAutostartEnabled).mockRejectedValueOnce(new Error('autostart locked'))
     await settings.handleSave()
 
@@ -255,7 +353,7 @@ describe('useLauncherSettings', () => {
 
     const savedLimit = async (raw: string): Promise<number | null> => {
       vi.mocked(saveLauncherSettings).mockClear()
-      settings.downloadSpeedLimitInput.value = raw
+      settings.behaviorForm.value.downloadSpeedLimit = raw
       await settings.handleSave()
       const { calls } = vi.mocked(saveLauncherSettings).mock
       const lastCall = calls[calls.length - 1]
@@ -286,6 +384,57 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
+  it('rejects speed limits beyond the safe ceiling', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const savedLimit = async (raw: string): Promise<number | null> => {
+      vi.mocked(saveLauncherSettings).mockClear()
+      settings.behaviorForm.value.downloadSpeedLimit = raw
+      await settings.handleSave()
+      const { calls } = vi.mocked(saveLauncherSettings).mock
+      const lastCall = calls[calls.length - 1]
+      return lastCall === undefined ? null : lastCall[0].downloadSpeedLimit
+    }
+
+    expect(await savedLimit('9'.repeat(25))).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(settings.downloadSpeedLimitError.value).toBe(
+      'Ограничение скорости: целое число от 1 до 10000000 КБ/с',
+    )
+
+    expect(await savedLimit('10000001')).toBeNull()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+
+    expect(await savedLimit('10000000')).toBe(10000000)
+    expect(settings.downloadSpeedLimitError.value).toBe('')
+
+    unmount()
+  })
+
+  it('does not nest the launcher folder when the selected path already ends with the launcher name', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+    useCoreStore().launcherName = 'Limacina'
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    vi.mocked(selectDirectory).mockResolvedValue('/games/Limacina')
+    await settings.selectLauncherFolder()
+    expect(settings.launcherPath.value).toBe('/games/Limacina')
+
+    vi.mocked(selectDirectory).mockResolvedValue('/games')
+    await settings.selectLauncherFolder()
+    expect(settings.launcherPath.value).toBe('/games/Limacina')
+
+    unmount()
+  })
+
   it('blocks the save while the speed limit input is invalid', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
@@ -294,13 +443,13 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    settings.downloadSpeedLimitInput.value = '12abc'
+    settings.behaviorForm.value.downloadSpeedLimit = '12abc'
     await settings.handleSave()
 
     expect(saveLauncherSettings).not.toHaveBeenCalled()
     expect(useNotificationStore().message).toBe(settings.downloadSpeedLimitError.value)
 
-    settings.downloadSpeedLimitInput.value = '12'
+    settings.behaviorForm.value.downloadSpeedLimit = '12'
     await settings.handleSave()
 
     expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
@@ -347,5 +496,77 @@ describe('useLauncherSettings', () => {
 
     unmount()
     expect(registry.hasDirtyTabs).toBe(false)
+  })
+
+  it('hydrates and saves every behavior field through the single form object', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValueOnce(true).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    const samples: Pick<LauncherConfig, keyof LauncherBehaviorForm> = {
+      discordActivity: true,
+      autoUpdate: true,
+      keepOldConfigs: true,
+      startWithSystem: true,
+      closeAfterLaunch: true,
+      minimizeToTray: true,
+      systemNotifications: true,
+      debugMode: true,
+      downloadSpeedLimit: 512,
+    }
+    vi.mocked(getAppInitData).mockResolvedValue(
+      makeAppInitData({ ...makeLauncherConfig(false), ...samples }),
+    )
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const expectedForm: LauncherBehaviorForm = {
+      discordActivity: true,
+      autoUpdate: true,
+      keepOldConfigs: true,
+      startWithSystem: true,
+      closeAfterLaunch: true,
+      minimizeToTray: true,
+      systemNotifications: true,
+      debugMode: true,
+      downloadSpeedLimit: '512',
+    }
+    for (const key of Object.keys(samples) as (keyof LauncherBehaviorForm)[]) {
+      expect(settings.behaviorForm.value[key]).toBe(expectedForm[key])
+    }
+
+    const edited: LauncherBehaviorForm = {
+      discordActivity: false,
+      autoUpdate: false,
+      keepOldConfigs: false,
+      startWithSystem: false,
+      closeAfterLaunch: false,
+      minimizeToTray: false,
+      systemNotifications: false,
+      debugMode: false,
+      downloadSpeedLimit: '256',
+    }
+    settings.behaviorForm.value = edited
+    await settings.handleSave()
+
+    const expectedPayload: LauncherSettingsPayload = {
+      discordActivity: false,
+      autoUpdate: false,
+      keepOldConfigs: false,
+      startWithSystem: false,
+      closeAfterLaunch: false,
+      minimizeToTray: false,
+      systemNotifications: false,
+      debugMode: false,
+      downloadSpeedLimit: 256,
+    }
+    const { calls } = vi.mocked(saveLauncherSettings).mock
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall).toBeDefined()
+    if (lastCall === undefined) return
+    for (const key of Object.keys(expectedPayload) as (keyof LauncherSettingsPayload)[]) {
+      expect(lastCall[0][key]).toBe(expectedPayload[key])
+    }
+
+    unmount()
   })
 })

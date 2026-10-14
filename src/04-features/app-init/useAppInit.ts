@@ -37,7 +37,7 @@ export function useAppInit() {
   const applyInitData = (data: AppInitData): void => {
     coreStore.launcherName = data.launcherName
     coreStore.defaultParentPath = data.defaultParentPath
-    coreStore.launcherConfig = data.launcherConfig
+    coreStore.setLauncherConfig(data.launcherConfig)
     coreStore.version = data.version
     coreStore.totalMemoryMb = data.totalMemoryMb
     coreStore.offlineBuild = data.offlineBuild
@@ -45,7 +45,6 @@ export function useAppInit() {
 
     if (!data.launcherConfig) return
 
-    coreStore.applyLauncherProjects(data.launcherConfig)
     settingsStore.markThemeHydration(data.launcherConfig.theme)
     settingsStore.setTheme(normalizeTheme(data.launcherConfig.theme))
     settingsStore.setAnimationsEnabled(data.launcherConfig.animationsEnabled)
@@ -63,10 +62,10 @@ export function useAppInit() {
       applyInitData(initData)
 
       const autoUpdate = initData.launcherConfig?.autoUpdate ?? false
-      const isUpdateCheckEnabled = autoUpdate && !coreStore.offlineBuild
+      const isUpdateCheckEnabled = autoUpdate && coreStore.isServerBuild
 
       const loadedProject: string | null = coreStore.currentProject
-      let projectLoad: Promise<void> = loadedProject ? loadProject(loadedProject) : Promise.resolve()
+      let targetProject: string | null = loadedProject
 
       if (isUpdateCheckEnabled) {
         preloaderText.value = 'Проверка обновлений...'
@@ -88,10 +87,7 @@ export function useAppInit() {
           preloaderText.value = 'Обновление завершено, загрузка...'
           const freshData = await getAppInitData()
           applyInitData(freshData)
-          const activeProject = coreStore.currentProject
-          if (activeProject && activeProject !== loadedProject) {
-            projectLoad = loadProject(activeProject)
-          }
+          targetProject = coreStore.currentProject || targetProject
         }
       }
 
@@ -100,12 +96,7 @@ export function useAppInit() {
         return
       }
 
-      if (coreStore.needsOfflineSetup) {
-        router.replace({ name: 'Setup' })
-        return
-      }
-
-      await projectLoad
+      if (targetProject) await loadProject(targetProject)
     } catch (e: unknown) {
       reportError('Ошибка инициализации', e)
       startupError.value = getErrorMessage(e)

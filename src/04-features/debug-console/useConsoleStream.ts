@@ -19,6 +19,7 @@ const stripAnsi = (str: string): string => {
 const cleanLog = (log: ConsoleLog): ConsoleLog => ({
   line: stripAnsi(log.line),
   isError: log.isError,
+  session: log.session,
 })
 
 const isConsoleActive = ref<boolean>(false)

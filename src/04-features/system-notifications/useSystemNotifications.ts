@@ -3,10 +3,24 @@ import { isWindowMinimized, listenLaunchSteps, listenGameExit, listenGameStarted
 import { createSingletonListeners, reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
 
 const GAME_START_TITLE = 'Игра запущена'
-const gameStartBody = (username: string): string => `Сессия ${username} запущена — лаунчер ждёт в трее`
+const gameStartBody = (username: string): string => `Сессия ${username} запущена, лаунчер ждёт в трее`
 const GAME_EXIT_OK_TITLE = 'Игра завершена'
-const GAME_EXIT_OK_BODY = 'Игра закрыта — лаунчер ждёт в трее'
+const gameExitOkBody = (username: string): string => `Игра ${username} закрыта, лаунчер ждёт в трее`
 const PENDING_START_TTL_MS = 60_000
+
+type GameExitChannel = 'os' | 'toast'
+
+const gameExitReason = (info: GameExitInfo, channel: GameExitChannel): string => {
+  if (info.reason) return `Игра ${info.username}: ${info.reason}`
+  if (info.code != null) {
+    return channel === 'os'
+      ? `Процесс игры ${info.username} завершился с кодом ${info.code}`
+      : `Игра ${info.username} завершилась с ошибкой (код ${info.code})`
+  }
+  return channel === 'os'
+    ? `Процесс игры ${info.username} был аварийно завершён`
+    : `Игра ${info.username} была аварийно завершена`
+}
 
 const systemNotificationsListeners = createSingletonListeners()
 let downloadRan = false
@@ -81,12 +95,6 @@ export function useSystemNotifications(): {
     }
   }
 
-  const exitBody = (info: GameExitInfo): string =>
-    info.reason ??
-    (info.code != null
-      ? `Процесс игры завершился с кодом ${info.code}`
-      : 'Процесс игры был аварийно завершён')
-
   const sendStartNotification = async (): Promise<void> => {
     const username = pendingStartUsername
     if (username === null) return
@@ -112,20 +120,15 @@ export function useSystemNotifications(): {
     const windowHidden = await isWindowHidden()
     if (info.success) {
       if (windowHidden) {
-        await sendSystemNotification(GAME_EXIT_OK_TITLE, GAME_EXIT_OK_BODY)
+        await sendSystemNotification(GAME_EXIT_OK_TITLE, gameExitOkBody(info.username))
       }
       return
     }
     if (windowHidden) {
-      await sendSystemNotification('Игра завершилась с ошибкой', exitBody(info))
+      await sendSystemNotification('Игра завершилась с ошибкой', gameExitReason(info, 'os'))
       return
     }
-    notification.show(
-      info.reason ??
-        (info.code != null
-          ? `Игра завершилась с ошибкой (код ${info.code})`
-          : 'Игра была аварийно завершена')
-    )
+    notification.show(gameExitReason(info, 'toast'))
   }
 
   const startSystemNotifications = async (): Promise<void> => {

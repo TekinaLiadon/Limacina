@@ -5,6 +5,7 @@ use crate::launcher_server::downloader::{
 };
 use crate::log_info;
 use crate::minecraft::check_targets::check_minecraft_integrity;
+use crate::state::config::current_project_config;
 use crate::state::dto::GlobalState;
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::errors::LauncherError;
@@ -17,10 +18,8 @@ use crate::utils::tauri_err::CommandResult;
 pub async fn check_files_integrity(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<IntegrityReport> {
-    let project = {
-        let guard = state.lock().await;
-        guard.project_config.clone()
-    };
+    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
+    let project = current_project_config(state.inner()).await?;
 
     let mut report = check_minecraft_integrity(&project).await?;
 
@@ -29,7 +28,7 @@ pub async fn check_files_integrity(
         report.merge(server_report);
     } else {
         log_info!(
-            "[integrity] Одиночный профиль {} — файлы сервера и моды не проверяются",
+            "[integrity] Одиночный профиль {}, файлы сервера и моды не проверяются",
             project.project_name
         );
     }

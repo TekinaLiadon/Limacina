@@ -55,6 +55,7 @@ export function useViewerModel(
   }
 
   function clearModel(): void {
+    textureLoader.cancel()
     removeGroupFromScene(scene, modelGroup)
     currentTexture = null
     currentUrl = null

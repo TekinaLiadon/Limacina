@@ -4,36 +4,36 @@ import { defineStore } from 'pinia'
 export const useNotificationStore = defineStore('notification', () => {
   const message = ref<string>('')
   const visible = ref<boolean>(false)
-  const timer = ref<ReturnType<typeof setTimeout> | null>(null)
   const popupMessage = ref<string>('')
   const popupVisible = ref<boolean>(false)
-  const popupResolve = ref<((value: boolean) => void) | null>(null)
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let popupResolve: ((value: boolean) => void) | null = null
 
   function show(text: string, duration: number = 3000): void {
     hide()
     message.value = text
     visible.value = true
 
-    timer.value = setTimeout(() => {
-      timer.value = null
+    timer = setTimeout(() => {
+      timer = null
       visible.value = false
     }, duration)
   }
 
   function hide(): void {
-    if (timer.value) {
-      clearTimeout(timer.value)
-      timer.value = null
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
     }
     visible.value = false
   }
 
   function confirm(text: string): Promise<boolean> {
-    if (popupResolve.value) popupResolve.value(false)
+    if (popupResolve !== null) popupResolve(false)
     return new Promise((resolve) => {
       popupMessage.value = text
       popupVisible.value = true
-      popupResolve.value = resolve
+      popupResolve = resolve
     })
   }
 
@@ -44,20 +44,18 @@ export const useNotificationStore = defineStore('notification', () => {
   }
 
   function resolvePopup(result: boolean): void {
-    if (popupResolve.value) popupResolve.value(result)
+    if (popupResolve !== null) popupResolve(result)
 
     popupVisible.value = false
     popupMessage.value = ''
-    popupResolve.value = null
+    popupResolve = null
   }
 
   return {
     message,
     visible,
-    timer,
     popupMessage,
     popupVisible,
-    popupResolve,
     show,
     hide,
     confirm,
