@@ -19,10 +19,7 @@ mod test_support;
 use commands::auth::{
     auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account,
 };
-use commands::cpm_models::{
-    get_player_models_limit, read_cpm_project_file, save_player_model, set_player_models_limit,
-    take_cpm_project_path,
-};
+use commands::cpm_models::{read_cpm_project_file, save_player_model, take_cpm_project_path};
 use commands::download::download_alternative_java;
 use commands::download::download_java;
 use commands::download::download_minecraft;
@@ -294,8 +291,6 @@ pub fn run() {
             list_models,
             delete_model,
             save_player_model,
-            get_player_models_limit,
-            set_player_models_limit,
             read_cpm_project_file,
             take_cpm_project_path,
             modrinth_search,

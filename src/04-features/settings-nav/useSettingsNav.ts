@@ -23,7 +23,7 @@ interface SettingsNavSeed {
 const SEEDS: SettingsNavSeed[] = [
   { key: 'launcher', label: 'Лаунчер', routeName: 'SettingsLauncher' },
   { key: 'project', label: 'Проект', routeName: 'SettingsProject', needsInit: true },
-  { key: 'game', label: 'Игра', routeName: 'SettingsGame', needsInit: true },
+  { key: 'game', label: 'Игра', routeName: 'SettingsGame' },
   { key: 'account', label: 'Аккаунт', routeName: 'SettingsAccount', needsInit: true, needsAuth: true },
   { key: 'skin', label: 'Скин', routeName: 'SettingsSkin', needsInit: true, needsAuth: true },
   { key: 'model', label: 'Модель', routeName: 'SettingsModel', needsInit: true, needsAuth: true },

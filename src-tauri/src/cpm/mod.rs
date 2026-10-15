@@ -24,8 +24,6 @@ pub struct CpmModelEntry {
 pub struct CpmModelManifest {
     #[serde(default)]
     pub models: Vec<CpmModelEntry>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u32>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -155,24 +153,6 @@ pub fn remove_selected_model(content: Option<&str>) -> Result<Option<String>> {
     Ok(Some(serde_json::to_string_pretty(&root)?))
 }
 
-pub fn pick_eviction_index(manifest: &CpmModelManifest, selected: Option<&str>) -> Option<usize> {
-    let is_protected = |entry: &CpmModelEntry| selected.is_some_and(|file| entry.file == file);
-    manifest
-        .models
-        .iter()
-        .enumerate()
-        .find(|(_, entry)| !entry.offline && !is_protected(entry))
-        .map(|(index, _)| index)
-        .or_else(|| {
-            manifest
-                .models
-                .iter()
-                .enumerate()
-                .find(|(_, entry)| !is_protected(entry))
-                .map(|(index, _)| index)
-        })
-}
-
 pub fn rebind_selection(
     manifest: &CpmModelManifest,
     selected: Option<&str>,
@@ -256,44 +236,11 @@ mod tests {
     }
 
     #[test]
-    fn manifest_limit_defaults_to_unlimited() {
+    fn manifest_tolerates_legacy_limit_field() {
         let manifest: CpmModelManifest = serde_json::from_str("{}").unwrap();
-        assert_eq!(manifest.limit, None);
+        assert!(manifest.models.is_empty());
         let manifest: CpmModelManifest = serde_json::from_str(r#"{"limit": 3}"#).unwrap();
-        assert_eq!(manifest.limit, Some(3));
-    }
-
-    fn eviction_of(models: Vec<CpmModelEntry>, selected: Option<&str>) -> Option<usize> {
-        let manifest = CpmModelManifest {
-            models,
-            limit: None,
-        };
-        pick_eviction_index(&manifest, selected)
-    }
-
-    #[test]
-    fn eviction_prefers_oldest_online_entry() {
-        let models = vec![
-            cpm_model_entry(Some(1), "a.cpmmodel", false),
-            cpm_model_entry(None, "local.cpmmodel", true),
-            cpm_model_entry(Some(2), "c.cpmmodel", false),
-        ];
-        assert_eq!(eviction_of(models, Some("c.cpmmodel")), Some(0));
-    }
-
-    #[test]
-    fn eviction_skips_selected_and_falls_back_to_offline() {
-        let models = vec![
-            cpm_model_entry(None, "local.cpmmodel", true),
-            cpm_model_entry(Some(2), "c.cpmmodel", false),
-        ];
-        assert_eq!(eviction_of(models, Some("c.cpmmodel")), Some(0));
-    }
-
-    #[test]
-    fn eviction_returns_none_when_only_selected_remains() {
-        let models = vec![cpm_model_entry(Some(1), "only.cpmmodel", false)];
-        assert_eq!(eviction_of(models, Some("only.cpmmodel")), None);
+        assert!(manifest.models.is_empty());
     }
 
     #[test]
@@ -303,7 +250,6 @@ mod tests {
                 cpm_model_entry(Some(1), "a.cpmmodel", false),
                 cpm_model_entry(Some(2), "b.cpmmodel", false),
             ],
-            limit: None,
         };
         assert_eq!(
             rebind_selection(&manifest, Some("a.cpmmodel"), true, true),
@@ -322,7 +268,6 @@ mod tests {
                 cpm_model_entry(Some(1), "a.cpmmodel", false),
                 cpm_model_entry(Some(2), "b.cpmmodel", false),
             ],
-            limit: None,
         };
         assert_eq!(
             rebind_selection(&manifest, None, false, true),
@@ -334,7 +279,6 @@ mod tests {
     fn rebind_ignores_offline_entries_when_reselecting() {
         let manifest = CpmModelManifest {
             models: vec![cpm_model_entry(None, "local.cpmmodel", true)],
-            limit: None,
         };
         assert_eq!(
             rebind_selection(&manifest, None, false, true),
@@ -349,7 +293,6 @@ mod tests {
                 cpm_model_entry(Some(1), "a.cpmmodel", false),
                 cpm_model_entry(Some(2), "b.cpmmodel", false),
             ],
-            limit: None,
         };
         assert_eq!(
             rebind_selection(&manifest, Some("gone.cpmmodel"), false, false),

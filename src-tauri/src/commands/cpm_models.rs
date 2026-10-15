@@ -5,9 +5,8 @@ use tokio::sync::Mutex;
 
 use crate::cpm::{
     build_link_definition, build_player_model_file, local_model_file_name, merge_selected_model,
-    model_file_name, parse_cpm_config, pick_eviction_index, rebind_selection,
-    remove_selected_model, CpmModelEntry, CpmModelManifest, RebindDecision, SKIN_TYPE_DEFAULT,
-    SKIN_TYPE_SLIM,
+    model_file_name, parse_cpm_config, rebind_selection, remove_selected_model, CpmModelEntry,
+    CpmModelManifest, RebindDecision, SKIN_TYPE_DEFAULT, SKIN_TYPE_SLIM,
 };
 use crate::launcher_server::user_content;
 use crate::state::config::{current_project_config, validated_project_name};
@@ -136,25 +135,6 @@ async fn clear_selected_model(project_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn enforce_models_limit(manifest: &mut CpmModelManifest, selected: Option<&str>) -> Vec<String> {
-    let Some(limit) = manifest.limit else {
-        return Vec::new();
-    };
-    let limit = (limit.max(1)) as usize;
-    let mut evicted_files = Vec::new();
-
-    while manifest.models.len() > limit {
-        let Some(index) = pick_eviction_index(manifest, selected) else {
-            break;
-        };
-        let entry = manifest.models.remove(index);
-        log_info!("Модель {} удалена: достигнут лимит хранения", entry.file);
-        evicted_files.push(entry.file);
-    }
-
-    evicted_files
-}
-
 async fn remove_model_files(dir: &std::path::Path, files: &[String]) {
     for file in files {
         if let Err(e) = tokio::fs::remove_file(dir.join(file)).await {
@@ -170,44 +150,6 @@ async fn write_link_stub(dir: &std::path::Path, entry: &CpmModelEntry, url: &str
     write_atomic(&path, &container)
         .await
         .with_context(|| format!("Не удалось записать модель {path:?}"))
-}
-
-#[tauri::command]
-pub async fn get_player_models_limit(project_name: String) -> CommandResult<Option<u32>> {
-    let project_name = validated_project_name(&project_name)?;
-    let manifest = read_manifest(project_name).await?;
-    Ok(manifest.limit)
-}
-
-#[tauri::command]
-pub async fn set_player_models_limit(
-    project_name: String,
-    limit: Option<u32>,
-) -> CommandResult<()> {
-    let project_name = validated_project_name(&project_name)?;
-    if limit == Some(0) {
-        return Err(LauncherError::InvalidInput(
-            "Лимит моделей должен быть не меньше 1".to_string(),
-        )
-        .into());
-    }
-
-    let _guard = MODELS_MANIFEST_LOCK.lock().await;
-    let mut manifest = read_manifest(project_name).await?;
-    manifest.limit = limit;
-    let selected = read_selected_model(project_name).await?;
-    let evicted_files = enforce_models_limit(&mut manifest, selected.as_deref());
-    save_manifest(project_name, &manifest).await?;
-    let dir = player_models_dir(project_name)?;
-    remove_model_files(&dir, &evicted_files).await;
-
-    log_info!(
-        "Лимит моделей обновлён: {}",
-        limit
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "не ограничен".to_string())
-    );
-    Ok(())
 }
 
 #[tauri::command]
@@ -298,7 +240,6 @@ async fn save_player_model_inner(
         !same
     });
     manifest.models.push(entry.clone());
-    let evicted_files = enforce_models_limit(&mut manifest, Some(&entry.file));
 
     if let Some(model_data) = &model_data {
         let container = build_player_model_file(&entry.name, model_data);
@@ -316,9 +257,7 @@ async fn save_player_model_inner(
     save_manifest(project_name, &manifest).await?;
     set_selected_model(project_name, &entry.file).await?;
 
-    let mut stale_files = displaced_files;
-    stale_files.extend(evicted_files);
-    remove_model_files(&dir, &stale_files).await;
+    remove_model_files(&dir, &displaced_files).await;
 
     log_info!("Модель сохранена в игру: {}", entry.file);
     Ok(())
@@ -410,15 +349,13 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
     }
 
     let selected = read_selected_model(&project_name).await?;
-    let evicted_files = enforce_models_limit(&mut manifest, selected.as_deref());
-    if changed || !evicted_files.is_empty() {
+    if changed {
         save_manifest(&project_name, &manifest).await?;
     }
 
     let selected_exists = match &selected {
         Some(file) => {
             !removed_files.contains(file)
-                && !evicted_files.contains(file)
                 && tokio::fs::try_exists(dir.join(file)).await.unwrap_or(false)
         }
         None => false,
@@ -435,9 +372,7 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
         }
     }
 
-    let mut stale_files = removed_files;
-    stale_files.extend(evicted_files);
-    remove_model_files(&dir, &stale_files).await;
+    remove_model_files(&dir, &removed_files).await;
 
     log_info!("Синхронизация моделей CPM завершена");
     Ok(())
@@ -447,7 +382,7 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
 mod tests {
     use super::*;
     use crate::state::dto::{ProjectConfig, SessionTokens};
-    use crate::test_support::{cpm_model_entry, LauncherDirGuard};
+    use crate::test_support::LauncherDirGuard;
 
     #[test]
     fn extract_cpm_project_path_finds_associated_file() {
@@ -461,57 +396,6 @@ mod tests {
             Some("C:/models/skin.CPMPROJECT".to_string())
         );
         assert_eq!(extract_cpm_project_path(std::iter::empty::<String>()), None);
-    }
-
-    #[tokio::test]
-    async fn enforce_models_limit_evicts_oldest_and_defers_file_deletion() {
-        let _guard = LauncherDirGuard::acquire("cpm_limit").await;
-        let project = "Cordelia";
-        let dir = player_models_dir(project).unwrap();
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-
-        let mut manifest = CpmModelManifest {
-            models: vec![
-                cpm_model_entry(Some(1), "a.cpmmodel", false),
-                cpm_model_entry(Some(2), "b.cpmmodel", false),
-                cpm_model_entry(Some(3), "c.cpmmodel", false),
-            ],
-            limit: Some(2),
-        };
-        for model in &manifest.models {
-            tokio::fs::write(dir.join(&model.file), b"x").await.unwrap();
-        }
-        tokio::fs::write(dir.join("orphan.cpmmodel"), b"x")
-            .await
-            .unwrap();
-
-        let evicted_files = enforce_models_limit(&mut manifest, None);
-
-        assert_eq!(evicted_files, vec!["a.cpmmodel"]);
-        assert_eq!(manifest.models.len(), 2);
-        assert_eq!(manifest.models[0].file, "b.cpmmodel");
-        assert!(
-            tokio::fs::try_exists(dir.join("a.cpmmodel")).await.unwrap(),
-            "удаление отложено до сохранения манифеста"
-        );
-
-        remove_model_files(&dir, &evicted_files).await;
-
-        assert!(!tokio::fs::try_exists(dir.join("a.cpmmodel")).await.unwrap());
-        assert!(tokio::fs::try_exists(dir.join("b.cpmmodel")).await.unwrap());
-        assert!(tokio::fs::try_exists(dir.join("orphan.cpmmodel"))
-            .await
-            .unwrap());
-
-        manifest.limit = Some(1);
-        let evicted_files = enforce_models_limit(&mut manifest, None);
-        assert_eq!(evicted_files, vec!["b.cpmmodel"]);
-        assert_eq!(manifest.models.len(), 1);
-        assert_eq!(manifest.models[0].file, "c.cpmmodel");
-        remove_model_files(&dir, &evicted_files).await;
-        assert!(tokio::fs::try_exists(dir.join("orphan.cpmmodel"))
-            .await
-            .unwrap());
     }
 
     const SYNC_PROJECT: &str = "Cordelia";
@@ -546,15 +430,9 @@ mod tests {
     }
 
     async fn seed_manifest(entries: Vec<CpmModelEntry>) {
-        save_manifest(
-            SYNC_PROJECT,
-            &CpmModelManifest {
-                models: entries,
-                limit: None,
-            },
-        )
-        .await
-        .expect("запись стартового манифеста");
+        save_manifest(SYNC_PROJECT, &CpmModelManifest { models: entries })
+            .await
+            .expect("запись стартового манифеста");
     }
 
     async fn write_model_file(file: &str, content: &[u8]) {

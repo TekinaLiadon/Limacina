@@ -118,7 +118,7 @@ Vue 3, TypeScript, Pinia, Feature-Sliced Design. Слои сверху вниз:
 | `modrinth/` | Клиент Modrinth API с кэшем ответов и установка модов: манифест `modrinth.json` в папке лаунчера, разрешение зависимостей, откат при частичном сбое |
 | `java/` | Установка Java: Adoptium по версии MC, альтернативные дистрибутивы через Foojay |
 | `offline/` | Офлайн-профили: скачивание authlib-injector (SHA-256, кэш на проект), локальный Yggdrasil-шим для скинов на 127.0.0.1 |
-| `cpm/` | CPM-модели: манифест моделей проекта, сборка байтов модели (стаб-ссылка для сервера, полный файл для локальной установки), слияние `config/cpm.json` (ключ `selectedModel`) |
+| `cpm/` | CPM-модели: манифест моделей проекта, сборка байтов модели (стаб-ссылка для сервера, полный файл для локальной установки), слияние `config/cpm.json` (ключ `selectedModel`). Модель всегда устанавливается в игру и выбирается локально; видимость другим игрокам работает только со специальным серверным форком CPM, который передаёт клиентам ссылки на модели |
 | `updater/` | Самообновление через `tauri-plugin-updater`: сборка апдейтера в рантайме (публичный ключ, эндпоинты), список версий для дропдауна |
 | `init.rs` | Инициализация каталогов и конфига проекта с сервера. Если сервер недоступен, инициализация падает с ошибкой, молчаливого дефолтного конфига нет |
 | `tray.rs` | Трей с состоянием игры: иконка, тултип и меню меняются на время сессии |
@@ -148,7 +148,7 @@ Vue 3, TypeScript, Pinia, Feature-Sliced Design. Слои сверху вниз:
 | Установка и скачивание | `download_minecraft`, `download_java`, `download_alternative_java`, `get_java_distributions`, `get_java_version`, `download_server_file`, `download_server_mods`, `open_mods_folder`, `check_files_integrity`, `load_install_journal`, `record_install_step`, `clear_install_journal` |
 | Запуск | `start_minecraft`, `get_game_state`, `get_launch_state`, `kill_game_process`, `exit_launcher` |
 | Настройки проекта и игры | `load_settings_project`, `save_settings_project`, `probe_java_version`, `clear_minecraft_config`, `get_game_options`, `save_game_options`, `save_global_game_options`, `import_global_game_options` |
-| Скины и модели | `upload_skin`, `list_skins`, `delete_skin`, `set_active_skin`, `get_profile_skin`, `read_skin_file`, `save_offline_skin`, `get_offline_skin`, `get_offline_skin_model`, `delete_offline_skin`, `upload_model`, `list_models`, `delete_model`, `save_player_model`, `get_player_models_limit`, `set_player_models_limit`, `read_cpm_project_file`, `take_cpm_project_path` |
+| Скины и модели | `upload_skin`, `list_skins`, `delete_skin`, `set_active_skin`, `get_profile_skin`, `read_skin_file`, `save_offline_skin`, `get_offline_skin`, `get_offline_skin_model`, `delete_offline_skin`, `upload_model`, `list_models`, `delete_model`, `save_player_model`, `read_cpm_project_file`, `take_cpm_project_path` |
 | Modrinth | `modrinth_search`, `modrinth_project`, `modrinth_installed`, `modrinth_check_updates`, `modrinth_install`, `modrinth_uninstall` |
 | Обновление лаунчера | `check_update`, `apply_update_cmd`, `get_launcher_versions`, `get_server_status`, `ping_launcher_server` |
 | Прочее | `get_notification_icon`, `send_frontend_log` (лог фронта в дебаг-консоль) |

@@ -3,11 +3,9 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   deleteModel,
-  getPlayerModelsLimit,
   listModels,
   readCpmProjectFile,
   savePlayerModel,
-  setPlayerModelsLimit,
   uploadModel,
 } from '@/06-shared/api'
 import {
@@ -39,11 +37,9 @@ vi.mock('@/06-shared', async (importOriginal) => ({
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   deleteModel: vi.fn(),
-  getPlayerModelsLimit: vi.fn(),
   listModels: vi.fn(),
   readCpmProjectFile: vi.fn(),
   savePlayerModel: vi.fn(),
-  setPlayerModelsLimit: vi.fn(),
   uploadModel: vi.fn(),
 }))
 
@@ -101,14 +97,11 @@ describe('useCpmSettings', () => {
     setActivePinia(createPinia())
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(deleteModel).mockReset()
-    vi.mocked(getPlayerModelsLimit).mockReset()
     vi.mocked(listModels).mockReset()
     vi.mocked(readCpmProjectFile).mockReset()
     vi.mocked(savePlayerModel).mockReset()
-    vi.mocked(setPlayerModelsLimit).mockReset()
     vi.mocked(uploadModel).mockReset()
     vi.mocked(listModels).mockResolvedValue([])
-    vi.mocked(getPlayerModelsLimit).mockResolvedValue(null)
     exporter.cpmProjectToLinkBase64.mockReset()
     parser.parseCpmProjectFile.mockReset()
     reportError.mockClear()
@@ -142,79 +135,13 @@ describe('useCpmSettings', () => {
     return result
   }
 
-  it('loads the model list and the limit on setup', async () => {
+  it('loads the model list on setup', async () => {
     vi.mocked(listModels).mockResolvedValue([makeModel(1)])
-    vi.mocked(getPlayerModelsLimit).mockResolvedValue(5)
     const cpm = setupCpm()
 
     await vi.waitFor(() => expect(cpm.uploadedModels.value).toHaveLength(1))
 
-    expect(cpm.modelsLimit.value).toBe(5)
-    expect(cpm.limitLoadError.value).toBe('')
-  })
-
-  it('reports the limit load failure instead of showing unlimited', async () => {
-    vi.mocked(getPlayerModelsLimit).mockRejectedValue(new Error('ipc down'))
-    const cpm = setupCpm()
-
-    await vi.waitFor(() => expect(cpm.limitLoadError.value).toBe('ipc down'))
-
-    expect(cpm.isLimitLoading.value).toBe(false)
-    expect(cpm.modelsLimit.value).toBeNull()
-  })
-
-  it('saves a valid models limit and clears the stale load error', async () => {
-    vi.mocked(getPlayerModelsLimit).mockRejectedValue(new Error('ipc down'))
-    vi.mocked(setPlayerModelsLimit).mockResolvedValue(undefined)
-    const cpm = setupCpm()
-    await vi.waitFor(() => expect(cpm.limitLoadError.value).toBe('ipc down'))
-
-    await cpm.handleSaveModelsLimit(3)
-
-    expect(setPlayerModelsLimit).toHaveBeenCalledWith('proj', 3)
-    expect(cpm.modelsLimit.value).toBe(3)
-    expect(cpm.limitLoadError.value).toBe('')
-
-    await cpm.handleSaveModelsLimit(null)
-    expect(setPlayerModelsLimit).toHaveBeenLastCalledWith('proj', null)
-    expect(cpm.modelsLimit.value).toBeNull()
-  })
-
-  it('rejects a non-integer or out-of-range limit without a command call', async () => {
-    vi.mocked(setPlayerModelsLimit).mockResolvedValue(undefined)
-    const cpm = setupCpm()
-    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
-
-    await cpm.handleSaveModelsLimit(0)
-
-    expect(cpm.limitSaveError.value).toBe(
-      'Лимит моделей: целое число от 1 до 4294967295 или пустое значение',
-    )
-    expect(setPlayerModelsLimit).not.toHaveBeenCalled()
-
-    await cpm.handleSaveModelsLimit(2.5)
-    await cpm.handleSaveModelsLimit(1e10)
-    await cpm.handleSaveModelsLimit(Number.NaN)
-    await cpm.handleSaveModelsLimit(4294967296)
-
-    expect(setPlayerModelsLimit).not.toHaveBeenCalled()
-    expect(cpm.limitSaveError.value).not.toBe('')
-
-    await cpm.handleSaveModelsLimit(4294967295)
-
-    expect(setPlayerModelsLimit).toHaveBeenCalledWith('proj', 4294967295)
-    expect(cpm.limitSaveError.value).toBe('')
-  })
-
-  it('reports the limit save failure', async () => {
-    vi.mocked(setPlayerModelsLimit).mockRejectedValue(new Error('denied'))
-    const cpm = setupCpm()
-    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
-
-    await cpm.handleSaveModelsLimit(2)
-
-    expect(cpm.limitSaveError.value).toBe('denied')
-    expect(cpm.modelsLimit.value).toBeNull()
+    expect(cpm.listError.value).toBe('')
   })
 
   it('opens the pending project file from the launch args', async () => {
@@ -413,7 +340,7 @@ describe('useCpmSettings', () => {
 
   it('sets the texture load error through the composable action', async () => {
     const cpm = setupCpm()
-    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
+    await vi.waitFor(() => expect(cpm.isListLoading.value).toBe(false))
 
     expect(cpm.errorMessage.value).toBe('')
     cpm.setTextureError()
@@ -555,7 +482,7 @@ describe('useCpmSettings', () => {
     expect(deleteModel).toHaveBeenCalledWith(4)
   })
 
-  it('resets the loaded model and reloads the limit when the project switches', async () => {
+  it('resets the loaded model when the project switches', async () => {
     const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
     parser.parseCpmProjectFile.mockResolvedValue(makeProject())
@@ -565,8 +492,6 @@ describe('useCpmSettings', () => {
     core.pendingCpmProjectPath = '/models/hero.cpmproject'
     await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
 
-    vi.mocked(getPlayerModelsLimit).mockClear()
-    vi.mocked(getPlayerModelsLimit).mockResolvedValue(7)
     core.currentProject = 'other'
     useAccountsStore().clearSessionState()
     await nextTick()
@@ -574,29 +499,5 @@ describe('useCpmSettings', () => {
     expect(cpm.cpmData.value).toBeNull()
     expect(cpm.uploadedModels.value).toEqual([])
     expect(vi.mocked(URL.revokeObjectURL)).toHaveBeenCalledWith('blob:mock-texture')
-    await vi.waitFor(() => expect(cpm.modelsLimit.value).toBe(7))
-  })
-
-  it('drops the limit save result when the project switches mid-save', async () => {
-    let releaseSave: () => void = () => {}
-    vi.mocked(setPlayerModelsLimit).mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseSave = resolve
-        }),
-    )
-    const core = useCoreStore()
-    const cpm = setupCpm()
-    await vi.waitFor(() => expect(cpm.isLimitLoading.value).toBe(false))
-
-    const pending = cpm.handleSaveModelsLimit(3)
-    core.currentProject = 'other'
-    await nextTick()
-    releaseSave()
-    await pending
-
-    expect(cpm.modelsLimit.value).toBeNull()
-    expect(cpm.isSavingLimit.value).toBe(false)
-    expect(cpm.limitSaveError.value).toBe('')
   })
 })
