@@ -216,6 +216,7 @@ describe('useAppInit', () => {
     setupApp()
     await runInit()
 
+    expect(api.checkUpdate).toHaveBeenCalledTimes(1)
     expect(router.replace).toHaveBeenCalledWith('/setup')
     expect(useCoreStore().isLoading).toBe(false)
   })

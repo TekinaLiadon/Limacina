@@ -28,7 +28,7 @@ defineProps<{
 
 <style lang="scss">
 .icon {
-  transition: all var(--duration-base) var(--ease-out);
+  transition: color var(--duration-base) var(--ease-out);
   display: inline-block;
   width: 1em;
   height: 1em;

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +16,30 @@ static FILE_LOG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static SESSION_HEADER_WRITTEN: AtomicBool = AtomicBool::new(false);
 static LOG_CLEANUP_DONE: AtomicBool = AtomicBool::new(false);
 static OPEN_LOG_FILE: Mutex<Option<OpenLog>> = Mutex::new(None);
+
+thread_local! {
+    static LOG_WRITE_ENTERED: Cell<bool> = const { Cell::new(false) };
+}
+
+struct LogWriteGuard;
+
+impl LogWriteGuard {
+    fn enter() -> Option<Self> {
+        LOG_WRITE_ENTERED.with(|entered| {
+            if entered.get() {
+                return None;
+            }
+            entered.set(true);
+            Some(Self)
+        })
+    }
+}
+
+impl Drop for LogWriteGuard {
+    fn drop(&mut self) {
+        LOG_WRITE_ENTERED.with(|entered| entered.set(false));
+    }
+}
 
 struct OpenLog {
     date: String,
@@ -170,6 +195,9 @@ fn open_log_file(dir: &std::path::Path, date: &str) -> Option<OpenLog> {
 }
 
 fn append_line(line: &str) {
+    let Some(_reentry) = LogWriteGuard::enter() else {
+        return;
+    };
     let lock = FILE_LOG_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let date = date_string(&today_date());
@@ -384,6 +412,29 @@ mod tests {
         let fresh = std::fs::read_to_string(logs_dir.join(format!("{today}.log")))
             .expect("свежий лог существует");
         assert!(fresh.contains("cap-вторая"));
+    }
+
+    #[tokio::test]
+    async fn append_line_skips_reentrant_call() {
+        let guard = LauncherDirGuard::acquire("file_log_reentrant").await;
+        super::reset_for_tests();
+        let logs_dir = guard.root().join("logs");
+
+        {
+            let _reentry = super::LogWriteGuard::enter().expect("первый вход в запись лога");
+            super::append_line("рекурсивный-вызов");
+        }
+
+        assert!(
+            !logs_dir.exists(),
+            "рекурсивный вызов не создаёт лог и не должен зависать на блокировке"
+        );
+
+        super::append_line("обычный-вызов");
+        let today = super::date_string(&super::today_date());
+        let fresh = std::fs::read_to_string(logs_dir.join(format!("{today}.log")))
+            .expect("свежий лог существует");
+        assert!(fresh.contains("обычный-вызов"));
     }
 
     #[tokio::test]

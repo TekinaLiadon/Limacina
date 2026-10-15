@@ -231,7 +231,7 @@ onMounted(() => {
       <div v-if="installedError" class="modrinth-tab__error">{{ installedError }}</div>
 
       <div v-if="isTabLoading" class="modrinth-tab__list" aria-hidden="true">
-        <div v-for="index in 5" :key="index" class="modrinth-tab__row">
+        <div v-for="index in 5" :key="index" class="modrinth-row">
           <Skeleton variant="list-item" icon-shape="square" :lines="4" flat size="lg" />
         </div>
       </div>
@@ -307,12 +307,12 @@ onMounted(() => {
         />
       </div>
       <div v-else-if="hits.length > 0" class="modrinth-tab__summary">
-        <span class="modrinth-tab__row-meta">Найдено: {{ formatNumber(total) }}</span>
+        <span class="modrinth-tab__summary-text">Найдено: {{ formatNumber(total) }}</span>
       </div>
 
       <p v-if="!isCatalogSearching && hits.length === 0 && !searchError" class="modrinth-tab__empty">Ничего не найдено</p>
       <div v-else-if="isCatalogSearching" class="modrinth-tab__list" aria-hidden="true">
-        <div v-for="index in 6" :key="index" class="modrinth-tab__row">
+        <div v-for="index in 6" :key="index" class="modrinth-row">
           <Skeleton variant="list-item" icon-shape="square" :lines="4" flat size="lg" />
         </div>
       </div>
@@ -389,7 +389,6 @@ onMounted(() => {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
-@use '@/01-app/assets/breakpoints';
 
 .modrinth-tab {
   position: relative;
@@ -472,65 +471,15 @@ onMounted(() => {
     justify-content: flex-end;
   }
 
-  &__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  &__row {
-    @include mixins.subtle-card(var(--space-8) var(--space-12));
-
-    display: flex;
-    align-items: center;
-    gap: var(--space-12);
-  }
-
-  &__row-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  &__row-head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-8);
-    flex-wrap: wrap;
-  }
-
-  &__row-title {
-    font-weight: var(--weight-medium);
-    overflow-wrap: anywhere;
-  }
-
-  &__row-description {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    margin: 0;
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-    color: var(--login-text-secondary);
-  }
-
-  &__row-meta {
+  &__summary-text {
     @include mixins.caption-hint;
     text-align: left;
   }
 
-  &__badge {
-    @include mixins.badge;
-  }
-
-  &__row-actions {
+  &__list {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--space-4);
-    flex-shrink: 0;
   }
 
   &__pagination {
@@ -570,18 +519,6 @@ onMounted(() => {
 
     margin: 0;
     text-align: left;
-  }
-
-  @include breakpoints.media-under-md {
-    &__row {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
-    &__row-actions {
-      width: 100%;
-      justify-content: flex-end;
-    }
   }
 }
 
