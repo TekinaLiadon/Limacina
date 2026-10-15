@@ -12,7 +12,7 @@ const router = createRouter({
     {
       path: '/add-profile',
       name: 'AddProfile',
-      component: () => import('@/02-pages/AddProfile.vue'),
+      component: () => import('@/03-widgets/tabs/AddProfileTab.vue'),
     },
     {
       path: '/settings',
@@ -40,17 +40,17 @@ const router = createRouter({
         {
           path: 'skin',
           name: 'SettingsSkin',
-          component: () => import('@/02-pages/settings/SkinPage.vue'),
+          component: () => import('@/03-widgets/tabs/settings/SkinSettings.vue'),
         },
         {
           path: 'account',
           name: 'SettingsAccount',
-          component: () => import('@/02-pages/settings/AccountPage.vue'),
+          component: () => import('@/03-widgets/tabs/settings/AccountSettings.vue'),
         },
         {
           path: 'model',
           name: 'SettingsModel',
-          component: () => import('@/02-pages/settings/ModelPage.vue'),
+          component: () => import('@/03-widgets/tabs/settings/CpmSettings.vue'),
         },
       ],
     },
@@ -62,7 +62,7 @@ const router = createRouter({
     {
       path: '/debug',
       name: 'Debug',
-      component: () => import('@/02-pages/Debug.vue'),
+      component: () => import('@/03-widgets/tabs/DebugTab.vue'),
     },
     {
       path: '/setup',

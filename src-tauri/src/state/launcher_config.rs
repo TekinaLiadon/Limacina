@@ -59,7 +59,7 @@ pub struct LauncherConfig {
     pub keep_old_configs: bool,
     #[serde(default)]
     pub download_speed_limit: Option<u64>,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub auto_update: bool,
     #[serde(default = "default_true")]
     pub system_notifications: bool,
@@ -98,7 +98,7 @@ impl Default for LauncherConfig {
             discord_activity: true,
             keep_old_configs: true,
             download_speed_limit: None,
-            auto_update: false,
+            auto_update: true,
             system_notifications: true,
             debug_mode: false,
             start_with_system: false,
@@ -409,7 +409,7 @@ mod tests {
 
         assert_eq!(parsed.current_project, None);
         assert!(parsed.has_project("Cordelia"));
-        assert!(!parsed.auto_update);
+        assert!(parsed.auto_update);
     }
 
     #[test]
@@ -492,27 +492,12 @@ mod tests {
         assert!(config.get_logins("Cordelia").is_empty());
     }
 
-    struct TempDirGuard(PathBuf);
-
-    impl Drop for TempDirGuard {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn load_moves_corrupt_config_to_backup_and_falls_back_to_none() {
-        let root = std::env::temp_dir().join(format!(
-            "limacina_launcher_config_corrupt_{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("создание временной директории");
-        let _guard = TempDirGuard(root.clone());
-
-        let path = root.join("config.json");
+    #[tokio::test]
+    async fn load_moves_corrupt_config_to_backup_and_falls_back_to_none() {
+        let dir = LauncherDirGuard::acquire("corrupt_config").await;
+        let path = dir.root().join("config.json");
         fs::write(&path, "not valid json").expect("запись битого конфига");
-        let _config_guard = ConfigFileGuard::acquire(&root, "config.json");
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
 
         let loaded = LauncherConfig::load().expect("битый конфиг не должен ломать загрузку");
 
@@ -522,7 +507,7 @@ mod tests {
         );
         assert!(!path.exists(), "битый конфиг должен быть убран с пути");
         assert!(
-            root.join("config.json.bak").exists(),
+            dir.root().join("config.json.bak").exists(),
             "битый конфиг должен быть сохранён в бэкап"
         );
     }

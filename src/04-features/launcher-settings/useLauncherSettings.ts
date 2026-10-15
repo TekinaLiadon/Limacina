@@ -57,7 +57,7 @@ const parseSpeedLimit = (raw: string): number | null => {
 
 const LAUNCHER_FIELD_TRANSFERS: LauncherFieldTransfers = {
   discordActivity: identityTransfer(true),
-  autoUpdate: identityTransfer(false),
+  autoUpdate: identityTransfer(true),
   keepOldConfigs: identityTransfer(false),
   startWithSystem: identityTransfer(false),
   closeAfterLaunch: identityTransfer(false),

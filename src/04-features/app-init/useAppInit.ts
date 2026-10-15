@@ -61,7 +61,7 @@ export function useAppInit() {
       const initData = await getAppInitData()
       applyInitData(initData)
 
-      const autoUpdate = initData.launcherConfig?.autoUpdate ?? false
+      const autoUpdate = initData.launcherConfig?.autoUpdate ?? true
       const isUpdateCheckEnabled = autoUpdate && coreStore.isServerBuild
 
       const loadedProject: string | null = coreStore.currentProject

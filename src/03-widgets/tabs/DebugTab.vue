@@ -118,9 +118,9 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
           :style="{ transform: `translateY(${row.start}px)` }"
           class="debug-tab__line"
         >
-          <span class="debug-tab__num">{{ String(row.index + 1).padStart(4, ' ') }}</span>
+          <span class="debug-tab__num">{{ row.index + 1 }}</span>
           <span class="debug-tab__text" :class="logAt(row.index)?.isError ? 'debug-tab__text--error' : undefined">
-            {{ logAt(row.index)?.line }}<span class="debug-tab__cursor">&#9612;</span>
+            {{ logAt(row.index)?.line }}
           </span>
         </div>
       </div>
@@ -296,12 +296,6 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       color: var(--debug-error);
       font-weight: var(--weight-medium);
     }
-  }
-
-  &__cursor {
-    opacity: 0;
-    color: var(--debug-text);
-    display: inline;
   }
 
   &__actions {
