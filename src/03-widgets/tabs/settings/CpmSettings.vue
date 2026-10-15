@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { Checkbox, Input, type InputOptions } from '@/06-shared'
+import { computed } from 'vue'
+import { Checkbox } from '@/06-shared'
 import { useCpmSettings, useCpmAnimations, useOfflineCpmModel } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
 import CpmViewer from './CpmViewer.vue'
@@ -23,18 +23,12 @@ const {
   isListLoading,
   listError,
   loadList,
-  modelsLimit,
-  isLimitLoading,
-  limitLoadError,
-  isSavingLimit,
-  limitSaveError,
   isDragOver,
   selectCpmFile,
   resetCpm,
   handleUploadModel,
   handleDeleteModel,
   handleCopyUrl,
-  handleSaveModelsLimit,
 } = useCpmSettings()
 
 const { isSaving, handleSaveModelOffline } = useOfflineCpmModel({
@@ -63,30 +57,6 @@ const hasModel = computed((): boolean => cpmData.value !== null)
 
 const setPlaying = (playing: boolean): void => {
   isAnimationPlaying.value = playing
-}
-
-const limitInput = ref<string>('')
-const limitOptions = computed<InputOptions>((): InputOptions => ({
-  label: 'Лимит хранимых моделей',
-  placeholder: limitLoadError.value
-    ? 'Недоступно'
-    : isLimitLoading.value || isSavingLimit.value
-      ? 'Загрузка...'
-      : 'Не ограничен',
-  disabled: isLimitLoading.value,
-}))
-
-watch(modelsLimit, (): void => {
-  limitInput.value = modelsLimit.value === null ? '' : String(modelsLimit.value)
-}, { immediate: true })
-
-const applyLimitInput = async (): Promise<void> => {
-  const raw = limitInput.value.trim()
-  const parsed = raw === '' ? null : Number(raw)
-  if (parsed !== modelsLimit.value) {
-    await handleSaveModelsLimit(parsed)
-  }
-  limitInput.value = modelsLimit.value === null ? '' : String(modelsLimit.value)
 }
 </script>
 
@@ -166,27 +136,6 @@ const applyLimitInput = async (): Promise<void> => {
         </div>
       </div>
     </template>
-
-    <template #after-actions>
-      <div class="cpm-settings__limit">
-        <Input
-          v-model="limitInput"
-          class="cpm-settings__limit-input"
-          :options="limitOptions"
-          @keydown.enter="applyLimitInput"
-          @blur="applyLimitInput"
-        />
-        <div v-if="limitSaveError" class="cpm-settings__limit-error" role="alert">
-          {{ limitSaveError }}
-        </div>
-        <div v-if="limitLoadError" class="cpm-settings__limit-error" role="alert">
-          Не удалось загрузить лимит моделей: {{ limitLoadError }}
-        </div>
-        <p class="cpm-settings__hint cpm-settings__limit-hint">
-          Сколько моделей игра хранит в папке player_models: самые старые удаляются
-        </p>
-      </div>
-    </template>
   </UserContentViewer>
 </template>
 
@@ -211,25 +160,6 @@ const applyLimitInput = async (): Promise<void> => {
     max-height: var(--options-max-height);
     overflow-y: auto;
     width: 100%;
-  }
-
-  &__hint {
-    @include mixins.caption-hint;
-  }
-
-  &__limit {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    max-width: var(--settings-row-width);
-  }
-
-  &__limit-error {
-    @include mixins.error-box;
-  }
-
-  &__limit-hint {
-    text-align: left;
   }
 }
 </style>

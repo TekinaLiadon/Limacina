@@ -78,8 +78,6 @@ const emit = defineEmits<{
 
     <p class="user-content-viewer__hint">{{ props.formatHint }}</p>
 
-    <slot name="after-actions" />
-
     <UserContentList
       v-if="!props.isOffline && (props.isListLoading || props.listError || props.items.length > 0)"
       :title="props.listTitle"

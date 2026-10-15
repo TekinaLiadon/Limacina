@@ -403,14 +403,6 @@ export async function savePlayerModel(projectName: string, payload: SavePlayerMo
   return invoke('save_player_model', { ...payload, projectName })
 }
 
-export async function getPlayerModelsLimit(projectName: string): Promise<number | null> {
-  return invoke<number | null>('get_player_models_limit', { projectName })
-}
-
-export async function setPlayerModelsLimit(projectName: string, limit: number | null): Promise<void> {
-  return invoke('set_player_models_limit', { projectName, limit })
-}
-
 export async function readCpmProjectFile(path: string): Promise<Uint8Array> {
   const buffer = await invoke<ArrayBuffer>('read_cpm_project_file', { path })
   return new Uint8Array(buffer)

@@ -42,7 +42,7 @@ describe('useSettingsNav', () => {
     expect(items.every((item) => item.isAvailable && item.reason === '')).toBe(true)
   })
 
-  it('blocks the project-dependent entries while the project is uninitialized', () => {
+  it('blocks the auth-dependent entries while the project is uninitialized', () => {
     setActivePinia(createPinia())
     const store = useProjectSettingsStore()
     store.isLoaded = true
@@ -51,9 +51,11 @@ describe('useSettingsNav', () => {
     const items = setupNav().items.value
 
     const blocked = items.filter((item) => !item.isAvailable)
-    expect(blocked.map((item) => item.key)).toEqual(['project', 'game', 'account', 'skin', 'model'])
+    expect(blocked.map((item) => item.key)).toEqual(['project', 'account', 'skin', 'model'])
     expect(blocked.every((item) => item.reason === 'Проект ещё не инициализирован')).toBe(true)
     expect(items[0]?.isAvailable).toBe(true)
+    expect(items.find((item) => item.key === 'game')?.isAvailable).toBe(true)
+    expect(items.find((item) => item.key === 'game')?.reason).toBe('')
   })
 
   it('hides the account entry for an offline project', () => {
@@ -72,7 +74,7 @@ describe('useSettingsNav', () => {
     expect(items.find((item) => item.key === 'model')?.isAvailable).toBe(true)
   })
 
-  it('blocks everything but the launcher while the load failed', () => {
+  it('blocks everything but the launcher and the game while the load failed', () => {
     setActivePinia(createPinia())
     const store = useProjectSettingsStore()
     store.loadError = 'Не удалось загрузить'
@@ -80,9 +82,10 @@ describe('useSettingsNav', () => {
     const items = setupNav().items.value
 
     const blocked = items.filter((item) => !item.isAvailable)
-    expect(blocked.map((item) => item.key)).toEqual(['project', 'game', 'account', 'skin', 'model'])
+    expect(blocked.map((item) => item.key)).toEqual(['project', 'account', 'skin', 'model'])
     expect(blocked.every((item) => item.reason === 'Не удалось загрузить настройки проекта')).toBe(true)
     expect(items[0]?.isAvailable).toBe(true)
+    expect(items.find((item) => item.key === 'game')?.isAvailable).toBe(true)
   })
 
   it('requires authorization for the auth-gated entries', () => {

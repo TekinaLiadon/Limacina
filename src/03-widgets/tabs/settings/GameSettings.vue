@@ -42,8 +42,8 @@ const {
     <template #head>
       <div class="game-settings__head">
         <p class="game-settings__hint">
-          Настройки применяются после сохранения: лаунчер вписывает их в
-          options.txt проекта при запуске
+          Настройки сохраняются в options.txt проекта сразу и применяются при
+          следующем запуске игры. Ресурспаки можно выбрать до старта.
         </p>
         <Button
           v-if="hasGlobal"

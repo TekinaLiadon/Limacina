@@ -1,13 +1,7 @@
 import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, reportError } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3, type UserContentItem } from '@/05-entities'
-import {
-  getErrorMessage,
-  getPlayerModelsLimit,
-  readCpmProjectFile,
-  savePlayerModel,
-  setPlayerModelsLimit,
-} from '@/06-shared/api'
+import { getErrorMessage, readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
 import { cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
@@ -21,8 +15,6 @@ export interface CpmLayer {
 }
 
 const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
-const MODELS_LIMIT_MAX = 4294967295
-const MODELS_LIMIT_ERROR = `Лимит моделей: целое число от 1 до ${MODELS_LIMIT_MAX} или пустое значение`
 
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
@@ -51,11 +43,6 @@ export function useCpmSettings() {
   const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
   const hiddenLayerIds = ref<Set<number>>(new Set())
-  const modelsLimit = ref<number | null>(null)
-  const isLimitLoading = ref<boolean>(false)
-  const limitLoadError = ref<string>('')
-  const isSavingLimit = ref<boolean>(false)
-  const limitSaveError = ref<string>('')
 
   const modelName = computed((): string => cpmFileName.value.trim() || 'Модель')
 
@@ -195,53 +182,11 @@ export function useCpmSettings() {
     }
   }
 
-  const loadModelsLimit = async (): Promise<void> => {
-    const scope = captureProjectScope((): string => coreStore.currentProject)
-    isLimitLoading.value = true
-    limitLoadError.value = ''
-    try {
-      const limit = await getPlayerModelsLimit(scope.project)
-      if (!scope.isCurrent()) return
-      modelsLimit.value = limit
-    } catch (e: unknown) {
-      if (!scope.isCurrent()) return
-      reportError('Не удалось загрузить лимит моделей', e)
-      limitLoadError.value = getErrorMessage(e)
-    } finally {
-      if (scope.isCurrent()) isLimitLoading.value = false
-    }
-  }
-
-  const handleSaveModelsLimit = async (limit: number | null): Promise<void> => {
-    if (isSavingLimit.value) return
-    if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > MODELS_LIMIT_MAX)) {
-      limitSaveError.value = MODELS_LIMIT_ERROR
-      return
-    }
-    const scope = captureProjectScope((): string => coreStore.currentProject)
-    isSavingLimit.value = true
-    limitSaveError.value = ''
-    try {
-      await setPlayerModelsLimit(scope.project, limit)
-      if (!scope.isCurrent()) return
-      modelsLimit.value = limit
-      limitLoadError.value = ''
-    } catch (e: unknown) {
-      if (!scope.isCurrent()) return
-      reportError('Не удалось сохранить лимит моделей', e)
-      limitSaveError.value = getErrorMessage(e)
-    } finally {
-      isSavingLimit.value = false
-    }
-  }
-
   watch((): string => coreStore.currentProject, (): void => {
     resetCpmState()
-    void loadModelsLimit()
   })
 
   void content.loadItems()
-  void loadModelsLimit()
 
   onScopeDispose((): void => {
     resetCpmState()
@@ -263,11 +208,6 @@ export function useCpmSettings() {
     isListLoading: content.isListLoading,
     listError: content.listError,
     loadList: content.loadItems,
-    modelsLimit,
-    isLimitLoading,
-    limitLoadError,
-    isSavingLimit,
-    limitSaveError,
     isDragOver,
     selectCpmFile,
     resetCpm,
@@ -275,6 +215,5 @@ export function useCpmSettings() {
     handleUploadModel,
     handleDeleteModel,
     handleCopyUrl: content.handleCopyUrl,
-    handleSaveModelsLimit,
   }
 }
