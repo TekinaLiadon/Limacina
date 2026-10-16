@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { useCoreStore, useLaunchStore, useNotificationStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
+import { useCoreStore, useGameOptionsStore, useLaunchStore, useNotificationStore, LOADER_LABELS, type ProjectConfig, type StepProgressItem } from '@/05-entities'
 import { getErrorMessage, initializeProject, setInitialized, clearInstallJournal, loadInstallJournal, recordInstallStep, downloadJava, downloadServerFile, downloadMinecraft, downloadServerMods, startMinecraft, exitLauncher } from '@/06-shared/api'
 import { reportError, STEP_IDS, stepPlanItems, type StepPlanItem } from '@/06-shared'
 import { useLaunchStepsStream } from './useLaunchStepsStream'
@@ -52,7 +52,7 @@ interface ActionStep {
   action: StepAction
 }
 
-function buildInstallSteps(config: ProjectConfig): ActionStep[] {
+function buildInstallSteps(config: ProjectConfig, installMinecraft: StepAction): ActionStep[] {
   const steps: ActionStep[] = [{ key: 'install.java', plan: JAVA_STEPS, action: downloadJava }]
   if (config.online) {
     steps.push({ key: 'install.files', plan: SERVER_FILES_STEPS, action: downloadServerFile })
@@ -63,7 +63,7 @@ function buildInstallSteps(config: ProjectConfig): ActionStep[] {
   steps.push({
     key: 'install.minecraft',
     plan: [...MINECRAFT_STEPS, ...loaderSteps(config)],
-    action: downloadMinecraft,
+    action: installMinecraft,
   })
   steps.push({ key: null, plan: LAUNCH_STEPS, action: LAUNCH_ACTION })
   return steps
@@ -107,10 +107,17 @@ export function useGameLaunch() {
   const coreStore = useCoreStore()
   const launch = useLaunchStore()
   const notification = useNotificationStore()
+  const gameOptions = useGameOptionsStore()
   const { resetLaunchSteps, prefillLaunchSteps, flushLaunchSteps } = useLaunchStepsStream()
 
   const launchSteps = computed((): StepProgressItem[] => launch.launchSteps)
   const activeProgress = computed((): number => launch.activeProgress)
+
+  const installMinecraft = async (): Promise<void> => {
+    const project = coreStore.currentProject
+    await downloadMinecraft(gameOptions.pendingFor(project))
+    gameOptions.clearPending(project)
+  }
 
   const reportJournalFailure = (message: string, error: unknown): void => {
     notification.show(message)
@@ -140,7 +147,7 @@ export function useGameLaunch() {
 
     const isInstall = !config.initialized
     const actionSteps: ActionStep[] = isInstall
-      ? buildInstallSteps(config)
+      ? buildInstallSteps(config, installMinecraft)
       : buildLaunchActions(config)
     const plan: StepPlanItem[] = isInstall
       ? actionSteps.flatMap((step) => step.plan)

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use crate::utils::errors::LauncherError;
 use crate::utils::{
@@ -9,7 +10,9 @@ use crate::utils::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
+use zip::ZipArchive;
 
+use crate::log_err;
 use crate::log_info;
 use crate::state::config::{ensure_project_selected, load_config_or_default};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
@@ -18,6 +21,10 @@ use crate::utils::tauri_err::CommandResult;
 pub const SETTINGS_DIR_NAME: &str = "settings";
 pub const GLOBAL_OPTIONS_FILE: &str = "game_options.json";
 pub const OPTIONS_FILE: &str = "options.txt";
+
+pub const OPTIONS_VERSION_KEY: &str = "version";
+const CLIENT_VERSION_FILE: &str = "version.json";
+const CLIENT_DATA_VERSION_KEY: &str = "world_version";
 
 const FOV_MIN_DEG: f64 = 30.0;
 const FOV_MAX_DEG: f64 = 110.0;
@@ -111,7 +118,7 @@ impl Default for GameOptions {
 #[serde(rename_all = "camelCase")]
 pub struct GameOptionsData {
     pub options: GameOptions,
-    pub file_exists: bool,
+    pub version_ready: bool,
     pub available_resource_packs: Vec<String>,
     pub has_global: bool,
 }
@@ -411,6 +418,77 @@ pub fn merge_options(content: Option<&str>, options: &GameOptions, normalized_fo
     serialize_lines(&lines)
 }
 
+pub fn parse_options_version(content: &str) -> Option<u32> {
+    parse_lines(content)
+        .into_iter()
+        .find(|(key, _)| key == OPTIONS_VERSION_KEY)
+        .and_then(|(_, value)| value.trim().parse::<u32>().ok())
+}
+
+pub fn apply_options_version(content: &str, data_version: u32) -> String {
+    let mut lines = parse_lines(content);
+    match lines.iter_mut().find(|(key, _)| key == OPTIONS_VERSION_KEY) {
+        Some(entry) => entry.1 = data_version.to_string(),
+        None => lines.insert(
+            0,
+            (OPTIONS_VERSION_KEY.to_string(), data_version.to_string()),
+        ),
+    }
+    serialize_lines(&lines)
+}
+
+pub fn client_data_version(game_dir: &Path, mc_version: &str) -> Option<u32> {
+    if mc_version.trim().is_empty() {
+        return None;
+    }
+    let jar_path = game_dir.join(format!("{mc_version}.jar"));
+    let file = std::fs::File::open(&jar_path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+    let mut entry = archive.by_name(CLIENT_VERSION_FILE).ok()?;
+    let mut raw = String::new();
+    entry.read_to_string(&mut raw).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    u32::try_from(parsed.get(CLIENT_DATA_VERSION_KEY)?.as_u64()?).ok()
+}
+
+pub async fn install_game_options(
+    game_dir: &Path,
+    mc_version: &str,
+    options: Option<&GameOptions>,
+) -> Result<()> {
+    let path = game_dir.join(OPTIONS_FILE);
+    let existing = read_to_string_opt(&path).await?;
+    let Some(data_version) = client_data_version(game_dir, mc_version) else {
+        log_err!(
+            "[game-options] Не удалось прочитать data version из {mc_version}.jar: {OPTIONS_FILE} не создаём"
+        );
+        return Ok(());
+    };
+
+    let mut content = match existing.as_deref() {
+        Some(content) => apply_options_version(content, data_version),
+        None => format!("{OPTIONS_VERSION_KEY}:{data_version}\n"),
+    };
+    if let Some(options) = options {
+        content = merge_options(Some(&content), options, uses_normalized_fov(mc_version));
+    }
+    write_options_file(&path, &content).await?;
+
+    log_info!(
+        "[game-options] {} проекта выровнен по клиенту {} (data version {})",
+        OPTIONS_FILE,
+        mc_version,
+        data_version
+    );
+    Ok(())
+}
+
+fn options_version_missing_error() -> LauncherError {
+    LauncherError::GameOptions(format!(
+        "{OPTIONS_FILE} ещё не создан: настройки запишутся при установке игры."
+    ))
+}
+
 async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
     ensure_safe_project_name(project_name)?;
     let dir = launcher_path(Some(project_name))?.join("resourcepacks");
@@ -472,7 +550,9 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
     ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
     let content = read_to_string_opt(&path).await?;
-    let file_exists = content.is_some();
+    let version_ready = content
+        .as_deref()
+        .is_some_and(|content| parse_options_version(content).is_some());
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
     let options = content
         .as_deref()
@@ -483,7 +563,7 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
 
     Ok(GameOptionsData {
         options,
-        file_exists,
+        version_ready,
         available_resource_packs,
         has_global,
     })
@@ -510,9 +590,14 @@ async fn write_options_file(path: &PathBuf, content: &str) -> Result<()> {
 async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> Result<()> {
     ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
-    let content = read_to_string_opt(&path).await?;
+    let Some(content) = read_to_string_opt(&path).await? else {
+        return Err(options_version_missing_error().into());
+    };
+    if parse_options_version(&content).is_none() {
+        return Err(options_version_missing_error().into());
+    }
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
-    let merged = merge_options(content.as_deref(), options, normalized_fov);
+    let merged = merge_options(Some(&content), options, normalized_fov);
     write_options_file(&path, &merged).await?;
 
     log_info!(
@@ -566,10 +651,11 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_game_options_inner, merge_options, parse_options, save_game_options_inner,
+        apply_options_version, client_data_version, get_game_options_inner, install_game_options,
+        merge_options, parse_options, parse_options_version, save_game_options_inner,
         write_options_file,
     };
-    use crate::test_support::{part_files_in, LauncherDirGuard};
+    use crate::test_support::{part_files_in, write_test_zip, LauncherDirGuard, TempDir};
 
     #[test]
     fn merge_replaces_owned_keys_and_keeps_others() {
@@ -819,7 +905,7 @@ mod tests {
             .await
             .expect("легитимное имя проекта должно работать");
 
-        assert!(!data.file_exists);
+        assert!(!data.version_ready);
         assert!(data.available_resource_packs.is_empty());
     }
 
@@ -840,6 +926,205 @@ mod tests {
             data.available_resource_packs,
             vec!["folder-pack".to_string(), "zipped.zip".to_string()],
             "папочный ресурспак с pack.mcmeta попадает в список, папка без него — нет"
+        );
+    }
+
+    #[test]
+    fn parse_options_version_accepts_integers_only() {
+        assert_eq!(parse_options_version("version:3465\nfov:0.5\n"), Some(3465));
+        assert_eq!(parse_options_version("fov:0.5\nversion:3465\n"), Some(3465));
+        assert_eq!(parse_options_version("version:1.20.1\n"), None);
+        assert_eq!(parse_options_version("version:\n"), None);
+        assert_eq!(parse_options_version("fov:0.5\n"), None);
+    }
+
+    #[test]
+    fn apply_options_version_replaces_invalid_and_keeps_order() {
+        assert_eq!(
+            apply_options_version("version:1.16.5\nfov:0.5\nlang:ru_ru\n", 2586),
+            "version:2586\nfov:0.5\nlang:ru_ru\n"
+        );
+        assert_eq!(
+            apply_options_version("fov:0.5\nlang:ru_ru\n", 2586),
+            "version:2586\nfov:0.5\nlang:ru_ru\n"
+        );
+    }
+
+    #[test]
+    fn client_data_version_reads_world_version_from_client_jar() {
+        let dir = TempDir::new("client_data_version");
+        write_test_zip(
+            &dir.0.join("1.16.5.jar"),
+            &[("version.json", br#"{"id":"1.16.5","world_version":2586}"#)],
+        );
+
+        assert_eq!(client_data_version(&dir.0, "1.16.5"), Some(2586));
+    }
+
+    #[test]
+    fn client_data_version_is_none_without_readable_jar() {
+        let dir = TempDir::new("client_data_version_missing");
+        write_test_zip(
+            &dir.0.join("1.16.5.jar"),
+            &[("net/minecraft/Client.class", b"\x00")],
+        );
+
+        assert_eq!(
+            client_data_version(&dir.0, "1.16.5"),
+            None,
+            "jar без version.json не отдаёт data version"
+        );
+        assert_eq!(
+            client_data_version(&dir.0, "1.20.1"),
+            None,
+            "отсутствующий jar не читаем"
+        );
+        assert_eq!(
+            client_data_version(&dir.0, ""),
+            None,
+            "пустая версия не ищет файл"
+        );
+    }
+
+    #[test]
+    fn client_data_version_is_none_for_broken_version_json() {
+        let dir = TempDir::new("client_data_version_broken");
+        write_test_zip(
+            &dir.0.join("1.16.5.jar"),
+            &[("version.json", b"{ not json")],
+        );
+        assert_eq!(client_data_version(&dir.0, "1.16.5"), None);
+
+        write_test_zip(
+            &dir.0.join("1.16.5.jar"),
+            &[("version.json", br#"{"id":"1.16.5"}"#)],
+        );
+        assert_eq!(client_data_version(&dir.0, "1.16.5"), None);
+    }
+
+    #[tokio::test]
+    async fn install_game_options_creates_file_with_version_and_settings() {
+        let dir = TempDir::new("install_options_create");
+        write_test_zip(
+            &dir.0.join("1.16.5.jar"),
+            &[("version.json", br#"{"world_version":2586}"#)],
+        );
+        let options = super::GameOptions {
+            render_distance: 8,
+            ..super::GameOptions::default()
+        };
+
+        install_game_options(&dir.0, "1.16.5", Some(&options))
+            .await
+            .expect("создание options.txt при установке");
+
+        let created = std::fs::read_to_string(dir.0.join(super::OPTIONS_FILE)).unwrap();
+        assert_eq!(created.lines().next(), Some("version:2586"));
+        assert!(
+            created.contains("renderDistance:8"),
+            "настройки с фронта попадают в файл: {created}"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_game_options_repairs_version_and_keeps_foreign_keys() {
+        let dir = TempDir::new("install_options_repair");
+        write_test_zip(
+            &dir.0.join("1.16.5.jar"),
+            &[("version.json", br#"{"world_version":2586}"#)],
+        );
+        std::fs::write(
+            dir.0.join(super::OPTIONS_FILE),
+            "version:1.16.5\nmouseSensitivity:0.5\nfov:0.5\n",
+        )
+        .unwrap();
+
+        install_game_options(&dir.0, "1.16.5", None)
+            .await
+            .expect("выравнивание options.txt при установке");
+
+        let repaired = std::fs::read_to_string(dir.0.join(super::OPTIONS_FILE)).unwrap();
+        assert_eq!(repaired.lines().next(), Some("version:2586"));
+        assert!(repaired.contains("mouseSensitivity:0.5"));
+        assert!(repaired.contains("fov:0.5"));
+        assert!(
+            !repaired.contains("renderDistance"),
+            "без настроек с фронта чужие ключи не дозаписываются"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_game_options_skips_without_client_jar() {
+        let dir = TempDir::new("install_options_no_jar");
+
+        install_game_options(&dir.0, "1.16.5", Some(&super::GameOptions::default()))
+            .await
+            .expect("отсутствие jar не ломает установку");
+
+        assert!(
+            !dir.0.join(super::OPTIONS_FILE).exists(),
+            "без data version файл не создаётся"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_game_options_refuses_without_file_created_by_game() {
+        let guard = LauncherDirGuard::acquire("game_options_save_no_version").await;
+
+        let result = save_game_options_inner("Cordelia", &super::GameOptions::default()).await;
+        assert!(
+            result.is_err(),
+            "нельзя создавать options.txt без ключа version: игра такой файл заменит дефолтным"
+        );
+        assert!(
+            !guard
+                .project_dir("Cordelia")
+                .join(super::OPTIONS_FILE)
+                .exists(),
+            "запись не должна создавать файл"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_game_options_refuses_file_with_broken_version() {
+        let guard = LauncherDirGuard::acquire("game_options_save_broken_version").await;
+        let path = guard.project_dir("Cordelia").join(super::OPTIONS_FILE);
+        std::fs::create_dir_all(path.parent().expect("папка проекта")).unwrap();
+        std::fs::write(&path, "version:1.16.5\nfov:0.5\n").unwrap();
+
+        let result = save_game_options_inner("Cordelia", &super::GameOptions::default()).await;
+
+        assert!(result.is_err(), "нечисловой version игра не принимает");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "version:1.16.5\nfov:0.5\n",
+            "файл не должен меняться"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_game_options_merges_into_file_created_by_game() {
+        let guard = LauncherDirGuard::acquire("game_options_save_ready").await;
+        let path = guard.project_dir("Cordelia").join(super::OPTIONS_FILE);
+        std::fs::create_dir_all(path.parent().expect("папка проекта")).unwrap();
+        std::fs::write(&path, "version:2586\nmouseSensitivity:0.5\n").unwrap();
+
+        save_game_options_inner("Cordelia", &super::GameOptions::default())
+            .await
+            .expect("сохранение настроек в выровненный файл");
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            saved.contains("version:2586"),
+            "version сохраняется: {saved}"
+        );
+        assert!(
+            saved.contains("mouseSensitivity:0.5"),
+            "чужие ключи не трогаются: {saved}"
+        );
+        assert!(
+            saved.contains("renderDistance:12"),
+            "настройки лаунчера записаны: {saved}"
         );
     }
 }

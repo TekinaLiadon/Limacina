@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, bindSettingsDirtyTab, type GameOptions } from '@/05-entities'
+import { useCoreStore, useGameOptionsStore, useNotificationStore, bindSettingsDirtyTab, type GameOptions } from '@/05-entities'
 import {
   getErrorMessage,
   getGameOptions,
@@ -57,6 +57,7 @@ export function useGameOptions(): {
   isSavingGlobal: Ref<boolean>
   isDirty: ComputedRef<boolean>
   hasGlobal: Ref<boolean>
+  versionReady: Ref<boolean>
   availableResourcePacks: Ref<string[]>
   loadOptions: (project: string, force?: boolean) => Promise<void>
   retryLoad: () => Promise<void>
@@ -66,6 +67,7 @@ export function useGameOptions(): {
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
+  const gameOptionsStore = useGameOptionsStore()
 
   const options = ref<GameOptions>(cloneDefaults())
   const isLoading = ref<boolean>(false)
@@ -73,6 +75,7 @@ export function useGameOptions(): {
   const isSaving = ref<boolean>(false)
   const isSavingGlobal = ref<boolean>(false)
   const hasGlobal = ref<boolean>(false)
+  const versionReady = ref<boolean>(false)
   const availableResourcePacks = ref<string[]>([])
   const dirtyState = useDirtySnapshot((): GameOptions => options.value)
   let loadedProject = ''
@@ -92,7 +95,10 @@ export function useGameOptions(): {
     try {
       const data = await getGameOptions(project)
       if (!loadGuard.isCurrent(generation)) return
-      options.value = { ...cloneDefaults(), ...data.options }
+      const pending = gameOptionsStore.pendingFor(project)
+      const stored = !data.versionReady && pending ? pending : data.options
+      options.value = { ...cloneDefaults(), ...stored }
+      versionReady.value = data.versionReady
       hasGlobal.value = data.hasGlobal
       availableResourcePacks.value = data.availableResourcePacks
       loadedProject = project
@@ -100,6 +106,7 @@ export function useGameOptions(): {
     } catch (e: unknown) {
       if (!loadGuard.isCurrent(generation)) return
       options.value = cloneDefaults()
+      versionReady.value = false
       hasGlobal.value = false
       availableResourcePacks.value = []
       dirtyState.captureBaseline()
@@ -149,6 +156,13 @@ export function useGameOptions(): {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     if (!scope.project || isLoading.value || isSaving.value || loadError.value) return
 
+    if (!versionReady.value) {
+      gameOptionsStore.setPending(scope.project, options.value)
+      dirtyState.captureBaseline()
+      notification.show('Настройки игры сохранены: они применятся при установке игры')
+      return
+    }
+
     await saveAction.run(async () => {
       await saveGameOptions(scope.project, options.value)
       if (!scope.isCurrent()) return
@@ -180,6 +194,7 @@ export function useGameOptions(): {
     isSavingGlobal,
     isDirty,
     hasGlobal,
+    versionReady,
     availableResourcePacks,
     loadOptions,
     retryLoad,

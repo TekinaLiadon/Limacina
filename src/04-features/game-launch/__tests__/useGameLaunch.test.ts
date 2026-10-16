@@ -17,10 +17,13 @@ import { useGameLaunch } from '../useGameLaunch'
 import {
   useLaunchStore,
   useCoreStore,
+  useGameOptionsStore,
   useNotificationStore,
+  type GameOptions,
   type ProjectConfig,
 } from '@/05-entities'
 import { createStepItem, STEP_IDS, type StepPlanItem } from '@/06-shared'
+import { DEFAULT_GAME_OPTIONS } from '@/04-features/game-settings/useGameOptions'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -125,6 +128,37 @@ describe('useGameLaunch', () => {
     const launchIndex = vi.mocked(startMinecraft).mock.invocationCallOrder[0] ?? 0
     expect(javaIndex).toBeLessThan(minecraftIndex)
     expect(launchIndex).toBeLessThan(clearIndex)
+  })
+
+  it('passes the stored game settings to the install and clears them', async () => {
+    const coreStore = useCoreStore()
+    coreStore.currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(
+      makeConfig({ modLoader: 'vanilla', initialized: false }),
+    )
+    vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
+    vi.mocked(loadInstallJournal).mockResolvedValue([])
+    const settings: GameOptions = { ...DEFAULT_GAME_OPTIONS, resourcePacks: [], fov: 110 }
+    useGameOptionsStore().setPending('proj', settings)
+
+    await useGameLaunch().executeSteps()
+
+    expect(downloadMinecraft).toHaveBeenCalledWith(settings)
+    expect(useGameOptionsStore().pendingFor('proj')).toBeNull()
+  })
+
+  it('passes no settings to the install when nothing was saved', async () => {
+    const coreStore = useCoreStore()
+    coreStore.currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(
+      makeConfig({ modLoader: 'vanilla', initialized: false }),
+    )
+    vi.mocked(setInitialized).mockResolvedValue(makeConfig({ initialized: true }))
+    vi.mocked(loadInstallJournal).mockResolvedValue([])
+
+    await useGameLaunch().executeSteps()
+
+    expect(downloadMinecraft).toHaveBeenCalledWith(null)
   })
 
   it('prefills the full install plan including the loader step', async () => {

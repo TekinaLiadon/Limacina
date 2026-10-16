@@ -246,8 +246,8 @@ export async function downloadServerFile(): Promise<void> {
   return invoke('download_server_file')
 }
 
-export async function downloadMinecraft(): Promise<void> {
-  return invoke('download_minecraft')
+export async function downloadMinecraft(options: GameOptions | null = null): Promise<void> {
+  return invoke('download_minecraft', { options })
 }
 
 export async function downloadServerMods(): Promise<void> {

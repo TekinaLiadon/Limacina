@@ -159,7 +159,7 @@ export interface GameOptions {
 
 export interface GameOptionsData {
   options: GameOptions
-  fileExists: boolean
+  versionReady: boolean
   availableResourcePacks: string[]
   hasGlobal: boolean
 }
