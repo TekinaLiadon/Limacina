@@ -86,7 +86,7 @@ const setPlaying = (playing: boolean): void => {
     @delete="handleDeleteModel"
     @retry="loadList"
   >
-    <Viewer3D v-show="hasModel" :min-zoom="8">
+    <Viewer3D :min-zoom="8">
       <CpmViewer
         :cpm-data="cpmData"
         :active-layers="activeLayerIds"

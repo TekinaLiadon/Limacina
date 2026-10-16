@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useSettingsStore } from '../settingsStore'
-import { buildThemeId, THEME_FAMILIES } from '../themes'
+import { THEME_FAMILIES } from '../themes'
 
 const THEME_KEY = 'limacina-theme'
 const ANIMATIONS_KEY = 'limacina-animations'
@@ -54,7 +54,7 @@ describe('useSettingsStore', () => {
 
   it('persists theme changes and applies them to the state', () => {
     const store = useSettingsStore()
-    store.setTheme('spark-light')
+    store.setTheme('spark', 'light')
     expect(store.theme).toBe('spark-light')
     expect(localStorage.getItem(THEME_KEY)).toBe('spark-light')
     expect(store.isDark).toBe(false)
@@ -62,16 +62,19 @@ describe('useSettingsStore', () => {
 
   it('normalizes unknown themes to the default on set', () => {
     const store = useSettingsStore()
-    store.setTheme('nope-dark')
+    store.setTheme('nope', 'dark')
     expect(store.theme).toBe('default-dark')
     expect(localStorage.getItem(THEME_KEY)).toBe('default-dark')
   })
 
-  it('changes family and mode independently', () => {
+  it('sets the theme from the family and mode parts', () => {
     const store = useSettingsStore()
-    store.setThemeFamily('monologue')
+    store.setTheme('monologue', 'dark')
     expect(store.theme).toBe('monologue-dark')
-    store.setThemeMode('light')
+    expect(store.themeFamily).toBe('monologue')
+    expect(store.themeMode).toBe('dark')
+
+    store.setTheme('monologue', 'light')
     expect(store.theme).toBe('monologue-light')
     expect(store.themeFamily).toBe('monologue')
     expect(store.themeMode).toBe('light')
@@ -81,7 +84,8 @@ describe('useSettingsStore', () => {
     const store = useSettingsStore()
     for (const family of THEME_FAMILIES) {
       for (const mode of ['dark', 'light'] as const) {
-        store.setTheme(buildThemeId(family.id, mode))
+        store.setTheme(family.id, mode)
+        expect(store.theme).toBe(`${family.id}-${mode}`)
         expect(store.themeMode).toBe(mode)
         expect(store.isDark).toBe(mode === 'dark')
       }
@@ -108,33 +112,42 @@ describe('useSettingsStore', () => {
     expect(document.documentElement.dataset.animations).toBe('on')
   })
 
-  it('marks and clears the hydration marker through actions', () => {
+  it('hydrates the config theme and marks the divergent one', () => {
     const store = useSettingsStore()
-    store.setTheme('default-dark')
-    store.markThemeHydration('lime-light')
+    store.hydrateTheme('lime-light')
+
+    expect(store.theme).toBe('lime-light')
+    expect(localStorage.getItem(THEME_KEY)).toBe('lime-light')
     expect(store.lastHydratedTheme).toBe('lime-light')
 
     store.clearHydratedTheme()
     expect(store.lastHydratedTheme).toBeNull()
   })
 
-  it('skips the hydration marker when it matches the current theme', () => {
+  it('skips the hydration marker when the config theme matches the current one', () => {
     const store = useSettingsStore()
-    store.markThemeHydration('default-dark')
+    store.hydrateTheme('default-dark')
+
+    expect(store.theme).toBe('default-dark')
     expect(store.lastHydratedTheme).toBeNull()
   })
 
-  it('clears the hydration marker on family and mode changes', () => {
+  it('normalizes an unknown config theme on hydration', () => {
     const store = useSettingsStore()
-    store.setTheme('default-dark')
-    store.markThemeHydration('lime-light')
+    store.setTheme('lime', 'dark')
+
+    store.hydrateTheme('nope-light')
+
+    expect(store.theme).toBe('default-dark')
+    expect(store.lastHydratedTheme).toBe('default-dark')
+  })
+
+  it('clears the hydration marker on an explicit theme change', () => {
+    const store = useSettingsStore()
+    store.hydrateTheme('lime-light')
     expect(store.lastHydratedTheme).toBe('lime-light')
 
-    store.setThemeFamily('monologue')
-    expect(store.lastHydratedTheme).toBeNull()
-
-    store.markThemeHydration('monologue-light')
-    store.setThemeMode('dark')
+    store.setTheme('monologue', 'dark')
     expect(store.lastHydratedTheme).toBeNull()
   })
 })

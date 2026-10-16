@@ -10,10 +10,6 @@ function loadCachedTheme(): string {
   return normalizeTheme(localStorage.getItem(THEME_CACHE_KEY))
 }
 
-function applyAnimationsPreference(value: boolean): void {
-  document.documentElement.dataset.animations = value ? 'on' : 'off'
-}
-
 function loadCachedAnimationsEnabled(): boolean {
   const cached = localStorage.getItem(ANIMATIONS_CACHE_KEY)
   if (cached === 'on' || cached === 'off') {
@@ -21,6 +17,10 @@ function loadCachedAnimationsEnabled(): boolean {
     return cached === 'on'
   }
   return true
+}
+
+function applyAnimationsPreference(value: boolean): void {
+  document.documentElement.dataset.animations = value ? 'on' : 'off'
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -42,28 +42,21 @@ export const useSettingsStore = defineStore('settings', () => {
     localStorage.setItem(ANIMATIONS_CACHE_KEY, value ? 'on' : 'off')
   }
 
-  function setTheme(nextTheme: string): void {
-    theme.value = normalizeTheme(nextTheme)
+  function setTheme(family: string, mode: ThemeMode): void {
+    clearHydratedTheme()
+    theme.value = normalizeTheme(buildThemeId(family, mode))
     localStorage.setItem(THEME_CACHE_KEY, theme.value)
+  }
+
+  function hydrateTheme(configTheme: string): void {
+    const normalized = normalizeTheme(configTheme)
+    lastHydratedTheme.value = normalized === theme.value ? null : normalized
+    theme.value = normalized
+    localStorage.setItem(THEME_CACHE_KEY, normalized)
   }
 
   function clearHydratedTheme(): void {
     lastHydratedTheme.value = null
-  }
-
-  function setThemeFamily(family: string): void {
-    clearHydratedTheme()
-    setTheme(buildThemeId(family, themeMode.value))
-  }
-
-  function setThemeMode(mode: ThemeMode): void {
-    clearHydratedTheme()
-    setTheme(buildThemeId(themeFamily.value, mode))
-  }
-
-  function markThemeHydration(hydratedTheme: string): void {
-    const normalized = normalizeTheme(hydratedTheme)
-    lastHydratedTheme.value = normalized === theme.value ? null : normalized
   }
 
   return {
@@ -76,9 +69,7 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleAnimations,
     setAnimationsEnabled,
     setTheme,
-    setThemeFamily,
-    setThemeMode,
-    markThemeHydration,
+    hydrateTheme,
     clearHydratedTheme,
   }
 })

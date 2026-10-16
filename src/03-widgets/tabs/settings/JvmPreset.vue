@@ -4,15 +4,25 @@ import { Dropdown } from '@/06-shared'
 import { useJvmPresets } from '@/04-features'
 
 const props = defineProps<{
-  config: {
-    jvmArgs: string
-    javaVersion: number | null
-  }
+  jvmArgs: string
+  javaVersion: number | null
 }>()
 
-const { presetOptions, activePresetId, applyPreset } = useJvmPresets(
-  computed(() => props.config),
-)
+const emit = defineEmits<{
+  'update:jvmArgs': [value: string]
+}>()
+
+const jvmConfig = computed<{ jvmArgs: string; javaVersion: number | null }>({
+  get: (): { jvmArgs: string; javaVersion: number | null } => ({
+    jvmArgs: props.jvmArgs,
+    javaVersion: props.javaVersion,
+  }),
+  set: (value: { jvmArgs: string; javaVersion: number | null }): void => {
+    emit('update:jvmArgs', value.jvmArgs)
+  },
+})
+
+const { presetOptions, activePresetId, applyPreset } = useJvmPresets(jvmConfig)
 </script>
 
 <template>
@@ -33,11 +43,8 @@ const { presetOptions, activePresetId, applyPreset } = useJvmPresets(
   @include mixins.settings-row-body;
 
   .select-base {
-    flex-shrink: 0;
-
-    .select-base__value {
-      min-width: var(--settings-control-min-width);
-    }
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

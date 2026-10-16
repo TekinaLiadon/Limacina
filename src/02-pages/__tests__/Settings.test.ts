@@ -1,4 +1,5 @@
-import { afterEach, beforeAll, afterAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import Settings from '../Settings.vue'
 
@@ -14,6 +15,9 @@ vi.mock('vue-router', () => ({
   useRoute: (): { name: string } => currentRoute,
 }))
 
+const projectConfig = ref({ online: true })
+const isLoaded = ref(true)
+
 const navItems = [
   { key: 'launcher', label: 'Лаунчер', routeName: 'SettingsLauncher', isAvailable: true, reason: '' },
   { key: 'project', label: 'Проект', routeName: 'SettingsProject', isAvailable: true, reason: '' },
@@ -22,13 +26,9 @@ const navItems = [
 
 vi.mock('@/04-features', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/04-features')>()
-  const { ref } = await import('vue')
   return {
     ...actual,
-    useProjectSettings: () => ({
-      config: ref({ online: true }),
-      isLoaded: ref(true),
-    }),
+    useProjectSettings: () => ({ config: projectConfig, isLoaded }),
     useSettingsNav: () => ({ items: ref(navItems) }),
     useSettingsDirtyGuard: (): void => {},
   }
@@ -49,6 +49,12 @@ afterAll((): void => {
   vi.unstubAllGlobals()
 })
 
+beforeEach((): void => {
+  currentRoute.name = 'SettingsLauncher'
+  projectConfig.value = { online: true }
+  isLoaded.value = true
+})
+
 const mountSettings = () =>
   mount(Settings, {
     attachTo: document.body,
@@ -66,74 +72,45 @@ describe('Settings', () => {
     routerReplace.mockClear()
   })
 
-  it('labels the tablist and gives every tab an id, controls and roving tabindex', () => {
+  it('renders the page title and mounts the tabs widget over the route outlet', () => {
     const wrapper = mountSettings()
 
-    const tablist = wrapper.find('[role="tablist"]')
-    expect(tablist.attributes('aria-label')).toBe('Настройки')
+    expect(wrapper.find('.settings-page__title').text()).toBe('Настройки')
 
-    const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs).toHaveLength(3)
-
-    const active = wrapper.find('#settings-tab-launcher')
-    expect(active.attributes('role')).toBe('tab')
-    expect(active.attributes('aria-selected')).toBe('true')
-    expect(active.attributes('tabindex')).toBe('0')
-    expect(active.attributes('aria-controls')).toBe('settings-tabpanel')
-
-    const inactive = wrapper.find('#settings-tab-project')
-    expect(inactive.attributes('aria-selected')).toBe('false')
-    expect(inactive.attributes('tabindex')).toBe('-1')
-
-    const unavailable = wrapper.find('#settings-tab-game')
-    expect(unavailable.attributes('tabindex')).toBe('-1')
+    const panel = wrapper.find('.settings-tabs__panel')
+    expect(panel.attributes('role')).toBe('tabpanel')
+    expect(panel.find('router-view-stub').exists()).toBe(true)
 
     wrapper.unmount()
   })
 
-  it('binds the tabpanel to the active tab', () => {
+  it('redirects off the account tab to the launcher tab when the project is offline', () => {
+    currentRoute.name = 'SettingsAccount'
+    projectConfig.value = { online: false }
     const wrapper = mountSettings()
 
-    const panel = wrapper.find('[role="tabpanel"]')
-    expect(panel.attributes('id')).toBe('settings-tabpanel')
-    expect(panel.attributes('aria-labelledby')).toBe('settings-tab-launcher')
+    expect(routerReplace).toHaveBeenCalledWith({ name: 'SettingsLauncher' })
 
     wrapper.unmount()
   })
 
-  it('moves the roving focus with arrow keys and wraps at the ends', async () => {
+  it('keeps the account tab until the project config is loaded', () => {
+    currentRoute.name = 'SettingsAccount'
+    projectConfig.value = { online: false }
+    isLoaded.value = false
+    const wrapper = mountSettings()
+
+    expect(routerReplace).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('leaves the other tabs alone when the project is offline', () => {
     currentRoute.name = 'SettingsProject'
-    navItems[2] = { ...navItems[2]!, isAvailable: true }
+    projectConfig.value = { online: false }
     const wrapper = mountSettings()
 
-    const active = wrapper.find('#settings-tab-project')
-    ;(active.element as HTMLElement).focus()
-    active.trigger('keydown', { key: 'ArrowRight' })
-    expect(document.activeElement?.id).toBe('settings-tab-game')
-
-    const last = wrapper.find('#settings-tab-game')
-    ;(last.element as HTMLElement).focus()
-    last.trigger('keydown', { key: 'ArrowRight' })
-    expect(document.activeElement?.id).toBe('settings-tab-launcher')
-
-    const first = wrapper.find('#settings-tab-launcher')
-    ;(first.element as HTMLElement).focus()
-    first.trigger('keydown', { key: 'ArrowLeft' })
-    expect(document.activeElement?.id).toBe('settings-tab-game')
-
-    wrapper.unmount()
-    currentRoute.name = 'SettingsLauncher'
-    navItems[2] = { ...navItems[2]!, isAvailable: false }
-  })
-
-  it('navigates only available tabs on click', async () => {
-    const wrapper = mountSettings()
-
-    await wrapper.find('#settings-tab-project').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith({ name: 'SettingsProject' })
-
-    await wrapper.find('#settings-tab-game').trigger('click')
-    expect(routerPush).toHaveBeenCalledTimes(1)
+    expect(routerReplace).not.toHaveBeenCalled()
 
     wrapper.unmount()
   })

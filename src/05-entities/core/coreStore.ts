@@ -16,8 +16,9 @@ export const useCoreStore = defineStore('core', () => {
   const projectConfig = ref<ProjectConfig | null>(null)
   const pendingCpmProjectPath = ref<string | null>(null)
 
+  const hasProjects = computed<boolean>(() => projects.value.length > 0)
   const needsOfflineSetup = computed<boolean>(
-    () => offlineBuild.value && projects.value.length === 0,
+    () => offlineBuild.value && !hasProjects.value,
   )
   const hasLauncherConfig = computed<boolean>(() => launcherConfig.value !== null)
   const isServerBuild = computed<boolean>(() => !offlineBuild.value)
@@ -104,6 +105,7 @@ export const useCoreStore = defineStore('core', () => {
     totalMemoryMb,
     projectConfig,
     pendingCpmProjectPath,
+    hasProjects,
     needsOfflineSetup,
     hasLauncherConfig,
     isServerBuild,

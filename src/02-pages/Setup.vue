@@ -1,15 +1,6 @@
 <script setup lang="ts">
-import { useSetup, useOfflineSetup } from '@/04-features'
-import { Button, Input } from '@/06-shared'
-import { AddProfileTab } from '@/03-widgets'
-
-const {
-  selectedPath,
-  isLoading,
-  fullDisplayPath,
-  selectFolder,
-  save,
-} = useSetup()
+import { AddProfileTab, SetupPathStep } from '@/03-widgets'
+import { useOfflineSetup } from '@/04-features'
 
 const { step, needsProfile } = useOfflineSetup()
 </script>
@@ -24,44 +15,8 @@ const { step, needsProfile } = useOfflineSetup()
           <span class="setup-steps__item" :class="{ 'setup-steps__item--active': step === 2 }">Профиль</span>
         </div>
 
-        <template v-if="step === 1">
-          <span class="setup-card__eyebrow eyebrow">Первый запуск</span>
-          <h1 class="setup-card__title heading-display">Настройка лаунчера</h1>
-          <p class="setup-card__description">Укажите папку для хранения файлов лаунчера</p>
-
-          <div class="setup-card__field">
-            <Input
-              v-model="selectedPath"
-              :options="{ placeholder: 'Выберите папку', readonly: true }"
-            />
-          </div>
-
-          <div v-if="fullDisplayPath" class="setup-preview">
-            <span class="setup-preview__label eyebrow">Путь установки</span>
-            <span class="setup-preview__path">{{ fullDisplayPath }}</span>
-          </div>
-
-          <div class="setup-card__actions">
-            <Button class="btn-secondary btn-block" @click="selectFolder">
-              Обзор
-            </Button>
-
-            <Button
-              class="btn-primary btn-lg btn-block"
-              :is-loading="isLoading"
-              :is-disabled="isLoading || !selectedPath"
-              @click="save"
-            >
-              Сохранить
-            </Button>
-          </div>
-        </template>
-
-        <template v-else>
-          <span class="setup-card__eyebrow eyebrow">Первый запуск</span>
-          <h1 class="setup-card__title heading-display">Добавить профиль</h1>
-          <AddProfileTab embedded />
-        </template>
+        <SetupPathStep v-if="step === 1" />
+        <AddProfileTab v-else embedded />
       </div>
     </div>
   </div>
@@ -90,33 +45,6 @@ const { step, needsProfile } = useOfflineSetup()
 
   backdrop-filter: blur(var(--popup-overlay-blur));
   text-align: left;
-
-  &__eyebrow {
-    display: block;
-    margin-bottom: var(--space-12);
-  }
-
-  &__title {
-    font-size: var(--text-heading);
-    margin: 0 0 var(--space-12) 0;
-  }
-
-  &__description {
-    color: var(--login-text-muted);
-    margin: 0 0 var(--title-gap) 0;
-    font-size: var(--text-body-sm);
-    line-height: var(--leading-body-sm);
-  }
-
-  &__field {
-    margin-bottom: var(--space-16);
-  }
-
-  &__actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-8);
-  }
 }
 
 .setup-steps {
@@ -138,26 +66,6 @@ const { step, needsProfile } = useOfflineSetup()
 
   &__arrow {
     color: var(--login-text-muted);
-  }
-}
-
-.setup-preview {
-  @include mixins.subtle-card;
-
-  margin-bottom: var(--space-24);
-
-  &__label {
-    display: block;
-    margin-bottom: var(--space-4);
-  }
-
-  &__path {
-    display: block;
-    font-size: var(--text-caption);
-    color: var(--login-text-secondary);
-    word-break: break-all;
-    font-family: var(--font-mono);
-    letter-spacing: normal;
   }
 }
 

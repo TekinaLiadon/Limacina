@@ -8,7 +8,7 @@ describe('useThemeSettings', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     const settings = useSettingsStore()
-    settings.setTheme('default-dark')
+    settings.setTheme('default', 'dark')
     settings.setAnimationsEnabled(true)
     const { isSwitching } = useThemeSwitchState()
     isSwitching.value = false
@@ -25,20 +25,24 @@ describe('useThemeSettings', () => {
   })
 
   it('switches the family and keeps the mode', () => {
+    useSettingsStore().setTheme('spark', 'light')
     const settings = useThemeSettings()
 
     settings.selectFamily('lime')
 
-    expect(useSettingsStore().theme).toBe('lime-dark')
+    expect(useSettingsStore().theme).toBe('lime-light')
     expect(settings.currentFamily.value).toBe('lime')
+    expect(settings.currentMode.value).toBe('light')
   })
 
   it('switches the mode and keeps the family', () => {
+    useSettingsStore().setTheme('monologue', 'dark')
     const settings = useThemeSettings()
 
     settings.selectMode('light')
 
-    expect(useSettingsStore().theme).toBe('default-light')
+    expect(useSettingsStore().theme).toBe('monologue-light')
+    expect(settings.currentFamily.value).toBe('monologue')
     expect(settings.currentMode.value).toBe('light')
   })
 

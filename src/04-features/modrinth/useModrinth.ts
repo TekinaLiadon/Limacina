@@ -8,7 +8,7 @@ import {
   modrinthUninstall,
   openModsFolder,
 } from '@/06-shared/api'
-import { captureProjectScope, useAsyncRaceGuard } from '@/06-shared'
+import { captureProjectScope, useAsyncRaceGuard, type PluralForms } from '@/06-shared'
 import {
   useCoreStore,
   type ModrinthSearchHit,
@@ -26,6 +26,10 @@ export interface ModrinthCategory {
 }
 
 export const MODRINTH_BASE_URL = 'https://modrinth.com'
+
+export const MODRINTH_DOWNLOAD_FORMS: PluralForms = { one: 'загрузка', few: 'загрузки', many: 'загрузок' }
+
+export const MODRINTH_FOLLOW_FORMS: PluralForms = { one: 'подписчик', few: 'подписчика', many: 'подписчиков' }
 
 export const MODRINTH_SORTS: Array<{ value: string; label: string }> = [
   { value: 'relevance', label: 'По релевантности' },

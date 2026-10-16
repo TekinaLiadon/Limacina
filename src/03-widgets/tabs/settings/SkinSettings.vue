@@ -63,8 +63,8 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
       <Preloader local text="Загрузка скина..." />
     </div>
 
-    <template v-else-if="hasSkin">
-      <div class="skin-settings__model-mode" role="group" aria-label="Модель скина">
+    <template v-else>
+      <div v-if="hasSkin" class="skin-settings__model-mode" role="group" aria-label="Модель скина">
         <button
           v-for="mode in modelModes"
           :key="mode.value"

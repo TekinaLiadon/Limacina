@@ -54,6 +54,8 @@ const MODULE_VALUE_OPTIONS: &[&str] = &[
     "--enable-native-access",
 ];
 
+const EXTRA_JDK_VALUE_OPTIONS: &[&str] = &["--sun-misc-unsafe-memory-access"];
+
 const ALLOWED_XX_VALUE_KEYS: &[&str] = &[
     "MaxHeapSize",
     "MinHeapSize",
@@ -170,6 +172,11 @@ fn is_allowed_jvm_arg(arg: &str) -> bool {
                     .iter()
                     .any(|prefix| key.starts_with(prefix)));
     }
+    if let Some((option, value)) = arg.split_once('=') {
+        if EXTRA_JDK_VALUE_OPTIONS.contains(&option) {
+            return !value.is_empty();
+        }
+    }
     MODULE_VALUE_OPTIONS.iter().any(|option| {
         arg.strip_prefix(option)
             .is_some_and(|value| value.starts_with('=') && value.len() > 1)
@@ -191,7 +198,7 @@ pub(crate) fn validate_jvm_args(jvm_args: &[String]) -> Result<()> {
             continue;
         }
         return Err(LauncherError::GameProcess(format!(
-            "В JVM-аргументах проекта указан запрещённый параметр \"{arg}\": разрешены только параметры памяти, GC-тюнинга, системные свойства из списка и модульные опции JDK. Удалите его в настройках проекта"
+            "В JVM-аргументах проекта указан запрещённый параметр \"{arg}\": разрешены только параметры памяти, GC-тюнинга, системные свойства из списка, модульные и экстра-опции JDK. Удалите его в настройках проекта"
         ))
         .into());
     }
@@ -911,6 +918,35 @@ mod jvm_args_guard_tests {
         .collect();
 
         validate_jvm_args(&args).expect("аргументы лоадеров и манифестов не должны запрещаться");
+    }
+
+    #[test]
+    fn allows_new_schema_manifest_unsafe_memory_access_arg() {
+        let args: Vec<String> = [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--enable-native-access=ALL-UNNAMED",
+            "-Djava.library.path=/game/natives",
+            "-Djna.tmpdir=/game/natives",
+            "-Dorg.lwjgl.system.SharedLibraryExtractPath=/game/natives",
+            "-Dio.netty.native.workdir=/game",
+            "-Dminecraft.launcher.brand=Limacina",
+            "-Dminecraft.launcher.version=0.6.4",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        validate_jvm_args(&args).expect("аргументы манифеста MC 26.x не должны запрещаться");
+    }
+
+    #[test]
+    fn blocks_unsafe_memory_access_option_without_value() {
+        let message = validation_error(&["--sun-misc-unsafe-memory-access"]);
+
+        assert!(
+            message.contains("--sun-misc-unsafe-memory-access"),
+            "ошибка должна называть аргумент: {message}"
+        );
     }
 
     #[test]

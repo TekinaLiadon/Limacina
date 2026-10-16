@@ -196,8 +196,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
       width: var(--control-height-sm);
       height: var(--control-height-sm);
       border-radius: var(--radius-circle);
-      cursor: pointer;
-      transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+      transition: background-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
 
       .icon {
         font-size: var(--icon-size);
@@ -205,10 +204,17 @@ const items = computed<TabItem[]>((): TabItem[] => {
       }
     }
 
-    &:hover .sidebar__icon {
+    .sidebar__label {
+      transition: transform var(--duration-base) var(--ease-out);
+    }
+
+    &:hover .sidebar__icon,
+    &:hover .sidebar__label {
+      transform: translateX(var(--space-4));
+    }
+
+    &:hover:not(.sidebar__item--active) .sidebar__icon {
       background-color: var(--surface-hover);
-      box-shadow: var(--elevation-inset);
-      transform: translateX(var(--space-2));
 
       .icon {
         color: var(--login-text-primary);
@@ -312,6 +318,15 @@ const items = computed<TabItem[]>((): TabItem[] => {
       gap: var(--space-4);
       padding: var(--space-8) var(--space-12);
       border-radius: var(--radius-card);
+
+      &:hover .sidebar__icon,
+      &:hover .sidebar__label {
+        transform: none;
+      }
+
+      &:active {
+        background: var(--surface-active);
+      }
     }
 
     &__chevron {

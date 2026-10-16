@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useLaunchStore, useNotificationStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps, type UnlistenFn } from '@/06-shared/api'
-import { applyStepEvent, captureProjectScope, computeStepProgress, createStepItem, reportError, STEP_IDS, stepPlanItems, type ProjectScope, type StepPlanItem } from '@/06-shared'
+import { applyStepEvent, captureProjectScope, computeStepProgress, createStepItem, formatCount, reportError, STEP_IDS, stepPlanItems, type PluralForms, type ProjectScope, type StepPlanItem } from '@/06-shared'
 
 const INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.mcManifest,
@@ -16,16 +16,9 @@ const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.modsCheck,
 ])
 
-const isCheckRunning = ref<boolean>(false)
+const FILE_FORMS: PluralForms = { one: 'файл', few: 'файла', many: 'файлов' }
 
-const filesWord = (count: number): string => {
-  const mod100 = count % 100
-  const mod10 = count % 10
-  if (mod100 >= 11 && mod100 <= 14) return 'файлов'
-  if (mod10 === 1) return 'файл'
-  if (mod10 >= 2 && mod10 <= 4) return 'файла'
-  return 'файлов'
-}
+const isCheckRunning = ref<boolean>(false)
 
 export function isIntegrityCheckRunning(): boolean {
   return isCheckRunning.value
@@ -136,7 +129,7 @@ export function useIntegrityCheck(): {
       if (isPopupHidden.value) {
         notification.show(
           result.failed.length > 0
-            ? `Проверка целостности: не удалось восстановить ${result.failed.length} ${filesWord(result.failed.length)}`
+            ? `Проверка целостности: не удалось восстановить ${formatCount(result.failed.length, FILE_FORMS)}`
             : 'Проверка целостности: все файлы в порядке',
         )
       }

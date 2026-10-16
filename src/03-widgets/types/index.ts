@@ -7,3 +7,5 @@ export interface TabItem {
   label: string
 }
 
+export type ModsView = 'catalog' | 'installed'
+

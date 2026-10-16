@@ -284,6 +284,23 @@ describe('useCoreStore', () => {
     expect(store.isServerBuild).toBe(true)
   })
 
+  it('hasProjects follows the project list across store updates', () => {
+    const store = useCoreStore()
+    expect(store.hasProjects).toBe(false)
+
+    store.setLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+    expect(store.hasProjects).toBe(true)
+
+    store.setLauncherConfig(makeConfig([], null))
+    expect(store.hasProjects).toBe(false)
+
+    store.addProject('Beta', makeProjectConfig({ projectName: 'Beta' }))
+    expect(store.hasProjects).toBe(true)
+
+    store.setLauncherConfig(null)
+    expect(store.hasProjects).toBe(false)
+  })
+
   it('needsOfflineSetup is true only for an offline build without projects', () => {
     const store = useCoreStore()
     expect(store.needsOfflineSetup).toBe(false)

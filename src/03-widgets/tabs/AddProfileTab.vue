@@ -49,7 +49,9 @@ const { handleKeydown: handleKindKeydown } = useRovingTabs<ProfileKind>({
   },
 })
 
-const canGoBack = computed((): boolean => !(props.embedded ?? false))
+const isEmbedded = computed((): boolean => props.embedded ?? false)
+
+const canGoBack = computed((): boolean => !isEmbedded.value)
 
 const goToAccounts = (config: ProjectConfig | null): void => {
   if (config) router.push({ name: 'Accounts' })
@@ -69,8 +71,12 @@ const handleOfflineSubmit = async (): Promise<void> => {
 </script>
 
 <template>
-  <div class="add-profile-tab" :class="{ 'add-profile-tab--embedded': props.embedded ?? false }">
-    <h2 v-if="!(props.embedded ?? false)" class="add-profile-tab__title heading-display">Добавить профиль</h2>
+  <div class="add-profile-tab" :class="{ 'add-profile-tab--embedded': isEmbedded }">
+    <template v-if="isEmbedded">
+      <span class="add-profile-tab__eyebrow eyebrow">Первый запуск</span>
+      <h1 class="add-profile-tab__title heading-display">Добавить профиль</h1>
+    </template>
+    <h2 v-else class="add-profile-tab__title heading-display">Добавить профиль</h2>
 
     <div class="add-profile-tab__switch" role="tablist" aria-label="Тип профиля" @keydown="handleKindKeydown">
       <Button
@@ -134,6 +140,11 @@ const handleOfflineSubmit = async (): Promise<void> => {
 .add-profile-tab {
   @include mixins.page-scaffold;
 
+  &__eyebrow {
+    display: block;
+    margin-bottom: var(--space-12);
+  }
+
   &__title {
     margin-bottom: var(--title-gap);
   }
@@ -163,6 +174,10 @@ const handleOfflineSubmit = async (): Promise<void> => {
     margin: 0;
     padding: 0;
     height: auto;
+
+    .add-profile-tab__title {
+      margin: 0 0 var(--space-12) 0;
+    }
   }
 }
 </style>
