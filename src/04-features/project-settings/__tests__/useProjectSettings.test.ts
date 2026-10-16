@@ -29,7 +29,7 @@ import { withSetup } from '@/test-support/withSetup'
 const api = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
   selectDirectory: vi.fn(),
-  probeJavaVersion: vi.fn(),
+  probeJava: vi.fn(),
 }))
 
 const router = vi.hoisted(() => ({
@@ -46,7 +46,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   getServerConnectUrl: vi.fn(),
   killGameProcess: vi.fn(),
   loadSettingsProject: vi.fn(),
-  probeJavaVersion: api.probeJavaVersion,
+  probeJava: api.probeJava,
   refreshManifests: vi.fn(),
   saveCurrentProject: vi.fn(),
   saveSettingsProject: vi.fn(),
@@ -112,7 +112,7 @@ describe('useProjectSettings', () => {
     vi.mocked(refreshManifests).mockReset()
     vi.mocked(saveCurrentProject).mockReset()
     vi.mocked(saveSettingsProject).mockReset()
-    api.probeJavaVersion.mockReset()
+    api.probeJava.mockReset()
     api.copyToClipboard.mockReset()
     api.selectDirectory.mockReset()
     useCoreStore().currentProject = 'proj'
@@ -202,36 +202,29 @@ describe('useProjectSettings', () => {
     expect(useProjectSettingsStore().config.projectName).toBe('proj')
   })
 
-  it('picks the folder into the java path field', async () => {
+  it('stores the java executable resolved inside the picked folder', async () => {
     const settings = await loadReady()
-    api.selectDirectory.mockResolvedValueOnce('/custom/java')
+    api.selectDirectory.mockResolvedValueOnce('/custom/jdk-21')
+    api.probeJava.mockResolvedValueOnce({ javaPath: '/custom/jdk-21/bin/java', javaVersion: 21 })
 
     await settings.selectJavaFolder()
 
-    expect(useProjectSettingsStore().config.javaPath).toBe('/custom/java')
+    expect(api.probeJava).toHaveBeenCalledWith('/custom/jdk-21')
+    expect(useProjectSettingsStore().config.javaPath).toBe('/custom/jdk-21/bin/java')
+    expect(useProjectSettingsStore().config.javaVersion).toBe(21)
     expect(settings.isDirty.value).toBe(true)
   })
 
-  it('probes the java version right after the folder is picked', async () => {
-    const settings = await loadReady()
-    api.selectDirectory.mockResolvedValueOnce('/custom/java')
-    api.probeJavaVersion.mockResolvedValueOnce(21)
-
-    await settings.selectJavaFolder()
-
-    expect(api.probeJavaVersion).toHaveBeenCalledWith('/custom/java')
-    expect(useProjectSettingsStore().config.javaVersion).toBe(21)
-  })
-
-  it('falls back to an unknown java version when the probe fails', async () => {
+  it('keeps the stored java path when the picked folder has no java', async () => {
     const settings = await loadReady()
     api.selectDirectory.mockResolvedValueOnce('/broken/java')
-    api.probeJavaVersion.mockRejectedValueOnce(new Error('no java found'))
+    api.probeJava.mockRejectedValueOnce(new Error('no java found'))
 
     await settings.selectJavaFolder()
 
-    expect(useProjectSettingsStore().config.javaPath).toBe('/broken/java')
-    expect(useProjectSettingsStore().config.javaVersion).toBeNull()
+    expect(useProjectSettingsStore().config.javaPath).toBe('/java/temurin')
+    expect(useProjectSettingsStore().config.javaVersion).toBe(17)
+    expect(settings.isDirty.value).toBe(false)
     expect(useNotificationStore().message).toBe('no java found')
   })
 

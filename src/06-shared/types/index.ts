@@ -15,6 +15,7 @@ export type {
   ProjectConfig,
   ModLoaderKind,
   JavaDistribution,
+  JavaProbe,
   GameExitInfo,
   IntegrityReport,
   GameCloudsMode,

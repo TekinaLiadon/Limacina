@@ -1,5 +1,6 @@
 use crate::utils::errors::LauncherError;
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 
@@ -67,8 +68,15 @@ fn extract_java_major(output: &str) -> Option<u32> {
     }
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaProbe {
+    pub java_path: String,
+    pub java_version: u32,
+}
+
 #[tauri::command]
-pub async fn probe_java_version(path: String) -> CommandResult<Option<u32>> {
+pub async fn probe_java_version(path: String) -> CommandResult<JavaProbe> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(LauncherError::Java("Не указана папка с Java".to_string()).into());
@@ -107,7 +115,10 @@ pub async fn probe_java_version(path: String) -> CommandResult<Option<u32>> {
     );
     let major = extract_java_major(&text)
         .ok_or_else(|| anyhow::anyhow!("Не удалось определить версию Java в выбранной папке"))?;
-    Ok(Some(major))
+    Ok(JavaProbe {
+        java_path: executable.to_string_lossy().into_owned(),
+        java_version: major,
+    })
 }
 
 #[tauri::command]
@@ -281,6 +292,35 @@ mod probe_java_tests {
             error.message.contains("не существует или недоступна"),
             "ошибка должна объяснять причину: {error:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_returns_the_executable_found_in_the_folder() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = crate::test_support::TempDir::new("probe_java_ok");
+        let bin = dir.0.join("bin");
+        std::fs::create_dir_all(&bin).expect("папка bin");
+        let java = bin.join("java");
+        std::fs::write(
+            &java,
+            b"#!/bin/sh\necho 'openjdk version \"21.0.3\" 2024-04-16'\n",
+        )
+        .expect("скрипт java");
+        std::fs::set_permissions(&java, std::fs::Permissions::from_mode(0o755))
+            .expect("права на запуск");
+
+        let probe = probe_java_version(dir.0.to_string_lossy().into_owned())
+            .await
+            .expect("проба должна вернуть исполняемый файл и версию");
+
+        assert_eq!(
+            probe.java_path,
+            java.to_string_lossy(),
+            "в поле должен попадать найденный bin/java, а не выбранная папка"
+        );
+        assert_eq!(probe.java_version, 21, "версия берётся из java -version");
     }
 }
 

@@ -95,6 +95,11 @@ export interface JavaDistribution {
   apiParameter: string
 }
 
+export interface JavaProbe {
+  javaPath: string
+  javaVersion: number
+}
+
 export interface GameExitInfo {
   success: boolean
   code: number | null
