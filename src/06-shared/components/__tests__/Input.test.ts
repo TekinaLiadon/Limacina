@@ -146,6 +146,36 @@ describe('Input', () => {
   })
 })
 
+describe('Input numeric mode', () => {
+  it('returns the typed number for a numeric input', async () => {
+    let limit: number | null = null
+    const wrapper = mount(Input, { props: { modelValue: limit, options: { type: 'number' } } })
+    const input = wrapper.find('input')
+    expect(input.attributes('type')).toBe('number')
+
+    await input.setValue('256')
+
+    const emissions = wrapper.emitted('update:modelValue')
+    const lastEmission = emissions?.[emissions.length - 1]
+    expect(lastEmission).toEqual([256])
+
+    wrapper.unmount()
+  })
+
+  it('returns null for a cleared numeric input', async () => {
+    let limit: number | null = 256
+    const wrapper = mount(Input, { props: { modelValue: limit, options: { type: 'number' } } })
+
+    await wrapper.find('input').setValue('')
+
+    const emissions = wrapper.emitted('update:modelValue')
+    const lastEmission = emissions?.[emissions.length - 1]
+    expect(lastEmission).toEqual([null])
+
+    wrapper.unmount()
+  })
+})
+
 describe('Input combobox semantics', () => {
   it('omits the combobox role and popup attributes without an options list', () => {
     const wrapper = mount(Input, { props: { modelValue: '' } })

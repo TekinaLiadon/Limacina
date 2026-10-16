@@ -7,7 +7,7 @@ export interface LauncherBehaviorForm {
   minimizeToTray: boolean
   systemNotifications: boolean
   debugMode: boolean
-  downloadSpeedLimit: string
+  downloadSpeedLimit: number | null
 }
 
 export type ThemeMode = 'dark' | 'light'

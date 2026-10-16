@@ -343,7 +343,7 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
-  it('parses only whole-number speed limits', async () => {
+  it('saves whole positive speed limits and treats an empty field as no limit', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
     useCoreStore().launcherConfig = makeLauncherConfig(false)
@@ -351,7 +351,7 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    const savedLimit = async (raw: string): Promise<number | null> => {
+    const savedLimit = async (raw: number | null): Promise<number | null> => {
       vi.mocked(saveLauncherSettings).mockClear()
       settings.behaviorForm.value.downloadSpeedLimit = raw
       await settings.handleSave()
@@ -360,31 +360,19 @@ describe('useLauncherSettings', () => {
       return lastCall === undefined ? null : lastCall[0].downloadSpeedLimit
     }
 
-    expect(await savedLimit('12abc')).toBeNull()
-    expect(saveLauncherSettings).not.toHaveBeenCalled()
-    expect(settings.downloadSpeedLimitError.value).not.toBe('')
-
-    expect(await savedLimit('12')).toBe(12)
+    expect(await savedLimit(12)).toBe(12)
     expect(settings.downloadSpeedLimitError.value).toBe('')
 
-    expect(await savedLimit('12.5')).toBeNull()
-    expect(saveLauncherSettings).not.toHaveBeenCalled()
-    expect(settings.downloadSpeedLimitError.value).not.toBe('')
-
-    expect(await savedLimit(' 7 ')).toBe(7)
+    expect(await savedLimit(10_000_000)).toBe(10_000_000)
     expect(settings.downloadSpeedLimitError.value).toBe('')
 
-    expect(await savedLimit('')).toBeNull()
+    expect(await savedLimit(null)).toBeNull()
     expect(settings.downloadSpeedLimitError.value).toBe('')
-
-    expect(await savedLimit('0')).toBeNull()
-    expect(saveLauncherSettings).not.toHaveBeenCalled()
-    expect(settings.downloadSpeedLimitError.value).not.toBe('')
 
     unmount()
   })
 
-  it('rejects speed limits beyond the safe ceiling', async () => {
+  it('blocks the save for non-positive, fractional and oversized speed limits', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
     useCoreStore().launcherConfig = makeLauncherConfig(false)
@@ -392,26 +380,21 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    const savedLimit = async (raw: string): Promise<number | null> => {
+    const blockedLimit = async (raw: number): Promise<void> => {
       vi.mocked(saveLauncherSettings).mockClear()
       settings.behaviorForm.value.downloadSpeedLimit = raw
       await settings.handleSave()
-      const { calls } = vi.mocked(saveLauncherSettings).mock
-      const lastCall = calls[calls.length - 1]
-      return lastCall === undefined ? null : lastCall[0].downloadSpeedLimit
+      expect(saveLauncherSettings).not.toHaveBeenCalled()
+      expect(settings.downloadSpeedLimitError.value).toBe(
+        'Ограничение скорости: целое число от 1 до 10000000 КБ/с',
+      )
     }
 
-    expect(await savedLimit('9'.repeat(25))).toBeNull()
-    expect(saveLauncherSettings).not.toHaveBeenCalled()
-    expect(settings.downloadSpeedLimitError.value).toBe(
-      'Ограничение скорости: целое число от 1 до 10000000 КБ/с',
-    )
-
-    expect(await savedLimit('10000001')).toBeNull()
-    expect(saveLauncherSettings).not.toHaveBeenCalled()
-
-    expect(await savedLimit('10000000')).toBe(10000000)
-    expect(settings.downloadSpeedLimitError.value).toBe('')
+    await blockedLimit(0)
+    await blockedLimit(-5)
+    await blockedLimit(12.5)
+    await blockedLimit(10_000_001)
+    await blockedLimit(Number.MAX_SAFE_INTEGER + 1)
 
     unmount()
   })
@@ -443,13 +426,13 @@ describe('useLauncherSettings', () => {
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
-    settings.behaviorForm.value.downloadSpeedLimit = '12abc'
+    settings.behaviorForm.value.downloadSpeedLimit = 12.5
     await settings.handleSave()
 
     expect(saveLauncherSettings).not.toHaveBeenCalled()
     expect(useNotificationStore().message).toBe(settings.downloadSpeedLimitError.value)
 
-    settings.behaviorForm.value.downloadSpeedLimit = '12'
+    settings.behaviorForm.value.downloadSpeedLimit = 12
     await settings.handleSave()
 
     expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
@@ -528,7 +511,7 @@ describe('useLauncherSettings', () => {
       minimizeToTray: true,
       systemNotifications: true,
       debugMode: true,
-      downloadSpeedLimit: '512',
+      downloadSpeedLimit: 512,
     }
     for (const key of Object.keys(samples) as (keyof LauncherBehaviorForm)[]) {
       expect(settings.behaviorForm.value[key]).toBe(expectedForm[key])
@@ -543,7 +526,7 @@ describe('useLauncherSettings', () => {
       minimizeToTray: false,
       systemNotifications: false,
       debugMode: false,
-      downloadSpeedLimit: '256',
+      downloadSpeedLimit: 256,
     }
     settings.behaviorForm.value = edited
     await settings.handleSave()
