@@ -8,7 +8,7 @@ import {
   saveGameOptions,
   saveGlobalGameOptions,
 } from '@/06-shared/api'
-import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type GameOptions, type GameOptionsData } from '@/05-entities'
+import { useCoreStore, useGameOptionsStore, useNotificationStore, useSettingsDirtyStore, type GameOptions, type GameOptionsData } from '@/05-entities'
 import { DEFAULT_GAME_OPTIONS, useGameOptions } from '../useGameOptions'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -22,8 +22,8 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 
 const makeData = (options: Partial<GameOptions> = {}, data: Partial<GameOptionsData> = {}): GameOptionsData => ({
   options: { ...DEFAULT_GAME_OPTIONS, ...options },
-  fileExists: true,
-  availableResourcePacks: ['faithful.zip'],
+  versionReady: true,
+  availableResourcePacks: ['file/faithful.zip'],
   hasGlobal: false,
   ...data,
 })
@@ -59,7 +59,7 @@ describe('useGameOptions', () => {
     expect(options.options.value.fov).toBe(90)
     expect(options.options.value.gamma).toBe(1.2)
     expect(options.options.value.renderDistance).toBe(12)
-    expect(options.availableResourcePacks.value).toEqual(['faithful.zip'])
+    expect(options.availableResourcePacks.value).toEqual(['file/faithful.zip'])
     expect(options.hasGlobal.value).toBe(true)
     expect(options.isLoading.value).toBe(false)
     expect(options.loadError.value).toBe('')
@@ -183,6 +183,42 @@ describe('useGameOptions', () => {
     expect(useNotificationStore().message).toBe('Настройки игры сохранены')
     expect(options.isDirty.value).toBe(false)
     expect(options.isSaving.value).toBe(false)
+  })
+
+  it('keeps settings in the store while the game file is not ready', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({}, { versionReady: false }))
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    options.options.value.fov = 110
+    await options.handleSave()
+
+    expect(saveGameOptions).not.toHaveBeenCalled()
+    expect(useGameOptionsStore().pendingFor('proj')?.fov).toBe(110)
+    expect(useNotificationStore().message).toBe(
+      'Настройки игры сохранены: они применятся при установке игры',
+    )
+    expect(options.isDirty.value).toBe(false)
+  })
+
+  it('shows the stored settings while the game file is not ready', async () => {
+    useGameOptionsStore().setPending('proj', { ...DEFAULT_GAME_OPTIONS, resourcePacks: [], fov: 30 })
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({ fov: 110 }, { versionReady: false }))
+
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    expect(options.options.value.fov).toBe(30)
+  })
+
+  it('prefers the file over the stored settings once it is ready', async () => {
+    useGameOptionsStore().setPending('proj', { ...DEFAULT_GAME_OPTIONS, resourcePacks: [], fov: 30 })
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({ fov: 110 }, { versionReady: true }))
+
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    expect(options.options.value.fov).toBe(110)
   })
 
   it('skips the post-save state when the project has switched mid-save', async () => {

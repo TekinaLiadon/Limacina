@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
+use crate::commands::game_options::{parse_options_version, OPTIONS_FILE, OPTIONS_VERSION_KEY};
 use crate::discord;
 use crate::minecraft::autojoin::{auto_join_args, first_server_address};
 use crate::minecraft::process::{spawn_game_process, GameProcess};
@@ -67,8 +68,8 @@ async fn start_minecraft_inner(
     apply_auto_join(&project_config, &mut game_config, config_step.clone()).await?;
     config_step.finish(false);
 
-    if let Err(e) = force_narrator_off(&game_config.game_dir).await {
-        log_err!("[start] Не удалось выключить диктор: {}", e);
+    if let Err(e) = prepare_options_file(&game_config.game_dir).await {
+        log_err!("[start] Не удалось подготовить options.txt: {}", e);
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
@@ -419,16 +420,9 @@ async fn repair_stale_java_path(
     config
 }
 
-async fn force_narrator_off(game_dir: &Path) -> anyhow::Result<()> {
-    let path = game_dir.join("options.txt");
-    let existing = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => content,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => bail!("Не удалось прочитать {:?}: {}", path, e),
-    };
-
+fn force_narrator_off(content: &str) -> String {
     let mut found = false;
-    let mut lines: Vec<String> = existing
+    let mut lines: Vec<String> = content
         .lines()
         .map(|line| {
             if line.trim_start().starts_with("narrator:") {
@@ -443,9 +437,32 @@ async fn force_narrator_off(game_dir: &Path) -> anyhow::Result<()> {
         lines.push("narrator:0".to_string());
     }
 
-    let mut content = lines.join("\n");
-    content.push('\n');
-    write_atomic(&path, content.as_bytes())
+    let mut patched = lines.join("\n");
+    patched.push('\n');
+    patched
+}
+
+async fn prepare_options_file(game_dir: &Path) -> anyhow::Result<()> {
+    let path = game_dir.join(OPTIONS_FILE);
+    let existing = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => bail!("Не удалось прочитать {:?}: {}", path, e),
+    };
+    if parse_options_version(&existing).is_none() {
+        log_err!(
+            "[start] В {:?} нет ключа {}: игра заменит файл дефолтными настройками",
+            path,
+            OPTIONS_VERSION_KEY
+        );
+        return Ok(());
+    }
+
+    let patched = force_narrator_off(&existing);
+    if patched == existing {
+        return Ok(());
+    }
+    write_atomic(&path, patched.as_bytes())
         .await
         .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
@@ -463,48 +480,78 @@ mod exit_launcher_tests {
 }
 
 #[cfg(test)]
-mod narrator_tests {
-    use super::force_narrator_off;
+mod options_file_tests {
+    use super::prepare_options_file;
+    use crate::commands::game_options::OPTIONS_FILE;
     use crate::test_support::TempDir;
     use std::fs;
 
-    #[tokio::test]
-    async fn force_narrator_off_replaces_existing_line() {
-        let dir = TempDir::new("narrator_replace");
-        fs::write(
-            dir.0.join("options.txt"),
-            "musicVolume:0.5\nnarrator:2\nfov:70\n",
-        )
-        .expect("запись options.txt");
+    fn write_options(dir: &TempDir, content: &str) {
+        fs::write(dir.0.join(OPTIONS_FILE), content).expect("запись options.txt");
+    }
 
-        force_narrator_off(&dir.0).await.expect("патч options.txt");
-
-        let patched = fs::read_to_string(dir.0.join("options.txt")).expect("чтение options.txt");
-        let lines: Vec<&str> = patched.lines().collect();
-        assert_eq!(lines, vec!["musicVolume:0.5", "narrator:0", "fov:70"]);
+    fn read_options(dir: &TempDir) -> String {
+        fs::read_to_string(dir.0.join(OPTIONS_FILE)).expect("чтение options.txt")
     }
 
     #[tokio::test]
-    async fn force_narrator_off_appends_missing_line() {
-        let dir = TempDir::new("narrator_append");
-        fs::write(dir.0.join("options.txt"), "musicVolume:0.5\nfov:70\n")
-            .expect("запись options.txt");
+    async fn prepare_options_file_replaces_existing_narrator_line() {
+        let dir = TempDir::new("options_narrator_replace");
+        write_options(&dir, "version:2586\nmusicVolume:0.5\nnarrator:2\nfov:70\n");
 
-        force_narrator_off(&dir.0).await.expect("патч options.txt");
+        prepare_options_file(&dir.0)
+            .await
+            .expect("подготовка options.txt");
 
-        let patched = fs::read_to_string(dir.0.join("options.txt")).expect("чтение options.txt");
-        let lines: Vec<&str> = patched.lines().collect();
-        assert_eq!(lines, vec!["musicVolume:0.5", "fov:70", "narrator:0"]);
+        assert_eq!(
+            read_options(&dir),
+            "version:2586\nmusicVolume:0.5\nnarrator:0\nfov:70\n"
+        );
     }
 
     #[tokio::test]
-    async fn force_narrator_off_creates_missing_file() {
-        let dir = TempDir::new("narrator_create");
+    async fn prepare_options_file_appends_missing_narrator_line() {
+        let dir = TempDir::new("options_narrator_append");
+        write_options(&dir, "version:2586\nmusicVolume:0.5\nfov:70\n");
 
-        force_narrator_off(&dir.0).await.expect("патч options.txt");
+        prepare_options_file(&dir.0)
+            .await
+            .expect("подготовка options.txt");
 
-        let patched = fs::read_to_string(dir.0.join("options.txt")).expect("чтение options.txt");
-        assert_eq!(patched, "narrator:0\n");
+        assert_eq!(
+            read_options(&dir),
+            "version:2586\nmusicVolume:0.5\nfov:70\nnarrator:0\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_options_file_does_not_create_missing_file() {
+        let dir = TempDir::new("options_missing");
+
+        prepare_options_file(&dir.0)
+            .await
+            .expect("подготовка options.txt");
+
+        assert!(
+            !dir.0.join(OPTIONS_FILE).exists(),
+            "файл options.txt создаёт сама игра"
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_options_file_keeps_file_without_version_untouched() {
+        let dir = TempDir::new("options_without_version");
+        write_options(&dir, "fov:0.5\nnarrator:2\n");
+
+        prepare_options_file(&dir.0)
+            .await
+            .expect("подготовка options.txt");
+
+        assert_eq!(
+            read_options(&dir),
+            "fov:0.5\nnarrator:2\n",
+            "файл без ключа version игра заменяет дефолтным, патчить его нечего"
+        );
     }
 }
 

@@ -95,6 +95,11 @@ export interface JavaDistribution {
   apiParameter: string
 }
 
+export interface JavaProbe {
+  javaPath: string
+  javaVersion: number
+}
+
 export interface GameExitInfo {
   success: boolean
   code: number | null
@@ -154,7 +159,7 @@ export interface GameOptions {
 
 export interface GameOptionsData {
   options: GameOptions
-  fileExists: boolean
+  versionReady: boolean
   availableResourcePacks: string[]
   hasGlobal: boolean
 }

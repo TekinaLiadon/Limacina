@@ -9,7 +9,7 @@ import {
   type ProjectSettingsForm,
   type ProjectConfig,
 } from '@/05-entities'
-import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJavaVersion, refreshManifests, saveSettingsProject } from '@/06-shared/api'
+import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJava, refreshManifests, saveSettingsProject } from '@/06-shared/api'
 import { captureProjectScope, copyToClipboard, reportError, selectDirectory, useAsyncAction } from '@/06-shared'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { loadProjectConfig } from './loadProjectConfig'
@@ -65,12 +65,12 @@ export function useProjectSettings(): {
   const selectJavaFolder = async (): Promise<void> => {
     const selected = await selectDirectory()
     if (!selected) return
-    config.value.javaPath = selected
     try {
-      config.value.javaVersion = await probeJavaVersion(selected)
+      const probe = await probeJava(selected)
+      config.value.javaPath = probe.javaPath
+      config.value.javaVersion = probe.javaVersion
     } catch (e: unknown) {
       reportError('Не удалось проверить версию Java', e)
-      config.value.javaVersion = null
       notification.show(getErrorMessage(e))
     }
   }

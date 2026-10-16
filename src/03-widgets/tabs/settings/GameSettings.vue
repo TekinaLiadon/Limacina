@@ -22,6 +22,7 @@ const {
   isSavingGlobal,
   isDirty,
   hasGlobal,
+  versionReady,
   availableResourcePacks,
   handleImportGlobal,
   handleSave,
@@ -42,8 +43,12 @@ const {
     <template #head>
       <div class="game-settings__head">
         <p class="game-settings__hint">
-          Настройки сохраняются в options.txt проекта сразу и применяются при
-          следующем запуске игры. Ресурспаки можно выбрать до старта.
+          Настройки сохраняются в options.txt проекта и применяются при следующем
+          запуске игры. Ресурспаки можно выбрать до старта.
+        </p>
+        <p v-if="!versionReady && !isLoading" class="game-settings__hint">
+          Игра ещё не установлена: настройки запомнятся в лаунчере и впишутся в
+          options.txt при установке.
         </p>
         <Button
           v-if="hasGlobal"

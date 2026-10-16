@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends string | number | null">
 import { computed, ref, useAttrs, watch } from 'vue'
 import { randomId } from '@/06-shared/utils/utils'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
@@ -8,12 +8,12 @@ import OpenEye from '@/06-shared/components/svg/OpenEye.vue'
 import ClosedEye from '@/06-shared/components/svg/ClosedEye.vue'
 
 const props = defineProps<{
-  modelValue: string
+  modelValue: T
   options?: InputOptions
 }>()
 
 const emit = defineEmits<{
-  'update:modelValue': [value: string]
+  'update:modelValue': [value: T]
 }>()
 
 defineOptions({ inheritAttrs: false })
@@ -63,14 +63,18 @@ const inputType = computed((): string => {
 const filteredList = computed((): string[] => {
   if (!props.options?.list?.length) return []
 
-  const val = (props.modelValue || '').toLowerCase()
+  const val = (props.modelValue as string).toLowerCase()
   return props.options.list.filter(item => item.toLowerCase().includes(val))
 })
 
+const emitValue = (value: string | number): void => {
+  emit('update:modelValue', (props.options?.type === 'number' && value === '' ? null : value) as T)
+}
+
 const data = computed({
-  get: (): string => props.modelValue,
-  set: (value: string): void => {
-    emit('update:modelValue', value)
+  get: (): T => props.modelValue,
+  set: (value: string | number): void => {
+    emitValue(value)
     if (props.options?.list?.length) void openDropdown()
   },
 })
@@ -81,7 +85,7 @@ const openList = (): void => {
 }
 
 const selectItem = (item: string): void => {
-  emit('update:modelValue', item)
+  emitValue(item)
   closeDropdown()
 }
 

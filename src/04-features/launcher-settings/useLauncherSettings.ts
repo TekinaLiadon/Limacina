@@ -47,13 +47,9 @@ const identityTransfer = <T>(defaultValue: T): FieldTransfer<T> => ({
 const MAX_SPEED_LIMIT_KBPS = 10_000_000
 const SPEED_LIMIT_ERROR = `Ограничение скорости: целое число от 1 до ${MAX_SPEED_LIMIT_KBPS} КБ/с`
 
-const parseSpeedLimit = (raw: string): number | null => {
-  const trimmed = raw.trim()
-  if (!/^\d+$/.test(trimmed)) return null
-  const parsed = Number(trimmed)
-  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > MAX_SPEED_LIMIT_KBPS) return null
-  return parsed
-}
+const isSpeedLimitValid = (value: number | null): boolean =>
+  value === null ||
+  (Number.isSafeInteger(value) && value >= 1 && value <= MAX_SPEED_LIMIT_KBPS)
 
 const LAUNCHER_FIELD_TRANSFERS: LauncherFieldTransfers = {
   discordActivity: identityTransfer(true),
@@ -64,11 +60,7 @@ const LAUNCHER_FIELD_TRANSFERS: LauncherFieldTransfers = {
   minimizeToTray: identityTransfer(false),
   systemNotifications: identityTransfer(true),
   debugMode: identityTransfer(false),
-  downloadSpeedLimit: {
-    default: '',
-    fromConfig: (raw) => (raw === null ? '' : String(raw)),
-    toPayload: (value) => parseSpeedLimit(value),
-  },
+  downloadSpeedLimit: identityTransfer<number | null>(null),
 }
 
 const launcherFormFieldKeys = (): LauncherFormField[] =>
@@ -135,11 +127,9 @@ export function useLauncherSettings(): {
   const loadError = ref<string>('')
   const loadGuard = useAsyncRaceGuard()
 
-  const downloadSpeedLimitError = computed((): string => {
-    const trimmed = behaviorForm.value.downloadSpeedLimit.trim()
-    if (trimmed === '') return ''
-    return parseSpeedLimit(trimmed) === null ? SPEED_LIMIT_ERROR : ''
-  })
+  const downloadSpeedLimitError = computed((): string =>
+    isSpeedLimitValid(behaviorForm.value.downloadSpeedLimit) ? '' : SPEED_LIMIT_ERROR,
+  )
 
   const formSettings = (): LauncherSettingsPayload => formSettingsOf(behaviorForm.value)
 

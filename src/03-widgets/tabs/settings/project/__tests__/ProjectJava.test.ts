@@ -33,7 +33,7 @@ vi.mock('@/04-features', async (importOriginal) => {
 const mountJava = (props: Record<string, unknown> = {}) =>
   mount(ProjectJava, {
     props: {
-      javaPath: '/usr/lib/jvm/java-21',
+      javaPath: '/usr/lib/jvm/java-21/bin/java',
       mcVersion: '1.20.1',
       ...props,
     },
@@ -50,7 +50,7 @@ describe('ProjectJava', () => {
   it('shows the configured java path and asks the page to browse', async () => {
     const wrapper = mountJava()
 
-    expect((wrapper.find('input.input__text').element as HTMLInputElement).value).toBe('/usr/lib/jvm/java-21')
+    expect((wrapper.find('input.input__text').element as HTMLInputElement).value).toBe('/usr/lib/jvm/java-21/bin/java')
 
     await wrapper.find('.path-picker__browse-btn').trigger('click')
 

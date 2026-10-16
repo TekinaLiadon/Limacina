@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
+use crate::commands::game_options::{install_game_options, GameOptions};
 use crate::java::alternative_java::{
     download_alt_java, get_java_distributions_list, JavaDistribution,
 };
@@ -21,13 +22,17 @@ use crate::{minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
-pub async fn download_minecraft(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
+pub async fn download_minecraft(
+    state: tauri::State<'_, Mutex<GlobalState>>,
+    options: Option<GameOptions>,
+) -> CommandResult<()> {
     let _guard = crate::state::launch_state::try_acquire_launch_step()?;
-    download_minecraft_inner(state).await
+    download_minecraft_inner(state, options.as_ref()).await
 }
 
 async fn download_minecraft_inner(
     state: tauri::State<'_, Mutex<GlobalState>>,
+    options: Option<&GameOptions>,
 ) -> CommandResult<()> {
     let mut project_config = current_project_config(state.inner()).await?;
     let mod_loader = project_config.mod_loader.clone();
@@ -69,6 +74,13 @@ async fn download_minecraft_inner(
         Vanilla.setup(&project_config).await,
         LauncherError::GameDownload,
     )?;
+
+    install_game_options(
+        &launcher_path(Some(&project_config.project_name))?,
+        &project_config.mc_version,
+        options,
+    )
+    .await?;
 
     if let Some(manifest) = loader_manifest {
         let loader = create_mod_loader(&mod_loader)?;

@@ -4,7 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '../types'
+import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '../types'
 
 export interface CommandErrorPayload {
   code: string
@@ -59,8 +59,8 @@ export async function saveSettingsProject(config: ProjectConfig): Promise<Projec
   return invoke<ProjectConfig>('save_settings_project', { config })
 }
 
-export async function probeJavaVersion(path: string): Promise<number | null> {
-  return invoke<number | null>('probe_java_version', { path })
+export async function probeJava(path: string): Promise<JavaProbe> {
+  return invoke<JavaProbe>('probe_java_version', { path })
 }
 
 export async function saveLauncherConfig(parentPath: string): Promise<LauncherConfig> {
@@ -246,8 +246,8 @@ export async function downloadServerFile(): Promise<void> {
   return invoke('download_server_file')
 }
 
-export async function downloadMinecraft(): Promise<void> {
-  return invoke('download_minecraft')
+export async function downloadMinecraft(options: GameOptions | null = null): Promise<void> {
+  return invoke('download_minecraft', { options })
 }
 
 export async function downloadServerMods(): Promise<void> {

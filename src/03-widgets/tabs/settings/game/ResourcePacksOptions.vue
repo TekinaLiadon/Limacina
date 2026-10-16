@@ -13,13 +13,17 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ 'update:options': [GameOptions] }>()
 
-const isPackEnabled = (pack: string): boolean => props.options.resourcePacks.includes(pack)
+const packLabel = (packId: string): string => packId.replace(/^file\//, '')
 
-const togglePack = (pack: string): void => {
+const isPackEnabled = (packId: string): boolean => props.options.resourcePacks.includes(packId)
+
+const togglePack = (packId: string): void => {
   const current = props.options.resourcePacks
   emit('update:options', {
     ...props.options,
-    resourcePacks: isPackEnabled(pack) ? current.filter((p) => p !== pack) : [...current, pack],
+    resourcePacks: isPackEnabled(packId)
+      ? current.filter((p) => p !== packId)
+      : [...current, packId],
   })
 }
 </script>
@@ -34,11 +38,11 @@ const togglePack = (pack: string): void => {
         В папке resourcepacks нет ресурсных пакетов
       </p>
       <GameCheckboxField
-        v-for="pack in availablePacks"
-        :key="pack"
-        :label="pack"
-        :model-value="isPackEnabled(pack)"
-        @update:model-value="togglePack(pack)"
+        v-for="packId in availablePacks"
+        :key="packId"
+        :label="packLabel(packId)"
+        :model-value="isPackEnabled(packId)"
+        @update:model-value="togglePack(packId)"
       />
     </template>
   </div>
