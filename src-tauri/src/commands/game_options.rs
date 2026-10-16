@@ -23,6 +23,7 @@ pub const GLOBAL_OPTIONS_FILE: &str = "game_options.json";
 pub const OPTIONS_FILE: &str = "options.txt";
 
 pub const OPTIONS_VERSION_KEY: &str = "version";
+const OPTIONS_RESOURCE_PACK_PREFIX: &str = "file/";
 const CLIENT_VERSION_FILE: &str = "version.json";
 const CLIENT_DATA_VERSION_KEY: &str = "world_version";
 
@@ -521,12 +522,24 @@ async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
         };
         if is_pack {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                packs.push(name.to_string());
+                packs.push(format!("{OPTIONS_RESOURCE_PACK_PREFIX}{name}"));
             }
         }
     }
     packs.sort();
     Ok(packs)
+}
+
+fn normalize_resource_packs(resource_packs: &mut [String], available_packs: &[String]) {
+    for pack in resource_packs.iter_mut() {
+        if pack.contains('/') {
+            continue;
+        }
+        let entry = format!("{OPTIONS_RESOURCE_PACK_PREFIX}{pack}");
+        if available_packs.iter().any(|available| available == &entry) {
+            *pack = entry;
+        }
+    }
 }
 
 async fn global_options_content() -> Result<Option<String>> {
@@ -554,11 +567,12 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
         .as_deref()
         .is_some_and(|content| parse_options_version(content).is_some());
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
-    let options = content
+    let mut options = content
         .as_deref()
         .map(|c| parse_options(c, normalized_fov))
         .unwrap_or_default();
     let available_resource_packs = list_resource_packs(project_name).await?;
+    normalize_resource_packs(&mut options.resource_packs, &available_resource_packs);
     let has_global = global_options_content().await?.is_some();
 
     Ok(GameOptionsData {
@@ -924,8 +938,11 @@ mod tests {
 
         assert_eq!(
             data.available_resource_packs,
-            vec!["folder-pack".to_string(), "zipped.zip".to_string()],
-            "папочный ресурспак с pack.mcmeta попадает в список, папка без него — нет"
+            vec![
+                "file/folder-pack".to_string(),
+                "file/zipped.zip".to_string(),
+            ],
+            "пак отдаётся в формате игры, папка без pack.mcmeta в список не попадает"
         );
     }
 
@@ -936,6 +953,35 @@ mod tests {
         assert_eq!(parse_options_version("version:1.20.1\n"), None);
         assert_eq!(parse_options_version("version:\n"), None);
         assert_eq!(parse_options_version("fov:0.5\n"), None);
+    }
+
+    #[test]
+    fn normalize_resource_packs_moves_legacy_names_to_game_format() {
+        let available = vec![
+            "file/Faithful.zip".to_string(),
+            "file/folder-pack".to_string(),
+        ];
+        let mut packs = vec![
+            "Faithful.zip".to_string(),
+            "folder-pack".to_string(),
+            "file/AlreadyOk.zip".to_string(),
+            "mod_resources".to_string(),
+            "server/remote".to_string(),
+        ];
+
+        super::normalize_resource_packs(&mut packs, &available);
+
+        assert_eq!(
+            packs,
+            vec![
+                "file/Faithful.zip".to_string(),
+                "file/folder-pack".to_string(),
+                "file/AlreadyOk.zip".to_string(),
+                "mod_resources".to_string(),
+                "server/remote".to_string(),
+            ],
+            "легаси-имена локальных паков получают префикс, чужие идентификаторы не трогаются"
+        );
     }
 
     #[test]

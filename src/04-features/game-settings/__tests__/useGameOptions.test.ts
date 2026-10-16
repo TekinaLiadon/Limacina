@@ -23,7 +23,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 const makeData = (options: Partial<GameOptions> = {}, data: Partial<GameOptionsData> = {}): GameOptionsData => ({
   options: { ...DEFAULT_GAME_OPTIONS, ...options },
   versionReady: true,
-  availableResourcePacks: ['faithful.zip'],
+  availableResourcePacks: ['file/faithful.zip'],
   hasGlobal: false,
   ...data,
 })
@@ -59,7 +59,7 @@ describe('useGameOptions', () => {
     expect(options.options.value.fov).toBe(90)
     expect(options.options.value.gamma).toBe(1.2)
     expect(options.options.value.renderDistance).toBe(12)
-    expect(options.availableResourcePacks.value).toEqual(['faithful.zip'])
+    expect(options.availableResourcePacks.value).toEqual(['file/faithful.zip'])
     expect(options.hasGlobal.value).toBe(true)
     expect(options.isLoading.value).toBe(false)
     expect(options.loadError.value).toBe('')
