@@ -23,13 +23,12 @@ const emit = defineEmits<{
 const baseRef = ref<InstanceType<typeof SelectBase> | null>(null)
 
 const selectedTitle = computed((): string => {
-  const value = String(props.modelValue)
-  const selected = props.options.find((option) => String(option.value) === value)
-  return selected?.title ?? value
+  const selected = props.options.find((option) => option.value === props.modelValue)
+  return selected?.title ?? props.modelValue
 })
 
 function isSelected(value: string): boolean {
-  return String(value) === String(props.modelValue)
+  return value === props.modelValue
 }
 
 function handleSelect(value: string): void {

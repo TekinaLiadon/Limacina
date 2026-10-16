@@ -72,9 +72,9 @@ Vue 3, TypeScript, Pinia, Feature-Sliced Design. Слои сверху вниз:
 
 | Слой | Содержимое |
 |---|---|
-| `01-app` | Каркас приложения: `router.ts` (ленивая загрузка страниц), `App.vue`, глобальные стили, ассеты (токены, темы, шрифты, миксины), Preloader |
-| `02-pages` | Компоненты маршрутов: `LauncherPage`, `ProjectPage`, `SettingsPage` с вложенными `settings/`, `SetupPage` |
-| `03-widgets` | Экранные блоки: `dashboard/` (сцены главного экрана), `tabs/` (аккаунты, логин, профиль, настройки), `theme/`, `common/` (переиспользуемые куски вроде `LoadErrorRow` и `PopupShell`) |
+| `01-app` | Каркас приложения: `router.ts` (ленивая загрузка страниц), `App.vue` (бут-гейт: прелоадер, ошибка старта, глобальная обвязка), `AppLayout.vue` (шапка, сайдбар, контентная панель с `router-view`), глобальные стили, ассеты (токены, темы, шрифты, миксины), Preloader |
+| `02-pages` | Компоненты маршрутов: `Accounts`, `Mods`, `Setup`, `Settings` с вложенными `settings/` (`LauncherPage`, `ProjectPage`) |
+| `03-widgets` | Экранные блоки: `dashboard/` (сцены главного экрана), `tabs/` (аккаунты, логин, профиль, шаги первого запуска, моды Modrinth, настройки), `theme/`, `common/` (переиспользуемые куски вроде `LoadErrorRow` и `PopupShell`) |
 | `04-features` | Композаблы с бизнес-логикой: `game-launch`, `game-session`, `integrity-check`, `modrinth`, `skin-settings`, `cpm-settings`, `server-availability` и ещё около 25 сегментов, по одному на фичу |
 | `05-entities` | Pinia-сторы и типы |
 | `06-shared` | Базовые UI-компоненты (`Button`, `Input`, `Dropdown`, `PopupShell`, `Tooltip`), IPC-слой `api/`, утилиты, директивы, типы |

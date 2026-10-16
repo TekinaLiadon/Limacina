@@ -1,5 +1,5 @@
 import { onBeforeMount, ref } from 'vue'
-import { useCoreStore, useSettingsStore, useNotificationStore, useProjectSettingsStore, normalizeTheme, type AppInitData, type UpdateInfo } from '@/05-entities'
+import { useCoreStore, useSettingsStore, useNotificationStore, useProjectSettingsStore, type AppInitData, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, checkUpdate, getAppInitData, getErrorMessage } from '@/06-shared/api'
 import { captureProjectScope, reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
@@ -45,8 +45,7 @@ export function useAppInit() {
 
     if (!data.launcherConfig) return
 
-    settingsStore.markThemeHydration(data.launcherConfig.theme)
-    settingsStore.setTheme(normalizeTheme(data.launcherConfig.theme))
+    settingsStore.hydrateTheme(data.launcherConfig.theme)
     settingsStore.setAnimationsEnabled(data.launcherConfig.animationsEnabled)
   }
 

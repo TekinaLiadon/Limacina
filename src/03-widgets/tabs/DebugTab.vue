@@ -3,11 +3,13 @@ import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useDebugConsole, useKillGame } from '@/04-features'
 import type { ConsoleLog } from '@/05-entities'
-import { Icon } from '@/06-shared'
+import { Icon, formatCount, type PluralForms } from '@/06-shared'
 import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 
 const { logs, filteredLogs, searchQuery, onlyErrors, linesCount, streamError, startConsoleStream, handleCopy } = useDebugConsole()
 const { isGameRunning, isKilling, killGame } = useKillGame()
+
+const LINE_FORMS: PluralForms = { one: 'строка', few: 'строки', many: 'строк' }
 
 const logAt = (index: number): ConsoleLog | undefined => filteredLogs.value[index]
 
@@ -136,7 +138,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
         >
           <Icon type="chevron-down" />
         </button>
-        <span class="debug-tab__count">{{ linesCount }} строк</span>
+        <span class="debug-tab__count">{{ formatCount(linesCount, LINE_FORMS) }}</span>
       </div>
       <div class="debug-tab__actions-right">
         <button

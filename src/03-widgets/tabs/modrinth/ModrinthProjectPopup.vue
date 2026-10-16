@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Button, MarkdownText, PopupShell, Preloader, getErrorMessage, openExternalUrl, formatNumber, formatDate } from '@/06-shared'
+import { Button, MarkdownText, PopupShell, Preloader, getErrorMessage, openExternalUrl, formatCount, formatDate } from '@/06-shared'
 import ModrinthIcon from './ModrinthIcon.vue'
 import ModrinthInstallActions from './ModrinthInstallActions.vue'
-import { MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS } from '@/04-features'
+import { MODRINTH_BASE_URL, MODRINTH_CATEGORY_LABELS, MODRINTH_DOWNLOAD_FORMS, MODRINTH_FOLLOW_FORMS } from '@/04-features'
 import { useNotificationStore, type ModrinthSearchHit, type ModrinthProjectDetails, type ModrinthVersion, type ModrinthSide, type ModrinthVersionType } from '@/05-entities'
 
 const props = defineProps<{
@@ -49,7 +49,7 @@ const authorText = computed((): string => {
 const statText = computed((): string => {
   const { hit } = props
   if (hit === null) return ''
-  return `${formatNumber(hit.downloads)} загрузок · ${formatNumber(hit.follows)} подписчиков`
+  return `${formatCount(hit.downloads, MODRINTH_DOWNLOAD_FORMS)} · ${formatCount(hit.follows, MODRINTH_FOLLOW_FORMS)}`
 })
 
 const sideText = computed((): string => {
@@ -169,7 +169,7 @@ async function handleLink(url: string): Promise<void> {
             {{ versionTypeLabels[version.version_type] }} ·
             {{ version.loaders.join(', ') }} ·
             {{ formatDate(version.date_published) }} ·
-            {{ formatNumber(version.downloads) }} загрузок
+            {{ formatCount(version.downloads, MODRINTH_DOWNLOAD_FORMS) }}
           </span>
           <Button
             v-if="hasChangelog(version)"

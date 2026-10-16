@@ -21,7 +21,7 @@ describe('ThemeModeToggle', () => {
   })
 
   it('marks the active mode from the settings store', () => {
-    useSettingsStore().setTheme('default-dark')
+    useSettingsStore().setTheme('default', 'dark')
     const wrapper = mountToggle()
 
     const [dark, light] = segments(wrapper)
@@ -34,7 +34,7 @@ describe('ThemeModeToggle', () => {
   })
 
   it('switches the theme mode on click', async () => {
-    useSettingsStore().setTheme('default-dark')
+    useSettingsStore().setTheme('default', 'dark')
     const wrapper = mountToggle()
 
     const [, light] = segments(wrapper)

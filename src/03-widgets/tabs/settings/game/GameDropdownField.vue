@@ -36,7 +36,7 @@ const emit = defineEmits<{
     white-space: nowrap;
   }
 
-  .dropdown__value {
+  .select-base {
     min-width: var(--settings-control-min-width);
   }
 }

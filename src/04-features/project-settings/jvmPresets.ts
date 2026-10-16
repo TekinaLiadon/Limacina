@@ -104,7 +104,7 @@ export function useJvmPresets(config: Ref<{ jvmArgs: string; javaVersion: number
   })
 
   const applyPreset = (presetId: string): void => {
-    config.value.jvmArgs = applyJvmPreset(config.value.jvmArgs, presetId)
+    config.value = { ...config.value, jvmArgs: applyJvmPreset(config.value.jvmArgs, presetId) }
   }
 
   return { presetOptions, activePresetId, applyPreset }

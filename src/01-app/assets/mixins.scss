@@ -193,6 +193,10 @@
   }
 
   &__item-title {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: var(--text-body-sm);
     line-height: var(--leading-body-sm);
     color: var(--login-text-secondary);

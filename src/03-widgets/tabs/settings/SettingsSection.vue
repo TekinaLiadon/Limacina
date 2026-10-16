@@ -136,13 +136,13 @@ onBeforeUnmount((): void => {
   }
 
   &__inner {
-    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: var(--section-gap);
 
     &--clip {
       overflow: hidden;
+      min-height: 0;
     }
   }
 }

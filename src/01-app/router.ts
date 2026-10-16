@@ -35,7 +35,7 @@ const router = createRouter({
         {
           path: 'game',
           name: 'SettingsGame',
-          component: () => import('@/02-pages/settings/GamePage.vue'),
+          component: () => import('@/03-widgets/tabs/settings/GameSettings.vue'),
         },
         {
           path: 'skin',

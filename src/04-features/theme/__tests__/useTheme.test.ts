@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { useCoreStore, useNotificationStore, useSettingsStore, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsStore, type LauncherConfig, type ThemeMode } from '@/05-entities'
 import { withSetup } from '@/test-support/withSetup'
 
 const api = vi.hoisted(() => ({
@@ -46,20 +46,14 @@ describe('useTheme', () => {
     }
   }
 
-  const hydrateTheme = (theme: string): void => {
+  const prepareStore = (family: string, mode: ThemeMode, animations: boolean): void => {
     const settings = useSettingsStore()
-    settings.markThemeHydration(theme)
-    settings.setTheme(theme)
-  }
-
-  const prepareStore = (theme: string, animations: boolean): void => {
-    const settings = useSettingsStore()
-    settings.setTheme(theme)
+    settings.setTheme(family, mode)
     settings.setAnimationsEnabled(animations)
   }
 
   it('applies the current theme on setup', async () => {
-    prepareStore('lime-dark', true)
+    prepareStore('lime', 'dark', true)
 
     await loadTheme()
 
@@ -67,10 +61,10 @@ describe('useTheme', () => {
   })
 
   it('switches within the same mode immediately', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
-    useSettingsStore().setTheme('lime-dark')
+    useSettingsStore().setTheme('lime', 'dark')
     await nextTick()
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('lime-dark')
@@ -79,10 +73,10 @@ describe('useTheme', () => {
   })
 
   it('plays the switch animation across modes when animations are on', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
-    useSettingsStore().setTheme('lime-light')
+    useSettingsStore().setTheme('lime', 'light')
     await nextTick()
 
     expect(theme.isSwitching.value).toBe(true)
@@ -96,14 +90,14 @@ describe('useTheme', () => {
   })
 
   it('keeps the applied theme when a stale switch timer fires', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
-    useSettingsStore().setTheme('lime-light')
+    useSettingsStore().setTheme('lime', 'light')
     await nextTick()
     expect(theme.isSwitching.value).toBe(true)
 
-    useSettingsStore().setTheme('default-light')
+    useSettingsStore().setTheme('default', 'light')
     await nextTick()
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('default-light')
@@ -115,15 +109,15 @@ describe('useTheme', () => {
   })
 
   it('cancels the pending switch timer when the next change skips animation', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
-    useSettingsStore().setTheme('lime-light')
+    useSettingsStore().setTheme('lime', 'light')
     await nextTick()
     expect(theme.isSwitching.value).toBe(true)
 
     useSettingsStore().setAnimationsEnabled(false)
-    useSettingsStore().setTheme('default-light')
+    useSettingsStore().setTheme('default', 'light')
     await nextTick()
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('default-light')
@@ -135,10 +129,10 @@ describe('useTheme', () => {
   })
 
   it('reports the direction for a light to dark switch', async () => {
-    prepareStore('lime-light', true)
+    prepareStore('lime', 'light', true)
     const theme = await loadTheme()
 
-    useSettingsStore().setTheme('lime-dark')
+    useSettingsStore().setTheme('lime', 'dark')
     await nextTick()
 
     expect(theme.isSwitching.value).toBe(true)
@@ -149,10 +143,10 @@ describe('useTheme', () => {
   })
 
   it('applies the cross-mode change immediately when animations are off', async () => {
-    prepareStore('default-dark', false)
+    prepareStore('default', 'dark', false)
     const theme = await loadTheme()
 
-    useSettingsStore().setTheme('lime-light')
+    useSettingsStore().setTheme('lime', 'light')
     await nextTick()
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('lime-light')
@@ -160,7 +154,7 @@ describe('useTheme', () => {
   })
 
   it('reads the switch duration at the moment of the switch', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
     vi.spyOn(window, 'getComputedStyle').mockImplementation(
@@ -170,7 +164,7 @@ describe('useTheme', () => {
       })) as unknown as typeof window.getComputedStyle,
     )
 
-    useSettingsStore().setTheme('lime-light')
+    useSettingsStore().setTheme('lime', 'light')
     await nextTick()
     expect(theme.isSwitching.value).toBe(true)
 
@@ -181,11 +175,11 @@ describe('useTheme', () => {
   })
 
   it('toasts when the theme choice cannot be saved', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     api.saveTheme.mockRejectedValue(new Error('disk full'))
     await loadTheme()
 
-    useSettingsStore().setTheme('lime-dark')
+    useSettingsStore().setTheme('lime', 'dark')
     await nextTick()
     await Promise.resolve()
 
@@ -195,7 +189,7 @@ describe('useTheme', () => {
   })
 
   it('applies the save response without rolling back the live project scope', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const core = useCoreStore()
     core.setLauncherConfig({
       theme: 'default-dark',
@@ -209,7 +203,7 @@ describe('useTheme', () => {
     } as LauncherConfig)
     await loadTheme()
 
-    useSettingsStore().setTheme('lime-dark')
+    useSettingsStore().setTheme('lime', 'dark')
     await nextTick()
     await Promise.resolve()
     await Promise.resolve()
@@ -220,10 +214,10 @@ describe('useTheme', () => {
   })
 
   it('applies the hydration theme immediately without animation or save', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
-    hydrateTheme('lime-light')
+    useSettingsStore().hydrateTheme('lime-light')
     await nextTick()
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('lime-light')
@@ -232,13 +226,13 @@ describe('useTheme', () => {
   })
 
   it('keeps the interactive switch after a hydration without divergence', async () => {
-    prepareStore('default-dark', true)
+    prepareStore('default', 'dark', true)
     const theme = await loadTheme()
 
-    hydrateTheme('default-dark')
+    useSettingsStore().hydrateTheme('default-dark')
     await nextTick()
 
-    useSettingsStore().setTheme('lime-light')
+    useSettingsStore().setTheme('lime', 'light')
     await nextTick()
 
     expect(theme.isSwitching.value).toBe(true)

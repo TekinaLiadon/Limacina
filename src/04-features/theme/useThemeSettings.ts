@@ -25,12 +25,12 @@ export function useThemeSettings(): {
 
   const selectFamily = (familyId: string): void => {
     if (familyId === currentFamily.value) return
-    settingsStore.setThemeFamily(familyId)
+    settingsStore.setTheme(familyId, currentMode.value)
   }
 
   const selectMode = (mode: ThemeMode): void => {
     if (mode === currentMode.value) return
-    settingsStore.setThemeMode(mode)
+    settingsStore.setTheme(currentFamily.value, mode)
   }
 
   return {
