@@ -26,7 +26,7 @@ export function useOfflineCpmModel(source: OfflineCpmModelSource): {
     isSaving.value = true
     source.errorMessage.value = ''
     try {
-      const bytes = await cpmProjectToBytes(source.cpmFileBytes.value)
+      const bytes = await cpmProjectToBytes(source.cpmFileBytes.value, source.cpmData.value)
       await savePlayerModel(scope.project, {
         name: source.modelName.value,
         url: null,

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
-import type { CPMChild, CPMConfig, CPMElement } from '@/05-entities'
+import type { CPMAnimation, CPMAnimationFrameComponent, CPMChild, CPMConfig, CPMElement } from '@/05-entities'
 import { DEFAULT_RGB } from '@/06-shared'
 import { bytesToBase64 } from '../cpmBinaryWriter'
+import { writeAnimationParts } from '../cpmAnimationWriter'
 import {
   cpmConfigToBytes,
   cpmConfigToLinkBytes,
@@ -480,5 +481,104 @@ describe('cpmProjectToBytes', () => {
     const data = await zip.generateAsync({ type: 'uint8array' })
 
     expect(await cpmProjectToLinkBase64(data)).toBe(bytesToBase64(cpmConfigToLinkBytes(config)))
+  })
+})
+
+describe('cpmProjectExporter animations', () => {
+  const makeComponent = (
+    storeID: number,
+    overrides: Partial<CPMAnimationFrameComponent> = {},
+  ): CPMAnimationFrameComponent => ({
+    storeID,
+    pos: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    show: true,
+    color: '0',
+    ...overrides,
+  })
+
+  const makeAnimation = (overrides: Partial<CPMAnimation> = {}): CPMAnimation => ({
+    id: 'g_wave.json',
+    name: 'Wave',
+    kind: 'gesture',
+    duration: 1000,
+    priority: 0,
+    loop: false,
+    additive: true,
+    interpolator: 'poly_loop',
+    hidden: false,
+    frames: [{
+      components: [
+        makeComponent(77, { pos: { x: 1, y: 0, z: 0 } }),
+        makeComponent(0, { pos: { x: 0, y: 2, z: 0 } }),
+      ],
+    }],
+    layerControlled: false,
+    ...overrides,
+  })
+
+  const animationElements = new Map([
+    [77, {
+      id: 10,
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      hidden: false,
+      texture: true,
+      recolor: false,
+      rgb: DEFAULT_RGB,
+    }],
+    [0, {
+      id: 0,
+      pos: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      hidden: false,
+      texture: true,
+      recolor: false,
+      rgb: 0,
+    }],
+  ])
+
+  const wrapBlock = (type: number, payload: Uint8Array): number[] => {
+    const header: number[] = [type]
+    const { length: payloadLength } = payload
+    let length = payloadLength
+    while ((length & ~0x7F) !== 0) {
+      header.push((length & 0x7F) | 0x80)
+      length >>>= 7
+    }
+    header.push(length)
+    return [...header, ...payload]
+  }
+
+  it('embeds the animation part with the exported element ids', () => {
+    const config = makeConfig([makeChild({ storeID: 77 })])
+    const animations = [makeAnimation()]
+    const bytes = cpmConfigToLinkBytes(config, null, { animations, animEnc: null })
+    const expected = writeAnimationParts({ animations, animEnc: null, elements: animationElements })
+
+    expect(expected).toHaveLength(1)
+    expect(containsSequence(bytes, wrapBlock(10, expected[0] ?? new Uint8Array()))).toBe(true)
+  })
+
+  it('keeps the byte stream unchanged when no animations are passed', () => {
+    const config = makeConfig([makeChild({ storeID: 77 })])
+
+    expect([...cpmConfigToBytes(config, null, { animations: [], animEnc: null })])
+      .toEqual([...cpmConfigToBytes(config)])
+  })
+
+  it('passes the animation source through the project zip path', async () => {
+    const config = makeConfig([makeChild({ storeID: 77 })])
+    const animations = [makeAnimation()]
+    const zip = new JSZip()
+    zip.file('config.json', JSON.stringify(config))
+    zip.file('skin.png', makePng(64, 64))
+    const data = await zip.generateAsync({ type: 'uint8array' })
+
+    const bytes = await cpmProjectToBytes(data, { animations, animEnc: null })
+    const expected = writeAnimationParts({ animations, animEnc: null, elements: animationElements })
+
+    expect(containsSequence(bytes, Array.from(expected[0] ?? []))).toBe(true)
   })
 })

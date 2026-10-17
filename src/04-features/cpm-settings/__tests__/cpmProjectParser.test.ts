@@ -172,6 +172,31 @@ describe('parseCpmProjectFile', () => {
     await expect(parseCpmProjectFile(data)).rejects.toThrow('Файл не содержит skin.png')
   })
 
+  it('reads the animation encoding next to the animations', async () => {
+    const data = await buildZip({
+      'config.json': JSON.stringify(config),
+      'skin.png': skinBytes,
+      'animations/g_pulse.json': JSON.stringify({ name: 'Pulse' }),
+      'anim_enc.json': JSON.stringify({ freeLayers: ['hat', 'jacket'], defaultValues: { hat: true } }),
+    })
+
+    const project = await parseCpmProjectFile(data)
+
+    expect(project.animEnc).toEqual({
+      freeLayers: ['hat', 'jacket'],
+      defaultValues: { hat: true },
+    })
+  })
+
+  it('returns no animation encoding for a project without the file', async () => {
+    const data = await buildZip({
+      'config.json': JSON.stringify(config),
+      'skin.png': skinBytes,
+    })
+
+    expect((await parseCpmProjectFile(data)).animEnc).toBeNull()
+  })
+
   it('reports broken animation files and keeps the valid ones', async () => {
     const data = await buildZip({
       'config.json': JSON.stringify(config),

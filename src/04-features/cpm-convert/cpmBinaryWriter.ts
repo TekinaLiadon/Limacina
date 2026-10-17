@@ -59,6 +59,23 @@ export class CpmBinaryWriter {
     this.writeByte(ordinal)
   }
 
+  writeUTF(value: string): void {
+    const bytes: number[] = []
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i)
+      if (code >= 0x0001 && code <= 0x007F) {
+        bytes.push(code)
+      } else if (code === 0 || (code >= 0x0080 && code <= 0x07FF)) {
+        bytes.push(0xC0 | ((code >> 6) & 0x1F), 0x80 | (code & 0x3F))
+      } else {
+        bytes.push(0xE0 | ((code >> 12) & 0x0F), 0x80 | ((code >> 6) & 0x3F), 0x80 | (code & 0x3F))
+      }
+    }
+    if (bytes.length > 0xFFFF) throw new Error('Строка не помещается в формат UTF')
+    this.writeShort(bytes.length)
+    this.writeBytes(bytes)
+  }
+
   writeObjectBlock(ordinal: number, writeFn: (writer: CpmBinaryWriter) => void): void {
     this.writeEnum(ordinal)
     const inner = new CpmBinaryWriter()

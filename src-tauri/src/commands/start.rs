@@ -6,7 +6,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 use crate::commands::dto::create_mod_loader;
-use crate::commands::game_options::{parse_options_version, OPTIONS_FILE, OPTIONS_VERSION_KEY};
+use crate::commands::game_options::{
+    disable_narrator, parse_options_version, OPTIONS_FILE, OPTIONS_VERSION_KEY,
+};
 use crate::discord;
 use crate::minecraft::autojoin::{auto_join_args, first_server_address};
 use crate::minecraft::process::{spawn_game_process, GameProcess};
@@ -420,28 +422,6 @@ async fn repair_stale_java_path(
     config
 }
 
-fn force_narrator_off(content: &str) -> String {
-    let mut found = false;
-    let mut lines: Vec<String> = content
-        .lines()
-        .map(|line| {
-            if line.trim_start().starts_with("narrator:") {
-                found = true;
-                "narrator:0".to_string()
-            } else {
-                line.to_string()
-            }
-        })
-        .collect();
-    if !found {
-        lines.push("narrator:0".to_string());
-    }
-
-    let mut patched = lines.join("\n");
-    patched.push('\n');
-    patched
-}
-
 async fn prepare_options_file(game_dir: &Path) -> anyhow::Result<()> {
     let path = game_dir.join(OPTIONS_FILE);
     let existing = match tokio::fs::read_to_string(&path).await {
@@ -458,7 +438,7 @@ async fn prepare_options_file(game_dir: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let patched = force_narrator_off(&existing);
+    let patched = disable_narrator(&existing);
     if patched == existing {
         return Ok(());
     }
@@ -495,7 +475,7 @@ mod options_file_tests {
     }
 
     #[tokio::test]
-    async fn prepare_options_file_replaces_existing_narrator_line() {
+    async fn prepare_options_file_disables_narrator_and_welcome_screen() {
         let dir = TempDir::new("options_narrator_replace");
         write_options(&dir, "version:2586\nmusicVolume:0.5\nnarrator:2\nfov:70\n");
 
@@ -505,23 +485,21 @@ mod options_file_tests {
 
         assert_eq!(
             read_options(&dir),
-            "version:2586\nmusicVolume:0.5\nnarrator:0\nfov:70\n"
+            "version:2586\nmusicVolume:0.5\nnarrator:0\nfov:70\nonboardAccessibility:false\n"
         );
     }
 
     #[tokio::test]
-    async fn prepare_options_file_appends_missing_narrator_line() {
-        let dir = TempDir::new("options_narrator_append");
-        write_options(&dir, "version:2586\nmusicVolume:0.5\nfov:70\n");
+    async fn prepare_options_file_leaves_prepared_file_unchanged() {
+        let dir = TempDir::new("options_narrator_already_off");
+        let content = "version:2586\nnarrator:0\nonboardAccessibility:false\n";
+        write_options(&dir, content);
 
         prepare_options_file(&dir.0)
             .await
             .expect("подготовка options.txt");
 
-        assert_eq!(
-            read_options(&dir),
-            "version:2586\nmusicVolume:0.5\nfov:70\nnarrator:0\n"
-        );
+        assert_eq!(read_options(&dir), content);
     }
 
     #[tokio::test]

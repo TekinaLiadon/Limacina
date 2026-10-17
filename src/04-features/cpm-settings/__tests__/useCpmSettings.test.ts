@@ -88,6 +88,7 @@ const makeProject = (skinType: 'default' | 'slim' = 'default') => ({
   },
   textureBlob: new Blob(['png']),
   animations: [],
+  animEnc: null,
 })
 
 const makeModel = (id: number): UserContentItem => ({ id, url: `https://cdn/${id}.cpm` })
@@ -363,7 +364,10 @@ describe('useCpmSettings', () => {
 
     await cpm.handleUploadModel()
 
-    expect(exporter.cpmProjectToLinkBase64).toHaveBeenCalledWith(bytes)
+    expect(exporter.cpmProjectToLinkBase64).toHaveBeenCalledWith(bytes, expect.objectContaining({
+      animations: [],
+      animEnc: null,
+    }))
     expect(uploadModel).toHaveBeenCalledWith('base64-link')
     expect(savePlayerModel).toHaveBeenCalledWith('proj', {
       name: 'hero',

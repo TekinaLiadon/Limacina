@@ -29,6 +29,7 @@ const makeCpmData = (skinType: 'default' | 'slim'): CPMData => ({
   },
   textureUrl: 'blob:mock-texture',
   animations: [],
+  animEnc: null,
 })
 
 describe('useOfflineCpmModel', () => {
@@ -68,7 +69,7 @@ describe('useOfflineCpmModel', () => {
 
     await offline.handleSaveModelOffline()
 
-    expect(exporter.cpmProjectToBytes).toHaveBeenCalledWith(new Uint8Array(8))
+    expect(exporter.cpmProjectToBytes).toHaveBeenCalledWith(new Uint8Array(8), makeCpmData('default'))
     expect(savePlayerModel).toHaveBeenCalledWith('proj', {
       name: 'hero',
       url: null,

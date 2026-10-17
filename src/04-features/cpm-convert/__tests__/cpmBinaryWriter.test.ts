@@ -84,6 +84,18 @@ describe('cpmBinaryWriter', () => {
     expect(bytes).toHaveLength(203)
   })
 
+  it('writes UTF strings in the DataOutputStream format', () => {
+    expect(write((w) => w.writeUTF(''))).toEqual([0, 0])
+    expect(write((w) => w.writeUTF('Wave'))).toEqual([0, 4, 87, 97, 118, 101])
+    expect(write((w) => w.writeUTF('Привет'))).toEqual([0, 12, 208, 159, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130])
+    expect(write((w) => w.writeUTF('a\u0000b'))).toEqual([0, 4, 97, 192, 128, 98])
+    expect(write((w) => w.writeUTF('€'))).toEqual([0, 3, 226, 130, 172])
+  })
+
+  it('rejects UTF strings longer than the short length prefix', () => {
+    expect(() => write((w) => w.writeUTF('a'.repeat(65536)))).toThrow(/не помещается/)
+  })
+
   it('encodes base64 from raw bytes', () => {
     expect(bytesToBase64(new Uint8Array([83, 0, 255]))).toBe('UwD/')
     expect(bytesToBase64(new Uint8Array([1, 2, 3, 4]))).toBe('AQIDBA==')

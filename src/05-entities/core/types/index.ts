@@ -129,6 +129,7 @@ export interface CPMAnimationFrameComponent {
   rotation: CPMVec3
   scale: CPMVec3
   show: boolean
+  color?: string
 }
 
 export interface CPMAnimationFrame {
@@ -148,10 +149,28 @@ export interface CPMAnimation {
   interpolator: CPMAnimationInterpolator
   hidden: boolean
   frames: CPMAnimationFrame[]
+  poseIndex?: number
+  layerDefault?: number
+  order?: number
+  isProperty?: boolean
+  group?: string | null
+  command?: boolean
+  layerControlled?: boolean
+  maxValue?: number
+  interpolateValue?: boolean
+  mustFinish?: boolean
+}
+
+export type CPMSkinLayer = 'hat' | 'jacket' | 'left_pants_leg' | 'right_pants_leg' | 'left_sleeve' | 'right_sleeve'
+
+export interface CPMAnimEnc {
+  freeLayers: CPMSkinLayer[]
+  defaultValues: Partial<Record<CPMSkinLayer, boolean>>
 }
 
 export interface CPMData {
   config: CPMConfig
   textureUrl: string
   animations?: CPMAnimation[]
+  animEnc?: CPMAnimEnc | null
 }

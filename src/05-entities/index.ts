@@ -1,4 +1,5 @@
 export { useCoreStore } from './core/coreStore'
+export { SKIN_LAYERS, isSkinLayer, skinLayerMask } from './core/cpmLayers'
 export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, isPasswordConfirmed, AUTH_LOGIN_TAB, AUTH_REGISTER_TAB } from './core/authPolicy'
 export { LOADER_LABELS } from './core/loaders'
 export type {
@@ -33,6 +34,8 @@ export type {
   CPMAnimationFrame,
   CPMAnimationFrameComponent,
   CPMAnimationInterpolator,
+  CPMSkinLayer,
+  CPMAnimEnc,
   CPMData,
   GameOptions,
   GameOptionsData,
