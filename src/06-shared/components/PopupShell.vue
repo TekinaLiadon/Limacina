@@ -9,6 +9,7 @@ const props = defineProps<{
   ariaLabel?: string
   ariaLabelledBy?: string
   panelClass?: string
+  overlayClass?: string
 }>()
 
 const emit = defineEmits<{
@@ -47,6 +48,7 @@ onBeforeUnmount((): void => {
         v-if="persistent || visible"
         v-show="!persistent || visible"
         class="popup-shell__overlay"
+        :class="overlayClass"
         @click.self="emit('close')"
       >
         <div

@@ -101,6 +101,8 @@ function setup(): Harness {
   const player = new CpmAnimationPlayer(index, host)
   const camera = new THREE.PerspectiveCamera()
   const container = document.createElement('div')
+  container.setPointerCapture = (): void => {}
+  container.releasePointerCapture = (): void => {}
   container.getBoundingClientRect = (): DOMRect => ({
     x: 0,
     y: 0,
@@ -151,13 +153,13 @@ function setup(): Harness {
   return harness
 }
 
-function pointerEvent(type: string, clientX: number, clientY: number): MouseEvent {
+function pointerEvent(type: string, clientX: number, clientY: number, button = 0): MouseEvent {
   const event = new MouseEvent(type, {
     bubbles: true,
     cancelable: true,
     clientX,
     clientY,
-    button: 0,
+    button,
   })
   Object.defineProperty(event, 'pointerId', { value: 1 })
   return event
@@ -172,6 +174,14 @@ function overlayOf(scene: THREE.Scene): THREE.Group | undefined {
   return scene.children.find((child): boolean => child.name === 'cpm-editor-overlay') as
     | THREE.Group
     | undefined
+}
+
+function gizmoOf(scene: THREE.Scene): THREE.Object3D | undefined {
+  return scene.getObjectByName('cpm-editor-gizmo')
+}
+
+function gizmoTargetOf(model: THREE.Group): THREE.Object3D | undefined {
+  return model.getObjectByName('cpm-editor-gizmo-target')
 }
 
 function dragAt(
@@ -271,7 +281,88 @@ describe('useCpmEditorScene', () => {
     harness = null
   })
 
-  it('moves the selected bone by dragging its geometry', async () => {
+  it('shows a translate gizmo on the selected bone', async () => {
+    const { editor, model, scene, frames } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
+    await nextTick()
+    runFrames(frames)
+    scene.updateMatrixWorld(true)
+
+    const gizmo = gizmoOf(scene)
+    expect(gizmo).toBeDefined()
+    expect(gizmo?.visible).toBe(true)
+
+    const target = gizmoTargetOf(model)
+    const bone = model.children[0]?.children[0]
+    expect(bone).toBeDefined()
+    expect(target).toBeDefined()
+    expect(target?.parent).toBe(bone?.parent)
+    expect(target?.position.toArray()).toEqual([0, 4, 0])
+
+    harness?.unmount()
+    harness = null
+  })
+
+  it('shows the gizmo only while editing a selected bone and not during playback', async () => {
+    const { editor, scene, frames } = setup()
+    editor.startEditing('g_wave.json')
+    await nextTick()
+    runFrames(frames)
+    expect(gizmoOf(scene)?.visible).toBe(true)
+
+    editor.selectBone(null)
+    await nextTick()
+    runFrames(frames)
+    expect(gizmoOf(scene)?.visible).toBe(false)
+
+    editor.selectBone(100)
+    await nextTick()
+    runFrames(frames)
+    expect(gizmoOf(scene)?.visible).toBe(true)
+
+    editor.isPlaying.value = true
+    await nextTick()
+    expect(gizmoOf(scene)?.visible).toBe(false)
+
+    editor.isPlaying.value = false
+    await nextTick()
+    runFrames(frames)
+    expect(gizmoOf(scene)?.visible).toBe(true)
+
+    harness?.unmount()
+    harness = null
+  })
+
+  it('translates the selected bone along a gizmo axis', async () => {
+    const { editor, scene, camera, container, frames } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
+    await nextTick()
+    runFrames(frames)
+
+    camera.position.set(0, 4, 10)
+    camera.lookAt(0, 4, 0)
+    camera.updateMatrixWorld(true)
+    scene.updateMatrixWorld(true)
+
+    container.dispatchEvent(pointerEvent('pointerdown', 120, 100))
+    container.dispatchEvent(pointerEvent('pointermove', 150, 100, -1))
+    container.dispatchEvent(pointerEvent('pointerup', 150, 100))
+
+    const position = editor.animation.value?.frames[0]?.components
+      .find((component) => component.storeID === 100)?.pos
+    expect(position?.x).toBeGreaterThan(0)
+    expect(position?.y).toBeCloseTo(4)
+    expect(position?.z).toBeCloseTo(0)
+
+    harness?.unmount()
+    harness = null
+  })
+
+  it('does not move the bone by dragging its geometry', async () => {
     const { editor, model, scene, camera, container, frames } = setup()
     editor.startEditing('g_wave.json')
     editor.selectBone(100)
@@ -292,9 +383,7 @@ describe('useCpmEditorScene', () => {
 
     const position = editor.animation.value?.frames[0]?.components
       .find((component) => component.storeID === 100)?.pos
-    expect(position?.x).toBeGreaterThan(0)
-    expect(position?.y).toBeCloseTo(4)
-    expect(position?.z).toBeCloseTo(0)
+    expect(position).toBeUndefined()
 
     harness?.unmount()
     harness = null

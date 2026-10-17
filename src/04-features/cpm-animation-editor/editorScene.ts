@@ -1,7 +1,8 @@
 import { onScopeDispose, watch } from 'vue'
 import * as THREE from 'three'
+import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import type { CPMVec3 } from '@/05-entities'
-import type { AnimatedNode, NodeIndex } from '../cpm-viewer/cpmAnimationPlayer'
+import type { NodeIndex } from '../cpm-viewer/cpmAnimationPlayer'
 import type { CpmEditorBridge } from '../cpm-viewer/cpmEditorBridge'
 import type { CpmAnimationEditorApi } from './useCpmAnimationEditor'
 import {
@@ -26,6 +27,8 @@ const PAST_GHOST_COLOR = 0x3b82f6
 const FUTURE_GHOST_COLOR = 0xf59e0b
 const GHOST_OPACITY = 0.22
 const GHOST_MIN_OPACITY = 0.08
+const GIZMO_HELPER_NAME = 'cpm-editor-gizmo'
+const GIZMO_TARGET_NAME = 'cpm-editor-gizmo-target'
 
 interface GhostNode {
   group: THREE.Group
@@ -46,13 +49,6 @@ interface MarkerDrag {
   startX: number
   startY: number
   pivot: MarkerPivot | null
-}
-
-interface FreeDrag {
-  pointerId: number
-  plane: THREE.Plane
-  startPoint: THREE.Vector3
-  parentInverse: THREE.Matrix4
 }
 
 export function useCpmEditorScene(
@@ -76,7 +72,10 @@ export function useCpmEditorScene(
   let rebuildId = 0
   let pointerContainer: HTMLDivElement | null = null
   let drag: MarkerDrag | null = null
-  let freeDrag: FreeDrag | null = null
+  let gizmo: TransformControls | null = null
+  let gizmoTarget: THREE.Object3D | null = null
+  const gizmoStart = new THREE.Vector3()
+  let isGizmoDragging = false
 
   function ensureOverlay(): THREE.Group | null {
     const scene = bridge.modelGroup.value?.parent ?? null
@@ -104,19 +103,6 @@ export function useCpmEditorScene(
     return true
   }
 
-  function pickSelectedBone(event: PointerEvent): AnimatedNode | null {
-    const storeId = editor.selectedBoneId.value
-    const index = bridge.nodeIndex.value
-    if (storeId === null || index === null) return null
-    const node = index.get(storeId)
-    if (!node) return null
-    const meshes = node.meshes.filter((mesh): boolean => mesh.visible)
-    if (meshes.length === 0) return null
-    if (!setRayFromEvent(event)) return null
-    const [hit] = raycaster.intersectObjects(meshes, false)
-    return hit === undefined ? null : node
-  }
-
   function buildMarkerPivot(storeId: number, index: NodeIndex): MarkerPivot | null {
     const node = index.get(storeId)
     const pose = editor.selectedBonePose.value
@@ -133,60 +119,94 @@ export function useCpmEditorScene(
     }
   }
 
-  function startFreeDrag(event: PointerEvent, node: AnimatedNode): void {
+  function ensureGizmo(): TransformControls | null {
     const camera = bridge.camera.value
-    const storeId = editor.selectedBoneId.value
-    const { parent } = node.group
-    if (camera === null || storeId === null || parent === null) return
-    if (!setRayFromEvent(event)) return
+    const container = bridge.container.value
+    const scene = bridge.modelGroup.value?.parent ?? null
+    if (camera === null || container === null || scene === null) return null
 
-    node.group.updateWorldMatrix(true, false)
-    parent.updateWorldMatrix(true, false)
-    const origin = node.group.getWorldPosition(new THREE.Vector3())
-    const normal = camera.getWorldDirection(new THREE.Vector3()).normalize()
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, origin)
-    const startPoint = new THREE.Vector3()
-    if (raycaster.ray.intersectPlane(plane, startPoint) === null) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    editor.beginBoneDrag(storeId, editor.editFrame.value)
-    freeDrag = {
-      pointerId: event.pointerId,
-      plane,
-      startPoint,
-      parentInverse: new THREE.Matrix4().copy(parent.matrixWorld).invert(),
+    if (gizmo === null) {
+      gizmo = new TransformControls(camera, container)
+      gizmo.setMode('translate')
+      gizmo.setSpace('local')
+      gizmo.setTranslationSnap(DRAG_STEP)
+      gizmo.setSize(0.9)
+      gizmo.addEventListener('dragging-changed', handleGizmoDraggingChanged)
+      gizmo.addEventListener('objectChange', handleGizmoChange)
+      gizmo.getHelper().name = GIZMO_HELPER_NAME
     }
-    window.addEventListener('pointermove', handleFreeMove, true)
-    window.addEventListener('pointerup', handleFreeUp, true)
+    const helper = gizmo.getHelper()
+    if (helper.parent !== scene) scene.add(helper)
+    return gizmo
   }
 
-  function handleFreeMove(event: PointerEvent): void {
-    const session = freeDrag
-    if (session === null || event.pointerId !== session.pointerId) return
-    if (!setRayFromEvent(event)) return
+  function detachGizmo(): void {
+    if (isGizmoDragging) {
+      isGizmoDragging = false
+      bridge.isGizmoDragging.value = false
+      editor.endBoneDrag()
+      const orbit = bridge.orbitControls.value
+      if (orbit !== null) orbit.enabled = true
+    }
+    if (gizmo !== null && gizmo.dragging) gizmo.dragging = false
+    gizmo?.detach()
+    if (gizmoTarget === null) return
+    gizmoTarget.removeFromParent()
+    gizmoTarget = null
+  }
 
-    const point = new THREE.Vector3()
-    if (raycaster.ray.intersectPlane(session.plane, point) === null) return
+  function syncGizmo(storeId: number, index: NodeIndex): void {
+    const controls = ensureGizmo()
+    const node = index.get(storeId)
+    const parent = node?.group.parent ?? null
+    if (controls === null || node === undefined || parent === null) {
+      detachGizmo()
+      return
+    }
+    if (isGizmoDragging) return
 
-    const worldDelta = point.sub(session.startPoint)
-    const startLocal = session.startPoint.clone().applyMatrix4(session.parentInverse)
-    const movedLocal = session.startPoint.clone().add(worldDelta).applyMatrix4(session.parentInverse)
-    const localDelta = movedLocal.sub(startLocal)
-    const poseDelta = poseDeltaFromLocalDelta({
-      x: quantizeDragDelta(localDelta.x, DRAG_STEP),
-      y: quantizeDragDelta(localDelta.y, DRAG_STEP),
-      z: quantizeDragDelta(localDelta.z, DRAG_STEP),
-    })
+    if (gizmoTarget === null) {
+      gizmoTarget = new THREE.Object3D()
+      gizmoTarget.name = GIZMO_TARGET_NAME
+    }
+    if (gizmoTarget.parent !== parent) parent.add(gizmoTarget)
+    gizmoTarget.position.copy(node.group.position)
+    gizmoTarget.quaternion.identity()
+    gizmoTarget.scale.set(1, 1, 1)
+    controls.attach(gizmoTarget)
+  }
+
+  function handleGizmoDraggingChanged(event: { value: unknown }): void {
+    const orbit = bridge.orbitControls.value
+    const dragging = event.value === true
+    if (!dragging) {
+      isGizmoDragging = false
+      bridge.isGizmoDragging.value = false
+      editor.endBoneDrag()
+      if (orbit !== null) orbit.enabled = true
+      scheduleRebuild()
+      return
+    }
+
+    const storeId = editor.selectedBoneId.value
+    if (storeId === null || gizmoTarget === null) return
+    isGizmoDragging = true
+    bridge.isGizmoDragging.value = true
+    gizmoStart.copy(gizmoTarget.position)
+    if (orbit !== null) orbit.enabled = false
+    editor.beginBoneDrag(storeId, editor.editFrame.value)
+  }
+
+  function handleGizmoChange(): void {
+    if (!isGizmoDragging || gizmoTarget === null) return
+    const delta = {
+      x: quantizeDragDelta(gizmoTarget.position.x - gizmoStart.x, DRAG_STEP),
+      y: quantizeDragDelta(gizmoTarget.position.y - gizmoStart.y, DRAG_STEP),
+      z: quantizeDragDelta(gizmoTarget.position.z - gizmoStart.z, DRAG_STEP),
+    }
+    if (delta.x === 0 && delta.y === 0 && delta.z === 0) return
+    const poseDelta = poseDeltaFromLocalDelta(delta)
     editor.dragBoneTranslation(poseDelta.x, poseDelta.y, poseDelta.z)
-  }
-
-  function handleFreeUp(event: PointerEvent): void {
-    if (freeDrag === null || event.pointerId !== freeDrag.pointerId) return
-    freeDrag = null
-    editor.endBoneDrag()
-    window.removeEventListener('pointermove', handleFreeMove, true)
-    window.removeEventListener('pointerup', handleFreeUp, true)
   }
 
   function disposeArcLine(): void {
@@ -261,7 +281,10 @@ export function useCpmEditorScene(
   function rebuild(): void {
     rebuildId = 0
     clearScene()
-    if (!editor.isEditing.value) return
+    if (!editor.isEditing.value || editor.isPlaying.value) {
+      detachGizmo()
+      return
+    }
 
     const overlayGroup = ensureOverlay()
     const model = bridge.modelGroup.value
@@ -276,14 +299,23 @@ export function useCpmEditorScene(
       || player === null
       || animation === null
       || storeId === null
-    ) return
+    ) {
+      detachGizmo()
+      return
+    }
 
     const node = index.get(storeId)
+    if (!node) {
+      detachGizmo()
+      return
+    }
     const tipLocal = getTipLocal(storeId, index)
-    if (!node || tipLocal === null) return
 
     const frameCount = editor.frameCount.value
-    if (frameCount <= 0) return
+    if (frameCount <= 0) {
+      detachGizmo()
+      return
+    }
     const duration = Math.max(animation.duration, 1)
     const currentFrame = editor.currentFrame.value
 
@@ -294,11 +326,13 @@ export function useCpmEditorScene(
     const points: THREE.Vector3[] = []
     const keyPoints = new Map<number, THREE.Vector3>()
 
-    for (const frame of arcSampleFrames(range)) {
-      bridge.seekFrame(frame, frameCount, duration)
-      const point = boneTipWorld(node, tipLocal)
-      points.push(point)
-      if (Number.isInteger(frame) && keySet.has(frame)) keyPoints.set(frame, point.clone())
+    if (tipLocal !== null) {
+      for (const frame of arcSampleFrames(range)) {
+        bridge.seekFrame(frame, frameCount, duration)
+        const point = boneTipWorld(node, tipLocal)
+        points.push(point)
+        if (Number.isInteger(frame) && keySet.has(frame)) keyPoints.set(frame, point.clone())
+      }
     }
 
     for (const ghost of ghostFrames(currentFrame, editor.ghostBefore.value, editor.ghostAfter.value, frameCount)) {
@@ -306,6 +340,9 @@ export function useCpmEditorScene(
     }
 
     bridge.seekFrame(currentFrame, frameCount, duration)
+    syncGizmo(storeId, index)
+
+    if (tipLocal === null) return
 
     if (points.length >= 2) {
       const geometry = new THREE.BufferGeometry().setFromPoints(points)
@@ -343,9 +380,13 @@ export function useCpmEditorScene(
     if (!editor.isEditing.value) {
       cancelRebuild()
       clearScene()
+      detachGizmo()
       return
     }
-    if (editor.isPlaying.value) return
+    if (editor.isPlaying.value) {
+      detachGizmo()
+      return
+    }
     if (rebuildId !== 0) return
     rebuildId = requestAnimationFrame(rebuild)
   }
@@ -376,11 +417,7 @@ export function useCpmEditorScene(
       drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, pivot }
       window.addEventListener('pointermove', handlePointerMove, true)
       window.addEventListener('pointerup', handlePointerUp, true)
-      return
     }
-
-    const node = pickSelectedBone(event)
-    if (node !== null) startFreeDrag(event, node)
   }
 
   function handlePointerMove(event: PointerEvent): void {
@@ -412,14 +449,15 @@ export function useCpmEditorScene(
       drag = null
       editor.endBoneDrag()
     }
-    if (freeDrag !== null) {
-      freeDrag = null
+    if (isGizmoDragging) {
+      isGizmoDragging = false
+      bridge.isGizmoDragging.value = false
       editor.endBoneDrag()
     }
+    const orbit = bridge.orbitControls.value
+    if (orbit !== null) orbit.enabled = true
     window.removeEventListener('pointermove', handlePointerMove, true)
     window.removeEventListener('pointerup', handlePointerUp, true)
-    window.removeEventListener('pointermove', handleFreeMove, true)
-    window.removeEventListener('pointerup', handleFreeUp, true)
   }
 
   function detachContainer(): void {
@@ -450,12 +488,14 @@ export function useCpmEditorScene(
   watch(() => editor.ghostBefore.value, scheduleRebuild)
   watch(() => editor.ghostAfter.value, scheduleRebuild)
   watch(() => editor.isPlaying.value, (playing: boolean): void => {
-    if (!playing) scheduleRebuild()
+    if (playing) detachGizmo()
+    else scheduleRebuild()
   })
   watch(() => editor.isEditing.value, (editing: boolean): void => {
     if (editing) scheduleRebuild()
     else {
       resetDrag()
+      detachGizmo()
       clearScene()
     }
   })
@@ -467,6 +507,18 @@ export function useCpmEditorScene(
     resetDrag()
     detachContainer()
     clearScene()
+    if (gizmo !== null) {
+      gizmo.removeEventListener('dragging-changed', handleGizmoDraggingChanged)
+      gizmo.removeEventListener('objectChange', handleGizmoChange)
+      gizmo.detach()
+      gizmo.getHelper().removeFromParent()
+      gizmo.dispose()
+      gizmo = null
+    }
+    if (gizmoTarget !== null) {
+      gizmoTarget.removeFromParent()
+      gizmoTarget = null
+    }
     overlay?.removeFromParent()
     overlay = null
     markerGeometry.dispose()

@@ -749,4 +749,35 @@ describe('useCpmViewer', () => {
     expect(onBonePicked).toHaveBeenCalledWith(1)
     harness.unmount()
   })
+
+  it('does not pick a bone while the editor gizmo is dragging', async () => {
+    const bridge = createCpmEditorBridge()
+    const isEditing = ref(true)
+    const selectedBoneId = ref<number | null>(null)
+    const onBonePicked = vi.fn()
+    const harness = await mountViewer({
+      editor: { bridge, isEditing, selectedBoneId, onBonePicked },
+    })
+    await loadModel(harness, 'model.png')
+
+    const element = harness.container.value
+    if (!element) throw new Error('viewer container is missing')
+    element.getBoundingClientRect = (): DOMRect => ({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100,
+      toJSON: (): Record<string, number> => ({}),
+    })
+
+    const camera = mountedScene.camera?.value
+    camera?.position.set(0, 0, 22)
+    camera?.lookAt(0, 0, 0)
+    camera?.updateMatrixWorld()
+    mountedScene.current?.value?.updateMatrixWorld(true)
+
+    element.dispatchEvent(new MouseEvent('pointerdown', { clientX: 50, clientY: 50, button: 0 }))
+    bridge.isGizmoDragging.value = true
+    element.dispatchEvent(new MouseEvent('pointerup', { clientX: 50, clientY: 50, button: 0 }))
+
+    expect(onBonePicked).not.toHaveBeenCalled()
+    harness.unmount()
+  })
 })

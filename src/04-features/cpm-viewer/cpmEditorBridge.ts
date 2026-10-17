@@ -1,5 +1,6 @@
 import { shallowRef, type ShallowRef } from 'vue'
 import type * as THREE from 'three'
+import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { CpmAnimationPlayer, NodeIndex } from './cpmAnimationPlayer'
 
 export interface CpmEditorBridge {
@@ -8,6 +9,8 @@ export interface CpmEditorBridge {
   player: ShallowRef<CpmAnimationPlayer | null>
   camera: ShallowRef<THREE.PerspectiveCamera | null>
   container: ShallowRef<HTMLDivElement | null>
+  orbitControls: ShallowRef<OrbitControls | null>
+  isGizmoDragging: ShallowRef<boolean>
   seekFrame: (frame: number, frameCount: number, durationMs: number) => void
   requestRender: () => void
 }
@@ -31,6 +34,8 @@ export function createCpmEditorBridge(): CpmEditorBridge {
     player,
     camera: shallowRef<THREE.PerspectiveCamera | null>(null),
     container: shallowRef<HTMLDivElement | null>(null),
+    orbitControls: shallowRef<OrbitControls | null>(null),
+    isGizmoDragging: shallowRef<boolean>(false),
     seekFrame,
     requestRender: (): void => player.value?.applyCurrentFrame(),
   }
