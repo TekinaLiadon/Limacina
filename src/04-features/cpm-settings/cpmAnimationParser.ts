@@ -1,13 +1,16 @@
 import JSZip from 'jszip'
 import { readZipEntryText, type ZipReadBudget } from '../cpm-convert/cpmProjectZip'
 import { reportError } from '@/06-shared'
-import type {
-  CPMAnimation,
-  CPMAnimationInterpolator,
-  CPMAnimationFrame,
-  CPMAnimationFrameComponent,
-  CPMAnimationKind,
-  CPMVec3,
+import {
+  isSkinLayer,
+  type CPMAnimation,
+  type CPMAnimationInterpolator,
+  type CPMAnimationFrame,
+  type CPMAnimationFrameComponent,
+  type CPMAnimationKind,
+  type CPMAnimEnc,
+  type CPMSkinLayer,
+  type CPMVec3,
 } from '@/05-entities'
 
 const LAYER_PREFIX = '$layer$'
@@ -15,21 +18,26 @@ const VALUE_LAYER_PREFIX = '$value$'
 const SETUP_PREFIX = '$pre$'
 const FINISH_PREFIX = '$post$'
 
+const ANIM_ENC_FILE = 'anim_enc.json'
+const ANIMATIONS_DIR = 'animations/'
+
 const VANILLA_POSES = [
-  'standing', 'walking', 'running', 'sneaking', 'sneak_walk', 'swimming',
-  'falling', 'flying', 'creative_flying', 'sitting', 'riding', 'jumping',
-  'sleeping', 'on_ladder', 'climbing_on_ladder', 'crawling', 'dying',
-  'blocking_left', 'blocking_right', 'eating_left', 'eating_right', 'holding_left',
-  'holding_right', 'punch_left', 'punch_right', 'bow_left', 'bow_right',
-  'trident_left', 'trident_right', 'spyglass_left', 'spyglass_right',
-  'toot_horn_left', 'toot_horn_right', 'first_person_mod', 'global',
-  'retro_swimming', 'head_rotation_yaw', 'head_rotation_pitch', 'skull_render',
-  'wearing_skull', 'in_gui', 'hurt', 'hurtlight', 'creative', 'suckspin',
+  'custom',
+  'standing', 'walking', 'running', 'sneaking', 'swimming', 'falling', 'sleeping', 'riding', 'flying',
+  'dying', 'skull_render', 'global', 'creative_flying', 'eating_left', 'eating_right', 'retro_swimming',
+  'jumping', 'sneak_walk', 'punch_left', 'punch_right', 'armor_head', 'armor_body', 'armor_legs',
+  'armor_boots', 'wearing_elytra', 'bow_left', 'bow_right', 'crossbow_left', 'crossbow_right',
+  'crossbow_ch_left', 'crossbow_ch_right', 'trident_left', 'trident_right', 'trident_spin',
+  'spyglass_left', 'spyglass_right', 'holding_left', 'holding_right', 'wearing_skull', 'blocking_left',
+  'blocking_right', 'parrot_left', 'parrot_right', 'hurt', 'on_fire', 'freezing', 'on_ladder',
+  'climbing_on_ladder', 'speaking', 'toot_horn_left', 'toot_horn_right', 'in_gui', 'first_person_mod',
+  'voice_muted', 'vr_first_person', 'vr_third_person_sitting', 'vr_third_person_standing',
+  'first_person_hand', 'health', 'hunger', 'air', 'in_menu', 'invisible', 'light', 'head_rotation_yaw',
+  'head_rotation_pitch', 'brush_left', 'brush_right', 'crawling', 'spear_left', 'spear_right',
 ]
 
 const INTERPOLATORS: CPMAnimationInterpolator[] = [
-  'linear_loop', 'linear_single', 'poly_loop', 'poly_single',
-  'trig_loop', 'trig_single', 'no',
+  'linear_loop', 'linear_single', 'poly_loop', 'poly_single', 'trig_loop', 'trig_single', 'no',
 ]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,6 +72,7 @@ function sanitizeFrameComponent(value: unknown): CPMAnimationFrameComponent | nu
     rotation: value.rotation,
     scale: value.scale,
     show: asBoolean(value.show) ?? value.show === 1,
+    color: asString(value.color) ?? '0',
   }
 }
 
@@ -80,24 +89,29 @@ function sanitizeFrames(value: unknown): CPMAnimationFrame[] {
   return frames
 }
 
-function detectVanillaPose(posePart: string): string | null {
+function detectVanillaPose(posePart: string): { name: string; index: number } | null {
   const name = posePart.endsWith('.json') ? posePart.slice(0, -5) : posePart
-  let best: string | null = null
-  for (const pose of VANILLA_POSES) {
-    if (!name.startsWith(pose)) continue
-    if (best === null || pose.length > best.length) best = pose
+  let best: { name: string; index: number } | null = null
+  for (let index = 1; index < VANILLA_POSES.length; index++) {
+    const pose = VANILLA_POSES[index]
+    if (pose === undefined || !name.startsWith(pose)) continue
+    if (best === null || pose.length > best.name.length) best = { name: pose, index }
   }
   return best
 }
 
-function classify(fileName: string, displayName: string): { kind: CPMAnimationKind; name: string } {
+function classify(fileName: string, displayName: string): {
+  kind: CPMAnimationKind
+  name: string
+  poseIndex?: number
+} {
   const separatorIndex = fileName.indexOf('_')
   const prefix = separatorIndex === -1 ? fileName : fileName.slice(0, separatorIndex)
   const rest = separatorIndex === -1 ? '' : fileName.slice(separatorIndex + 1)
 
   if (prefix === 'v' && rest !== '') {
     const pose = detectVanillaPose(rest)
-    if (pose) return { kind: 'vanilla-pose', name: pose }
+    if (pose) return { kind: 'vanilla-pose', name: pose.name, poseIndex: pose.index }
   } else if (prefix === 'c') {
     return { kind: 'custom-pose', name: displayName }
   } else if (prefix === 'g') {
@@ -123,9 +137,42 @@ function findInterpolator(raw: unknown): CPMAnimationInterpolator | undefined {
   return INTERPOLATORS.find((value) => value === raw)
 }
 
+function toSkinLayers(value: unknown): CPMSkinLayer[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is CPMSkinLayer => typeof item === 'string' && isSkinLayer(item))
+}
+
+export async function parseCpmAnimEnc(zip: JSZip, budget: ZipReadBudget): Promise<CPMAnimEnc | null> {
+  const file = zip.file(ANIM_ENC_FILE)
+  if (!file) return null
+
+  const text = await readZipEntryText(budget, file)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = null
+  }
+  if (!isRecord(parsed)) {
+    reportError('Не удалось разобрать anim_enc.json в файле проекта')
+    return null
+  }
+
+  const defaultValues: Partial<Record<CPMSkinLayer, boolean>> = {}
+  if (isRecord(parsed.defaultValues)) {
+    for (const [layer, enabled] of Object.entries(parsed.defaultValues)) {
+      if (typeof enabled !== 'boolean') continue
+      if (!isSkinLayer(layer)) continue
+      defaultValues[layer] = enabled
+    }
+  }
+
+  return { freeLayers: toSkinLayers(parsed.freeLayers), defaultValues }
+}
+
 export async function parseCpmAnimations(zip: JSZip, budget: ZipReadBudget): Promise<CPMAnimation[]> {
   const files = Object.keys(zip.files)
-    .filter((path) => path.startsWith('animations/') && path.endsWith('.json'))
+    .filter((path) => path.startsWith(ANIMATIONS_DIR) && path.endsWith('.json'))
     .sort()
 
   const animations: CPMAnimation[] = []
@@ -145,12 +192,13 @@ export async function parseCpmAnimations(zip: JSZip, budget: ZipReadBudget): Pro
       raw = null
     }
     if (raw === null) {
-      brokenFiles.push(path.slice('animations/'.length))
+      brokenFiles.push(path.slice(ANIMATIONS_DIR.length))
       continue
     }
 
-    const fileName = path.slice('animations/'.length)
-    const { kind, name } = classify(fileName, asString(raw.name) ?? 'Unnamed')
+    const fileName = path.slice(ANIMATIONS_DIR.length)
+    const displayName = asString(raw.name) ?? 'Unnamed'
+    const { kind, name, poseIndex } = classify(fileName, displayName)
 
     const rawInterpolator = raw.interpolator
     const hasInterpolator = rawInterpolator !== undefined && rawInterpolator !== null
@@ -165,10 +213,20 @@ export async function parseCpmAnimations(zip: JSZip, budget: ZipReadBudget): Pro
       duration: asNumber(raw.duration) ?? 1000,
       priority: asNumber(raw.priority) ?? 0,
       loop: asBoolean(raw.loop) ?? false,
-      additive: asBoolean(raw.additive) ?? true,
-      interpolator: findInterpolator(rawInterpolator) ?? 'poly_single',
+      additive: asBoolean(raw.additive) ?? false,
+      interpolator: findInterpolator(rawInterpolator) ?? 'poly_loop',
       hidden: asBoolean(raw.hidden) ?? false,
       frames: sanitizeFrames(raw.frames),
+      layerDefault: asNumber(raw.layerDefault) ?? 0,
+      order: asNumber(raw.order) ?? 0,
+      isProperty: asBoolean(raw.isProperty) ?? false,
+      group: asString(raw.group),
+      command: asBoolean(raw.command) ?? false,
+      layerControlled: asBoolean(raw.layerControlled) ?? true,
+      maxValue: asNumber(raw.maxValue) ?? 100,
+      interpolateValue: asBoolean(raw.interpolateVal) ?? true,
+      mustFinish: asBoolean(raw.mustFinish) ?? false,
+      ...(poseIndex === undefined ? {} : { poseIndex }),
     })
   }
 

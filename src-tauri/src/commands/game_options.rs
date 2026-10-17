@@ -23,6 +23,8 @@ pub const GLOBAL_OPTIONS_FILE: &str = "game_options.json";
 pub const OPTIONS_FILE: &str = "options.txt";
 
 pub const OPTIONS_VERSION_KEY: &str = "version";
+const NARRATOR_DISABLED_VALUES: [(&str, &str); 2] =
+    [("narrator", "0"), ("onboardAccessibility", "false")];
 const OPTIONS_RESOURCE_PACK_PREFIX: &str = "file/";
 const CLIENT_VERSION_FILE: &str = "version.json";
 const CLIENT_DATA_VERSION_KEY: &str = "world_version";
@@ -438,6 +440,41 @@ pub fn apply_options_version(content: &str, data_version: u32) -> String {
     serialize_lines(&lines)
 }
 
+fn is_option_key(line: &str, key: &str) -> bool {
+    line.trim_start()
+        .strip_prefix(key)
+        .is_some_and(|rest| rest.starts_with(':'))
+}
+
+pub fn disable_narrator(content: &str) -> String {
+    let mut applied = [false; NARRATOR_DISABLED_VALUES.len()];
+    let mut lines: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let matched = NARRATOR_DISABLED_VALUES
+                .iter()
+                .enumerate()
+                .find(|(_, (key, _))| is_option_key(line, key));
+            match matched {
+                Some((index, (key, value))) => {
+                    applied[index] = true;
+                    format!("{key}:{value}")
+                }
+                None => line.to_string(),
+            }
+        })
+        .collect();
+    for (index, (key, value)) in NARRATOR_DISABLED_VALUES.iter().enumerate() {
+        if !applied[index] {
+            lines.push(format!("{key}:{value}"));
+        }
+    }
+
+    let mut patched = lines.join("\n");
+    patched.push('\n');
+    patched
+}
+
 pub fn client_data_version(game_dir: &Path, mc_version: &str) -> Option<u32> {
     if mc_version.trim().is_empty() {
         return None;
@@ -473,6 +510,7 @@ pub async fn install_game_options(
     if let Some(options) = options {
         content = merge_options(Some(&content), options, uses_normalized_fov(mc_version));
     }
+    content = disable_narrator(&content);
     write_options_file(&path, &content).await?;
 
     log_info!(
@@ -1048,6 +1086,28 @@ mod tests {
         assert_eq!(client_data_version(&dir.0, "1.16.5"), None);
     }
 
+    #[test]
+    fn disable_narrator_replaces_lines_and_keeps_the_rest() {
+        let patched = super::disable_narrator(
+            "version:2586\nnarrator:2\nmouseSensitivity:0.5\nonboardAccessibility:true\n",
+        );
+
+        assert_eq!(
+            patched,
+            "version:2586\nnarrator:0\nmouseSensitivity:0.5\nonboardAccessibility:false\n"
+        );
+    }
+
+    #[test]
+    fn disable_narrator_appends_missing_keys() {
+        let patched = super::disable_narrator("version:2586\nfov:0.5\n");
+
+        assert_eq!(
+            patched,
+            "version:2586\nfov:0.5\nnarrator:0\nonboardAccessibility:false\n"
+        );
+    }
+
     #[tokio::test]
     async fn install_game_options_creates_file_with_version_and_settings() {
         let dir = TempDir::new("install_options_create");
@@ -1070,6 +1130,14 @@ mod tests {
             created.contains("renderDistance:8"),
             "настройки с фронта попадают в файл: {created}"
         );
+        assert!(
+            created.contains("narrator:0"),
+            "нарратор выключается вместе с настройками: {created}"
+        );
+        assert!(
+            created.contains("onboardAccessibility:false"),
+            "приветственный экран нарратора не показывается: {created}"
+        );
     }
 
     #[tokio::test]
@@ -1081,7 +1149,7 @@ mod tests {
         );
         std::fs::write(
             dir.0.join(super::OPTIONS_FILE),
-            "version:1.16.5\nmouseSensitivity:0.5\nfov:0.5\n",
+            "version:1.16.5\nmouseSensitivity:0.5\nnarrator:1\nfov:0.5\n",
         )
         .unwrap();
 
@@ -1093,6 +1161,14 @@ mod tests {
         assert_eq!(repaired.lines().next(), Some("version:2586"));
         assert!(repaired.contains("mouseSensitivity:0.5"));
         assert!(repaired.contains("fov:0.5"));
+        assert!(
+            repaired.contains("narrator:0"),
+            "включённый нарратор выключается: {repaired}"
+        );
+        assert!(
+            repaired.contains("onboardAccessibility:false"),
+            "приветственный экран нарратора не показывается: {repaired}"
+        );
         assert!(
             !repaired.contains("renderDistance"),
             "без настроек с фронта чужие ключи не дозаписываются"

@@ -1,7 +1,8 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
+import { ANIMATION_DATA_PART, writeAnimationParts, type CpmAnimationElementIndex } from './cpmAnimationWriter'
 import { readCpmProjectZip } from './cpmProjectZip'
 import { DEFAULT_RGB, parseHexColor } from '@/06-shared'
-import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
+import type { CPMAnimEnc, CPMAnimation, CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
 const PT = {
   END: 0, PLAYER: 1, DEFINITION: 3, SKIN: 5, PLAYER_PARTPOS: 7,
@@ -130,16 +131,29 @@ function pngSize(png: Uint8Array): { w: number; h: number } {
 interface FlatModel {
   cubes: V1Cube[]
   elementIds: Map<CPMElement | CPMChild, number>
+  animationElements: CpmAnimationElementIndex
 }
 
 function flatten(config: CPMConfig): FlatModel {
   const cubes: V1Cube[] = []
   const elementIds = new Map<CPMElement | CPMChild, number>()
+  const animationElements: CpmAnimationElementIndex = new Map()
   let nextId = 10
 
   const pushPivotCube = (root: CPMElement, parentId: number): number => {
     const fakeId = nextId++
     elementIds.set(root, fakeId)
+    if (typeof root.storeID === 'number') {
+      animationElements.set(root.storeID, {
+        id: fakeId,
+        pos: root.pos ?? { x: 0, y: 0, z: 0 },
+        rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
+        hidden: root.show === false,
+        texture: true,
+        recolor: false,
+        rgb: 0,
+      })
+    }
     cubes.push({
       name: root.name,
       size: { x: 0, y: 0, z: 0 },
@@ -172,12 +186,32 @@ function flatten(config: CPMConfig): FlatModel {
           continue
         }
         elementIds.set(root, ordinal)
+        animationElements.set(ordinal, {
+          id: ordinal,
+          pos: root.pos ?? { x: 0, y: 0, z: 0 },
+          rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
+          hidden: root.show === false,
+          texture: true,
+          recolor: false,
+          rgb: 0,
+        })
         walk(root.children ?? [], ordinal)
         continue
       }
       const child = el as CPMChild
       const id = nextId++
       elementIds.set(child, id)
+      if (typeof child.storeID === 'number') {
+        animationElements.set(child.storeID, {
+          id,
+          pos: child.pos ?? { x: 0, y: 0, z: 0 },
+          rotation: child.rotation ?? { x: 0, y: 0, z: 0 },
+          hidden: child.hidden === true,
+          texture: child.texture !== false,
+          recolor: child.recolor === true,
+          rgb: parseHexColor(child.color) ?? DEFAULT_RGB,
+        })
+      }
       cubes.push({
         name: child.name,
         size: child.size ?? { x: 0, y: 0, z: 0 },
@@ -196,17 +230,31 @@ function flatten(config: CPMConfig): FlatModel {
   }
 
   walk(config.elements ?? [], 0)
-  return { cubes, elementIds }
+  return { cubes, elementIds, animationElements }
 }
 
-export async function cpmProjectToBytes(data: Uint8Array): Promise<Uint8Array> {
-  const { config, skinPng } = await readCpmProjectZip(data)
-  return cpmConfigToBytes(config, skinPng)
+export interface CpmAnimationSource {
+  animations?: CPMAnimation[]
+  animEnc?: CPMAnimEnc | null
 }
 
-export async function cpmProjectToLinkBase64(data: Uint8Array): Promise<string> {
+function writeAnimationBlock(def: CpmBinaryWriter, source: CpmAnimationSource | undefined, elements: CpmAnimationElementIndex): void {
+  if (source === undefined) return
+  const animations = source.animations ?? []
+  if (animations.length === 0) return
+
+  const parts = writeAnimationParts({ animations, animEnc: source.animEnc ?? null, elements })
+  parts.forEach((part) => def.writeObjectBlock(ANIMATION_DATA_PART, (w) => w.writeBytes(part)))
+}
+
+export async function cpmProjectToBytes(data: Uint8Array, source?: CpmAnimationSource): Promise<Uint8Array> {
   const { config, skinPng } = await readCpmProjectZip(data)
-  return bytesToBase64(cpmConfigToLinkBytes(config, skinPng))
+  return cpmConfigToBytes(config, skinPng, source)
+}
+
+export async function cpmProjectToLinkBase64(data: Uint8Array, source?: CpmAnimationSource): Promise<string> {
+  const { config, skinPng } = await readCpmProjectZip(data)
+  return bytesToBase64(cpmConfigToLinkBytes(config, skinPng, source))
 }
 
 function appendChecksum(raw: Uint8Array): Uint8Array {
@@ -219,8 +267,8 @@ function appendChecksum(raw: Uint8Array): Uint8Array {
   return result
 }
 
-export function cpmConfigToBytes(config: CPMConfig, skinPng: Uint8Array | null = null): Uint8Array {
-  const definition = buildDefinitionBytes(config, skinPng)
+export function cpmConfigToBytes(config: CPMConfig, skinPng: Uint8Array | null = null, source?: CpmAnimationSource): Uint8Array {
+  const definition = buildDefinitionBytes(config, skinPng, source)
   const w = new CpmBinaryWriter()
   w.writeByte(HEADER)
   w.writeObjectBlock(PT.SKIN_TYPE, (ww) => {
@@ -233,15 +281,15 @@ export function cpmConfigToBytes(config: CPMConfig, skinPng: Uint8Array | null =
   return appendChecksum(w.toArray())
 }
 
-export function cpmConfigToLinkBytes(config: CPMConfig, skinPng: Uint8Array | null = null): Uint8Array {
+export function cpmConfigToLinkBytes(config: CPMConfig, skinPng: Uint8Array | null = null, source?: CpmAnimationSource): Uint8Array {
   const w = new CpmBinaryWriter()
   w.writeByte(HEADER)
-  w.writeBytes(buildDefinitionBytes(config, skinPng))
+  w.writeBytes(buildDefinitionBytes(config, skinPng, source))
   return appendChecksum(w.toArray())
 }
 
-function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Uint8Array {
-  const { cubes, elementIds } = flatten(config)
+function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null, source?: CpmAnimationSource): Uint8Array {
+  const { cubes, elementIds, animationElements } = flatten(config)
 
   const def = new CpmBinaryWriter()
   const renderEffect = (effect: number, writeFn: (writer: CpmBinaryWriter) => void): void => {
@@ -393,6 +441,8 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null): Ui
       })
     }
   }
+
+  writeAnimationBlock(def, source, animationElements)
 
   const scaling = config.scaling ?? 1
   if (scaling !== 0 && scaling !== 1) {

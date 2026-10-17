@@ -104,6 +104,7 @@ export function useCpmSettings() {
       config: project.config,
       textureUrl,
       animations: project.animations,
+      animEnc: project.animEnc,
     }
     cpmFileBytes.value = bytes
     cpmFileName.value = name
@@ -160,7 +161,7 @@ export function useCpmSettings() {
     content.errorMessage.value = ''
     let uploaded: UserContentItem | null = null
     try {
-      const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value)
+      const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value, cpmData.value)
       uploaded = await content.handleUpload(base64)
       if (uploaded === null) return
 
