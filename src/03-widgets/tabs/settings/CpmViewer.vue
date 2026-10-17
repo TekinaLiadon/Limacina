@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, toRef } from 'vue'
-import { useCpmViewer, type ActiveCpmAnimation } from '@/04-features'
+import {
+  useCpmViewer,
+  type ActiveCpmAnimation,
+  type CpmEditorBridge,
+  type CpmViewerOptions,
+} from '@/04-features'
 import type { CPMData } from '@/05-entities'
 import { useViewerControls } from './viewerControls'
 
@@ -11,12 +16,16 @@ const props = defineProps<{
   isAnimationPlaying?: boolean
   animationSpeed?: number
   isAnimationLooped?: boolean
+  editorBridge?: CpmEditorBridge | null
+  isEditing?: boolean
+  selectedBoneId?: number | null
 }>()
 
 const emit = defineEmits<{
   'playing-changed': [playing: boolean]
   'animation-finished': []
   'load-error': []
+  'bone-picked': [storeId: number | null]
 }>()
 
 const container = ref<HTMLDivElement | null>(null)
@@ -27,6 +36,23 @@ const activeAnimations = computed((): ActiveCpmAnimation[] => props.activeAnimat
 const isAnimationPlaying = computed((): boolean => props.isAnimationPlaying ?? false)
 const animationSpeed = computed((): number => props.animationSpeed ?? 1)
 const isAnimationLooped = computed((): boolean => props.isAnimationLooped ?? false)
+const isEditing = computed((): boolean => props.isEditing ?? false)
+const selectedBoneId = computed((): number | null => props.selectedBoneId ?? null)
+
+const viewerOptions: CpmViewerOptions = {
+  onPlayingChanged: (playing: boolean) => emit('playing-changed', playing),
+  onAnimationFinished: () => emit('animation-finished'),
+  onTextureError: () => emit('load-error'),
+}
+
+if (props.editorBridge) {
+  viewerOptions.editor = {
+    bridge: props.editorBridge,
+    isEditing,
+    selectedBoneId,
+    onBonePicked: (storeId: number | null) => emit('bone-picked', storeId),
+  }
+}
 
 useCpmViewer(
   container,
@@ -37,11 +63,7 @@ useCpmViewer(
   isAnimationPlaying,
   animationSpeed,
   isAnimationLooped,
-  {
-    onPlayingChanged: (playing: boolean) => emit('playing-changed', playing),
-    onAnimationFinished: () => emit('animation-finished'),
-    onTextureError: () => emit('load-error'),
-  },
+  viewerOptions,
 )
 </script>
 

@@ -46,6 +46,9 @@ const emit = defineEmits<{
     <slot name="below-error" />
 
     <div class="user-content-viewer__actions">
+      <div v-if="$slots['actions-meta']" class="user-content-viewer__actions-meta">
+        <slot name="actions-meta" />
+      </div>
       <Button class="btn-primary user-content-viewer__btn" @click="emit('select')">
         {{ props.selectLabel }}
       </Button>
@@ -123,6 +126,16 @@ const emit = defineEmits<{
 
   &__actions {
     @include mixins.viewer-actions-row('.user-content-viewer__btn');
+
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  &__actions-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    margin-right: auto;
   }
 
   &__hint {

@@ -12,6 +12,7 @@ import { authLogins, getErrorMessage, loadSettingsProject, saveCurrentProject } 
 import { reportError, type DropdownOption } from '@/06-shared'
 import { finalizeSession } from '@/04-features/accounts/finalizeSession'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
+import { hasUnsavedCpmAnimationChanges } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
 
 const isProjectSwitching = ref<boolean>(false)
 
@@ -43,6 +44,9 @@ export function useProjectSwitch() {
     if (launchStore.gameUsernames.length > 0) return 'Нельзя переключить проект, пока запущена игра'
     if (launchStore.isLaunching) return 'Дождитесь завершения запуска игры'
     if (accountsStore.authLoading || accountsStore.isLoading) return 'Дождитесь завершения авторизации'
+    if (hasUnsavedCpmAnimationChanges()) {
+      return 'В редакторе анимаций есть несохранённые изменения, переключение проекта заблокировано'
+    }
     return null
   }
 

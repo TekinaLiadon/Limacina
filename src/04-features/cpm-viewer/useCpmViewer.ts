@@ -4,8 +4,12 @@ import { DEFAULT_RGB, parseHexColor, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitToView } from '@/04-features/viewer/useViewerCamera'
 import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
-import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type SharedClock } from './cpmAnimationPlayer'
+import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type NodeIndex, type SharedClock } from './cpmAnimationPlayer'
+import type { CpmEditorBridge } from './cpmEditorBridge'
 import { computeMeshVisible } from './meshVisibility'
+
+const PICK_DRAG_THRESHOLD = 5
+const HIGHLIGHT_EMISSIVE = 0x3b82f6
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -392,10 +396,18 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
   return rootGroup
 }
 
+export interface CpmEditorViewOptions {
+  bridge: CpmEditorBridge
+  isEditing: Ref<boolean>
+  selectedBoneId: Ref<number | null>
+  onBonePicked: (storeId: number | null) => void
+}
+
 export interface CpmViewerOptions {
   onPlayingChanged?: (playing: boolean) => void
   onAnimationFinished?: () => void
   onTextureError?: (url: string) => void
+  editor?: CpmEditorViewOptions
 }
 
 export function useCpmViewer(
@@ -412,6 +424,13 @@ export function useCpmViewer(
   const animationClocks = new Map<string, SharedClock>()
   let player: CpmAnimationPlayer | null = null
   let currentData: CPMData | null = null
+  let currentIndex: NodeIndex | null = null
+  let activeCamera: THREE.PerspectiveCamera | null = null
+  let highlightedBoneId: number | null = null
+  let pointerStart: { x: number; y: number } | null = null
+  let pointerElement: HTMLDivElement | null = null
+  const raycaster = new THREE.Raycaster()
+  const pointerNdc = new THREE.Vector2()
   let tickId = 0
 
   const { modelGroup, loadModel, clearModel } = useViewerModel(
@@ -422,7 +441,10 @@ export function useCpmViewer(
         currentData ? buildCpmModel(currentData.config, texture) : new THREE.Group(),
       onModelShown: (model, _texture, api): void => {
         player?.dispose()
-        player = new CpmAnimationPlayer(indexModelNodes(model), {
+        currentIndex = indexModelNodes(model)
+        activeCamera = api.camera.value
+        highlightedBoneId = null
+        player = new CpmAnimationPlayer(currentIndex, {
           activeLayerIds,
           isPlaying: isAnimationPlaying,
           onFinished: () => {
@@ -435,13 +457,30 @@ export function useCpmViewer(
         player.setAnimations(activeAnimations.value)
         player.setPlaying(isAnimationPlaying.value)
 
+        if (options.editor) {
+          options.editor.bridge.modelGroup.value = model
+          options.editor.bridge.nodeIndex.value = currentIndex
+          options.editor.bridge.player.value = player
+          options.editor.bridge.camera.value = api.camera.value
+        }
+
         updateVisibility()
+        applyEditorHighlight()
         syncAnimationTick()
         fitToView(api)
       },
       onModelCleared: (): void => {
         player?.dispose()
         player = null
+        currentIndex = null
+        activeCamera = null
+        highlightedBoneId = null
+        if (options.editor) {
+          options.editor.bridge.modelGroup.value = null
+          options.editor.bridge.nodeIndex.value = null
+          options.editor.bridge.player.value = null
+          options.editor.bridge.camera.value = null
+        }
         syncAnimationTick()
       },
       onTextureError: (url: string): void => {
@@ -470,6 +509,94 @@ export function useCpmViewer(
     }
   }
 
+  function setBoneHighlight(storeId: number | null, enabled: boolean): void {
+    if (storeId === null || currentIndex === null) return
+    const node = currentIndex.get(storeId)
+    if (!node) return
+    node.meshes.forEach((mesh) => {
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      materials.forEach((material) => {
+        if (material instanceof THREE.MeshLambertMaterial) {
+          material.emissive.setHex(enabled ? HIGHLIGHT_EMISSIVE : 0x000000)
+        }
+      })
+    })
+  }
+
+  function applyEditorHighlight(): void {
+    if (currentIndex === null) return
+    const nextId = options.editor?.isEditing.value === true
+      ? options.editor.selectedBoneId.value
+      : null
+    if (highlightedBoneId === nextId) return
+
+    setBoneHighlight(highlightedBoneId, false)
+    highlightedBoneId = nextId
+    setBoneHighlight(nextId, true)
+  }
+
+  function resolvePickerStoreId(object: THREE.Object3D): number | null {
+    let current: THREE.Object3D | null = object
+    while (current !== null) {
+      const storeId = current.userData.storeID
+      if (typeof storeId === 'number') return storeId
+      current = current.parent
+    }
+    return null
+  }
+
+  function pickBoneAt(clientX: number, clientY: number): number | null {
+    const model = modelGroup.value
+    const camera = activeCamera
+    const root = container.value
+    if (!model || !camera || !root) return null
+
+    const rect = root.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+
+    pointerNdc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    )
+    raycaster.setFromCamera(pointerNdc, camera)
+    const hits = raycaster.intersectObject(model, true)
+    for (const hit of hits) {
+      const storeId = resolvePickerStoreId(hit.object)
+      if (storeId !== null) return storeId
+    }
+    return null
+  }
+
+  function handlePointerDown(event: PointerEvent): void {
+    if (options.editor?.isEditing.value !== true || event.button !== 0) return
+    pointerStart = { x: event.clientX, y: event.clientY }
+  }
+
+  function handlePointerUp(event: PointerEvent): void {
+    const start = pointerStart
+    pointerStart = null
+    if (start === null || options.editor === undefined) return
+    if (options.editor.isEditing.value !== true) return
+    const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y)
+    if (distance > PICK_DRAG_THRESHOLD) return
+    options.editor.onBonePicked(pickBoneAt(event.clientX, event.clientY))
+  }
+
+  function detachPointerElement(): void {
+    if (pointerElement === null) return
+    pointerElement.removeEventListener('pointerdown', handlePointerDown)
+    pointerElement.removeEventListener('pointerup', handlePointerUp)
+    pointerElement = null
+  }
+
+  function attachPointerElement(element: HTMLDivElement | null): void {
+    detachPointerElement()
+    if (element === null) return
+    element.addEventListener('pointerdown', handlePointerDown)
+    element.addEventListener('pointerup', handlePointerUp)
+    pointerElement = element
+  }
+
   function stopAnimationTick(): void {
     if (tickId !== 0) {
       cancelAnimationFrame(tickId)
@@ -492,9 +619,9 @@ export function useCpmViewer(
     stopAnimationTick()
   }
 
-  watch(cpmData, (data) => {
-    currentData = data
-    if (data) loadModel(data.textureUrl)
+  watch((): string | null => cpmData.value?.textureUrl ?? null, (): void => {
+    currentData = cpmData.value
+    if (currentData) loadModel(currentData.textureUrl)
     else clearModel()
   }, { immediate: true })
 
@@ -520,9 +647,21 @@ export function useCpmViewer(
     updateVisibility()
   })
 
+  if (options.editor) {
+    watch(options.editor.selectedBoneId, applyEditorHighlight)
+    watch(options.editor.isEditing, applyEditorHighlight)
+  }
+
+  watch(container, (element) => {
+    attachPointerElement(element)
+    if (options.editor) options.editor.bridge.container.value = element
+  }, { immediate: true })
+
   onBeforeUnmount(() => {
+    detachPointerElement()
     stopAnimationTick()
     clearModel()
+    if (options.editor) options.editor.bridge.container.value = null
   })
 
   return {}

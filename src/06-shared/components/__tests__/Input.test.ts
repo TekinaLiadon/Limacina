@@ -174,6 +174,104 @@ describe('Input numeric mode', () => {
 
     wrapper.unmount()
   })
+
+  it('steps the value with the custom arrows', async () => {
+    const wrapper = mount(Input, {
+      props: { modelValue: 10, options: { type: 'number' } },
+      attrs: { min: 1, max: 20, step: 2 },
+    })
+
+    await wrapper.find('[aria-label="Увеличить значение"]').trigger('click')
+    let emissions = wrapper.emitted('update:modelValue')
+    expect(emissions?.[emissions.length - 1]).toEqual([12])
+
+    await wrapper.find('[aria-label="Уменьшить значение"]').trigger('click')
+    emissions = wrapper.emitted('update:modelValue')
+    expect(emissions?.[emissions.length - 1]).toEqual([8])
+
+    wrapper.unmount()
+  })
+
+  it('clamps arrow stepping at the numeric bounds', async () => {
+    const atMin = mount(Input, {
+      props: { modelValue: 1, options: { type: 'number' } },
+      attrs: { min: 1 },
+    })
+    await atMin.find('[aria-label="Уменьшить значение"]').trigger('click')
+    let emissions = atMin.emitted('update:modelValue')
+    expect(emissions?.[emissions.length - 1]).toEqual([1])
+    atMin.unmount()
+
+    const atMax = mount(Input, {
+      props: { modelValue: 20, options: { type: 'number' } },
+      attrs: { max: 20 },
+    })
+    await atMax.find('[aria-label="Увеличить значение"]').trigger('click')
+    emissions = atMax.emitted('update:modelValue')
+    expect(emissions?.[emissions.length - 1]).toEqual([20])
+    atMax.unmount()
+  })
+
+  it('renders the stepper only for numeric inputs', () => {
+    const numeric = mount(Input, { props: { modelValue: 5, options: { type: 'number' } } })
+    expect(numeric.findAll('.input__step')).toHaveLength(2)
+    numeric.unmount()
+
+    const text = mountInput()
+    expect(text.findAll('.input__step')).toHaveLength(0)
+    text.unmount()
+  })
+
+  it('starts from the minimum when stepping an empty bounded field', async () => {
+    const wrapper = mount(Input, {
+      props: { modelValue: null, options: { type: 'number' } },
+      attrs: { min: 1 },
+    })
+
+    await wrapper.find('[aria-label="Увеличить значение"]').trigger('click')
+    const emissions = wrapper.emitted('update:modelValue')
+    expect(emissions?.[emissions.length - 1]).toEqual([1])
+
+    wrapper.unmount()
+  })
+
+  it('emits change with the committed numeric value', async () => {
+    const wrapper = mount(Input, {
+      props: { modelValue: 10, options: { type: 'number' } },
+    })
+
+    await wrapper.find('input').setValue('12')
+    const emissions = wrapper.emitted('change')
+    expect(emissions?.[emissions.length - 1]).toEqual([12])
+
+    wrapper.unmount()
+  })
+
+  it('emits null as change when the numeric field is cleared', async () => {
+    const wrapper = mount(Input, {
+      props: { modelValue: 10, options: { type: 'number' } },
+    })
+
+    await wrapper.find('input').setValue('')
+    const emissions = wrapper.emitted('change')
+    expect(emissions?.[emissions.length - 1]).toEqual([null])
+
+    wrapper.unmount()
+  })
+
+  it('steps from an uncommitted typed value', async () => {
+    const wrapper = mount(Input, {
+      props: { modelValue: 5, options: { type: 'number' } },
+    })
+    const element = wrapper.find('input').element as HTMLInputElement
+    element.value = '7'
+
+    await wrapper.find('[aria-label="Увеличить значение"]').trigger('click')
+    const emissions = wrapper.emitted('update:modelValue')
+    expect(emissions?.[emissions.length - 1]).toEqual([8])
+
+    wrapper.unmount()
+  })
 })
 
 describe('Input combobox semantics', () => {

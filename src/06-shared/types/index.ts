@@ -50,6 +50,8 @@ export interface InputOptions {
   list?: string[]
   readonly?: boolean
   disabled?: boolean
+  size?: 'default' | 'compact'
+  align?: 'start' | 'center'
 }
 
 export interface DropdownOption {
