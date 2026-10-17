@@ -11,10 +11,7 @@ const INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.mcAssets,
 ])
 
-const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
-  STEP_IDS.filesCheck,
-  STEP_IDS.modsCheck,
-])
+const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([STEP_IDS.modsCheck])
 
 const FILE_FORMS: PluralForms = { one: 'файл', few: 'файла', many: 'файлов' }
 

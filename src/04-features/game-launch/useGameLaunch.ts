@@ -71,11 +71,8 @@ function buildInstallSteps(config: ProjectConfig, installMinecraft: StepAction):
 
 function buildLaunchPlan(config: ProjectConfig): StepPlanItem[] {
   const plan: StepPlanItem[] = []
-  if (config.online) {
-    plan.push(...SERVER_FILES_STEPS)
-    if (config.modLoader !== 'vanilla') {
-      plan.push(...MODS_STEPS)
-    }
+  if (config.online && config.modLoader !== 'vanilla') {
+    plan.push(...MODS_STEPS)
   }
   plan.push(...LAUNCH_STEPS)
   return plan
@@ -83,11 +80,8 @@ function buildLaunchPlan(config: ProjectConfig): StepPlanItem[] {
 
 function buildLaunchActions(config: ProjectConfig): ActionStep[] {
   const steps: ActionStep[] = []
-  if (config.online) {
-    steps.push({ key: null, plan: [], action: downloadServerFile })
-    if (config.modLoader !== 'vanilla') {
-      steps.push({ key: null, plan: [], action: downloadServerMods })
-    }
+  if (config.online && config.modLoader !== 'vanilla') {
+    steps.push({ key: null, plan: [], action: downloadServerMods })
   }
   steps.push({ key: null, plan: [], action: LAUNCH_ACTION })
   return steps

@@ -100,7 +100,6 @@ describe('useIntegrityCheck', () => {
       STEP_IDS.mcLibs,
       STEP_IDS.mcAssetsIndex,
       STEP_IDS.mcAssets,
-      STEP_IDS.filesCheck,
       STEP_IDS.modsCheck,
     ])
     expect(check.steps.value.every((step) => step.status === 'pending')).toBe(true)
@@ -154,7 +153,7 @@ describe('useIntegrityCheck', () => {
 
     await check.handleCheck()
 
-    expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.filesCheck)
+    expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.modsCheck)
     expect(check.steps.value).toHaveLength(5)
   })
 
@@ -165,7 +164,7 @@ describe('useIntegrityCheck', () => {
 
     await check.handleCheck()
 
-    expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.filesCheck)
+    expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.modsCheck)
     expect(check.steps.value).toHaveLength(5)
   })
 
@@ -283,7 +282,7 @@ describe('useIntegrityCheck', () => {
     const pending = check.handleCheck()
     check.closeResult()
     expect(check.isPopupHidden.value).toBe(true)
-    expect(check.steps.value).toHaveLength(7)
+    expect(check.steps.value).toHaveLength(6)
 
     await pending
 

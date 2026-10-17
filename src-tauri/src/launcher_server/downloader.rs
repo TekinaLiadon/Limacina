@@ -303,14 +303,6 @@ async fn fetch_hash_map(
     Ok(list)
 }
 
-pub(crate) async fn fetch_file_list(
-    client: &Client,
-    server_url: &str,
-    project_name: &str,
-) -> Result<HashMap<String, String>> {
-    fetch_hash_map(client, server_url, project_name, &FILES_SOURCE).await
-}
-
 pub(crate) async fn fetch_mods_list(
     client: &Client,
     server_url: &str,
@@ -942,12 +934,12 @@ mod mock_server_tests {
     }
 
     #[tokio::test]
-    async fn fetch_file_list_sends_launcher_id_header() {
+    async fn fetch_mods_list_sends_launcher_id_header() {
         crate::utils::install_id::override_install_id_for_tests("test-install-id");
 
         let mut server = Server::new_async().await;
         let mock = server
-            .mock("GET", "/v1/launcher/files/list")
+            .mock("GET", "/v1/launcher/files/mods")
             .match_header("x-launcher-id", "test-install-id")
             .with_status(200)
             .with_body(json!({"mods/a.jar": "hash1"}).to_string())
@@ -955,44 +947,44 @@ mod mock_server_tests {
             .await;
 
         let ctx = api_context(&server).await;
-        let _ = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+        let _ = fetch_mods_list(&ctx.client, &ctx.server_url, "Cordelia")
             .await
-            .expect("список файлов");
+            .expect("список модов");
 
         mock.assert_async().await;
     }
 
     #[tokio::test]
-    async fn fetch_file_list_parses_server_response() {
+    async fn fetch_mods_list_parses_server_response() {
         let mut server = Server::new_async().await;
         server
-            .mock("GET", "/v1/launcher/files/list")
+            .mock("GET", "/v1/launcher/files/mods")
             .with_status(200)
-            .with_body(json!({"mods/a.jar": "hash1", "config.json": "hash2"}).to_string())
+            .with_body(json!({"mods/a.jar": "hash1", "mods/b.jar": "hash2"}).to_string())
             .create_async()
             .await;
 
         let ctx = api_context(&server).await;
-        let list = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+        let list = fetch_mods_list(&ctx.client, &ctx.server_url, "Cordelia")
             .await
-            .expect("список файлов");
+            .expect("список модов");
 
         assert_eq!(list.get("mods/a.jar").map(String::as_str), Some("hash1"));
         assert_eq!(list.len(), 2);
     }
 
     #[tokio::test]
-    async fn fetch_file_list_fails_on_server_error() {
+    async fn fetch_mods_list_fails_on_server_error() {
         let mut server = Server::new_async().await;
         server
-            .mock("GET", "/v1/launcher/files/list")
+            .mock("GET", "/v1/launcher/files/mods")
             .with_status(500)
             .with_body("boom")
             .create_async()
             .await;
 
         let ctx = api_context(&server).await;
-        let error = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+        let error = fetch_mods_list(&ctx.client, &ctx.server_url, "Cordelia")
             .await
             .expect_err("сервер вернул 500");
 
@@ -1000,17 +992,17 @@ mod mock_server_tests {
     }
 
     #[tokio::test]
-    async fn fetch_file_list_rejects_empty_hash() {
+    async fn fetch_mods_list_rejects_empty_hash() {
         let mut server = Server::new_async().await;
         server
-            .mock("GET", "/v1/launcher/files/list")
+            .mock("GET", "/v1/launcher/files/mods")
             .with_status(200)
-            .with_body(json!({"mods/a.jar": "", "config.json": "   "}).to_string())
+            .with_body(json!({"mods/a.jar": "", "mods/b.jar": "   "}).to_string())
             .create_async()
             .await;
 
         let ctx = api_context(&server).await;
-        let error = fetch_file_list(&ctx.client, &ctx.server_url, "Cordelia")
+        let error = fetch_mods_list(&ctx.client, &ctx.server_url, "Cordelia")
             .await
             .expect_err("пустой хеш должен отклоняться");
 

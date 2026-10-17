@@ -47,10 +47,10 @@ describe('STEP_CATALOG', () => {
   })
 
   it('builds plan items from the catalog', () => {
-    const plan = stepPlanItems([STEP_IDS.mcJar, STEP_IDS.filesCheck])
+    const plan = stepPlanItems([STEP_IDS.mcJar, STEP_IDS.modsCheck])
     expect(plan).toEqual([
       { key: STEP_IDS.mcJar, label: 'Клиент игры' },
-      { key: STEP_IDS.filesCheck, label: 'Файлы сервера' },
+      { key: STEP_IDS.modsCheck, label: 'Моды' },
     ])
   })
 })

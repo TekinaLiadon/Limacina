@@ -1,7 +1,7 @@
 use tokio::sync::Mutex;
 
 use crate::launcher_server::downloader::{
-    download_launcher_server_file, fetch_file_list, fetch_mods_list, require_api_client, ApiContext,
+    download_launcher_server_file, fetch_mods_list, require_api_client, ApiContext,
 };
 use crate::log_info;
 use crate::minecraft::check_targets::check_minecraft_integrity;
@@ -24,11 +24,11 @@ pub async fn check_files_integrity(
     let mut report = check_minecraft_integrity(&project).await?;
 
     if project.online {
-        let server_report = check_server_integrity(&project, &state).await?;
-        report.merge(server_report);
+        let mods_report = check_mods_integrity(&project, &state).await?;
+        report.merge(mods_report);
     } else {
         log_info!(
-            "[integrity] Одиночный профиль {}, файлы сервера и моды не проверяются",
+            "[integrity] Одиночный профиль {}, моды не проверяются",
             project.project_name
         );
     }
@@ -36,36 +36,22 @@ pub async fn check_files_integrity(
     Ok(report)
 }
 
-async fn check_server_integrity(
+async fn check_mods_integrity(
     project: &crate::state::dto::ProjectConfig,
     state: &tauri::State<'_, Mutex<GlobalState>>,
 ) -> anyhow::Result<IntegrityReport> {
     let ApiContext { client, server_url } = require_api_client(state.inner()).await?;
     let base_path = launcher_path(Some(&project.project_name))?;
 
-    let file_list = fetch_file_list(&client, &server_url, &project.project_name).await?;
-    let files_report = check_integrity(
-        &base_path,
-        collect_launcher_server_targets(&file_list)?,
-        "files.check",
-        "Файлы сервера",
-        download_launcher_server_file(client.clone(), server_url.clone()),
-    )
-    .await?;
-
     let mods_list = fetch_mods_list(&client, &server_url, &project.project_name).await?;
-    let mods_report = check_integrity(
+    check_integrity(
         &base_path,
         collect_launcher_server_targets(&mods_list)?,
         "mods.check",
         "Моды",
         download_launcher_server_file(client, server_url),
     )
-    .await?;
-
-    let mut report = files_report;
-    report.merge(mods_report);
-    Ok(report)
+    .await
 }
 
 fn collect_launcher_server_targets(

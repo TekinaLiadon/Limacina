@@ -211,7 +211,7 @@ describe('useGameLaunch', () => {
 
     await useGameLaunch().executeSteps()
 
-    expect(downloadServerFile).toHaveBeenCalledTimes(1)
+    expect(downloadServerFile).not.toHaveBeenCalled()
     expect(downloadServerMods).toHaveBeenCalledTimes(1)
     expect(startMinecraft).toHaveBeenCalledTimes(1)
     expect(loadInstallJournal).not.toHaveBeenCalled()
@@ -220,10 +220,28 @@ describe('useGameLaunch', () => {
     expect(setInitialized).not.toHaveBeenCalled()
 
     const keys = prefillPlanKeys()
-    expect(keys).toContain(STEP_IDS.filesDownload)
+    expect(keys).not.toContain(STEP_IDS.filesDownload)
     expect(keys).toContain(STEP_IDS.modsDownload)
     expect(keys).toContain(STEP_IDS.launchProcess)
     expect(keys).not.toContain(STEP_IDS.javaCheck)
+  })
+
+  it('skips server file sync on relaunch of an initialized online vanilla project', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(
+      makeConfig({ modLoader: 'vanilla', initialized: true }),
+    )
+
+    await useGameLaunch().executeSteps()
+
+    expect(downloadServerFile).not.toHaveBeenCalled()
+    expect(downloadServerMods).not.toHaveBeenCalled()
+    expect(startMinecraft).toHaveBeenCalledTimes(1)
+
+    const keys = prefillPlanKeys()
+    expect(keys).not.toContain(STEP_IDS.filesDownload)
+    expect(keys).not.toContain(STEP_IDS.modsDownload)
+    expect(keys).toContain(STEP_IDS.launchConfig)
   })
 
   it('skips install steps recorded in the journal', async () => {
