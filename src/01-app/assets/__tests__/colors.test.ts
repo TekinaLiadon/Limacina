@@ -30,6 +30,10 @@ describe('z-index scale in colors.scss', () => {
     }
   })
 
+  it('renders modal popup overlays above the viewer fullscreen', () => {
+    expect(findZToken('popup').value).toBeGreaterThan(findZToken('viewer-fullscreen').value)
+  })
+
   it('renders toast notifications above modal popup overlays', () => {
     expect(findZToken('notification').value).toBeGreaterThan(findZToken('popup').value)
   })

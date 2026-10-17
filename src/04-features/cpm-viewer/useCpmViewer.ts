@@ -462,6 +462,7 @@ export function useCpmViewer(
           options.editor.bridge.nodeIndex.value = currentIndex
           options.editor.bridge.player.value = player
           options.editor.bridge.camera.value = api.camera.value
+          options.editor.bridge.orbitControls.value = api.getOrbitControls()
         }
 
         updateVisibility()
@@ -480,6 +481,7 @@ export function useCpmViewer(
           options.editor.bridge.nodeIndex.value = null
           options.editor.bridge.player.value = null
           options.editor.bridge.camera.value = null
+          options.editor.bridge.orbitControls.value = null
         }
         syncAnimationTick()
       },
@@ -577,6 +579,7 @@ export function useCpmViewer(
     pointerStart = null
     if (start === null || options.editor === undefined) return
     if (options.editor.isEditing.value !== true) return
+    if (options.editor.bridge.isGizmoDragging.value) return
     const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y)
     if (distance > PICK_DRAG_THRESHOLD) return
     options.editor.onBonePicked(pickBoneAt(event.clientX, event.clientY))

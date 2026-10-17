@@ -83,7 +83,7 @@ describe('fitToView', () => {
   ): { api: Parameters<typeof fitToView>[0]; setFitDistance: ReturnType<typeof vi.fn> } => {
     const setFitDistance = vi.fn()
     return {
-      api: { camera, setFitDistance, modelBoundingSphereRadius: (): number | null => radius },
+      api: { camera, getOrbitControls: (): null => null, setFitDistance, modelBoundingSphereRadius: (): number | null => radius },
       setFitDistance,
     }
   }
@@ -101,9 +101,10 @@ describe('fitToView', () => {
 
   it('skips the fit when the camera or the model is missing', () => {
     const setFitDistance = vi.fn()
-    fitToView({ camera: shallowRef(null), setFitDistance, modelBoundingSphereRadius: (): number | null => 10 })
+    fitToView({ camera: shallowRef(null), getOrbitControls: (): null => null, setFitDistance, modelBoundingSphereRadius: (): number | null => 10 })
     fitToView({
       camera: shallowRef<THREE.PerspectiveCamera | null>(new THREE.PerspectiveCamera(35, 1)),
+      getOrbitControls: (): null => null,
       setFitDistance,
       modelBoundingSphereRadius: (): number | null => null,
     })

@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComputedRef, Ref, ShallowRef } from 'vue'
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import CpmSettings from '../CpmSettings.vue'
+
+enableAutoUnmount(afterEach)
 
 vi.mock('vue-router', () => ({
   onBeforeRouteLeave: (): void => {},
@@ -25,6 +27,7 @@ interface MockEditor {
   weightError: Ref<string>
   startEditing: ReturnType<typeof vi.fn>
   setPlaying: ReturnType<typeof vi.fn>
+  stopEditing: ReturnType<typeof vi.fn>
   confirmLeave: ReturnType<typeof vi.fn>
   prepareSave: ReturnType<typeof vi.fn>
   markSaved: ReturnType<typeof vi.fn>
@@ -76,6 +79,7 @@ vi.mock('@/04-features', async (importOriginal) => {
     weightError: vue.ref(''),
     startEditing: vi.fn(),
     setPlaying: vi.fn(),
+    stopEditing: vi.fn().mockResolvedValue(true),
     confirmLeave: vi.fn().mockResolvedValue(true),
     prepareSave: vi.fn().mockReturnValue(true),
     markSaved: vi.fn(),
@@ -145,6 +149,7 @@ vi.mock('@/04-features', async (importOriginal) => {
     useCpmAnimations: (): unknown => (mocks.api as TestMocks).animations,
     useOfflineCpmModel: (): unknown => (mocks.api as TestMocks).offline,
     useCpmAnimationEditor: (): unknown => (mocks.api as TestMocks).editor,
+    useCpmEditorScene: vi.fn(),
   }
 })
 
@@ -159,10 +164,33 @@ const CpmAnimationBarStub = {
   template: '<div class="cpm-anim-bar-stub" />',
 }
 
-const CpmAnimationEditorStub = {
-  name: 'CpmAnimationEditor',
+const CpmAnimationEditorHeadStub = {
+  name: 'CpmAnimationEditorHead',
+  props: {
+    editor: { type: Object, required: true },
+    isSaving: { type: Boolean, required: true },
+    saveError: { type: String, required: true },
+  },
+  emits: ['save'],
+  template: '<div class="cpm-editor-head-stub" />',
+}
+
+const CpmAnimationToolsStub = {
+  name: 'CpmAnimationTools',
   props: { editor: { type: Object, required: true } },
-  template: '<div class="cpm-editor-stub" />',
+  template: '<div class="cpm-editor-tools-stub" />',
+}
+
+const CpmAnimationTimelineStub = {
+  name: 'CpmAnimationTimeline',
+  props: {
+    editor: { type: Object, required: true },
+    speed: { type: Number, required: true },
+    canSpeedDown: { type: Boolean, required: true },
+    canSpeedUp: { type: Boolean, required: true },
+    isLooped: { type: Boolean, required: true },
+  },
+  template: '<div class="cpm-editor-timeline-stub" />',
 }
 
 const mountSettings = (): VueWrapper =>
@@ -171,7 +199,9 @@ const mountSettings = (): VueWrapper =>
       stubs: {
         CpmViewer: CpmViewerStub,
         CpmAnimationBar: CpmAnimationBarStub,
-        CpmAnimationEditor: CpmAnimationEditorStub,
+        CpmAnimationEditorHead: CpmAnimationEditorHeadStub,
+        CpmAnimationTools: CpmAnimationToolsStub,
+        CpmAnimationTimeline: CpmAnimationTimelineStub,
       },
     },
   })
@@ -187,6 +217,8 @@ beforeEach((): void => {
   const api = mocked()
   api.errorMessage.value = ''
   api.isUploading.value = false
+  ;(api.settings.isOffline as Ref<boolean>).value = false
+  ;(api.offline.isSaving as Ref<boolean>).value = false
   api.editor.isEditing.value = false
   api.editor.isPlaying.value = false
   api.editor.isWeightLoading.value = false
@@ -194,6 +226,8 @@ beforeEach((): void => {
   api.editor.weight.value = mocks.weight
   api.editor.startEditing.mockClear()
   api.editor.setPlaying.mockClear()
+  api.editor.stopEditing.mockClear()
+  api.editor.stopEditing.mockResolvedValue(true)
   api.editor.markSaved.mockClear()
   api.editor.confirmLeave.mockResolvedValue(true)
   api.editor.prepareSave.mockReturnValue(true)
@@ -223,13 +257,124 @@ describe('CpmSettings editor integration', () => {
     expect(mocked().editor.startEditing).toHaveBeenCalledWith('g_wave')
   })
 
-  it('replaces the playback panel with the editor in edit mode', async () => {
-    mocked().editor.isEditing.value = true
+  it('opens the fullscreen workspace on editing and closes it after finishing', async () => {
+    const api = mocked()
+    api.editor.startEditing.mockImplementationOnce((): void => {
+      api.editor.isEditing.value = true
+    })
     const wrapper = mountSettings()
+
+    await wrapper.find('.cpm-settings__edit').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.cpm-editor-stub').exists()).toBe(true)
+    expect(document.body.querySelector('.viewer-3d-fullscreen__content--workspace')).not.toBeNull()
+    expect((document.body.querySelector<HTMLElement>('.popup-shell__overlay'))?.style.display).not.toBe('none')
+
+    api.editor.isEditing.value = false
+    await flushPromises()
+
+    expect((document.body.querySelector<HTMLElement>('.popup-shell__overlay'))?.style.display).toBe('none')
+  })
+
+  it('replaces the playback panel with the fullscreen editor in edit mode', async () => {
+    const wrapper = mountSettings()
+    mocked().editor.isEditing.value = true
+    await flushPromises()
+
+    expect(document.body.querySelector('.viewer-3d-fullscreen__content--workspace')).not.toBeNull()
+    expect(document.body.querySelector('.cpm-editor-head-stub')).not.toBeNull()
+    expect(document.body.querySelector('.cpm-editor-tools-stub')).not.toBeNull()
+    expect(document.body.querySelector('.cpm-editor-timeline-stub')).not.toBeNull()
     expect(wrapper.find('.cpm-anim-bar-stub').exists()).toBe(false)
+    expect((document.body.querySelector<HTMLElement>('.popup-shell__overlay'))?.style.display).not.toBe('none')
+  })
+
+  it('closes the editor through the confirm flow when the fullscreen is dismissed', async () => {
+    const api = mocked()
+    const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'Viewer3D' }).vm.$emit('update:fullscreen', false)
+    await flushPromises()
+
+    expect(api.editor.stopEditing).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the editor open when leaving is declined', async () => {
+    const api = mocked()
+    api.editor.stopEditing.mockResolvedValue(false)
+    const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'Viewer3D' }).vm.$emit('update:fullscreen', false)
+    await flushPromises()
+
+    expect(api.editor.stopEditing).toHaveBeenCalledTimes(1)
+    expect((document.body.querySelector<HTMLElement>('.popup-shell__overlay'))?.style.display).not.toBe('none')
+  })
+
+  it('saves the model from the editor and leaves on success', async () => {
+    const api = mocked()
+    const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'CpmAnimationEditorHead' }).vm.$emit('save')
+    await flushPromises()
+
+    expect(api.handlers.handleUploadModel).toHaveBeenCalledTimes(1)
+    expect(api.editor.markSaved).toHaveBeenCalledTimes(1)
+    expect(api.editor.stopEditing).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves the model to the game from an offline editor', async () => {
+    const api = mocked()
+    ;(api.settings.isOffline as Ref<boolean>).value = true
+    const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'CpmAnimationEditorHead' }).vm.$emit('save')
+    await flushPromises()
+
+    expect(api.handlers.handleSaveModelOffline).toHaveBeenCalledTimes(1)
+    expect(api.editor.stopEditing).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays in the editor when the model save fails', async () => {
+    const api = mocked()
+    api.handlers.handleUploadModel.mockImplementationOnce(async (): Promise<void> => {
+      api.errorMessage.value = 'Не удалось сохранить модель'
+    })
+    const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'CpmAnimationEditorHead' }).vm.$emit('save')
+    await flushPromises()
+
+    expect(api.editor.markSaved).not.toHaveBeenCalled()
+    expect(api.editor.stopEditing).not.toHaveBeenCalled()
+  })
+
+  it('shows the model save error', async () => {
+    const api = mocked()
+    api.handlers.handleUploadModel.mockImplementationOnce(async (): Promise<void> => {
+      api.errorMessage.value = 'Не удалось сохранить модель'
+    })
+    const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'CpmAnimationEditorHead' }).vm.$emit('save')
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'CpmAnimationEditorHead' }).props('saveError')).toBe(
+      'Не удалось сохранить модель',
+    )
+    expect(wrapper.find('.user-content-viewer__error').text()).toContain('Не удалось сохранить модель')
   })
 
   it('shows the weight loading state and measurement errors', async () => {
@@ -266,8 +411,9 @@ describe('CpmSettings editor integration', () => {
 
   it('blocks saving an invalid draft and saves a valid one', async () => {
     const api = mocked()
-    api.editor.isEditing.value = true
     const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
 
     api.editor.prepareSave.mockReturnValueOnce(false)
     await clickAction(wrapper, 'Отправить')
@@ -281,8 +427,9 @@ describe('CpmSettings editor integration', () => {
 
   it('does not mark the draft saved when the save fails', async () => {
     const api = mocked()
-    api.editor.isEditing.value = true
     const wrapper = mountSettings()
+    api.editor.isEditing.value = true
+    await flushPromises()
     api.handlers.handleUploadModel.mockImplementationOnce(async (): Promise<void> => {
       api.errorMessage.value = 'Не удалось сохранить модель'
     })

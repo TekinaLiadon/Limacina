@@ -17,14 +17,35 @@ afterAll((): void => {
   vi.unstubAllGlobals()
 })
 
-const mountViewer = () =>
+interface ViewerProps {
+  workspace?: boolean
+  fullscreen?: boolean
+}
+
+const mountViewer = (props: ViewerProps = {}) =>
   mount(Viewer3D, {
+    props,
     slots: {
       default: '<div class="fake-canvas" />',
       bottom: '<button type="button" class="fake-bottom-btn">Действие</button>',
     },
     attachTo: document.body,
   })
+
+const mountWorkspace = async (props: ViewerProps = {}): Promise<VueWrapper> => {
+  const wrapper = mount(Viewer3D, {
+    props: { workspace: true, fullscreen: false, ...props },
+    slots: {
+      default: '<div class="fake-canvas" />',
+      head: '<div class="fake-head">Голова</div>',
+      side: '<div class="fake-side">Настройки</div>',
+      bottom: '<div class="fake-timeline">Кадры</div>',
+    },
+    attachTo: document.body,
+  })
+  await wrapper.setProps({ fullscreen: true })
+  return wrapper
+}
 
 const fullscreenOverlay = (): HTMLElement | null => document.body.querySelector('.popup-shell__overlay')
 
@@ -50,6 +71,8 @@ describe('Viewer3D', () => {
 
     expect(fullscreenOverlay()).not.toBeNull()
     expect(isOverlayHidden()).toBe(true)
+    expect(document.body.querySelector('.viewer-3d-fullscreen__head')).toBeNull()
+    expect(document.body.querySelector('.viewer-3d-fullscreen__side')).toBeNull()
   })
 
   it('renders the fullscreen overlay as a modal dialog with an accessible name', async () => {
@@ -61,6 +84,7 @@ describe('Viewer3D', () => {
     expect(dialog?.getAttribute('role')).toBe('dialog')
     expect(dialog?.getAttribute('aria-modal')).toBe('true')
     expect(dialog?.getAttribute('aria-label')).toBe('Просмотр 3D-модели')
+    expect(fullscreenOverlay()?.classList.contains('viewer-3d-fullscreen__overlay')).toBe(true)
     expect(isOverlayHidden()).toBe(false)
 
     wrapper.unmount()
@@ -87,6 +111,43 @@ describe('Viewer3D', () => {
     const overlay = fullscreenOverlay()
     expect(overlay).not.toBeNull()
     expect(overlay?.contains(document.activeElement)).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('emits the fullscreen model update when the viewer asks to expand', async () => {
+    const wrapper = mountViewer({ fullscreen: false })
+    await wrapper.setProps({ 'onUpdate:fullscreen': vi.fn() })
+    await openFullscreen(wrapper)
+
+    expect(wrapper.emitted('update:fullscreen')).toEqual([[true]])
+    expect(isOverlayHidden()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('renders the head and side panels in workspace mode', async () => {
+    const wrapper = await mountWorkspace()
+
+    expect(document.body.querySelector('.viewer-3d-fullscreen__head')).not.toBeNull()
+    expect(document.body.querySelector('.viewer-3d-fullscreen__side')).not.toBeNull()
+    expect(document.body.querySelector('.viewer-3d-fullscreen__content--workspace')).not.toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('lays out the scene, the settings column and the frame panel in workspace mode', async () => {
+    const wrapper = await mountWorkspace()
+
+    const head = document.body.querySelector('.viewer-3d-fullscreen__head')
+    const side = document.body.querySelector('.viewer-3d-fullscreen__side')
+    const bottom = document.body.querySelector('.viewer-3d-fullscreen__bottom')
+    const stage = document.body.querySelector('.viewer-3d-fullscreen__scene .viewer-3d-fullscreen__stage')
+
+    expect(head?.textContent).toContain('Голова')
+    expect(side?.textContent).toContain('Настройки')
+    expect(bottom?.textContent).toContain('Кадры')
+    expect(stage?.querySelector('.fake-canvas')).not.toBeNull()
 
     wrapper.unmount()
   })

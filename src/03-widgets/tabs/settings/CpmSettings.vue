@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { Button, Checkbox } from '@/06-shared'
 import {
@@ -7,12 +7,15 @@ import {
   useCpmAnimations,
   useOfflineCpmModel,
   useCpmAnimationEditor,
+  useCpmEditorScene,
   createCpmEditorBridge,
   formatProjectWeight,
   type ActiveCpmAnimation,
 } from '@/04-features'
 import CpmAnimationBar from './CpmAnimationBar.vue'
-import CpmAnimationEditor from './CpmAnimationEditor.vue'
+import CpmAnimationEditorHead from './cpm-animation-editor/CpmAnimationEditorHead.vue'
+import CpmAnimationTools from './cpm-animation-editor/CpmAnimationTools.vue'
+import CpmAnimationTimeline from './cpm-animation-editor/CpmAnimationTimeline.vue'
 import CpmViewer from './CpmViewer.vue'
 import UserContentViewer from './UserContentViewer.vue'
 import Viewer3D from './Viewer3D.vue'
@@ -71,6 +74,34 @@ const editor = useCpmAnimationEditor({
   isPlaybackLooped: isAnimationLooped,
 })
 
+useCpmEditorScene(editor, editorBridge)
+
+const isEditorFullscreen = ref<boolean>(false)
+
+watch(
+  (): boolean => editor.isEditing.value,
+  (editing: boolean): void => {
+    isEditorFullscreen.value = editing
+  },
+  { immediate: true },
+)
+
+const closeEditorFullscreen = async (): Promise<void> => {
+  if (!editor.isEditing.value) {
+    isEditorFullscreen.value = false
+    return
+  }
+  if (await editor.stopEditing()) isEditorFullscreen.value = false
+}
+
+const onFullscreenChange = (value: boolean): void => {
+  if (value) {
+    isEditorFullscreen.value = true
+    return
+  }
+  void closeEditorFullscreen()
+}
+
 const hasModel = computed((): boolean => cpmData.value !== null)
 
 const viewerAnimations = computed((): ActiveCpmAnimation[] =>
@@ -113,16 +144,27 @@ const handleReset = async (): Promise<void> => {
   await resetCpm()
 }
 
-const runSave = async (action: () => Promise<void>): Promise<void> => {
-  if (!editor.prepareSave()) return
+const runSave = async (action: () => Promise<void>): Promise<boolean> => {
+  if (!editor.prepareSave()) return false
   const snapshot = editor.animation.value === null ? undefined : JSON.stringify(editor.animation.value)
   await action()
-  if (!editor.isEditing.value || errorMessage.value !== '') return
+  if (!editor.isEditing.value || errorMessage.value !== '') return false
   editor.markSaved(snapshot)
+  return true
 }
 
-const handleServerAction = (): Promise<void> => runSave(handleUploadModel)
-const handleOfflineAction = (): Promise<void> => runSave(handleSaveModelOffline)
+const handleServerAction = (): Promise<boolean> => runSave(handleUploadModel)
+const handleOfflineAction = (): Promise<boolean> => runSave(handleSaveModelOffline)
+
+const isEditorSaving = computed((): boolean =>
+  isOffline.value ? isSaving.value : isUploading.value,
+)
+
+const handleEditorSave = async (): Promise<void> => {
+  const saved = isOffline.value ? await handleOfflineAction() : await handleServerAction()
+  if (!saved) return
+  await editor.stopEditing()
+}
 
 onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
 </script>
@@ -153,7 +195,13 @@ onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
     @delete="handleDeleteModel"
     @retry="loadList"
   >
-    <Viewer3D :min-zoom="8">
+    <Viewer3D
+      :min-zoom="8"
+      :workspace="editor.isEditing.value"
+      :fullscreen="isEditorFullscreen"
+      :fullscreen-label="editor.isEditing.value ? 'Редактор анимации' : 'Просмотр 3D-модели'"
+      @update:fullscreen="onFullscreenChange"
+    >
       <CpmViewer
         :cpm-data="cpmData"
         :active-layers="activeLayerIds"
@@ -169,11 +217,22 @@ onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
         @load-error="setTextureError"
         @bone-picked="editor.selectBone"
       />
-      <template #bottom>
-        <CpmAnimationEditor
+      <template #head>
+        <CpmAnimationEditorHead
           v-if="editor.isEditing.value"
           :editor="editor"
-          :bridge="editorBridge"
+          :is-saving="isEditorSaving"
+          :save-error="errorMessage"
+          @save="handleEditorSave"
+        />
+      </template>
+      <template #side>
+        <CpmAnimationTools v-if="editor.isEditing.value" :editor="editor" />
+      </template>
+      <template #bottom>
+        <CpmAnimationTimeline
+          v-if="editor.isEditing.value"
+          :editor="editor"
           :speed="animationSpeed"
           :can-speed-down="canSpeedDown"
           :can-speed-up="canSpeedUp"

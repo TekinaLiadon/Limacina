@@ -1,10 +1,12 @@
 import { onBeforeUnmount, shallowRef, watch, type Ref, type ShallowRef } from 'vue'
 import * as THREE from 'three'
+import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createManagedTextureLoader, removeGroupFromScene, useThreeScene, type ViewerControls } from '@/06-shared'
 import { useViewerCamera } from './useViewerCamera'
 
 export interface ViewerModelApi {
   camera: ShallowRef<THREE.PerspectiveCamera | null>
+  getOrbitControls: () => OrbitControls | null
   setFitDistance: (distance: number) => void
   modelBoundingSphereRadius: () => number | null
 }
@@ -35,6 +37,7 @@ export function useViewerModel(
 
   const api: ViewerModelApi = {
     camera,
+    getOrbitControls,
     ...useViewerCamera(
       { camera, getOrbitControls },
       modelGroup,
