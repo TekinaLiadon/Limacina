@@ -4,6 +4,7 @@ import { randomId } from '@/06-shared/utils/utils'
 import { useDropdownPanel } from '@/06-shared/utils/useDropdownPanel'
 import { useListboxNavigation } from '@/06-shared/utils/useListboxNavigation'
 import type { InputOptions } from '@/06-shared/types'
+import { applyNumberStep } from '@/06-shared/utils/numberStep'
 import OpenEye from '@/06-shared/components/svg/OpenEye.vue'
 import ClosedEye from '@/06-shared/components/svg/ClosedEye.vue'
 
@@ -14,6 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: T]
+  change: [value: T]
 }>()
 
 defineOptions({ inheritAttrs: false })
@@ -71,6 +73,44 @@ const emitValue = (value: string | number): void => {
   emit('update:modelValue', (props.options?.type === 'number' && value === '' ? null : value) as T)
 }
 
+const readAttrNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === '') return undefined
+
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const stepNumber = (delta: 1 | -1): void => {
+  const step = readAttrNumber(attrs.step) ?? 1
+  const min = readAttrNumber(attrs.min)
+  const max = readAttrNumber(attrs.max)
+  const input = inputRef.value?.querySelector('input')
+  const raw = input?.value.trim() ?? ''
+  const parsed = raw === '' ? Number.NaN : Number(raw)
+  const current = Number.isFinite(parsed)
+    ? parsed
+    : (typeof props.modelValue === 'number' && Number.isFinite(props.modelValue)
+        ? props.modelValue
+        : (min === undefined ? 0 : min - step))
+  const next = applyNumberStep(current, delta, step, min, max)
+
+  emitValue(next)
+  emit('change', next as T)
+}
+
+const emitChange = (event: Event): void => {
+  const element = event.target as HTMLInputElement
+  const raw = element.value
+
+  if (props.options?.type === 'number') {
+    const parsed = Number(raw)
+    emit('change', (raw === '' || !Number.isFinite(parsed) ? null : parsed) as T)
+    return
+  }
+
+  emit('change', raw as T)
+}
+
 const data = computed({
   get: (): T => props.modelValue,
   set: (value: string | number): void => {
@@ -125,6 +165,9 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
         <input class="input__text"
                :class="{
                  'input__text--password': options?.type === 'password',
+                 'input__text--number': options?.type === 'number',
+                 'input__text--compact': options?.size === 'compact',
+                 'input__text--center': options?.align === 'center',
                  'input__text--disabled': options?.disabled,
                }"
                v-bind="inputAttrs"
@@ -141,9 +184,30 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
                :aria-activedescendant="isDropdownExpanded ? `${listboxId}-opt-${activeIndex}` : undefined"
                @focus="openList"
                @input="openList"
+               @change="emitChange"
                @keydown="handleInputKeydown"
                @focusout="closeDropdown"
         />
+        <span v-if="options?.type === 'number'" class="input__stepper">
+          <button
+            type="button"
+            class="input__step input__step--up"
+            aria-label="Увеличить значение"
+            tabindex="-1"
+            :disabled="options?.disabled || options?.readonly"
+            @mousedown.prevent
+            @click="stepNumber(1)"
+          />
+          <button
+            type="button"
+            class="input__step input__step--down"
+            aria-label="Уменьшить значение"
+            tabindex="-1"
+            :disabled="options?.disabled || options?.readonly"
+            @mousedown.prevent
+            @click="stepNumber(-1)"
+          />
+        </span>
         <div
           v-if="showDropdown && filteredList.length"
           ref="panelRef"
@@ -239,6 +303,24 @@ $input-row-container: 420px;
 
     &--password {
       padding-right: var(--control-icon-area);
+    }
+
+    &--number {
+      padding-right: calc(var(--number-stepper-width) + var(--space-8));
+    }
+
+    &--compact {
+      min-height: var(--control-height-sm);
+      padding-top: 0;
+      padding-bottom: 0;
+      font-family: var(--font-mono);
+      font-size: var(--text-caption);
+      font-variant-numeric: tabular-nums;
+    }
+
+    &--center {
+      padding-left: calc(var(--number-stepper-width) + var(--space-8));
+      text-align: center;
     }
 
     &--disabled {
@@ -337,6 +419,8 @@ $input-row-container: 420px;
       color: var(--login-text-primary);
     }
   }
+
+  @include mixins.number-field-stepper-styles;
 
 }
 </style>

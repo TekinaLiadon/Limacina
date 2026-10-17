@@ -166,7 +166,7 @@ describe('useCpmAnimations', () => {
     animations.toggleAnimationLoop()
     animations.speedUp()
 
-    data.value = makeData([makeAnimation('sit')])
+    data.value = { ...makeData([makeAnimation('sit')]), textureUrl: 'blob:other' }
     await Promise.resolve()
 
     expect(animations.selectedAnimationIds.value).toEqual([])

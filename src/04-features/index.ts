@@ -22,7 +22,27 @@ export { useOfflineCpmModel } from './cpm-settings/useOfflineCpmModel'
 export { useCpmAnimations } from './cpm-settings/useCpmAnimations'
 export { useCpmProjectOpen } from './cpm-settings/useCpmProjectOpen'
 export { useCpmViewer } from './cpm-viewer/useCpmViewer'
+export type { CpmViewerOptions, CpmEditorViewOptions } from './cpm-viewer/useCpmViewer'
+export { createCpmEditorBridge } from './cpm-viewer/cpmEditorBridge'
+export type { CpmEditorBridge } from './cpm-viewer/cpmEditorBridge'
 export type { ActiveCpmAnimation } from './cpm-viewer/cpmAnimationPlayer'
+export { useCpmAnimationEditor, hasUnsavedCpmAnimationChanges } from './cpm-animation-editor/useCpmAnimationEditor'
+export type { CpmAnimationEditorApi, CpmAnimationEditorSource } from './cpm-animation-editor/useCpmAnimationEditor'
+export { useCpmEditorScene } from './cpm-animation-editor/editorScene'
+export {
+  EDITOR_KIND_OPTIONS,
+  EDITOR_INTERPOLATOR_OPTIONS,
+  EDITOR_VANILLA_POSE_OPTIONS,
+  EDITOR_VANILLA_DURATION_HINT,
+  EDITOR_INTERPOLATOR_LABELS,
+  vanillaPoseName,
+  vanillaPoseHint,
+} from './cpm-animation-editor/editorTriggers'
+export type { EditorBoneTreeRow } from './cpm-animation-editor/editorBones'
+export type { EditorBeadMode, EditorPose, EditorRotationPivot, EditorTimeBead } from './cpm-animation-editor/types'
+export { buildSimpleFrames, frameToTimeMs } from './cpm-animation-editor/editorTimeline'
+export type { EditorSimpleFrame } from './cpm-animation-editor/editorTimeline'
+export { formatProjectWeight } from './cpm-animation-editor/editorWeight'
 export { useModrinth, MODRINTH_BASE_URL, MODRINTH_SORTS, MODRINTH_CATEGORIES, MODRINTH_CATEGORY_LABELS, MODRINTH_DOWNLOAD_FORMS, MODRINTH_FOLLOW_FORMS } from './modrinth/useModrinth'
 export { useAlternativeJava } from './alternative-java/useAlternativeJava'
 export { useSystemNotifications } from './system-notifications/useSystemNotifications'

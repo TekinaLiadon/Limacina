@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Ref } from 'vue'
-import type { CPMAnimation, CPMVec3 } from '@/05-entities'
+import type { CPMAnimation, CPMAnimationInterpolator, CPMVec3 } from '@/05-entities'
 import { computeMeshVisible } from './meshVisibility'
 
 const PLAYER_PART_IDS: Record<string, number> = {
@@ -17,7 +17,7 @@ export const SPEED_MAX = 3
 
 const MODEL_ORIGIN_Y = 24
 
-interface AnimatedNode {
+export interface AnimatedNode {
   group: THREE.Group
   basePos: THREE.Vector3
   baseRot: THREE.Euler
@@ -88,57 +88,175 @@ function unwrapChannel(values: number[]): number[] {
   return result
 }
 
-function lerp(a: number, b: number, t: number): number {
+function lerp(t: number, a: number, b: number): number {
   return a + (b - a) * t
 }
 
-function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
-  const t2 = t * t
-  const t3 = t2 * t
-  return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+function trigInt(t: number, a: number, b: number): number {
+  return a + Math.sin((t * Math.PI) / 2) * (b - a)
 }
 
-function sampleChannel(values: number[], framePos: number, loop: boolean, smooth: boolean): number {
-  const count = values.length
-  if (count === 0) return 0
-  if (count === 1) return values[0] ?? 0
+function wrapIndex(index: number, length: number): number {
+  return ((index % length) + length) % length
+}
 
-  const at = (index: number): number => values[index] ?? 0
-  const idx = Math.floor(framePos)
-  const t = framePos - idx
+export type StepSampler = (step: number) => number
 
-  if (!smooth) return lerp(at(Math.min(idx, count - 1)), at(Math.min(idx + 1, count - 1)), t)
+export function animationStep(millis: number, duration: number, frames: number): number {
+  const safeDuration = Math.max(duration, 1)
+  return ((millis % safeDuration) / safeDuration) * frames
+}
 
-  if (loop) {
-    const i0 = ((idx - 1) % count + count) % count
-    const i1 = idx % count
-    const i2 = (idx + 1) % count
-    const i3 = (idx + 2) % count
-    return catmullRom(at(i0), at(i1), at(i2), at(i3), t)
+export function createStepSampler(values: number[]): StepSampler {
+  if (values.length === 0) return () => 0
+  const len = values.length
+  return (step) => values[wrapIndex(Math.floor(step), len)] ?? 0
+}
+
+function createLinearLoopSampler(values: number[]): StepSampler {
+  const len = values.length
+  return (step) => {
+    const frm = Math.floor(step)
+    return lerp(step - frm, values[wrapIndex(frm, len)] ?? 0, values[wrapIndex(frm + 1, len)] ?? 0)
+  }
+}
+
+function createLinearSingleSampler(values: number[]): StepSampler {
+  const len = values.length
+  const last = len - 1
+  return (step) => {
+    const v = (step / len) * last
+    const frm = Math.min(Math.abs(Math.floor(v)), last)
+    return lerp(v - Math.floor(v), values[frm] ?? 0, values[Math.min(frm + 1, last)] ?? 0)
+  }
+}
+
+function createTrigLoopSampler(values: number[]): StepSampler {
+  const len = values.length
+  return (step) => {
+    const frm = Math.floor(step)
+    return trigInt(step - frm, values[wrapIndex(frm, len)] ?? 0, values[wrapIndex(frm + 1, len)] ?? 0)
+  }
+}
+
+function createTrigSingleSampler(values: number[]): StepSampler {
+  const len = values.length
+  const last = len - 1
+  return (step) => {
+    const v = (step / len) * last
+    const frm = Math.min(Math.abs(Math.floor(v)), last)
+    return trigInt(v - Math.floor(v), values[frm] ?? 0, values[Math.min(frm + 1, last)] ?? 0)
+  }
+}
+
+function createNaturalSpline(x: number[], y: number[]): StepSampler {
+  const n = x.length - 1
+  const h = new Array<number>(n)
+  for (let i = 0; i < n; i++) h[i] = (x[i + 1] ?? 0) - (x[i] ?? 0)
+
+  const mu = new Array<number>(n).fill(0)
+  const z = new Array<number>(n + 1).fill(0)
+  for (let i = 1; i < n; i++) {
+    const span = (x[i + 1] ?? 0) - (x[i - 1] ?? 0)
+    const nextH = h[i] ?? 0
+    const prevH = h[i - 1] ?? 0
+    const g = 2 * span - prevH * (mu[i - 1] ?? 0)
+    mu[i] = nextH / g
+    z[i] = (
+      3 * ((y[i + 1] ?? 0) * prevH - (y[i] ?? 0) * span + (y[i - 1] ?? 0) * nextH) / (prevH * nextH)
+      - prevH * (z[i - 1] ?? 0)
+    ) / g
   }
 
-  if (idx >= count - 1) return at(count - 1)
+  const b = new Array<number>(n).fill(0)
+  const c = new Array<number>(n + 1).fill(0)
+  const d = new Array<number>(n).fill(0)
+  for (let j = n - 1; j >= 0; j--) {
+    const span = h[j] ?? 0
+    c[j] = (z[j] ?? 0) - (mu[j] ?? 0) * (c[j + 1] ?? 0)
+    b[j] = ((y[j + 1] ?? 0) - (y[j] ?? 0)) / span - (span * ((c[j + 1] ?? 0) + 2 * (c[j] ?? 0))) / 3
+    d[j] = ((c[j + 1] ?? 0) - (c[j] ?? 0)) / (3 * span)
+  }
 
-  const clamped = Math.min(idx, count - 2)
-  const i0 = Math.max(clamped - 1, 0)
-  const i3 = Math.min(clamped + 2, count - 1)
-  return catmullRom(at(i0), at(clamped), at(clamped + 1), at(i3), t)
+  const first = x[0] ?? 0
+  const last = x[n] ?? 0
+  return (step) => {
+    const v = Math.min(Math.max(step, first), last)
+    let segment = n - 1
+    if (v < last) {
+      let lo = 0
+      let hi = n
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1
+        if ((x[mid] ?? 0) <= v) lo = mid
+        else hi = mid
+      }
+      segment = lo
+    }
+    const dx = v - (x[segment] ?? 0)
+    return (y[segment] ?? 0)
+      + (b[segment] ?? 0) * dx
+      + (c[segment] ?? 0) * dx * dx
+      + (d[segment] ?? 0) * dx * dx * dx
+  }
 }
 
-function sampleStep(values: number[], framePos: number): number {
-  if (values.length === 0) return 0
-  const idx = Math.floor(framePos)
-  return values[Math.min(idx, values.length - 1)] ?? 0
+function createPolynomialSampler(values: number[], loop: boolean): StepSampler {
+  const frames = values.length
+  const count = frames + (loop ? 5 : 2)
+  const x = new Array<number>(count)
+  const y = new Array<number>(count)
+  for (let j = 0; j < count; j++) {
+    x[j] = loop ? j - 2 : j - 1
+    y[j] = loop
+      ? (values[wrapIndex(j + frames - 2, frames)] ?? 0)
+      : (values[Math.min(Math.max(j - 1, 0), frames - 1)] ?? 0)
+  }
+  return createNaturalSpline(x, y)
+}
+
+export function createChannelSampler(values: number[], interpolator: CPMAnimationInterpolator): StepSampler {
+  if (values.length === 0) return () => 0
+  if (values.length === 1) {
+    const only = values[0] ?? 0
+    return () => only
+  }
+  switch (interpolator) {
+    case 'linear_loop':
+      return createLinearLoopSampler(values)
+    case 'linear_single':
+      return createLinearSingleSampler(values)
+    case 'trig_loop':
+      return createTrigLoopSampler(values)
+    case 'trig_single':
+      return createTrigSingleSampler(values)
+    case 'poly_loop':
+      return createPolynomialSampler(values, true)
+    case 'poly_single':
+      return createPolynomialSampler(values, false)
+    case 'no':
+      return createStepSampler(values)
+  }
 }
 
 type AxisTracks = [number[], number[], number[]]
+type AxisSamplers = [StepSampler, StepSampler, StepSampler]
 
-interface ChannelTrack {
+interface RawChannelTrack {
   storeId: number
   pos: AxisTracks
   rot: AxisTracks
   scale: AxisTracks
   show: number[]
+}
+
+interface ChannelTrack extends RawChannelTrack {
+  samplers: {
+    pos: AxisSamplers
+    rot: AxisSamplers
+    scale: AxisSamplers
+    show: StepSampler
+  }
 }
 
 interface NodeFill {
@@ -149,9 +267,9 @@ interface NodeFill {
 }
 
 function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] {
-  const tracks = new Map<number, ChannelTrack>()
+  const tracks = new Map<number, RawChannelTrack>()
 
-  const getTrack = (storeId: number): ChannelTrack => {
+  const getTrack = (storeId: number): RawChannelTrack => {
     let track = tracks.get(storeId)
     if (!track) {
       track = { storeId, pos: [[], [], []], rot: [[], [], []], scale: [[], [], []], show: [] }
@@ -220,20 +338,21 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
     })
   })
 
-  return [...tracks.values()].map((track) => ({
-    ...track,
-    rot: track.rot.map(unwrapChannel) as AxisTracks,
-  }))
-}
+  const samplerFor = (values: number[]): StepSampler => createChannelSampler(values, animation.interpolator)
 
-function isSmoothInterpolator(interpolator: string): boolean {
-  return interpolator.startsWith('poly') || interpolator.startsWith('trig')
-}
-
-function isLoopInterpolator(interpolator: string, animLoop: boolean): boolean {
-  if (interpolator.endsWith('_loop')) return true
-  if (interpolator.endsWith('_single')) return false
-  return animLoop
+  return [...tracks.values()].map((track) => {
+    const rot = track.rot.map(unwrapChannel) as AxisTracks
+    return {
+      ...track,
+      rot,
+      samplers: {
+        pos: track.pos.map(samplerFor) as AxisSamplers,
+        rot: rot.map(samplerFor) as AxisSamplers,
+        scale: track.scale.map(samplerFor) as AxisSamplers,
+        show: createStepSampler(track.show),
+      },
+    }
+  })
 }
 
 export interface CpmPlayerHost {
@@ -358,6 +477,24 @@ export class CpmAnimationPlayer {
     })
   }
 
+  seek(elapsedMs: number): void {
+    this.entries.forEach((entry) => {
+      const duration = Math.max(entry.animation.duration, 1)
+      const clamped = Math.max(0, Math.min(elapsedMs, duration))
+      const {clock} = entry
+      clock.pausedAt = clamped
+      if (clock.playing) {
+        clock.startedAt = performance.now() - (clamped + clock.delayMs) / clock.speed
+      }
+    })
+  }
+
+  elapsedOf(animationId: string): number {
+    const entry = this.entries.find((item) => item.animation.id === animationId)
+    if (!entry) return 0
+    return this.clockElapsed(entry)
+  }
+
   update(): void {
     if (this.entries.length === 0) return
 
@@ -422,35 +559,26 @@ export class CpmAnimationPlayer {
     const {clock} = entry
     if (!clock.playing && clock.pausedAt === 0 && clock.delayMs > 0) return
 
-    const loop = isLoopInterpolator(animation.interpolator, animation.loop)
-    const smooth = isSmoothInterpolator(animation.interpolator)
-    const stepped = animation.interpolator === 'no'
     const {additive} = animation
     const duration = Math.max(animation.duration, 1)
-
     const loops = animation.loop || entry.clock.forceLoop
-    const wrappedElapsed = loops && elapsed >= duration ? elapsed % duration : elapsed
-    const framePos = (wrappedElapsed / duration) * Math.max(frameCount - 1, 1)
+    const finished = !loops && !clock.playing && elapsed >= duration
+    const step = finished ? frameCount : animationStep(elapsed, duration, frameCount)
 
     entry.tracks.forEach((track) => {
       const node = this.index.get(track.storeId)
       if (!node) return
 
-      const sample = (values: number[]): number => {
-        if (stepped) return sampleStep(values, framePos)
-        return sampleChannel(values, framePos, loop, smooth)
-      }
-
-      const px = sample(track.pos[0])
-      const py = sample(track.pos[1])
-      const pz = sample(track.pos[2])
-      const rx = sample(track.rot[0])
-      const ry = sample(track.rot[1])
-      const rz = sample(track.rot[2])
-      const sx = sample(track.scale[0])
-      const sy = sample(track.scale[1])
-      const sz = sample(track.scale[2])
-      const show = track.show.length > 0 && sampleStep(track.show, framePos) !== 0
+      const px = track.samplers.pos[0](step)
+      const py = track.samplers.pos[1](step)
+      const pz = track.samplers.pos[2](step)
+      const rx = track.samplers.rot[0](step)
+      const ry = track.samplers.rot[1](step)
+      const rz = track.samplers.rot[2](step)
+      const sx = track.samplers.scale[0](step)
+      const sy = track.samplers.scale[1](step)
+      const sz = track.samplers.scale[2](step)
+      const show = track.samplers.show(step) !== 0
 
       if (additive) {
         node.group.position.set(node.group.position.x + px, node.group.position.y - py, node.group.position.z - pz)

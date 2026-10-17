@@ -346,7 +346,14 @@ async fn extract_natives_from_jar(
         let mut written_names: Vec<String> = Vec::new();
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let name = file.name().to_string();
+            let name = file
+                .name()
+                .map_err(|e| {
+                    LauncherError::DiskIo(format!(
+                        "Не удалось прочитать имя записи архива: {jar_path_buf:?}: {e:#}"
+                    ))
+                })?
+                .to_string();
 
             if name.ends_with('/') {
                 continue;

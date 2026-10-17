@@ -21,7 +21,7 @@ const FINISH_PREFIX = '$post$'
 const ANIM_ENC_FILE = 'anim_enc.json'
 const ANIMATIONS_DIR = 'animations/'
 
-const VANILLA_POSES = [
+export const VANILLA_POSES = [
   'custom',
   'standing', 'walking', 'running', 'sneaking', 'swimming', 'falling', 'sleeping', 'riding', 'flying',
   'dying', 'skull_render', 'global', 'creative_flying', 'eating_left', 'eating_right', 'retro_swimming',
@@ -35,6 +35,11 @@ const VANILLA_POSES = [
   'first_person_hand', 'health', 'hunger', 'air', 'in_menu', 'invisible', 'light', 'head_rotation_yaw',
   'head_rotation_pitch', 'brush_left', 'brush_right', 'crawling', 'spear_left', 'spear_right',
 ]
+
+export const VANILLA_DYNAMIC_DURATION_POSES: ReadonlySet<string> = new Set([
+  'punch_left', 'punch_right', 'bow_left', 'bow_right', 'crossbow_ch_left', 'crossbow_ch_right',
+  'speaking', 'health', 'hunger', 'air', 'light', 'head_rotation_yaw', 'head_rotation_pitch',
+])
 
 const INTERPOLATORS: CPMAnimationInterpolator[] = [
   'linear_loop', 'linear_single', 'poly_loop', 'poly_single', 'trig_loop', 'trig_single', 'no',

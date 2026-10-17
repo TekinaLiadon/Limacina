@@ -114,7 +114,7 @@ export function useCpmAnimations(cpmData: Ref<CPMData | null>) {
     }
   })
 
-  watch(cpmData, () => {
+  watch((): string | null => cpmData.value?.textureUrl ?? null, () => {
     selectedAnimationIds.value = []
     isAnimationPlaying.value = false
     isAnimationLooped.value = false

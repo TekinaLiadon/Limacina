@@ -529,3 +529,79 @@
     display: block;
   }
 }
+
+@mixin number-field-stepper {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--number-stepper-width);
+  border-radius: 0 var(--radius-input) var(--radius-input) 0;
+  overflow: hidden;
+}
+
+@mixin number-field-step {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--login-text-muted);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+
+  &:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--login-text-primary);
+  }
+
+  &:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: calc(var(--focus-ring-offset) * -1);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+
+@mixin number-field-chevron($direction: up) {
+  content: '';
+  width: var(--space-8);
+  height: var(--space-8);
+  border-top: 1px solid currentColor;
+  border-left: 1px solid currentColor;
+
+  @if $direction == up {
+    margin-top: var(--space-2);
+    transform: rotate(45deg);
+  } @else {
+    margin-bottom: var(--space-2);
+    transform: rotate(225deg);
+  }
+}
+
+@mixin number-field-stepper-styles {
+  &__stepper {
+    @include number-field-stepper;
+  }
+
+  &__step {
+    @include number-field-step;
+
+    &--up::before {
+      @include number-field-chevron(up);
+    }
+
+    &--down::before {
+      @include number-field-chevron(down);
+    }
+  }
+}
+

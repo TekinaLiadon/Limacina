@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { computed } from 'vue'
-import { createPinia, setActivePinia } from 'pinia'
+import { computed, nextTick, ref, shallowRef } from 'vue'
+import { createPinia, getActivePinia, setActivePinia } from 'pinia'
 import { authLogins, clearSession, deleteAccount, getGameState, getSessionInfo, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import {
   useAccountsStore,
@@ -8,10 +8,14 @@ import {
   useLaunchStore,
   useNotificationStore,
   useServerStore,
+  type CPMAnimation,
+  type CPMData,
   type ProjectConfig,
 } from '@/05-entities'
 import { useAccountsPage } from '../useAccountsPage'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
+import { useCpmAnimationEditor } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
+import { createCpmEditorBridge } from '@/04-features/cpm-viewer/cpmEditorBridge'
 import { withSetup } from '@/test-support/withSetup'
 
 const stubs = vi.hoisted(() => ({
@@ -145,6 +149,58 @@ describe('useAccountsPage', () => {
     expect(getGameState).not.toHaveBeenCalled()
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe('Идёт проверка целостности, запуск невозможен')
+  })
+
+  it('blocks the launch while the animation editor has unsaved changes', async () => {
+    const pinia = getActivePinia()
+    if (!pinia) throw new Error('pinia is not active')
+    const animation: CPMAnimation = {
+      id: 'g_wave.json',
+      name: 'Машет',
+      kind: 'gesture',
+      duration: 1000,
+      priority: 0,
+      loop: false,
+      additive: false,
+      interpolator: 'linear_loop',
+      hidden: false,
+      frames: Array.from({ length: 6 }, () => ({ components: [] })),
+    }
+    const data = shallowRef<CPMData | null>(null)
+    const { result: editor, unmount } = withSetup(() => useCpmAnimationEditor({
+      data,
+      projectBytes: ref<Uint8Array | null>(null),
+      bridge: createCpmEditorBridge(),
+    }), [pinia])
+
+    data.value = {
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [{
+          id: 'head',
+          name: 'Head',
+          pos: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+        }],
+      },
+      textureUrl: 'blob:model',
+      animations: [animation],
+    }
+    await nextTick()
+    editor.startEditing('g_wave.json')
+    editor.setBoneRotation('y', 30)
+
+    const page = setupPage()
+    await page.handleLaunch()
+
+    expect(stubs.executeSteps).not.toHaveBeenCalled()
+    expect(getGameState).not.toHaveBeenCalled()
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe(
+      'В редакторе анимаций есть несохранённые изменения, запуск игры заблокирован',
+    )
+
+    unmount()
   })
 
   it('blocks the launch while the current account already has a running game', async () => {
