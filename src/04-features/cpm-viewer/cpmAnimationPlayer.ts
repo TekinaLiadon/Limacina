@@ -52,7 +52,7 @@ export function indexModelNodes(modelGroup: THREE.Group): NodeIndex {
       })
     }
 
-    const baseVisible = isRoot || (object.userData.defaultVisible as boolean | undefined) !== false
+    const baseVisible = (object.userData.defaultVisible as boolean | undefined) !== false
 
     index.set(storeId, {
       group: object,
@@ -359,6 +359,7 @@ export interface CpmPlayerHost {
   activeLayerIds: Ref<number[]>
   isPlaying: Ref<boolean>
   onFinished: () => void
+  hiddenStoreIds?: Ref<ReadonlySet<number>> | undefined
 }
 
 export interface SharedClock {
@@ -526,11 +527,11 @@ export class CpmAnimationPlayer {
   }
 
   resetNodes(): void {
-    this.index.forEach((node) => {
+    this.index.forEach((node, storeId) => {
       node.group.position.copy(node.basePos)
       node.group.rotation.copy(node.baseRot)
       node.group.scale.copy(node.baseScale)
-      node.group.visible = node.baseVisible
+      node.group.visible = node.baseVisible && !this.isHiddenByEditor(storeId)
       node.meshes.forEach((mesh) => {
         const layerId = mesh.userData.layerId as number | undefined
         mesh.userData.animVisible = mesh.userData.defaultVisible !== false
@@ -613,18 +614,23 @@ export class CpmAnimationPlayer {
       }
 
       if (!node.isVanillaPart) {
-        node.group.visible = show
+        const visible = show && !this.isHiddenByEditor(track.storeId)
+        node.group.visible = visible
         node.meshes.forEach((mesh) => {
-          mesh.userData.animVisible = show
+          mesh.userData.animVisible = visible
           const layerId = mesh.userData.layerId as number | undefined
           mesh.visible = computeMeshVisible(
-            show,
+            visible,
             layerId,
             this.host.activeLayerIds.value,
           )
         })
       }
     })
+  }
+
+  private isHiddenByEditor(storeId: number): boolean {
+    return this.host.hiddenStoreIds?.value.has(storeId) === true
   }
 }
 

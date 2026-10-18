@@ -95,6 +95,7 @@ function walkChildren(children: CPMChild[] | undefined, index: EditorBoneIndex):
           show: child.hidden !== true,
         },
         scale: { ...(child.scale ?? oneVec()) },
+        showInEditor: child.show !== false,
       })
     }
     walkChildren(child.children, index)
@@ -111,6 +112,7 @@ function addElementBone(element: CPMElement, storeId: number, index: EditorBoneI
       show: element.show !== false,
     },
     scale: { ...(element.scale ?? oneVec()) },
+    showInEditor: element.showInEditor !== false,
   })
 }
 
@@ -200,12 +202,19 @@ export function buildEditorModel(animation: CPMAnimation, index: EditorBoneIndex
   return buildModel(animation.frames, animation.additive, index)
 }
 
-export function buildEditorState(animation: CPMAnimation, index: EditorBoneIndex): EditorAnimationState {
+export function buildEditorState(
+  animation: CPMAnimation,
+  index: EditorBoneIndex,
+  frameColors: ReadonlyMap<number, string> = new Map(),
+  holdLastPose = false,
+): EditorAnimationState {
   const { frames, ...data } = animation
   return {
     data: data as EditorAnimationData,
     index,
     model: buildModel(frames, animation.additive, index),
+    frameColors,
+    holdLastPose,
   }
 }
 

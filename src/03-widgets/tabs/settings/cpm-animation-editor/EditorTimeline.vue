@@ -1,8 +1,30 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref } from 'vue'
-import { buildSimpleFrames, frameToTimeMs, type EditorBeadMode, type EditorTimeBead } from '@/04-features'
+import { computed, nextTick, onScopeDispose, ref } from 'vue'
+import {
+  buildSimpleFrames,
+  frameColorLabel,
+  frameToTimeMs,
+  type EditorBeadMode,
+  type EditorTimeBead,
+} from '@/04-features'
 import { Input } from '@/06-shared'
 import ToolIconButton from '../ToolIconButton.vue'
+import {
+  TIMELINE_DEFAULT_PX_PER_FRAME,
+  TIMELINE_MAX_PX_PER_FRAME,
+  TIMELINE_MIN_PX_PER_FRAME,
+  TIMELINE_TRACK_PAD_PX,
+  buildTimeTicks,
+  clampZoom,
+  formatTimeTick,
+  frameAtPointer,
+  frameOffsetPx,
+  pickTickStep,
+  playheadOffsetPx,
+  scrubProgressAtPointer,
+  timeOffsetPx,
+  timelineContentWidth,
+} from './timelineLayout'
 
 const props = defineProps<{
   frameCount: number
@@ -12,7 +34,10 @@ const props = defineProps<{
   keys: number[]
   beads: EditorTimeBead[]
   beadMode: EditorBeadMode
+  frameColors: ReadonlyMap<number, string>
   isPlaying: boolean
+  isScrubbing: boolean
+  scrubProgress: number
   canAddKey: boolean
   canRemoveKey: boolean
   canCopyKey: boolean
@@ -45,8 +70,14 @@ const emit = defineEmits<{
   'bead-end': []
   'simple-mode': [enabled: boolean]
   second: [seconds: number]
+  'add-frame': []
+  'add-step': []
   undo: []
   redo: []
+  'begin-scrub': []
+  scrub: [progress: number]
+  'end-scrub': []
+  'move-frame': [fromFrame: number, toFrame: number]
 }>()
 
 const allFrames = computed((): number[] =>
@@ -63,43 +94,267 @@ const simpleSeconds = computed((): Map<number, number> =>
   new Map(simpleFrames.value.map((item) => [item.frame, item.seconds])),
 )
 
-const showNumber = (frame: number): boolean =>
-  props.frameCount <= 24 || frame % 5 === 0
-
-const formatSeconds = (seconds: number): string =>
-  Number.isInteger(seconds) ? `${seconds} с` : `${seconds.toFixed(1)} с`
-
-const cellLabel = (frame: number): string => {
-  if (!props.simpleMode) return showNumber(frame) ? String(frame + 1) : ''
-  const seconds = simpleSeconds.value.get(frame)
-  if (seconds !== undefined) return formatSeconds(seconds)
-  return formatSeconds(Math.round((frameToTimeMs(frame, props.frameCount, props.durationMs) / 1000) * 10) / 10)
+const formatSeconds = (seconds: number): string => {
+  const rounded = Math.round(seconds * 10) / 10
+  return Number.isInteger(rounded) ? `${rounded} с` : `${rounded.toFixed(1)} с`
 }
 
-const currentSecond = computed((): number =>
-  Math.round((frameToTimeMs(props.currentFrame, props.frameCount, props.durationMs) / 1000) * 10) / 10,
+const frameHeadline = (frame: number): string => {
+  if (!props.simpleMode) return `Кадр ${frame + 1}`
+  return formatSeconds(simpleSeconds.value.get(frame) ?? 0)
+}
+
+const pxPerFrame = ref<number>(TIMELINE_DEFAULT_PX_PER_FRAME)
+const scrollRef = ref<HTMLDivElement | null>(null)
+const contentRef = ref<HTMLDivElement | null>(null)
+
+const trackWidth = computed((): number =>
+  timelineContentWidth(props.frameCount, pxPerFrame.value),
 )
 
-const durationSeconds = computed((): number => Math.max(props.durationMs / 1000, 1))
+const ticks = computed((): { ms: number; left: number; label: string }[] => {
+  const frameCount = Math.max(props.frameCount, 1)
+  const step = pickTickStep(props.durationMs, frameCount * pxPerFrame.value)
+  return buildTimeTicks(props.durationMs, step).map((ms) => ({
+    ms,
+    left: timeOffsetPx(ms, props.durationMs, frameCount, pxPerFrame.value),
+    label: formatTimeTick(ms),
+  }))
+})
+
+const currentSecond = computed((): number => {
+  if (props.simpleMode) {
+    const seconds = simpleSeconds.value.get(props.currentFrame)
+    if (seconds !== undefined) return Math.round(seconds * 10) / 10
+  }
+  return Math.round((frameToTimeMs(props.currentFrame, props.frameCount, props.durationMs) / 1000) * 10) / 10
+})
+
+const durationSeconds = computed((): number => Math.max(props.durationMs / 1000, 0.5))
+
+const playheadLeft = computed((): number => playheadOffsetPx(
+  props.isScrubbing
+    ? props.scrubProgress
+    : props.frameCount > 0 ? props.currentFrame / props.frameCount : 0,
+  props.frameCount,
+  pxPerFrame.value,
+))
+
+const zoomLabel = computed((): string =>
+  `${Math.round((pxPerFrame.value / TIMELINE_DEFAULT_PX_PER_FRAME) * 100)}%`,
+)
+
+const canZoomOut = computed((): boolean => pxPerFrame.value > TIMELINE_MIN_PX_PER_FRAME)
+const canZoomIn = computed((): boolean => pxPerFrame.value < TIMELINE_MAX_PX_PER_FRAME)
+
+const addFrameLabel = computed((): string =>
+  props.simpleMode ? 'Добавить полсекунды' : 'Вставить кадр',
+)
+
+const addFrameText = computed((): string =>
+  props.simpleMode ? '+ 0,5 с' : '+ кадр',
+)
+
+const addFrame = (): void => {
+  if (props.simpleMode) {
+    emit('add-step')
+    return
+  }
+  emit('add-frame')
+}
+
+const frameLeft = (frame: number): number => frameOffsetPx(frame, pxPerFrame.value)
 
 const isKey = (frame: number): boolean => props.keys.includes(frame)
 
-const beadLeft = (bead: EditorTimeBead): string => {
-  const frameCount = Math.max(props.frameCount, 1)
-  return `${(((bead.fromFrame + bead.toFrame + 1) / 2) / frameCount) * 100}%`
+const frameColor = (frame: number): string | null => props.frameColors.get(frame) ?? null
+
+const frameBackground = (frame: number): string => {
+  const color = frameColor(frame)
+  if (color !== null) return color
+  if (frame === props.currentFrame) return 'var(--accent-fill)'
+  return 'var(--login-text-muted)'
 }
+
+const frameTitle = (frame: number): string => {
+  const parts = [frameHeadline(frame)]
+  if (isKey(frame)) parts.push('ключ')
+  const colorName = frameColorLabel(frameColor(frame))
+  if (colorName !== null) parts.push(colorName)
+  return parts.join(', ')
+}
+
+const beadLeft = (bead: EditorTimeBead): number =>
+  frameOffsetPx((bead.fromFrame + bead.toFrame + 1) / 2, pxPerFrame.value)
 
 const beadTitle = (bead: EditorTimeBead): string =>
   props.beadMode === 'single'
     ? `Сдвинуть ключ в кадре ${bead.toFrame + 1}`
     : `Сдвинуть группу ключей ${bead.fromFrame + 1}–${bead.toFrame + 1}`
 
-const ruler = ref<HTMLDivElement | null>(null)
-let beadDrag: { startX: number; cellWidth: number; lastDelta: number } | null = null
+const contentLeft = (): number => contentRef.value?.getBoundingClientRect().left ?? 0
+
+let scrubActive = false
+
+const onScrubPointerMove = (event: PointerEvent): void => {
+  emit('scrub', scrubProgressAtPointer(
+    event.clientX,
+    contentLeft(),
+    pxPerFrame.value,
+    Math.max(props.frameCount, 1),
+  ))
+}
+
+const removeScrubListeners = (): void => {
+  window.removeEventListener('pointermove', onScrubPointerMove)
+  window.removeEventListener('pointerup', onScrubPointerEnd)
+  window.removeEventListener('pointercancel', onScrubPointerEnd)
+}
+
+function onScrubPointerEnd(): void {
+  if (!scrubActive) return
+  scrubActive = false
+  removeScrubListeners()
+  emit('end-scrub')
+}
+
+const onRulerPointerDown = (event: PointerEvent): void => {
+  if (event.button !== 0 || props.frameCount <= 0) return
+  event.preventDefault()
+  removeScrubListeners()
+  scrubActive = true
+  emit('begin-scrub')
+  onScrubPointerMove(event)
+  window.addEventListener('pointermove', onScrubPointerMove)
+  window.addEventListener('pointerup', onScrubPointerEnd)
+  window.addEventListener('pointercancel', onScrubPointerEnd)
+}
+
+const onRulerKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('step', -1)
+    return
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('step', 1)
+    return
+  }
+  if (event.key === 'Home') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('frame', 0)
+    return
+  }
+  if (event.key === 'End') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('frame', Math.max(props.frameCount - 1, 0))
+  }
+}
+
+const draggingFrame = ref<number | null>(null)
+const dragTarget = ref<number | null>(null)
+const dragMoved = ref<boolean>(false)
+let suppressClickUntil = 0
+let dragStartX = 0
+
+const onFramePointerMove = (event: PointerEvent): void => {
+  if (draggingFrame.value === null) return
+  if (!dragMoved.value && Math.abs(event.clientX - dragStartX) > 3) dragMoved.value = true
+  if (!dragMoved.value) return
+  dragTarget.value = frameAtPointer(
+    event.clientX,
+    contentLeft(),
+    pxPerFrame.value,
+    props.frameCount,
+  )
+}
+
+const removeFrameListeners = (): void => {
+  window.removeEventListener('pointermove', onFramePointerMove)
+  window.removeEventListener('pointerup', onFramePointerUp)
+  window.removeEventListener('pointercancel', onFramePointerCancel)
+}
+
+const resetFrameDrag = (): void => {
+  draggingFrame.value = null
+  dragTarget.value = null
+  dragMoved.value = false
+  removeFrameListeners()
+}
+
+function onFramePointerUp(): void {
+  const fromFrame = draggingFrame.value
+  const toFrame = dragTarget.value
+  const moved = dragMoved.value
+  resetFrameDrag()
+
+  if (fromFrame === null || toFrame === null) return
+  if (!moved) return
+  if (toFrame === fromFrame) return
+  suppressClickUntil = Date.now() + 250
+  emit('move-frame', fromFrame, toFrame)
+}
+
+function onFramePointerCancel(): void {
+  resetFrameDrag()
+}
+
+const onFramePointerDown = (event: PointerEvent, frame: number): void => {
+  if (event.button !== 0) return
+  event.stopPropagation()
+  if (props.simpleMode) return
+  suppressClickUntil = 0
+  dragStartX = event.clientX
+  dragMoved.value = false
+  draggingFrame.value = frame
+  dragTarget.value = frame
+  window.addEventListener('pointermove', onFramePointerMove)
+  window.addEventListener('pointerup', onFramePointerUp)
+  window.addEventListener('pointercancel', onFramePointerCancel)
+}
+
+const onFrameClick = (frame: number): void => {
+  if (Date.now() < suppressClickUntil) return
+  emit('frame', frame)
+}
+
+const zoomBy = (delta: number): void => {
+  pxPerFrame.value = clampZoom(pxPerFrame.value + delta)
+}
+
+const onWheel = (event: WheelEvent): void => {
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    event.preventDefault()
+    const container = scrollRef.value
+    if (container === null) return
+    const rect = container.getBoundingClientRect()
+    const pointerX = event.clientX - rect.left
+    const oldFrame = (container.scrollLeft + pointerX - TIMELINE_TRACK_PAD_PX) / pxPerFrame.value
+    const next = clampZoom(pxPerFrame.value + (event.deltaY < 0 ? 2 : -2))
+    if (next === pxPerFrame.value) return
+    pxPerFrame.value = next
+    void nextTick((): void => {
+      container.scrollLeft = Math.max(0, TIMELINE_TRACK_PAD_PX + oldFrame * next - pointerX)
+    })
+    return
+  }
+
+  if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+    event.preventDefault()
+    if (scrollRef.value !== null) scrollRef.value.scrollLeft += event.deltaY
+  }
+}
+
+let beadDrag: { startX: number; lastDelta: number } | null = null
 
 const onBeadPointerMove = (event: PointerEvent): void => {
   if (beadDrag === null) return
-  const delta = Math.round((event.clientX - beadDrag.startX) / beadDrag.cellWidth)
+  const delta = Math.round((event.clientX - beadDrag.startX) / pxPerFrame.value)
   if (delta === beadDrag.lastDelta) return
   beadDrag.lastDelta = delta
   emit('bead-drag', delta)
@@ -115,13 +370,8 @@ const onBeadPointerUp = (): void => {
 
 const onBeadPointerDown = (event: PointerEvent, bead: EditorTimeBead): void => {
   if (event.button !== 0 || props.frameCount <= 0) return
-  const rulerElement = ruler.value
-  const cell = rulerElement?.querySelector<HTMLElement>('.cpm-timeline__cell')
-  const fallbackWidth = (rulerElement?.getBoundingClientRect().width ?? 0) / props.frameCount
-  const cellWidth = cell ? cell.getBoundingClientRect().width + 1 : fallbackWidth
-  if (cellWidth <= 0) return
   event.preventDefault()
-  beadDrag = { startX: event.clientX, cellWidth, lastDelta: 0 }
+  beadDrag = { startX: event.clientX, lastDelta: 0 }
   emit('bead-start', bead.fromFrame, bead.toFrame)
   window.addEventListener('pointermove', onBeadPointerMove)
   window.addEventListener('pointerup', onBeadPointerUp)
@@ -134,6 +384,8 @@ const nudgeBead = (bead: EditorTimeBead, deltaFrames: number): void => {
 }
 
 onScopeDispose((): void => {
+  removeScrubListeners()
+  removeFrameListeners()
   window.removeEventListener('pointermove', onBeadPointerMove)
   window.removeEventListener('pointerup', onBeadPointerUp)
 })
@@ -158,6 +410,7 @@ const onSecondInput = (value: number | null): void => {
           class="cpm-timeline__edit-btn"
           :class="{ 'cpm-timeline__edit-btn--active': simpleMode }"
           :aria-pressed="simpleMode"
+          title="Позы ставятся каждые 0,5 секунды, промежуточные кадры достраивает интерполятор"
           @click="emit('simple-mode', true)"
         >
           Простой
@@ -172,6 +425,15 @@ const onSecondInput = (value: number | null): void => {
           Покадровый
         </button>
       </div>
+
+      <button
+        type="button"
+        class="cpm-timeline__insert"
+        :aria-label="addFrameLabel"
+        @click="addFrame"
+      >
+        {{ addFrameText }}
+      </button>
 
       <span class="cpm-timeline__divider" aria-hidden="true" />
 
@@ -215,7 +477,7 @@ const onSecondInput = (value: number | null): void => {
           <path d="M21 13v2a4 4 0 0 1-4 4H3" />
         </svg>
       </ToolIconButton>
-      <ToolIconButton :label="simpleMode ? 'Предыдущая секунда' : 'Предыдущий кадр'" @click="emit('step', -1)">
+      <ToolIconButton :label="simpleMode ? 'Предыдущий шаг' : 'Предыдущий кадр'" @click="emit('step', -1)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6" />
         </svg>
@@ -228,7 +490,7 @@ const onSecondInput = (value: number | null): void => {
           :options="{ type: 'number', size: 'compact', align: 'center' }"
           :min="0"
           :max="durationSeconds"
-          :step="1"
+          :step="0.5"
           aria-label="Секунда"
           @change="onSecondInput"
         />
@@ -249,7 +511,7 @@ const onSecondInput = (value: number | null): void => {
         <span class="cpm-timeline__frame-total">/ {{ frameCount }}</span>
       </div>
 
-      <ToolIconButton :label="simpleMode ? 'Следующая секунда' : 'Следующий кадр'" @click="emit('step', 1)">
+      <ToolIconButton :label="simpleMode ? 'Следующий шаг' : 'Следующий кадр'" @click="emit('step', 1)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="9 18 15 12 9 6" />
         </svg>
@@ -320,41 +582,98 @@ const onSecondInput = (value: number | null): void => {
           Группа
         </button>
       </div>
+
+      <span class="cpm-timeline__divider" aria-hidden="true" />
+
+      <div class="cpm-timeline__zoom" role="group" aria-label="Масштаб таймлайна">
+        <ToolIconButton label="Уменьшить масштаб" icon="minus" :disabled="!canZoomOut" @click="zoomBy(-4)" />
+        <span class="cpm-timeline__zoom-value">{{ zoomLabel }}</span>
+        <ToolIconButton label="Увеличить масштаб" icon="plus" :disabled="!canZoomIn" @click="zoomBy(4)" />
+      </div>
     </div>
 
-    <div ref="ruler" class="cpm-timeline__ruler" role="group" aria-label="Шкала кадров">
-      <button
-        v-for="frame in frames"
-        :key="frame"
-        type="button"
-        class="cpm-timeline__cell"
-        :class="{
-          'cpm-timeline__cell--active': frame === currentFrame,
-          'cpm-timeline__cell--key': isKey(frame),
-        }"
-        :aria-label="simpleMode ? `Время ${cellLabel(frame)}` : `Кадр ${frame + 1}`"
-        :aria-pressed="frame === currentFrame"
-        @click="emit('frame', frame)"
-      >
-        {{ cellLabel(frame) }}
-      </button>
-    </div>
+    <div ref="scrollRef" class="cpm-timeline__scroll" @wheel="onWheel">
+      <div ref="contentRef" class="cpm-timeline__content" :style="{ width: `${trackWidth}px` }">
+        <div class="cpm-timeline__rows">
+          <div
+            class="cpm-timeline__ruler"
+            role="slider"
+            tabindex="0"
+            aria-label="Позиция воспроизведения"
+            :aria-valuemin="1"
+            :aria-valuemax="Math.max(frameCount, 1)"
+            :aria-valuenow="currentFrame + 1"
+            :aria-valuetext="`Кадр ${currentFrame + 1} из ${Math.max(frameCount, 1)}`"
+            @pointerdown="onRulerPointerDown"
+            @keydown="onRulerKeydown"
+          >
+            <span
+              v-for="tick in ticks"
+              :key="tick.ms"
+              class="cpm-timeline__tick"
+              :style="{ left: `${tick.left}px` }"
+            >
+              <span class="cpm-timeline__tick-label">{{ tick.label }}</span>
+            </span>
+          </div>
 
-    <div v-if="beads.length > 0" class="cpm-timeline__beads">
-      <button
-        v-for="bead in beads"
-        :key="`${bead.fromFrame}-${bead.toFrame}`"
-        type="button"
-        class="cpm-timeline__bead"
-        :style="{ left: beadLeft(bead) }"
-        :title="beadTitle(bead)"
-        :aria-label="beadTitle(bead)"
-        @pointerdown="onBeadPointerDown($event, bead)"
-        @keydown.left.prevent.stop="nudgeBead(bead, -1)"
-        @keydown.right.prevent.stop="nudgeBead(bead, 1)"
-      >
-        <span class="cpm-timeline__bead-grip" aria-hidden="true" />
-      </button>
+          <div class="cpm-timeline__frames" role="group" aria-label="Кадры">
+            <button
+              v-for="frame in frames"
+              :key="frame"
+              type="button"
+              class="cpm-timeline__marker"
+              :class="{
+                'cpm-timeline__marker--active': frame === currentFrame,
+                'cpm-timeline__marker--key': isKey(frame),
+                'cpm-timeline__marker--dragging': draggingFrame === frame,
+              }"
+              :style="{ left: `${frameLeft(frame)}px` }"
+              :title="frameTitle(frame)"
+              :aria-label="frameTitle(frame)"
+              :aria-pressed="frame === currentFrame"
+              @click="onFrameClick(frame)"
+              @pointerdown="onFramePointerDown($event, frame)"
+            >
+              <span
+                class="cpm-timeline__marker-diamond"
+                :style="{ backgroundColor: frameBackground(frame) }"
+              />
+              <span v-if="isKey(frame)" class="cpm-timeline__marker-key" aria-hidden="true" />
+            </button>
+
+            <span
+              v-if="dragTarget !== null && dragTarget !== draggingFrame"
+              class="cpm-timeline__drop"
+              :style="{ left: `${frameLeft(dragTarget)}px` }"
+              aria-hidden="true"
+            />
+          </div>
+
+          <span
+            class="cpm-timeline__playhead"
+            :style="{ left: `${playheadLeft}px` }"
+            aria-hidden="true"
+          />
+        </div>
+
+        <div v-if="beads.length > 0" class="cpm-timeline__beads">
+          <button
+            v-for="bead in beads"
+            :key="`${bead.fromFrame}-${bead.toFrame}`"
+            type="button"
+            class="cpm-timeline__bead"
+            :style="{ left: `${beadLeft(bead)}px` }"
+            :title="beadTitle(bead)"
+            :aria-label="beadTitle(bead)"
+            @pointerdown="onBeadPointerDown($event, bead)"
+            @keydown.left.prevent.stop="nudgeBead(bead, -1)"
+            @keydown.right.prevent.stop="nudgeBead(bead, 1)"
+          >
+            <span class="cpm-timeline__bead-grip" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -365,12 +684,12 @@ const onSecondInput = (value: number | null): void => {
 .cpm-timeline {
   display: flex;
   flex-direction: column;
-  gap: var(--space-12);
+  gap: var(--space-4);
 
   &__controls {
     display: flex;
     align-items: center;
-    gap: var(--space-8);
+    gap: var(--space-4);
     flex-wrap: wrap;
   }
 
@@ -381,7 +700,7 @@ const onSecondInput = (value: number | null): void => {
   &__frame {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-8);
+    gap: var(--space-4);
     flex-shrink: 0;
   }
 
@@ -396,7 +715,8 @@ const onSecondInput = (value: number | null): void => {
     color: var(--login-text-muted);
   }
 
-  &__speed {
+  &__speed,
+  &__zoom-value {
     min-width: var(--space-32);
     font-family: var(--font-mono);
     font-size: var(--text-caption);
@@ -409,52 +729,187 @@ const onSecondInput = (value: number | null): void => {
     color: var(--accent-fill);
   }
 
-  &__ruler {
-    display: flex;
-    gap: 1px;
-    overflow-x: auto;
-    padding-bottom: var(--space-8);
+  &__zoom {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-shrink: 0;
   }
 
-  &__cell {
+  &__scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  &__content {
     position: relative;
-    flex: 1 0 var(--space-16);
-    height: var(--control-height-sm);
-    border: none;
-    border-radius: var(--radius-badge);
-    background: var(--surface-light);
+  }
+
+  &__rows {
+    position: relative;
+    height: calc(var(--space-24) + var(--space-20));
+  }
+
+  &__ruler {
+    position: relative;
+    height: var(--space-24);
+    border-bottom: 1px solid var(--grid-line);
+    cursor: ew-resize;
+    touch-action: none;
+
+    &:focus-visible {
+      outline: var(--focus-ring);
+      outline-offset: var(--focus-ring-offset);
+    }
+  }
+
+  &__tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: var(--space-4);
+    background: var(--grid-line);
+    pointer-events: none;
+  }
+
+  &__tick-label {
+    position: absolute;
+    bottom: var(--space-4);
+    left: 50%;
     color: var(--login-text-muted);
     font-family: var(--font-mono);
     font-size: var(--text-caption);
-    cursor: pointer;
+    line-height: 1;
+    white-space: nowrap;
+    transform: translateX(-50%);
+  }
 
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
+  &__frames {
+    position: relative;
+    height: var(--space-20);
+  }
+
+  &__marker {
+    position: absolute;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--space-20);
+    height: var(--space-20);
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    touch-action: none;
+    transform: translateX(-50%);
+
+    &:focus-visible {
+      border-radius: var(--radius-badge);
+      outline: var(--focus-ring);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    &--dragging {
+      opacity: 0.4;
+    }
+
+    &--active .cpm-timeline__marker-diamond {
+      outline: 1px solid var(--accent-fill);
+      outline-offset: 1px;
+    }
+  }
+
+  &__marker-diamond {
+    width: var(--space-12);
+    height: var(--space-12);
+    border: 1px solid var(--grid-line);
+    border-radius: var(--radius-badge);
+    box-shadow: var(--elevation-inset);
+    transform: rotate(45deg);
+  }
+
+  &__marker-key {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: var(--space-4);
+    height: var(--space-4);
+    border-radius: var(--radius-circle);
+    background: var(--accent-fill);
+    transform: translateX(-50%);
+  }
+
+  &__playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--error);
+    pointer-events: none;
+    transform: translateX(-50%);
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: var(--space-8);
+      height: var(--space-4);
+      border-radius: 0 0 var(--radius-badge) var(--radius-badge);
+      background: var(--error);
+      transform: translateX(-50%);
+    }
+  }
+
+  &__drop {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--accent-fill);
+    pointer-events: none;
+    transform: translateX(-50%);
+  }
+
+  &__beads {
+    position: relative;
+    height: var(--space-8);
+    margin-top: var(--space-4);
+  }
+
+  &__bead {
+    position: absolute;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--space-12);
+    height: var(--space-8);
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    cursor: ew-resize;
+    transform: translateX(-50%);
+
+    &:hover .cpm-timeline__bead-grip {
+      background: var(--accent-fill);
     }
 
     &:focus-visible {
       outline: var(--focus-ring);
       outline-offset: var(--focus-ring-offset);
     }
+  }
 
-    &--active {
-      background: var(--surface-active);
-      color: var(--login-text-primary);
-      box-shadow: var(--elevation-inset);
-    }
-
-    &--key::after {
-      content: '';
-      position: absolute;
-      bottom: var(--space-4);
-      left: 50%;
-      width: var(--space-4);
-      height: var(--space-4);
-      border-radius: var(--radius-circle);
-      background: var(--accent-fill);
-      transform: translateX(-50%);
-    }
+  &__bead-grip {
+    width: var(--space-8);
+    height: var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--surface-active);
+    box-shadow: var(--elevation-inset);
   }
 
   &__bead-mode {
@@ -489,43 +944,28 @@ const onSecondInput = (value: number | null): void => {
     cursor: pointer;
   }
 
-  &__beads {
-    position: relative;
-    height: var(--space-12);
-    margin-top: calc(var(--space-4) * -1);
-  }
-
-  &__bead {
-    position: absolute;
-    top: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--space-16);
-    height: var(--space-12);
-    padding: 0;
+  &__insert {
+    flex-shrink: 0;
+    height: var(--control-height-sm);
+    padding: 0 var(--space-8);
     border: none;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    cursor: ew-resize;
-    transform: translateX(-50%);
+    border-radius: var(--radius-button);
+    background: var(--accent-subtle);
+    color: var(--login-text-primary);
+    font-family: inherit;
+    font-size: var(--text-caption);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--duration-base) var(--ease-out);
 
-    &:hover .cpm-timeline__bead-grip {
-      background: var(--accent-fill);
+    &:hover {
+      background: var(--accent-active-bg);
     }
 
     &:focus-visible {
       outline: var(--focus-ring);
       outline-offset: var(--focus-ring-offset);
     }
-  }
-
-  &__bead-grip {
-    width: var(--space-8);
-    height: var(--space-4);
-    border-radius: var(--radius-pill);
-    background: var(--surface-active);
-    box-shadow: var(--elevation-inset);
   }
 }
 </style>

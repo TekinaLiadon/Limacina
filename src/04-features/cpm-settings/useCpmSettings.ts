@@ -1,6 +1,6 @@
 import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, reportError } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMVec3, type UserContentItem } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMElement, type CPMVec3, type UserContentItem } from '@/05-entities'
 import { getErrorMessage, readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
 import { cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
@@ -12,13 +12,43 @@ export interface CpmLayer {
   name: string
   visible: boolean
   empty: boolean
+  group: string
+}
+
+export interface CpmLayerTabItem {
+  id: string
+  label: string
+  disabled: boolean
+}
+
+export interface CpmLayerPanelData {
+  tabs: string[]
+  [tab: string]: unknown
 }
 
 const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
 
+const LAYER_GROUP_LABELS: Record<string, string> = {
+  head: 'Голова',
+  body: 'Тело',
+  left_arm: 'Левая рука',
+  right_arm: 'Правая рука',
+  left_leg: 'Левая нога',
+  right_leg: 'Правая нога',
+  custom_part: 'Дополнительно',
+}
+
+const layerGroupLabel = (element: CPMElement): string => {
+  const name = typeof element.name === 'string' ? element.name.trim() : ''
+  if (name !== '') return name
+  if (element.customPart === true || element.dup === true) return 'Дополнительно'
+  const id = typeof element.id === 'string' ? element.id : ''
+  return LAYER_GROUP_LABELS[id.toLowerCase()] || id || 'Без группы'
+}
+
 const isZeroVec = (v: CPMVec3): boolean => v.x === 0 && v.y === 0 && v.z === 0
 
-function collectLayers(children: CPMChild[] | undefined, result: CpmLayer[]): void {
+function collectLayers(children: CPMChild[] | undefined, group: string, result: CpmLayer[]): void {
   if (!children) return
   for (const child of children) {
     const empty = child.size !== undefined && isZeroVec(child.size)
@@ -27,8 +57,9 @@ function collectLayers(children: CPMChild[] | undefined, result: CpmLayer[]): vo
       name: child.name,
       visible: !empty,
       empty,
+      group,
     })
-    collectLayers(child.children, result)
+    collectLayers(child.children, group, result)
   }
 }
 
@@ -51,7 +82,7 @@ export function useCpmSettings() {
 
     const layers: CpmLayer[] = []
     cpmData.value.config.elements.forEach((element) => {
-      collectLayers(element.children, layers)
+      collectLayers(element.children, layerGroupLabel(element), layers)
     })
     return layers.map((layer) => ({
       ...layer,
@@ -70,6 +101,26 @@ export function useCpmSettings() {
       .filter((storeId): storeId is number => storeId !== null),
   )
 
+  const layerPanelData = computed((): CpmLayerPanelData => {
+    const data: CpmLayerPanelData = { tabs: [] }
+    for (const layer of displayLayers.value) {
+      const tab = layer.group || 'Без группы'
+      let items = data[tab] as CpmLayerTabItem[] | undefined
+      if (!items) {
+        items = []
+        data[tab] = items
+        data.tabs.push(tab)
+      }
+      const id = layer.storeId === null ? `${tab}:${items.length}` : String(layer.storeId)
+      items.push({ id, label: layer.name, disabled: layer.storeId === null })
+    }
+    return data
+  })
+
+  const visibleLayerKeys = computed((): string[] =>
+    activeLayerIds.value.map((storeId) => String(storeId)),
+  )
+
   const toggleLayer = (storeId: number | null): void => {
     if (storeId === null) return
     const next = new Set(hiddenLayerIds.value)
@@ -79,6 +130,15 @@ export function useCpmSettings() {
       next.add(storeId)
     }
     hiddenLayerIds.value = next
+  }
+
+  const setVisibleLayerKeys = (next: string[]): void => {
+    const nextSet = new Set(next)
+    for (const layer of displayLayers.value) {
+      if (layer.storeId === null) continue
+      const visible = nextSet.has(String(layer.storeId))
+      if (visible !== layer.visible) toggleLayer(layer.storeId)
+    }
   }
 
   const setTextureError = (): void => {
@@ -201,6 +261,9 @@ export function useCpmSettings() {
     showEmptyLayers,
     displayLayers,
     activeLayerIds,
+    layerPanelData,
+    visibleLayerKeys,
+    setVisibleLayerKeys,
     toggleLayer,
     setTextureError,
     isUploading,

@@ -29,12 +29,12 @@ const makeData = (animations: CPMAnimation[]): CPMData => ({
 })
 
 describe('useCpmAnimations', () => {
-  it('exposes only the visible animations as options', () => {
+  it('exposes only the visible animations in the groups', () => {
     const data = ref<CPMData | null>(makeData([makeAnimation('wave'), makeAnimation('secret', true)]))
     const animations = useCpmAnimations(data)
 
-    expect(animations.animationOptions.value).toEqual([
-      { title: 'Анимация wave', value: 'wave' },
+    expect(animations.animationGroups.value.flatMap((group) => group.animations.map((animation) => animation.id))).toEqual([
+      'wave',
     ])
   })
 
@@ -54,11 +54,11 @@ describe('useCpmAnimations', () => {
     expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual(['wave'])
   })
 
-  it('hides linked service animations from the options', () => {
+  it('hides linked service animations from the groups', () => {
     const data = ref<CPMData | null>(makeData(makeGestureSet()))
     const animations = useCpmAnimations(data)
 
-    expect(animations.animationOptions.value.map((option) => option.value)).toEqual(['groundzero-main'])
+    expect(animations.animationGroups.value.flatMap((group) => group.animations.map((animation) => animation.id))).toEqual(['groundzero-main'])
   })
 
   it('keeps unlinked service animations selectable', () => {
@@ -66,7 +66,7 @@ describe('useCpmAnimations', () => {
     const data = ref<CPMData | null>(makeData([...makeGestureSet(), orphan]))
     const animations = useCpmAnimations(data)
 
-    expect(animations.animationOptions.value.map((option) => option.value)).toEqual([
+    expect(animations.animationGroups.value.flatMap((group) => group.animations.map((animation) => animation.id))).toEqual([
       'groundzero-main',
       'orphan-pre',
     ])
@@ -74,6 +74,51 @@ describe('useCpmAnimations', () => {
     animations.selectedAnimationIds.value = ['orphan-pre']
     expect(animations.activeAnimations.value).toEqual([
       { animation: orphan, startDelayMs: 0 },
+    ])
+  })
+
+  it('groups selectable animations by their group and puts ungrouped last', () => {
+    const data = ref<CPMData | null>(makeData([
+      { ...makeAnimation('jacket'), group: 'Тело' },
+      { ...makeAnimation('helmet'), group: 'Голова' },
+      { ...makeAnimation('secret', true), group: 'Тело' },
+      { ...makeAnimation('cape'), group: '  Тело  ' },
+      { ...makeAnimation('glow'), group: null },
+      { ...makeAnimation('aura') },
+    ]))
+    const animations = useCpmAnimations(data)
+
+    expect(animations.animationGroups.value.map((group) => ({
+      group: group.group,
+      ids: group.animations.map((animation) => animation.id),
+    }))).toEqual([
+      { group: 'Тело', ids: ['jacket', 'cape'] },
+      { group: 'Голова', ids: ['helmet'] },
+      { group: null, ids: ['glow', 'aura'] },
+    ])
+  })
+
+  it('excludes linked service animations from the groups', () => {
+    const data = ref<CPMData | null>(makeData(
+      makeGestureSet().map((animation) => ({ ...animation, group: 'Жест' })),
+    ))
+    const animations = useCpmAnimations(data)
+
+    expect(animations.animationGroups.value).toHaveLength(1)
+    expect(animations.animationGroups.value[0]?.animations.map((animation) => animation.id)).toEqual([
+      'groundzero-main',
+    ])
+  })
+
+  it('keeps a model without groups in one ungrouped group', () => {
+    const data = ref<CPMData | null>(makeData([makeAnimation('wave'), makeAnimation('sit')]))
+    const animations = useCpmAnimations(data)
+
+    expect(animations.animationGroups.value).toHaveLength(1)
+    expect(animations.animationGroups.value[0]?.group).toBeNull()
+    expect(animations.animationGroups.value[0]?.animations.map((animation) => animation.id)).toEqual([
+      'wave',
+      'sit',
     ])
   })
 
@@ -98,7 +143,7 @@ describe('useCpmAnimations', () => {
     const data = ref<CPMData | null>(makeData([first, second, setup]))
     const animations = useCpmAnimations(data)
 
-    expect(animations.animationOptions.value.map((option) => option.value).sort()).toEqual(['dance-a', 'dance-b'])
+    expect(animations.animationGroups.value.flatMap((group) => group.animations.map((animation) => animation.id)).sort()).toEqual(['dance-a', 'dance-b'])
 
     animations.selectedAnimationIds.value = ['dance-a']
     expect(animations.activeAnimations.value.map((entry) => entry.animation.id)).toEqual(['dance-pre', 'dance-a'])
@@ -196,7 +241,7 @@ describe('useCpmAnimations', () => {
     const data = ref<CPMData | null>(null)
     const animations = useCpmAnimations(data)
 
-    expect(animations.animationOptions.value).toEqual([])
+    expect(animations.animationGroups.value).toEqual([])
     expect(animations.activeAnimations.value).toEqual([])
     animations.toggleAnimationPlayback()
     expect(animations.isAnimationPlaying.value).toBe(false)

@@ -1,6 +1,5 @@
 import { ref, computed, watch, type Ref } from 'vue'
 import type { CPMAnimation, CPMData } from '@/05-entities'
-import type { DropdownOption } from '@/06-shared'
 import { SPEED_MAX, SPEED_MIN, type ActiveCpmAnimation } from '../cpm-viewer/cpmAnimationPlayer'
 
 const SPEED_STEP = 0.25
@@ -11,6 +10,11 @@ const roundSpeed = (value: number): number => Math.round(value * 100) / 100
 interface GestureComposition {
   setup: CPMAnimation | null
   finish: CPMAnimation | null
+}
+
+export interface CpmAnimationGroup {
+  group: string | null
+  animations: CPMAnimation[]
 }
 
 const serviceTargetName = (animation: CPMAnimation): string | null => {
@@ -57,14 +61,26 @@ export function useCpmAnimations(cpmData: Ref<CPMData | null>) {
     return ids
   })
 
-  const animationOptions = computed((): DropdownOption[] =>
-    availableAnimations.value
-      .filter((animation) => !linkedServiceIds.value.has(animation.id))
-      .map((animation) => ({
-        title: animation.name,
-        value: animation.id,
-      })),
+  const selectableAnimations = computed((): CPMAnimation[] =>
+    availableAnimations.value.filter((animation) => !linkedServiceIds.value.has(animation.id)),
   )
+
+  const animationGroups = computed((): CpmAnimationGroup[] => {
+    const grouped = new Map<string | null, CPMAnimation[]>()
+    for (const animation of selectableAnimations.value) {
+      const group = animation.group?.trim() || null
+      const animations = grouped.get(group)
+      if (animations) animations.push(animation)
+      else grouped.set(group, [animation])
+    }
+    const named: CpmAnimationGroup[] = []
+    let ungrouped: CpmAnimationGroup | null = null
+    for (const [group, animations] of grouped) {
+      if (group === null) ungrouped = { group, animations }
+      else named.push({ group, animations })
+    }
+    return ungrouped === null ? named : [...named, ungrouped]
+  })
 
   const selectedAnimationIds = ref<string[]>([])
   const isAnimationPlaying = ref<boolean>(false)
@@ -139,7 +155,7 @@ export function useCpmAnimations(cpmData: Ref<CPMData | null>) {
   }
 
   return {
-    animationOptions,
+    animationGroups,
     selectedAnimationIds,
     activeAnimations,
     isAnimationPlaying,

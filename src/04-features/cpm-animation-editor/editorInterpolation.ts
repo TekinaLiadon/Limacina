@@ -1,6 +1,6 @@
 import type { CPMAnimationInterpolator } from '@/05-entities'
 import type { EditorBoneFrame, EditorBoneTrack, EditorPose } from './types'
-import { normalizeAngle, shortestAngleDelta } from './editorModel'
+import { createRestFrame, normalizeAngle, shortestAngleDelta } from './editorModel'
 
 type Axis = 'x' | 'y' | 'z'
 type ChannelKind = 'rotation' | 'pos'
@@ -38,6 +38,20 @@ export function copyFrameData(target: EditorBoneFrame, source: EditorBoneFrame):
   target.scale.y = source.scale.y
   target.scale.z = source.scale.z
   target.color = source.color
+}
+
+export function frameDataEquals(first: EditorBoneFrame, second: EditorBoneFrame): boolean {
+  return first.show === second.show
+    && first.rotation.x === second.rotation.x
+    && first.rotation.y === second.rotation.y
+    && first.rotation.z === second.rotation.z
+    && first.pos.x === second.pos.x
+    && first.pos.y === second.pos.y
+    && first.pos.z === second.pos.z
+    && first.scale.x === second.scale.x
+    && first.scale.y === second.scale.y
+    && first.scale.z === second.scale.z
+    && first.color === second.color
 }
 
 export function resetFrame(frame: EditorBoneFrame, rest: EditorPose): void {
@@ -212,6 +226,39 @@ interface GapPair {
   to: number | null
 }
 
+export function fillTrackTail(
+  track: EditorBoneTrack,
+  rest: EditorPose,
+  holdLastPose: boolean,
+): boolean {
+  const keys = sortedKeys(track)
+  const last = keys[keys.length - 1]
+  if (last === undefined) return false
+  const source = track.frames[last]
+  if (source === undefined) return false
+
+  const restFrame = createRestFrame(rest)
+  const keySet = new Set(keys)
+  let changed = false
+
+  for (let frame = last + 1; frame < track.frames.length; frame++) {
+    if (keySet.has(frame)) continue
+    const target = track.frames[frame]
+    if (target === undefined) continue
+
+    if (holdLastPose) {
+      if (frameDataEquals(target, source)) continue
+      copyFrameData(target, source)
+    } else {
+      if (frameDataEquals(target, restFrame)) continue
+      resetFrame(target, rest)
+    }
+    changed = true
+  }
+
+  return changed
+}
+
 export function resetTrackRange(
   track: EditorBoneTrack,
   start: number,
@@ -233,6 +280,7 @@ export function refreshTrackFrames(
   positions: number[],
   rest: EditorPose,
   interpolator: CPMAnimationInterpolator,
+  holdLastPose = false,
 ): void {
   const keys = sortedKeys(track)
   const keySet = new Set(keys)
@@ -270,14 +318,14 @@ export function refreshTrackFrames(
       continue
     }
     if (pair.from !== null && pair.to === null) {
-      resetTrackRange(track, pair.from + 1, track.frames.length, rest)
+      fillTrackTail(track, rest, holdLastPose)
       continue
     }
     fillGap(track, pair.from ?? 0, pair.to ?? 0, interpolator)
   }
 
   if (interpolator === 'poly_loop' || interpolator === 'poly_single') {
-    refillTrack(track, rest, interpolator)
+    refillTrack(track, rest, interpolator, holdLastPose)
   }
 }
 
@@ -285,6 +333,7 @@ export function refillTrack(
   track: EditorBoneTrack,
   rest: EditorPose,
   interpolator: CPMAnimationInterpolator,
+  holdLastPose = false,
 ): void {
   const keys = sortedKeys(track)
   const keySet = new Set(keys)
@@ -293,7 +342,7 @@ export function refillTrack(
 
   for (let frame = 0; frame < track.frames.length; frame++) {
     if (keySet.has(frame)) continue
-    if (first === undefined || last === undefined || frame < first || frame > last) {
+    if (first === undefined || last === undefined || frame < first) {
       const target = track.frames[frame]
       if (target) resetFrame(target, rest)
     }
@@ -302,6 +351,8 @@ export function refillTrack(
   for (let index = 0; index < keys.length - 1; index++) {
     fillGap(track, keys[index] ?? 0, keys[index + 1] ?? 0, interpolator)
   }
+
+  fillTrackTail(track, rest, holdLastPose)
 }
 
 export function poseFromFrame(frame: EditorBoneFrame): EditorPose {

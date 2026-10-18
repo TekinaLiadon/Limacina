@@ -11,7 +11,9 @@ export interface CpmEditorBridge {
   container: ShallowRef<HTMLDivElement | null>
   orbitControls: ShallowRef<OrbitControls | null>
   isGizmoDragging: ShallowRef<boolean>
+  hiddenBoneIds: ShallowRef<ReadonlySet<number>>
   seekFrame: (frame: number, frameCount: number, durationMs: number) => void
+  seekTime: (elapsedMs: number) => void
   requestRender: () => void
 }
 
@@ -28,6 +30,13 @@ export function createCpmEditorBridge(): CpmEditorBridge {
     current.applyCurrentFrame()
   }
 
+  const seekTime = (elapsedMs: number): void => {
+    const current = player.value
+    if (!current || !Number.isFinite(elapsedMs)) return
+    current.seek(Math.max(0, elapsedMs))
+    current.applyCurrentFrame()
+  }
+
   return {
     modelGroup: shallowRef<THREE.Group | null>(null),
     nodeIndex: shallowRef<NodeIndex | null>(null),
@@ -36,7 +45,9 @@ export function createCpmEditorBridge(): CpmEditorBridge {
     container: shallowRef<HTMLDivElement | null>(null),
     orbitControls: shallowRef<OrbitControls | null>(null),
     isGizmoDragging: shallowRef<boolean>(false),
+    hiddenBoneIds: shallowRef<ReadonlySet<number>>(new Set<number>()),
     seekFrame,
+    seekTime,
     requestRender: (): void => player.value?.applyCurrentFrame(),
   }
 }

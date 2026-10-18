@@ -5,7 +5,7 @@ import { nextTick, ref, shallowRef, type Ref } from 'vue'
 import type { CPMAnimation, CPMConfig, CPMData } from '@/05-entities'
 import { withSetup } from '@/test-support/withSetup'
 import { CpmAnimationPlayer, indexModelNodes } from '../../cpm-viewer/cpmAnimationPlayer'
-import { createCpmEditorBridge } from '../../cpm-viewer/cpmEditorBridge'
+import { createCpmEditorBridge, type CpmEditorBridge } from '../../cpm-viewer/cpmEditorBridge'
 import { useCpmAnimationEditor, type CpmAnimationEditorApi } from '../useCpmAnimationEditor'
 import { useCpmEditorScene } from '../editorScene'
 
@@ -30,6 +30,25 @@ const config: CPMConfig = {
           rotation: vec(),
           scale: vec(1, 1, 1),
           storeID: 100,
+        },
+      ],
+    },
+    {
+      id: 'custom_dup',
+      name: 'Кость-дубль',
+      pos: vec(),
+      rotation: vec(),
+      customPart: true,
+      storeID: 60,
+      children: [
+        {
+          name: 'Куб',
+          size: vec(2, 4, 2),
+          offset: vec(2, 0, 0),
+          pos: vec(0, 4, 0),
+          rotation: vec(),
+          scale: vec(1, 1, 1),
+          storeID: 101,
         },
       ],
     },
@@ -69,6 +88,7 @@ function buildScene(): { scene: THREE.Scene; model: THREE.Group } {
 
 interface Harness {
   editor: CpmAnimationEditorApi
+  bridge: CpmEditorBridge
   scene: THREE.Scene
   model: THREE.Group
   camera: THREE.PerspectiveCamera
@@ -140,6 +160,7 @@ function setup(): Harness {
 
   harness = {
     editor: editorResult.result,
+    bridge,
     scene,
     model,
     camera,
@@ -184,6 +205,10 @@ function gizmoTargetOf(model: THREE.Group): THREE.Object3D | undefined {
   return model.getObjectByName('cpm-editor-gizmo-target')
 }
 
+function rotationHandlesOf(scene: THREE.Scene): THREE.Object3D | undefined {
+  return scene.getObjectByName('cpm-editor-rotation-handles')
+}
+
 function dragAt(
   container: HTMLDivElement,
   camera: THREE.PerspectiveCamera,
@@ -209,9 +234,10 @@ beforeEach((): void => {
 })
 
 describe('useCpmEditorScene', () => {
-  it('draws the arc, key markers and ghosts inside the existing scene', async () => {
+  it('draws the arc and ghosts inside the existing scene', async () => {
     const { editor, scene, model, frames } = setup()
     editor.startEditing('g_wave.json')
+    editor.setGhostFrames(2, 2)
     editor.selectBone(100)
     editor.goToFrame(0)
     editor.setBoneRotation('y', 10)
@@ -229,10 +255,10 @@ describe('useCpmEditorScene', () => {
     const line = overlay?.children.find((child): boolean => child instanceof THREE.Line)
     expect(line).toBeInstanceOf(THREE.Line)
 
-    const markers = overlay?.children.filter(
-      (child): boolean => child instanceof THREE.Mesh && typeof child.userData.keyFrame === 'number',
+    const overlayMeshes = overlay?.children.filter(
+      (child): boolean => child instanceof THREE.Mesh,
     )
-    expect(markers).toHaveLength(2)
+    expect(overlayMeshes).toHaveLength(0)
 
     const ghosts = overlay?.children.filter((child): boolean => child instanceof THREE.Group)
     expect(ghosts).toHaveLength(3)
@@ -305,31 +331,137 @@ describe('useCpmEditorScene', () => {
     harness = null
   })
 
+  it('shortens the top green arrow', async () => {
+    const { editor, scene, frames } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    await nextTick()
+    runFrames(frames)
+
+    const upperY: Array<{ min: number; max: number }> = []
+    gizmoOf(scene)?.traverse((object) => {
+      if (!(object instanceof THREE.Mesh) || object.name !== 'Y') return
+      const { material } = object
+      if (!(material instanceof THREE.MeshBasicMaterial) || material.color.getHex() !== 0x00ff00) return
+      object.geometry.computeBoundingBox()
+      const box = object.geometry.boundingBox
+      if (box !== null && box.min.y >= 0) upperY.push({ min: box.min.y, max: box.max.y })
+    })
+
+    expect(upperY.some(({ min, max }): boolean => Math.abs(min) < 0.001 && Math.abs(max - 0.3) < 0.001)).toBe(true)
+    expect(upperY.every(({ max }): boolean => max <= 0.4 + 0.001)).toBe(true)
+
+    harness?.unmount()
+    harness = null
+  })
+
+  it('centers the rotation arrows on the bone pivot', async () => {
+    const { editor, model, scene, frames } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
+    await nextTick()
+    runFrames(frames)
+    scene.updateMatrixWorld(true)
+
+    const handles = rotationHandlesOf(scene)
+    const target = gizmoTargetOf(model)
+    expect(handles).toBeDefined()
+    expect(target).toBeDefined()
+    if (handles === undefined || target === undefined) throw new Error('Гизмо не найдено')
+
+    const targetWorld = target.getWorldPosition(new THREE.Vector3())
+    expect(handles.position.toArray()).toEqual(targetWorld.toArray())
+    expect(handles.getObjectByName('cpm-editor-rotation-handle-x')?.position.toArray())
+      .toEqual([0, 0, 0])
+    expect(handles.getObjectByName('cpm-editor-rotation-handle-y')?.position.toArray())
+      .toEqual([0, 0, 0])
+    expect(handles.getObjectByName('cpm-editor-rotation-handle-z')?.position.toArray())
+      .toEqual([0, 0, 0])
+
+    harness?.unmount()
+    harness = null
+  })
+
+  it('highlights a rotation arrow on hover and restores it on leave', async () => {
+    const { editor, scene, camera, container, frames } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
+    await nextTick()
+    runFrames(frames)
+
+    camera.position.set(0, 4, 10)
+    camera.lookAt(0, 4, 0)
+    camera.updateMatrixWorld(true)
+    scene.updateMatrixWorld(true)
+
+    const head = scene.getObjectByName('cpm-editor-rotation-head-y')
+    expect(head).toBeInstanceOf(THREE.Mesh)
+    if (!(head instanceof THREE.Mesh)) throw new Error('Стрелка поворота не найдена')
+    const material = head.material as THREE.MeshBasicMaterial
+    expect(material.color.getHex()).toBe(0x00ff00)
+
+    const projected = head.getWorldPosition(new THREE.Vector3()).project(camera)
+    const clientX = ((projected.x + 1) / 2) * 200
+    const clientY = ((1 - projected.y) / 2) * 200
+
+    container.dispatchEvent(pointerEvent('pointermove', clientX, clientY))
+    expect(material.color.getHex()).toBe(0xffff00)
+
+    container.dispatchEvent(pointerEvent('pointermove', 2, 2))
+    expect(material.color.getHex()).toBe(0x00ff00)
+
+    harness?.unmount()
+    harness = null
+  })
+
+  it('syncs editor-hidden duplicate bones through the bridge', async () => {
+    const { editor, bridge, frames } = setup()
+    editor.startEditing('g_wave.json')
+    await nextTick()
+    runFrames(frames)
+
+    expect([...bridge.hiddenBoneIds.value]).toEqual([101])
+
+    expect(await editor.stopEditing()).toBe(true)
+    await nextTick()
+    expect(bridge.hiddenBoneIds.value.size).toBe(0)
+
+    harness?.unmount()
+    harness = null
+  })
+
   it('shows the gizmo only while editing a selected bone and not during playback', async () => {
     const { editor, scene, frames } = setup()
     editor.startEditing('g_wave.json')
     await nextTick()
     runFrames(frames)
     expect(gizmoOf(scene)?.visible).toBe(true)
+    expect(rotationHandlesOf(scene)?.visible).toBe(true)
 
     editor.selectBone(null)
     await nextTick()
     runFrames(frames)
     expect(gizmoOf(scene)?.visible).toBe(false)
+    expect(rotationHandlesOf(scene)?.visible).toBe(false)
 
     editor.selectBone(100)
     await nextTick()
     runFrames(frames)
     expect(gizmoOf(scene)?.visible).toBe(true)
+    expect(rotationHandlesOf(scene)?.visible).toBe(true)
 
     editor.isPlaying.value = true
     await nextTick()
     expect(gizmoOf(scene)?.visible).toBe(false)
+    expect(rotationHandlesOf(scene)?.visible).toBe(false)
 
     editor.isPlaying.value = false
     await nextTick()
     runFrames(frames)
     expect(gizmoOf(scene)?.visible).toBe(true)
+    expect(rotationHandlesOf(scene)?.visible).toBe(true)
 
     harness?.unmount()
     harness = null
@@ -389,42 +521,34 @@ describe('useCpmEditorScene', () => {
     harness = null
   })
 
-  it('rotates the bone from a dragged key marker', async () => {
+  it('rotates the bone from a gizmo rotation arrow', async () => {
     const { editor, scene, camera, container, frames } = setup()
     editor.startEditing('g_wave.json')
     editor.selectBone(100)
     editor.goToFrame(0)
-    editor.setBoneRotation('y', 10)
-    editor.goToFrame(4)
-    editor.setBoneRotation('y', 50)
     await nextTick()
     runFrames(frames)
+
+    camera.position.set(0, 4, 10)
+    camera.lookAt(0, 4, 0)
+    camera.updateMatrixWorld(true)
     scene.updateMatrixWorld(true)
 
-    const overlay = overlayOf(scene)
-    const marker = (overlay?.children ?? []).find(
-      (child): boolean => child instanceof THREE.Mesh && child.userData.keyFrame === 4,
-    )
-    expect(marker).toBeInstanceOf(THREE.Mesh)
-    if (!(marker instanceof THREE.Mesh)) throw new Error('Маркер ключа не найден')
+    const head = scene.getObjectByName('cpm-editor-rotation-head-y')
+    expect(head).toBeDefined()
+    if (head === undefined) throw new Error('Стрелка поворота не найдена')
 
-    camera.position.set(marker.position.x, marker.position.y, marker.position.z + 10)
-    camera.lookAt(marker.position)
-    camera.updateMatrixWorld(true)
+    const projected = head.getWorldPosition(new THREE.Vector3()).project(camera)
+    const clientX = ((projected.x + 1) / 2) * 200
+    const clientY = ((1 - projected.y) / 2) * 200
 
-    const rotationBefore = editor.animation.value?.frames[4]?.components
+    container.dispatchEvent(pointerEvent('pointerdown', clientX, clientY))
+    window.dispatchEvent(pointerEvent('pointermove', clientX + 40, clientY))
+    window.dispatchEvent(pointerEvent('pointerup', clientX + 40, clientY))
+
+    const rotation = editor.animation.value?.frames[0]?.components
       .find((component) => component.storeID === 100)?.rotation.y
-    expect(rotationBefore).toBe(50)
-
-    container.dispatchEvent(pointerEvent('pointerdown', 100, 100))
-    expect(editor.currentFrame.value).toBe(4)
-    window.dispatchEvent(pointerEvent('pointermove', 120, 100))
-    window.dispatchEvent(pointerEvent('pointerup', 120, 100))
-
-    const rotationAfter = editor.animation.value?.frames[4]?.components
-      .find((component) => component.storeID === 100)?.rotation.y
-    expect(rotationAfter).not.toBe(rotationBefore)
-    expect(rotationAfter).toBeCloseTo(60)
+    expect(rotation).toBeCloseTo(340)
 
     harness?.unmount()
     harness = null

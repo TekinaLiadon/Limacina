@@ -67,7 +67,15 @@ vi.mock('@/04-features', async (importOriginal) => {
   const errorMessage = vue.ref('')
   const isUploading = vue.ref(false)
   const selectedAnimationIds = vue.ref<string[]>([])
-  const animationOptions = vue.computed(() => [{ title: 'Машет', value: 'g_wave' }])
+  const animationGroups = vue.ref([{
+    group: null,
+    animations: [{ id: 'g_wave', name: 'Машет' }],
+  }])
+  const layerPanelData = vue.ref({
+    tabs: ['Root'],
+    Root: [{ id: '5', label: 'Body', disabled: false }],
+  })
+  const visibleLayerKeys = vue.ref<string[]>(['5'])
   const editor: MockEditor = {
     isEditing: vue.ref(false),
     isPlaying: vue.ref(false),
@@ -108,6 +116,9 @@ vi.mock('@/04-features', async (importOriginal) => {
       showEmptyLayers: vue.ref(false),
       displayLayers: vue.computed(() => []),
       activeLayerIds: vue.computed(() => []),
+      layerPanelData,
+      visibleLayerKeys,
+      setVisibleLayerKeys: vi.fn(),
       toggleLayer: vi.fn(),
       setTextureError: vi.fn(),
       isUploading,
@@ -124,7 +135,7 @@ vi.mock('@/04-features', async (importOriginal) => {
       handleCopyUrl: vi.fn(),
     },
     animations: {
-      animationOptions,
+      animationGroups,
       selectedAnimationIds,
       activeAnimations: vue.computed(() => []),
       isAnimationPlaying: vue.ref(false),
@@ -158,10 +169,10 @@ const CpmViewerStub = {
   template: '<div class="cpm-viewer__canvas" />',
 }
 
-const CpmAnimationBarStub = {
-  name: 'CpmAnimationBar',
-  props: ['options', 'modelValue', 'hasAnimation', 'isPlaying', 'isLooped', 'speed', 'canSpeedDown', 'canSpeedUp'],
-  template: '<div class="cpm-anim-bar-stub" />',
+const CpmAnimationPanelStub = {
+  name: 'CpmAnimationPanel',
+  props: ['data', 'modelValue', 'hasAnimation', 'isPlaying', 'isLooped', 'speed', 'canSpeedDown', 'canSpeedUp'],
+  template: '<div class="cpm-animation-panel-stub"><slot name="actions" /></div>',
 }
 
 const CpmAnimationEditorHeadStub = {
@@ -198,7 +209,7 @@ const mountSettings = (): VueWrapper =>
     global: {
       stubs: {
         CpmViewer: CpmViewerStub,
-        CpmAnimationBar: CpmAnimationBarStub,
+        CpmAnimationPanel: CpmAnimationPanelStub,
         CpmAnimationEditorHead: CpmAnimationEditorHeadStub,
         CpmAnimationTools: CpmAnimationToolsStub,
         CpmAnimationTimeline: CpmAnimationTimelineStub,
@@ -236,15 +247,54 @@ beforeEach((): void => {
   api.handlers.resetCpm.mockClear()
   api.handlers.selectCpmFile.mockClear()
   ;(api.animations.selectedAnimationIds as Ref<string[]>).value = []
+  ;(api.animations.animationGroups as Ref<unknown[]>).value = [{
+    group: null,
+    animations: [{ id: 'g_wave', name: 'Машет' }],
+  }]
+  ;(api.settings.layerPanelData as Ref<unknown>).value = {
+    tabs: ['Root'],
+    Root: [{ id: '5', label: 'Body', disabled: false }],
+  }
+  ;(api.settings.visibleLayerKeys as Ref<string[]>).value = ['5']
+  ;(api.settings.showEmptyLayers as Ref<boolean>).value = false
 })
 
 describe('CpmSettings editor integration', () => {
   it('shows the editor entry next to the playback panel', () => {
     const wrapper = mountSettings()
 
-    expect(wrapper.find('.cpm-settings__playback .cpm-anim-bar-stub').exists()).toBe(true)
+    expect(wrapper.find('.cpm-settings__playback .cpm-animation-panel-stub').exists()).toBe(true)
+    expect(wrapper.find('.cpm-animation-panel-stub .cpm-settings__edit').exists()).toBe(true)
     expect(wrapper.find('.cpm-settings__edit').text()).toBe('Создать анимацию')
     expect(wrapper.find('.cpm-settings__weight').text()).toBe('Вес: 2 КБ из 20 МБ')
+  })
+
+  it('keeps the create action available without animations', () => {
+    ;(mocked().animations.animationGroups as Ref<unknown[]>).value = []
+    const wrapper = mountSettings()
+
+    expect(wrapper.find('.cpm-animation-panel-stub').exists()).toBe(true)
+    expect(wrapper.find('.cpm-animation-panel-stub .cpm-settings__edit').text()).toBe('Создать анимацию')
+  })
+
+  it('renders the grouped layer panel', () => {
+    const wrapper = mountSettings()
+
+    expect(wrapper.find('.cpm-settings__layer-panel .cpm-tabbed-panel__title').text()).toContain('Слои')
+    expect(wrapper.find('.cpm-settings__layer-panel .cpm-tabbed-panel__count').text()).toBe('Показано: 1 из 1')
+    expect(wrapper.find('.cpm-settings__layer-panel .cpm-tabbed-panel__item').text()).toBe('Body')
+  })
+
+  it('places the empty-layer toggle in the layer panel header actions', async () => {
+    const wrapper = mountSettings()
+
+    const actions = wrapper.find('.cpm-settings__layer-panel .cpm-tabbed-panel__actions')
+    expect(actions.exists()).toBe(true)
+    expect(actions.find('.checkbox__label').text()).toBe('Показать пустые слои')
+
+    await actions.find('.checkbox__input').setValue(true)
+
+    expect((mocked().settings.showEmptyLayers as Ref<boolean>).value).toBe(true)
   })
 
   it('opens the selected animation in the editor', async () => {
@@ -285,7 +335,7 @@ describe('CpmSettings editor integration', () => {
     expect(document.body.querySelector('.cpm-editor-head-stub')).not.toBeNull()
     expect(document.body.querySelector('.cpm-editor-tools-stub')).not.toBeNull()
     expect(document.body.querySelector('.cpm-editor-timeline-stub')).not.toBeNull()
-    expect(wrapper.find('.cpm-anim-bar-stub').exists()).toBe(false)
+    expect(wrapper.find('.cpm-animation-panel-stub').exists()).toBe(false)
     expect((document.body.querySelector<HTMLElement>('.popup-shell__overlay'))?.style.display).not.toBe('none')
   })
 

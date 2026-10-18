@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Input } from '@/06-shared'
+import { Checkbox, Input } from '@/06-shared'
 import type { CpmAnimationEditorApi } from '@/04-features'
-import ToolIconButton from '../ToolIconButton.vue'
 import BoneTree from './BoneTree.vue'
 import BonePoseForm from './BonePoseForm.vue'
 import AnimationProperties from './AnimationProperties.vue'
@@ -46,18 +45,21 @@ const onGhostAfter = (value: number | null): void => {
   >
     <div class="cpm-editor-tools__head">
       <span v-if="!isCollapsed" class="cpm-editor-tools__title">Настройки</span>
-      <ToolIconButton
-        :label="isCollapsed ? 'Показать настройки' : 'Скрыть настройки'"
+      <button
+        class="cpm-editor-tools__toggle"
+        type="button"
+        :aria-label="isCollapsed ? 'Показать настройки' : 'Скрыть настройки'"
         :aria-expanded="!isCollapsed"
+        aria-controls="cpm-editor-tools-body"
         @click="toggle"
       >
         <svg class="cpm-editor-tools__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="9 18 15 12 9 6" />
         </svg>
-      </ToolIconButton>
+      </button>
     </div>
 
-    <div v-show="!isCollapsed" class="cpm-editor-tools__body">
+    <div id="cpm-editor-tools-body" v-show="!isCollapsed" class="cpm-editor-tools__body">
       <section class="cpm-editor-tools__section">
         <h3 class="cpm-editor-tools__section-title">Кости</h3>
         <BoneTree
@@ -75,14 +77,12 @@ const onGhostAfter = (value: number | null): void => {
           :can-mirror="editor.canMirrorPose.value"
           :can-smooth="editor.canSmoothTrack.value"
           :can-revert="editor.canRevertBoneStep.value"
-          :rotation-pivot="editor.rotationPivot.value"
           @rotate="editor.setBoneRotation"
           @move="editor.setBonePosition"
           @visible="editor.setBoneVisible"
           @mirror="editor.mirrorPose"
           @smooth="editor.smoothTrack"
           @revert="editor.revertBoneStep"
-          @pivot="editor.setRotationPivot"
         />
       </section>
 
@@ -90,6 +90,17 @@ const onGhostAfter = (value: number | null): void => {
         <h3 class="cpm-editor-tools__section-title">Свойства анимации</h3>
         <AnimationProperties :editor="editor" />
       </section>
+
+      <div class="cpm-editor-tools__option">
+        <Checkbox
+          :model-value="editor.isHoldLastPose.value"
+          label="Удерживать последнюю позу"
+          @update:model-value="editor.setHoldLastPose"
+        />
+        <p class="cpm-editor-tools__hint">
+          Следующие кадры копируют последнюю заданную позу
+        </p>
+      </div>
 
       <div class="cpm-editor-tools__ghosts">
         <span class="cpm-editor-tools__label">Призраки</span>
@@ -156,6 +167,7 @@ const onGhostAfter = (value: number | null): void => {
   width: var(--cpm-editor-side-width);
   min-height: 0;
   padding: var(--space-8);
+  transition: width var(--duration-base) var(--ease-in-out), padding var(--duration-base) var(--ease-in-out);
 
   @include breakpoints.media-under-md {
     width: min(var(--cpm-editor-side-width), 45vw);
@@ -163,6 +175,7 @@ const onGhostAfter = (value: number | null): void => {
 
   &--collapsed {
     width: var(--space-48);
+    padding: var(--space-8) var(--space-4);
 
     .cpm-editor-tools__head {
       justify-content: center;
@@ -171,6 +184,12 @@ const onGhostAfter = (value: number | null): void => {
     .cpm-editor-tools__chevron {
       transform: rotate(180deg);
     }
+  }
+
+  &__toggle {
+    @include mixins.tool-button;
+
+    flex-shrink: 0;
   }
 
   &__head {
@@ -213,6 +232,19 @@ const onGhostAfter = (value: number | null): void => {
     font-size: var(--text-caption);
     font-weight: var(--weight-medium);
     color: var(--login-text-muted);
+  }
+
+  &__option {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  &__hint {
+    @include mixins.caption-hint;
+
+    padding-left: calc(var(--checkbox-size) + var(--space-8));
+    text-align: left;
   }
 
   &__label {

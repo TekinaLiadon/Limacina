@@ -434,6 +434,45 @@ describe('CpmAnimationPlayer', () => {
     expect(mesh.visible).toBe(false)
   })
 
+  it('keeps a root marked hidden by the model off after a reset', () => {
+    const root = new THREE.Group()
+    root.userData.storeID = 4
+    root.userData.isRoot = true
+    root.userData.defaultVisible = false
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)))
+
+    const player = new CpmAnimationPlayer(indexModelNodes(root), {
+      activeLayerIds: ref<number[]>([]),
+      isPlaying: ref(false),
+      onFinished: vi.fn(),
+    })
+
+    player.setAnimations([])
+    expect(root.visible).toBe(false)
+  })
+
+  it('keeps editor-hidden nodes off even when a show track turns them on', () => {
+    const group = new THREE.Group()
+    group.userData.storeID = 0
+    group.userData.isRoot = true
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)))
+    const hiddenStoreIds = ref<ReadonlySet<number>>(new Set([0]))
+
+    const player = new CpmAnimationPlayer(indexModelNodes(group), {
+      activeLayerIds: ref<number[]>([]),
+      isPlaying: ref(false),
+      onFinished: vi.fn(),
+      hiddenStoreIds,
+    })
+
+    player.setAnimations(seq(makeAnimation()))
+    expect(group.visible).toBe(false)
+
+    hiddenStoreIds.value = new Set()
+    player.applyCurrentFrame()
+    expect(group.visible).toBe(true)
+  })
+
   it('reveals a hidden-by-default mesh when a show track turns it on', () => {
     const activeLayerIds = ref<number[]>([7])
     const group = new THREE.Group()

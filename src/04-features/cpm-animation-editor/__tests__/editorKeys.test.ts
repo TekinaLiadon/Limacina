@@ -9,6 +9,7 @@ import { buildEditorBoneIndex, buildEditorState } from '../editorModel'
 import {
   addBoneKey,
   duplicateBonePose,
+  ensureBoundaryKeys,
   eraseBoneKey,
   insertPoseAtFraction,
   moveBoneKey,
@@ -196,6 +197,14 @@ describe('addBoneKey', () => {
     expect(keysOf(added, 100)).toEqual([0, 2, 4])
     expect(rotationY(added, 100, 2)).toBeCloseTo(40)
     expect(addBoneKey(added, 100, 2)).toBeNull()
+  })
+
+  it('starts a track for a bone that has no keys yet', () => {
+    const state = buildEditorState(makeAnimation(emptyFrames(6)), index)
+    const added = apply(addBoneKey(state, 100, 2))
+
+    expect(keysOf(added, 100)).toEqual([2])
+    expect(added.model.bones.has(100)).toBe(true)
   })
 })
 
@@ -396,5 +405,67 @@ describe('updateAnimationData', () => {
     expect(updated.data.interpolator).toBe('trig_loop')
     expect(rotationY(updated, 100, 2)).toBeCloseTo(5 + Math.sin(Math.PI / 4) * 80, 3)
     expect(updateAnimationData(state, { interpolator: 'linear_loop' })).toBeNull()
+  })
+})
+
+describe('hold last pose', () => {
+  const holdState = (count: number, overrides: Partial<CPMAnimation> = {}): EditorAnimationState =>
+    buildEditorState(makeAnimation(emptyFrames(count), overrides), index, new Map(), true)
+
+  it('copies the last key pose into the frames after it', () => {
+    let state = holdState(6)
+    state = apply(setBonePose(state, 100, 2, pose(vec(0, 30, 0))))
+
+    expect(keysOf(state, 100)).toEqual([2])
+    expect(rotationY(state, 100, 0)).toBe(0)
+    expect(rotationY(state, 100, 1)).toBe(0)
+    expect(rotationY(state, 100, 2)).toBe(30)
+    expect(rotationY(state, 100, 3)).toBe(30)
+    expect(rotationY(state, 100, 4)).toBe(30)
+    expect(rotationY(state, 100, 5)).toBe(30)
+  })
+
+  it('holds the newest last key after the previous one is erased', () => {
+    let state = holdState(6)
+    state = apply(setBonePose(state, 100, 2, pose(vec(0, 30, 0))))
+    state = apply(setBonePose(state, 100, 4, pose(vec(0, 90, 0))))
+
+    const erased = apply(eraseBoneKey(state, 100, 4))
+
+    expect(keysOf(erased, 100)).toEqual([2])
+    expect(rotationY(erased, 100, 3)).toBe(30)
+    expect(rotationY(erased, 100, 5)).toBe(30)
+  })
+
+  it('holds the tail after the interpolator is changed', () => {
+    let state = holdState(6)
+    state = apply(setBonePose(state, 100, 2, pose(vec(0, 30, 0))))
+
+    const updated = apply(updateAnimationData(state, { interpolator: 'no' }))
+
+    expect(rotationY(updated, 100, 5)).toBe(30)
+  })
+
+  it('does not key the next step boundary when holding the pose', () => {
+    const state = holdState(6)
+
+    const prepared = apply(ensureBoundaryKeys(state, 100, 2, [0, 2, 4]))
+
+    expect(keysOf(prepared, 100)).toEqual([0])
+  })
+
+  it('keys the next step boundary without holding the pose', () => {
+    const state = buildEditorState(makeAnimation(emptyFrames(6)), index)
+
+    const prepared = apply(ensureBoundaryKeys(state, 100, 2, [0, 2, 4]))
+
+    expect(keysOf(prepared, 100)).toEqual([0, 4])
+  })
+
+  it('resets the tail to rest when holding is off', () => {
+    let state = buildEditorState(makeAnimation(emptyFrames(6)), index)
+    state = apply(setBonePose(state, 100, 2, pose(vec(0, 30, 0))))
+
+    expect(rotationY(state, 100, 5)).toBe(0)
   })
 })

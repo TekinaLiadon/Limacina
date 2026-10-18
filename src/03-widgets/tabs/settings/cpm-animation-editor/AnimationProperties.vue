@@ -90,26 +90,16 @@ const onGroup = (event: Event): void => props.editor.setGroup(textValue(event))
 
       <label class="cpm-props__field">
         <span class="cpm-props__label">Кадров</span>
-        <span class="cpm-props__frames">
-          <Input
-            class="cpm-props__number"
-            :model-value="editor.frameCount.value"
-            :options="{ type: 'number', size: 'compact' }"
-            :min="1"
-            :max="255"
-            :step="1"
-            aria-label="Количество кадров"
-            @change="onFrames"
-          />
-          <button
-            type="button"
-            class="cpm-props__insert"
-            aria-label="Вставить кадр"
-            @click="editor.insertFrame()"
-          >
-            + кадр
-          </button>
-        </span>
+        <Input
+          class="cpm-props__number"
+          :model-value="editor.frameCount.value"
+          :options="{ type: 'number', size: 'compact' }"
+          :min="1"
+          :max="255"
+          :step="1"
+          aria-label="Количество кадров"
+          @change="onFrames"
+        />
       </label>
 
       <div class="cpm-props__field cpm-props__interpolator">
@@ -259,36 +249,6 @@ const onGroup = (event: Event): void => props.editor.setGroup(textValue(event))
   &__number {
     flex: 1 1 auto;
     min-width: 0;
-  }
-
-  &__frames {
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-  }
-
-  &__insert {
-    flex-shrink: 0;
-    height: var(--control-height-sm);
-    padding: 0 var(--space-8);
-    border: none;
-    border-radius: var(--radius-button);
-    background: var(--surface-light);
-    color: var(--login-text-secondary);
-    font-family: inherit;
-    font-size: var(--text-caption);
-    white-space: nowrap;
-    cursor: pointer;
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
-    }
-
-    &:focus-visible {
-      outline: var(--focus-ring);
-      outline-offset: var(--focus-ring-offset);
-    }
   }
 
   &__hint {

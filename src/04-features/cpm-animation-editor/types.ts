@@ -35,6 +35,7 @@ export interface EditorBoneInfo {
   name: string
   rest: EditorPose
   scale: CPMVec3
+  showInEditor: boolean
 }
 
 export interface EditorBoneIndex {
@@ -59,6 +60,8 @@ export interface EditorAnimationState {
   data: EditorAnimationData
   index: EditorBoneIndex
   model: EditorAnimationModel
+  frameColors: ReadonlyMap<number, string>
+  holdLastPose: boolean
 }
 
 export interface EditorKeyFrame {
@@ -70,8 +73,6 @@ export type EditorInterpolator = CPMAnimationInterpolator
 export type EditorAnimationKind = CPMAnimationKind
 
 export type EditorBeadMode = 'single' | 'proportional'
-
-export type EditorRotationPivot = 'base' | 'tip'
 
 export interface EditorTimeBead {
   fromFrame: number

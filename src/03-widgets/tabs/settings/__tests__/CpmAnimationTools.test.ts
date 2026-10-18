@@ -131,9 +131,6 @@ describe('CpmAnimationTools', () => {
     await frames.setValue('8')
     await frames.trigger('change')
     expect(editor.setFrameCount).toHaveBeenCalledWith(8)
-
-    await button(wrapper, 'Вставить кадр').trigger('click')
-    expect(editor.insertFrame).toHaveBeenCalledTimes(1)
   })
 
   it('shows looping only for gestures and keeps the other visible properties', () => {
@@ -239,19 +236,15 @@ describe('CpmAnimationTools', () => {
     expect(action.attributes('disabled')).toBeDefined()
   })
 
-  it('switches the rotation pivot between the base and the tip', async () => {
+  it('toggles holding the last pose', async () => {
     const editor = createCpmEditorMock()
     const wrapper = mountTools(editor)
 
-    const buttons = wrapper.findAll('.cpm-pose__pivot-btn')
-    expect(buttons.map((item) => item.text())).toEqual(['Основание', 'Кончик'])
-    await buttons[1]?.trigger('click')
-    expect(editor.setRotationPivot).toHaveBeenCalledWith('tip')
+    const hold = checkbox(wrapper, 'Удерживать последнюю позу')
+    expect(hold).toBeDefined()
+    await hold?.setValue(false)
 
-    editor.rotationPivot.value = 'tip'
-    await wrapper.vm.$nextTick()
-    const hints = wrapper.findAll('.cpm-pose__hint').map((item) => item.text())
-    expect(hints.some((text) => text.includes('кончик'))).toBe(true)
+    expect(editor.setHoldLastPose).toHaveBeenCalledWith(false)
   })
 
   it('configures the number of ghost frames before and after the current one', async () => {
@@ -288,6 +281,8 @@ describe('CpmAnimationTools', () => {
     const wrapper = mountTools(createCpmEditorMock())
     const collapse = button(wrapper, 'Скрыть настройки')
     expect(collapse.attributes('aria-expanded')).toBe('true')
+    expect(collapse.attributes('aria-controls')).toBe('cpm-editor-tools-body')
+    expect(collapse.classes()).toContain('cpm-editor-tools__toggle')
 
     await collapse.trigger('click')
 

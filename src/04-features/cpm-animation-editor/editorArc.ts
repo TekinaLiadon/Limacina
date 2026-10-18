@@ -3,9 +3,8 @@ import type { AnimatedNode, NodeIndex } from '../cpm-viewer/cpmAnimationPlayer'
 
 export const ARC_FRAME_RADIUS = 6
 export const ARC_SUBSTEPS = 2
-export const ARC_DRAG_DEGREES_PER_PIXEL = 0.5
-export const GHOST_DEFAULT_BEFORE = 2
-export const GHOST_DEFAULT_AFTER = 2
+export const GHOST_DEFAULT_BEFORE = 0
+export const GHOST_DEFAULT_AFTER = 0
 export const GHOST_MAX_FRAMES = 8
 
 export interface ArcFrameRange {
@@ -139,12 +138,4 @@ export function computeBoneTipLocal(node: AnimatedNode, index: NodeIndex): THREE
 export function boneTipWorld(node: AnimatedNode, tipLocal: THREE.Vector3): THREE.Vector3 {
   node.group.updateWorldMatrix(true, false)
   return node.group.localToWorld(tipLocal.clone())
-}
-
-export function markerRadiusFor(modelGroup: THREE.Object3D): number {
-  const box = new THREE.Box3().setFromObject(modelGroup)
-  if (box.isEmpty()) return 0.05
-  const diagonal = box.getSize(new THREE.Vector3()).length()
-  if (!Number.isFinite(diagonal) || diagonal <= 0) return 0.05
-  return Math.min(0.5, Math.max(0.02, diagonal * 0.012))
 }

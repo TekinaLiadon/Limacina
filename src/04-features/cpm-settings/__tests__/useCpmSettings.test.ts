@@ -16,7 +16,7 @@ import {
   type CPMElement,
   type UserContentItem,
 } from '@/05-entities'
-import { useCpmSettings } from '../useCpmSettings'
+import { useCpmSettings, type CpmLayerPanelData, type CpmLayerTabItem } from '../useCpmSettings'
 import { withSetup } from '@/test-support/withSetup'
 
 const exporter = vi.hoisted(() => ({
@@ -92,6 +92,9 @@ const makeProject = (skinType: 'default' | 'slim' = 'default') => ({
 })
 
 const makeModel = (id: number): UserContentItem => ({ id, url: `https://cdn/${id}.cpm` })
+
+const panelItems = (data: CpmLayerPanelData, tab: string): CpmLayerTabItem[] =>
+  data[tab] as CpmLayerTabItem[]
 
 describe('useCpmSettings', () => {
   beforeEach(() => {
@@ -199,9 +202,90 @@ describe('useCpmSettings', () => {
 
     expect(cpm.displayLayers.value.map((layer) => layer.name)).toEqual(['Body', 'Hidden'])
     expect(cpm.activeLayerIds.value).toEqual([5, 7])
+    expect(cpm.visibleLayerKeys.value).toEqual(['5', '7'])
+
+    expect(cpm.layerPanelData.value.tabs).toEqual(['Root'])
+    expect(panelItems(cpm.layerPanelData.value, 'Root').map((item) => item.label)).toEqual(['Body', 'Hidden'])
+    expect(panelItems(cpm.layerPanelData.value, 'Root').map((item) => item.id)).toEqual(['5', '7'])
 
     cpm.showEmptyLayers.value = true
     expect(cpm.displayLayers.value).toHaveLength(3)
+    expect(panelItems(cpm.layerPanelData.value, 'Root').map((item) => item.label)).toEqual([
+      'Body',
+      'Empty',
+      'Hidden',
+    ])
+  })
+
+  it('groups layers by the root part and applies visibility through the panel keys', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [
+          { ...makeElement([makeChild({ name: 'Helmet', storeID: 5 })]), id: 'head', name: 'Head' },
+          { ...makeElement([makeChild({ name: 'Cape', storeID: 7 })]), id: 'body', name: 'Body' },
+        ],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    expect(cpm.layerPanelData.value.tabs).toEqual(['Head', 'Body'])
+    expect(panelItems(cpm.layerPanelData.value, 'Head')).toEqual([
+      { id: '5', label: 'Helmet', disabled: false },
+    ])
+    expect(panelItems(cpm.layerPanelData.value, 'Body')).toEqual([
+      { id: '7', label: 'Cape', disabled: false },
+    ])
+    expect(cpm.visibleLayerKeys.value).toEqual(['5', '7'])
+
+    cpm.setVisibleLayerKeys(['5'])
+    expect(cpm.activeLayerIds.value).toEqual([5])
+    expect(cpm.visibleLayerKeys.value).toEqual(['5'])
+
+    cpm.setVisibleLayerKeys(['7'])
+    expect(cpm.activeLayerIds.value).toEqual([7])
+    expect(cpm.visibleLayerKeys.value).toEqual(['7'])
+  })
+
+  it('labels standard root parts when the root name is empty', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue({
+      config: {
+        skinSize: { x: 64, y: 64 },
+        elements: [
+          { ...makeElement([makeChild({ name: 'Helmet', storeID: 5 })]), id: 'head', name: '' },
+          { ...makeElement([makeChild({ name: 'Cape', storeID: 7 })]), id: 'body', name: '' },
+          { ...makeElement([makeChild({ name: 'Glove', storeID: 9 })]), id: 'left_arm', name: '' },
+          { ...makeElement([makeChild({ name: 'Boot', storeID: 11 })]), id: 'right_leg', name: '' },
+        ],
+      },
+      textureBlob: new Blob(['png']),
+      animations: [],
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    expect(cpm.layerPanelData.value.tabs).toEqual([
+      'Голова',
+      'Тело',
+      'Левая рука',
+      'Правая нога',
+    ])
+    expect(panelItems(cpm.layerPanelData.value, 'Голова')).toEqual([
+      { id: '5', label: 'Helmet', disabled: false },
+    ])
   })
 
   it('keeps hidden expression layers active so animation show tracks can reveal them', async () => {

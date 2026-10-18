@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Checkbox, Input } from '@/06-shared'
-import type { EditorPose, EditorRotationPivot } from '@/04-features'
+import type { EditorPose } from '@/04-features'
 
 const AXES = ['x', 'y', 'z'] as const
 
@@ -12,7 +12,6 @@ defineProps<{
   canMirror: boolean
   canSmooth: boolean
   canRevert: boolean
-  rotationPivot: EditorRotationPivot
 }>()
 
 const emit = defineEmits<{
@@ -22,7 +21,6 @@ const emit = defineEmits<{
   mirror: []
   smooth: []
   revert: []
-  pivot: [pivot: EditorRotationPivot]
 }>()
 
 const displayValue = (value: number): number => Math.round(value * 100) / 100
@@ -57,29 +55,6 @@ const onMove = (value: number | null, axis: Axis): void => {
           />
         </label>
       </div>
-      <div class="cpm-pose__pivot" role="group" aria-label="Пивот поворота">
-        <button
-          type="button"
-          class="cpm-pose__pivot-btn"
-          :class="{ 'cpm-pose__pivot-btn--active': rotationPivot === 'base' }"
-          :aria-pressed="rotationPivot === 'base'"
-          @click="emit('pivot', 'base')"
-        >
-          Основание
-        </button>
-        <button
-          type="button"
-          class="cpm-pose__pivot-btn"
-          :class="{ 'cpm-pose__pivot-btn--active': rotationPivot === 'tip' }"
-          :aria-pressed="rotationPivot === 'tip'"
-          @click="emit('pivot', 'tip')"
-        >
-          Кончик
-        </button>
-      </div>
-      <p v-if="rotationPivot === 'tip'" class="cpm-pose__hint">
-        Смещение подстраивается, чтобы кончик оставался на месте.
-      </p>
     </div>
 
     <div class="cpm-pose__group">
@@ -134,7 +109,7 @@ const onMove = (value: number | null, axis: Axis): void => {
     </div>
 
     <p class="cpm-pose__hint">
-      Тяните кость в сцене, чтобы сместить её; маркер ключа на дуге поворачивает кость.
+      Тяните кость в сцене, чтобы сместить её; круговые стрелки у гизмо поворачивают кость вокруг своей оси.
     </p>
   </div>
 
@@ -201,24 +176,6 @@ const onMove = (value: number | null, axis: Axis): void => {
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-12);
-  }
-
-  &__pivot {
-    @include mixins.segmented;
-  }
-
-  &__pivot-btn {
-    @include mixins.segmented-item($hover-exclude-active: true);
-
-    padding: 0 var(--space-8);
-    height: var(--control-height-sm);
-    font-family: inherit;
-    font-size: var(--text-caption);
-    cursor: pointer;
-
-    &--active {
-      @include mixins.segmented-active;
-    }
   }
 
   &__hint {

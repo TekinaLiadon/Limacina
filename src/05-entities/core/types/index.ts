@@ -102,6 +102,7 @@ export interface CPMElement {
   rotation: CPMVec3
   scale?: CPMVec3
   show?: boolean
+  showInEditor?: boolean
   hidden?: boolean
   customPart?: boolean
   dup?: boolean

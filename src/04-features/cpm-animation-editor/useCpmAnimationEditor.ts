@@ -9,7 +9,7 @@ import {
   type Ref,
   type ShallowRef,
 } from 'vue'
-import { useNotificationStore, type CPMAnimation, type CPMAnimationFrame, type CPMAnimationInterpolator, type CPMAnimationKind, type CPMData, type CPMVec3 } from '@/05-entities'
+import { useNotificationStore, type CPMAnimation, type CPMAnimationFrame, type CPMAnimationInterpolator, type CPMAnimationKind, type CPMData } from '@/05-entities'
 import { reportError } from '@/06-shared'
 import type { ActiveCpmAnimation } from '../cpm-viewer/cpmAnimationPlayer'
 import type { CpmEditorBridge } from '../cpm-viewer/cpmEditorBridge'
@@ -27,11 +27,14 @@ import {
   changeAnimationPose,
   cloneBoneTrack,
   countEditorKeysBeyond,
+  ensureBoundaryKeys,
   eraseBoneKey,
   insertEditorFrame,
+  insertEditorStep,
   insertPoseAtFraction as insertPoseAtFractionOp,
   mirrorBonePose,
   moveBoneKey,
+  moveEditorFrame,
   normalizeEditorDuration,
   normalizeEditorFrameCount,
   normalizeEditorOrder,
@@ -40,6 +43,7 @@ import {
   restoreBoneTrack,
   scaleEditorDuration,
   setBonePose,
+  setFrameColor as setFrameColorOp,
   shiftKeysProportionally,
   smoothBoneTrack,
   updateAnimationData,
@@ -64,6 +68,7 @@ import { vanillaPoseHint as resolveVanillaPoseHint } from './editorTriggers'
 import { measureCpmProjectWeight, type CpmProjectWeight } from './editorWeight'
 import {
   buildEditorBoneTree,
+  findDuplicateBoneIds,
   firstAnimatableBoneId,
   flattenEditorBoneTree,
   type EditorBoneTreeRow,
@@ -83,6 +88,13 @@ import {
   type EditorSimpleFrame,
 } from './editorTimeline'
 import { clampGhostCount, GHOST_DEFAULT_AFTER, GHOST_DEFAULT_BEFORE } from './editorArc'
+import { isFrameColor } from './frameColors'
+import {
+  frameColorStorageKey,
+  readFrameColors,
+  removeFrameColors,
+  writeFrameColors,
+} from './frameColorStorage'
 import {
   EDITOR_KIND_LABELS,
   EDITOR_NEW_ANIMATION_NAME,
@@ -91,7 +103,6 @@ import {
   type EditorBeadMode,
   type EditorBoneTrack,
   type EditorPose,
-  type EditorRotationPivot,
   type EditorTimeBead,
 } from './types'
 
@@ -116,6 +127,7 @@ export interface CpmAnimationEditorSource {
   projectBytes: Ref<Uint8Array | null>
   bridge: CpmEditorBridge
   isPlaybackLooped?: Ref<boolean>
+  modelKey?: Ref<string>
 }
 
 export interface CpmAnimationEditorApi {
@@ -133,9 +145,13 @@ export interface CpmAnimationEditorApi {
   frameCount: ComputedRef<number>
   currentFrame: Ref<number>
   isPlaying: Ref<boolean>
+  isScrubbing: Ref<boolean>
+  scrubProgress: Ref<number>
+  frameColors: ComputedRef<ReadonlyMap<number, string>>
   canUndo: ComputedRef<boolean>
   canRedo: ComputedRef<boolean>
   selectedBoneId: Ref<number | null>
+  hiddenBoneIds: ComputedRef<ReadonlySet<number>>
   boneRows: ComputedRef<EditorBoneTreeRow[]>
   selectedBoneName: ComputedRef<string | null>
   selectedBonePose: ComputedRef<EditorPose | null>
@@ -155,9 +171,9 @@ export interface CpmAnimationEditorApi {
   beadMode: Ref<EditorBeadMode>
   timeBeads: ComputedRef<EditorTimeBead[]>
   isSimpleMode: Ref<boolean>
+  isHoldLastPose: Ref<boolean>
   simpleFrames: ComputedRef<EditorSimpleFrame[]>
   editFrame: ComputedRef<number>
-  rotationPivot: Ref<EditorRotationPivot>
   weight: ShallowRef<CpmProjectWeight | null>
   isWeightLoading: Ref<boolean>
   weightError: Ref<string>
@@ -177,6 +193,7 @@ export interface CpmAnimationEditorApi {
   setDuration: (durationMs: number) => void
   setFrameCount: (frameCount: number) => Promise<boolean>
   insertFrame: () => void
+  insertStep: () => void
   setLoop: (loop: boolean) => void
   setAdditive: (additive: boolean) => void
   setInterpolator: (interpolator: CPMAnimationInterpolator) => void
@@ -191,10 +208,10 @@ export interface CpmAnimationEditorApi {
   setGhostFrames: (before: number, after: number) => void
   setBeadMode: (mode: EditorBeadMode) => void
   setSimpleMode: (enabled: boolean) => void
+  setHoldLastPose: (enabled: boolean) => void
   goToSecond: (seconds: number) => void
-  setRotationPivot: (pivot: EditorRotationPivot) => void
   beginBoneDrag: (storeId: number, frame: number) => void
-  dragBoneRotation: (deltaYaw: number, deltaPitch: number, posOffset?: CPMVec3) => void
+  dragBoneRotation: (axis: 'x' | 'y' | 'z', delta: number) => void
   dragBoneTranslation: (deltaX: number, deltaY: number, deltaZ: number) => void
   endBoneDrag: () => void
   beginBeadDrag: (fromFrame: number, toFrame: number) => void
@@ -210,6 +227,11 @@ export interface CpmAnimationEditorApi {
   insertPoseAtFraction: (fraction: number) => void
   togglePlayback: () => void
   setPlaying: (playing: boolean) => void
+  beginScrub: () => void
+  scrubTo: (progress: number) => void
+  endScrub: () => void
+  moveFrame: (fromFrame: number, toFrame: number) => void
+  setFrameColor: (frame: number, color: string | null) => void
   stepFrame: (delta: number) => void
   goToFrame: (frame: number) => void
   jumpToKey: (direction: -1 | 1) => void
@@ -302,6 +324,8 @@ interface BeadDragSession {
 type EditorDragSession = BoneDragSession | BeadDragSession
 
 const BONE_UNDO_LIMIT = 50
+const EMPTY_FRAME_COLORS: ReadonlyMap<number, string> = new Map()
+const EMPTY_BONE_IDS: ReadonlySet<number> = new Set()
 
 interface BoneUndoSnapshot {
   track: EditorBoneTrack | null
@@ -318,6 +342,8 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
   const selectedBoneId = ref<number | null>(null)
   const currentFrame = ref<number>(0)
   const isPlaying = ref<boolean>(false)
+  const isScrubbing = ref<boolean>(false)
+  const scrubProgress = ref<number>(0)
   const weight = shallowRef<CpmProjectWeight | null>(null)
   const isWeightLoading = ref<boolean>(false)
   const weightError = ref<string>('')
@@ -325,11 +351,12 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
   const ghostAfter = ref<number>(GHOST_DEFAULT_AFTER)
   const beadMode = ref<EditorBeadMode>('single')
   const simpleMode = ref<boolean>(true)
-  const rotationPivot = ref<EditorRotationPivot>('base')
+  const holdLastPose = ref<boolean>(true)
   const isPreviewEnabled = ref<boolean>(true)
   const projectDirty = ref<boolean>(false)
   const copiedPose = shallowRef<EditorPose | null>(null)
   const boneUndo = shallowRef<Map<number, BoneUndoSnapshot[]>>(new Map())
+  const editorKeyCache = new Map<string, Map<number, number[]>>()
   const fallbackPlaybackLooped = ref<boolean>(false)
   const playbackLooped = source.isPlaybackLooped ?? fallbackPlaybackLooped
   let dragSession: EditorDragSession | null = null
@@ -354,6 +381,10 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
   const vanillaPoseHint = computed((): string | null => resolveVanillaPoseHint(vanillaPoseIndex.value))
 
   const frameCount = computed((): number => currentState.value?.model.frameCount ?? 0)
+
+  const frameColors = computed((): ReadonlyMap<number, string> =>
+    currentState.value?.frameColors ?? EMPTY_FRAME_COLORS,
+  )
 
   const simpleFrames = computed((): EditorSimpleFrame[] =>
     buildSimpleFrames(frameCount.value, animation.value?.duration ?? 0),
@@ -381,9 +412,20 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     animation.value === null ? '' : EDITOR_KIND_LABELS[animation.value.kind],
   )
 
+  const duplicateBoneIds = computed((): ReadonlySet<number> => {
+    const data = source.data.value
+    return data === null ? EMPTY_BONE_IDS : findDuplicateBoneIds(data.config)
+  })
+
+  const hiddenBoneIds = computed((): ReadonlySet<number> =>
+    isEditing.value ? duplicateBoneIds.value : EMPTY_BONE_IDS,
+  )
+
   const boneRows = computed((): EditorBoneTreeRow[] => {
     const data = source.data.value
-    return data === null ? [] : flattenEditorBoneTree(buildEditorBoneTree(data.config))
+    return data === null
+      ? []
+      : flattenEditorBoneTree(buildEditorBoneTree(data.config, duplicateBoneIds.value))
   })
 
   const selectedBone = computed(() => {
@@ -413,7 +455,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
   const canAddKey = computed((): boolean => {
     if (currentState.value === null || selectedBoneId.value === null) return false
     if (isKeyAtCurrentFrame.value) return false
-    return currentState.value.model.bones.has(selectedBoneId.value)
+    return currentState.value.index.bones.has(selectedBoneId.value)
   })
 
   const canRemoveKey = computed((): boolean => isKeyAtCurrentFrame.value)
@@ -484,10 +526,53 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     history.value === null ? false : canRedoEditorHistory(history.value),
   )
 
+  const frameColorKey = computed((): string | null => {
+    const current = animation.value
+    if (current === null) return null
+    return frameColorStorageKey(source.modelKey?.value ?? '', current.id)
+  })
+
+  function loadFrameColors(animationId: string): ReadonlyMap<number, string> {
+    return readFrameColors(frameColorStorageKey(source.modelKey?.value ?? '', animationId))
+  }
+
+  function persistFrameColors(): void {
+    const state = currentState.value
+    const key = frameColorKey.value
+    if (state === null || key === null) return
+    writeFrameColors(key, state.frameColors)
+  }
+
+  function removeStoredFrameColors(animationId: string): void {
+    removeFrameColors(frameColorStorageKey(source.modelKey?.value ?? '', animationId))
+  }
+
   function syncPlayhead(): void {
+    if (isScrubbing.value) return
     const current = animation.value
     if (current === null || current.frames.length === 0) return
     source.bridge.seekFrame(currentFrame.value, current.frames.length, current.duration)
+  }
+
+  function rememberKeys(animationId: string): void {
+    const state = currentState.value
+    if (state === null) return
+    const keys = new Map<number, number[]>()
+    for (const track of state.model.bones.values()) keys.set(track.storeId, [...track.keys])
+    editorKeyCache.set(animationId, keys)
+  }
+
+  function restoreKeys(
+    state: EditorAnimationState,
+    cached: Map<number, number[]>,
+  ): EditorAnimationState {
+    const bones = new Map(state.model.bones)
+    for (const [storeId, keys] of cached) {
+      const track = bones.get(storeId)
+      if (track === undefined) continue
+      bones.set(storeId, { ...track, keys: [...keys] })
+    }
+    return { ...state, model: { ...state.model, bones } }
   }
 
   function syncToData(): void {
@@ -500,6 +585,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     if (index >= 0) animations[index] = current
     else animations.push(current)
     source.data.value = { ...data, animations }
+    rememberKeys(current.id)
   }
 
   function clearWeightTimer(): void {
@@ -624,6 +710,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     syncToData()
     scheduleWeight()
     syncPlayhead()
+    persistFrameColors()
   }
 
   function selectBone(storeId: number | null): void {
@@ -640,6 +727,17 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     return frame
   }
 
+  function prepareSimpleBoundaries(
+    state: EditorAnimationState,
+    storeId: number,
+    frame: number,
+  ): EditorAnimationState {
+    if (!simpleMode.value) return state
+    const boundaries = buildSimpleFrames(state.model.frameCount, state.data.duration)
+      .map((item): number => item.frame)
+    return ensureBoundaryKeys(state, storeId, frame, boundaries) ?? state
+  }
+
   function applyBonePose(mutate: (pose: EditorPose) => void, label: string): void {
     const state = currentState.value
     const storeId = selectedBoneId.value
@@ -648,9 +746,10 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     if (bone === undefined) return
 
     const frame = alignEditFrame()
-    const pose = bonePoseAt(state, bone, frame)
+    const prepared = prepareSimpleBoundaries(state, storeId, frame)
+    const pose = bonePoseAt(prepared, bone, frame)
     mutate(pose)
-    commit(setBonePose(state, storeId, frame, pose), label)
+    commit(setBonePose(prepared, storeId, frame, pose), label)
   }
 
   function setBoneRotation(axis: 'x' | 'y' | 'z', value: number): void {
@@ -696,65 +795,78 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     syncPlayhead()
   }
 
+  function setHoldLastPose(enabled: boolean): void {
+    if (holdLastPose.value === enabled) return
+    holdLastPose.value = enabled
+    const current = history.value
+    if (current === null) return
+    history.value = {
+      ...current,
+      entries: current.entries.map((entry) => ({
+        ...entry,
+        state: { ...entry.state, holdLastPose: enabled },
+      })),
+    }
+  }
+
   function goToSecond(seconds: number): void {
     if (!Number.isFinite(seconds)) return
     goToFrame(secondsToEditorFrame(seconds, frameCount.value, animation.value?.duration ?? 0))
   }
 
-  function setRotationPivot(pivot: EditorRotationPivot): void {
-    if (pivot !== 'base' && pivot !== 'tip') return
-    rotationPivot.value = pivot
-  }
-
-  function beginBoneDrag(storeId: number, frame: number): void {
+  function beginBoneDrag(storeId: number, frame: number): BoneDragSession | null {
     const current = history.value
     const state = currentState.value
-    if (current === null || state === null) return
+    if (current === null || state === null) return null
     const bone = state.index.bones.get(storeId)
-    if (!bone) return
+    if (!bone) return null
     const targetFrame = simpleMode.value
       ? nearestSimpleFrame(frame, state.model.frameCount, state.data.duration)
       : frame
-    if (!Number.isInteger(targetFrame) || targetFrame < 0 || targetFrame >= state.model.frameCount) return
+    if (!Number.isInteger(targetFrame) || targetFrame < 0 || targetFrame >= state.model.frameCount) return null
 
     pushBoneUndo(state, storeId)
     goToFrame(targetFrame)
-    dragSession = {
+    const prepared = prepareSimpleBoundaries(state, storeId, targetFrame)
+    const session: BoneDragSession = {
       kind: 'bone',
       baseHistory: current,
-      baseState: state,
+      baseState: prepared,
       storeId,
       frame: targetFrame,
-      startPose: bonePoseAt(state, bone, targetFrame),
+      startPose: bonePoseAt(prepared, bone, targetFrame),
     }
+    dragSession = session
+    return session
   }
 
-  function dragBoneRotation(deltaYaw: number, deltaPitch: number, posOffset?: CPMVec3): void {
-    const session = dragSession
-    if (session === null || session.kind !== 'bone') return
-    if (!Number.isFinite(deltaYaw) || !Number.isFinite(deltaPitch)) return
+  function ensureBoneDragSession(): BoneDragSession | null {
+    if (dragSession !== null) return dragSession.kind === 'bone' ? dragSession : null
+    const storeId = selectedBoneId.value
+    if (storeId === null) return null
+    return beginBoneDrag(storeId, editFrame.value)
+  }
+
+  function dragBoneRotation(axis: 'x' | 'y' | 'z', delta: number): void {
+    const session = ensureBoneDragSession()
+    if (session === null) return
+    if (!Number.isFinite(delta)) return
 
     const start = session.startPose
-    const offset = posOffset ?? { x: 0, y: 0, z: 0 }
     const next = setBonePose(session.baseState, session.storeId, session.frame, {
       rotation: {
-        x: normalizeAngle(start.rotation.x + deltaPitch),
-        y: normalizeAngle(start.rotation.y + deltaYaw),
-        z: start.rotation.z,
+        ...start.rotation,
+        [axis]: normalizeAngle(start.rotation[axis] + delta),
       },
-      pos: {
-        x: start.pos.x + offset.x,
-        y: start.pos.y + offset.y,
-        z: start.pos.z + offset.z,
-      },
+      pos: { ...start.pos },
       show: start.show,
     })
     previewHistory(session.baseHistory, next, 'Поворот кости')
   }
 
   function dragBoneTranslation(deltaX: number, deltaY: number, deltaZ: number): void {
-    const session = dragSession
-    if (session === null || session.kind !== 'bone') return
+    const session = ensureBoneDragSession()
+    if (session === null) return
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(deltaZ)) return
 
     const start = session.startPose
@@ -837,6 +949,29 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     scheduleWeight()
   }
 
+  function moveFrame(fromFrame: number, toFrame: number): void {
+    const state = currentState.value
+    if (state === null) return
+    if (isPlaying.value) pausePlayback()
+    const next = moveEditorFrame(state, fromFrame, toFrame)
+    if (next === null) return
+    currentFrame.value = clampFrame(toFrame, frameCount.value)
+    commit(next, 'Перестановка кадров')
+    persistFrameColors()
+    syncPlayhead()
+  }
+
+  function setFrameColor(frame: number, color: string | null): void {
+    const state = currentState.value
+    const currentHistory = history.value
+    if (state === null || currentHistory === null) return
+    if (color !== null && !isFrameColor(color)) return
+    const next = setFrameColorOp(state, frame, color)
+    if (next === null) return
+    history.value = commitEditorHistory(currentHistory, next, 'Цвет кадра')
+    persistFrameColors()
+  }
+
   function setName(name: string): void {
     const state = currentState.value
     if (state === null || state.data.kind === 'vanilla-pose') return
@@ -897,6 +1032,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     const duration = scaleEditorDuration(state.data.duration, state.model.frameCount, target)
     currentFrame.value = clampFrame(currentFrame.value, target)
     commit({ ...resized, data: { ...resized.data, duration } }, 'Количество кадров')
+    persistFrameColors()
     if (simpleMode.value) {
       currentFrame.value = nearestSimpleFrame(
         currentFrame.value,
@@ -914,6 +1050,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     if (next === null) return
     currentFrame.value = clampFrame(currentFrame.value, next.model.frameCount)
     commit(next, 'Вставка кадра')
+    persistFrameColors()
     if (simpleMode.value) {
       currentFrame.value = nearestSimpleFrame(
         currentFrame.value,
@@ -921,6 +1058,23 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
         animation.value?.duration ?? 0,
       )
     }
+  }
+
+  function insertStep(): void {
+    const state = currentState.value
+    if (state === null) return
+    const next = insertEditorStep(state)
+    if (next === null) return
+    const nextSimpleFrames = simpleMode.value
+      ? buildSimpleFrames(next.model.frameCount, next.data.duration)
+      : []
+    const lastSimpleFrame = nextSimpleFrames[nextSimpleFrames.length - 1]?.frame
+    currentFrame.value = clampFrame(
+      lastSimpleFrame ?? currentFrame.value,
+      next.model.frameCount,
+    )
+    commit(next, 'Добавление шага')
+    persistFrameColors()
   }
 
   function setLoop(loop: boolean): void {
@@ -999,7 +1153,9 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     const state = currentState.value
     const storeId = selectedBoneId.value
     if (state === null || storeId === null) return
-    commit(addBoneKey(state, storeId, alignEditFrame()), 'Ключ кости')
+    const frame = alignEditFrame()
+    const prepared = prepareSimpleBoundaries(state, storeId, frame)
+    commit(addBoneKey(prepared, storeId, frame), 'Ключ кости')
   }
 
   function removeKey(): void {
@@ -1023,14 +1179,18 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     const storeId = selectedBoneId.value
     const pose = copiedPose.value
     if (state === null || storeId === null || pose === null) return
-    commit(setBonePose(state, storeId, alignEditFrame(), pose), 'Вставка ключа')
+    const frame = alignEditFrame()
+    const prepared = prepareSimpleBoundaries(state, storeId, frame)
+    commit(setBonePose(prepared, storeId, frame, pose), 'Вставка ключа')
   }
 
   function mirrorPose(): void {
     const state = currentState.value
     const storeId = selectedBoneId.value
     if (state === null || storeId === null) return
-    commit(mirrorBonePose(state, storeId, alignEditFrame()), 'Зеркалирование позы')
+    const frame = alignEditFrame()
+    const prepared = prepareSimpleBoundaries(state, storeId, frame)
+    commit(mirrorBonePose(prepared, storeId, frame), 'Зеркалирование позы')
   }
 
   function smoothTrack(): void {
@@ -1134,20 +1294,53 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
       pausePlayback()
       return
     }
+    isScrubbing.value = false
     if (!isPreviewEnabled.value) setPreviewEnabled(true)
     isPlaying.value = true
   }
 
   function setPlaying(playing: boolean): void {
     if (playing) {
+      isScrubbing.value = false
       isPlaying.value = true
       return
     }
     if (isPlaying.value) pausePlayback()
   }
 
+  function beginScrub(): void {
+    const current = animation.value
+    if (!isEditing.value || current === null || frameCount.value <= 0) return
+    if (isPlaying.value) pausePlayback()
+    if (!isPreviewEnabled.value) setPreviewEnabled(true)
+    isScrubbing.value = true
+    scrubProgress.value = clampFrame(currentFrame.value, frameCount.value) / frameCount.value
+    source.bridge.seekTime(scrubProgress.value * Math.max(current.duration, 1))
+  }
+
+  function scrubTo(progress: number): void {
+    if (!isScrubbing.value || !Number.isFinite(progress)) return
+    const current = animation.value
+    if (current === null) return
+    scrubProgress.value = Math.min(1, Math.max(0, progress))
+    source.bridge.seekTime(scrubProgress.value * Math.max(current.duration, 1))
+  }
+
+  function endScrub(): void {
+    if (!isScrubbing.value) return
+    isScrubbing.value = false
+    const current = animation.value
+    if (current === null || frameCount.value <= 0) return
+    const frame = Math.round(scrubProgress.value * frameCount.value)
+    const target = simpleMode.value
+      ? nearestSimpleFrame(frame, frameCount.value, current.duration)
+      : clampFrame(frame, frameCount.value)
+    goToFrame(target)
+  }
+
   function goToFrame(frame: number): void {
     if (!isEditing.value) return
+    isScrubbing.value = false
     if (isPlaying.value) pausePlayback()
     const target = simpleMode.value
       ? nearestSimpleFrame(frame, frameCount.value, animation.value?.duration ?? 0)
@@ -1193,8 +1386,14 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
       : baselineAnimations.find((item) => item.id === animationId)
     const initial = ensureAnimationFrames(existing ?? createNewAnimation(data))
     const index = buildEditorBoneIndex(data.config)
-    const state = buildEditorState(initial, index)
-    const tree = buildEditorBoneTree(data.config)
+    const loadedColors = new Map(
+      [...loadFrameColors(initial.id)].filter(([frame]) => frame < initial.frames.length),
+    )
+    const built = buildEditorState(initial, index, loadedColors, holdLastPose.value)
+    const cachedKeys = animationId === null ? undefined : editorKeyCache.get(animationId)
+    const state = cachedKeys === undefined ? built : restoreKeys(built, cachedKeys)
+    const duplicates = duplicateBoneIds.value
+    const tree = buildEditorBoneTree(data.config, duplicates)
 
     isNew.value = existing === undefined
     savedSnapshot.value = existing === undefined
@@ -1202,8 +1401,15 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
       : JSON.stringify(serializeEditorAnimation(state))
     clearBoneUndo()
     history.value = createEditorHistory(state, existing === undefined ? 'Новая анимация' : 'Открытие анимации')
-    selectedBoneId.value = firstAnimatableBoneId(tree)
+    selectedBoneId.value = state.index.order.find(
+      (storeId): boolean =>
+        state.model.bones.has(storeId)
+        && state.index.bones.get(storeId)?.showInEditor !== false
+        && !duplicates.has(storeId),
+    ) ?? firstAnimatableBoneId(tree)
     currentFrame.value = 0
+    isScrubbing.value = false
+    scrubProgress.value = 0
     isEditing.value = true
     isPlaying.value = false
     isPreviewEnabled.value = true
@@ -1215,7 +1421,9 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
   function discardChanges(): void {
     const data = source.data.value
     if (data === null) return
+    const current = animation.value
     source.data.value = { ...data, animations: baselineAnimations }
+    if (current !== null) editorKeyCache.delete(current.id)
   }
 
   function endSession(): void {
@@ -1225,6 +1433,8 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     dragSession = null
     isEditing.value = false
     isPlaying.value = false
+    isScrubbing.value = false
+    scrubProgress.value = 0
     history.value = null
     selectedBoneId.value = null
     currentFrame.value = 0
@@ -1234,6 +1444,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
 
   async function stopEditing(): Promise<boolean> {
     if (!isEditing.value) return true
+    persistFrameColors()
     if (isDirty.value) {
       const confirmed = await notification.confirm(DIRTY_EXIT_MESSAGE)
       if (!confirmed) return false
@@ -1248,6 +1459,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     const data = source.data.value
     if (data === null) return
     source.data.value = { ...data, animations: baselineAnimations }
+    editorKeyCache.clear()
     projectDirty.value = false
     void refreshWeight()
   }
@@ -1265,6 +1477,8 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
       ...data,
       animations: (data.animations ?? []).filter((item) => item.id !== current.id),
     }
+    editorKeyCache.delete(current.id)
+    removeStoredFrameColors(current.id)
     projectDirty.value = true
     endSession()
     void refreshWeight()
@@ -1349,6 +1563,7 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
   watch(
     (): string | null => source.data.value?.textureUrl ?? null,
     (url: string | null, previous: string | null | undefined): void => {
+      if (previous !== undefined && url !== previous) editorKeyCache.clear()
       if (previous !== undefined && url !== previous && isEditing.value) {
         endSession()
         return
@@ -1385,9 +1600,13 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     frameCount,
     currentFrame,
     isPlaying,
+    isScrubbing,
+    scrubProgress,
+    frameColors,
     canUndo,
     canRedo,
     selectedBoneId,
+    hiddenBoneIds,
     boneRows,
     selectedBoneName,
     selectedBonePose,
@@ -1407,9 +1626,9 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     beadMode,
     timeBeads,
     isSimpleMode: simpleMode,
+    isHoldLastPose: holdLastPose,
     simpleFrames,
     editFrame,
-    rotationPivot,
     weight,
     isWeightLoading,
     weightError,
@@ -1429,6 +1648,9 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     setDuration,
     setFrameCount,
     insertFrame,
+    insertStep,
+    moveFrame,
+    setFrameColor,
     setLoop,
     setAdditive,
     setInterpolator,
@@ -1443,8 +1665,8 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     setGhostFrames,
     setBeadMode,
     setSimpleMode,
+    setHoldLastPose,
     goToSecond,
-    setRotationPivot,
     beginBoneDrag,
     dragBoneRotation,
     dragBoneTranslation,
@@ -1462,6 +1684,9 @@ export function useCpmAnimationEditor(source: CpmAnimationEditorSource): CpmAnim
     insertPoseAtFraction,
     togglePlayback,
     setPlaying,
+    beginScrub,
+    scrubTo,
+    endScrub,
     stepFrame,
     goToFrame,
     jumpToKey,
