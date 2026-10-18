@@ -114,6 +114,7 @@ const closeFullscreen = (): void => {
   flex-direction: column;
   gap: var(--space-8);
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 

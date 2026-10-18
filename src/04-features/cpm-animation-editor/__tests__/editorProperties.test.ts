@@ -5,6 +5,7 @@ import {
   changeAnimationKind,
   changeAnimationPose,
   insertEditorFrame,
+  insertEditorStep,
   normalizeEditorDuration,
   normalizeEditorFrameCount,
   normalizeEditorOrder,
@@ -199,6 +200,27 @@ describe('insertEditorFrame', () => {
   it('does not insert beyond the format frame limit', () => {
     const state = makeState({ frames: Array.from({ length: 255 }, () => ({ components: [] })) })
     expect(insertEditorFrame(state)).toBeNull()
+  })
+})
+
+describe('insertEditorStep', () => {
+  it('extends the animation by a step without moving the keys in time', () => {
+    const state = makeState()
+    const next = insertEditorStep(state)
+
+    expect(next?.model.frameCount).toBe(9)
+    expect(next?.data.duration).toBe(1500)
+    expect(next?.model.bones.get(0)?.keys).toEqual([0, 4])
+
+    for (const frame of [0, 4]) {
+      const before = frameToTimeMs(frame, state.model.frameCount, state.data.duration)
+      const after = frameToTimeMs(frame, next?.model.frameCount ?? 0, next?.data.duration ?? 0)
+      expect(Math.abs(after - before)).toBeLessThan(1)
+    }
+  })
+
+  it('does not extend beyond the duration limit', () => {
+    expect(insertEditorStep(makeState({ duration: 65535 }))).toBeNull()
   })
 })
 

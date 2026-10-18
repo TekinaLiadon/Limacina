@@ -1,7 +1,7 @@
 import type { EditorTimeBead } from './types'
 
 export const EDITOR_DEFAULT_FRAME_COUNT = 20
-export const EDITOR_SIMPLE_STEP_MS = 1000
+export const EDITOR_SIMPLE_STEP_MS = 500
 
 export interface EditorSimpleFrame {
   frame: number

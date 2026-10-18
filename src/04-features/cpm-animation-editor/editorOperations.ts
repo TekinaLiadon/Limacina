@@ -8,13 +8,14 @@ import {
   type EditorPose,
 } from './types'
 import {
+  bonePoseAt,
   createRestFrame,
-  isTrackDefault,
   normalizeAngle,
   resolveBoneRest,
   shortestAngleDelta,
 } from './editorModel'
 import { vanillaPoseName } from './editorTriggers'
+import { EDITOR_SIMPLE_STEP_MS } from './editorTimeline'
 import {
   copyFrameData,
   copyPose,
@@ -159,12 +160,10 @@ function ensureTrack(state: EditorAnimationState, bone: EditorBoneInfo): EditorB
 
 function commitTrack(
   state: EditorAnimationState,
-  bone: EditorBoneInfo,
   track: EditorBoneTrack,
 ): EditorAnimationState {
-  const rest = resolveBoneRest(bone, state.data.additive)
   const bones = new Map(state.model.bones)
-  if (track.keys.length === 0 || isTrackDefault(track, rest)) bones.delete(track.storeId)
+  if (track.keys.length === 0) bones.delete(track.storeId)
   else bones.set(track.storeId, track)
   return { ...state, model: { ...state.model, bones } }
 }
@@ -195,8 +194,44 @@ function insertKeyWithPose(
 
   copyPose(target, snapped)
   track.keys = addKey(track.keys, frame)
-  refreshTrackFrames(track, [frame], rest, state.data.interpolator)
-  return commitTrack(state, bone, track)
+  refreshTrackFrames(track, [frame], rest, state.data.interpolator, state.holdLastPose)
+  return commitTrack(state, track)
+}
+
+export function ensureBoundaryKeys(
+  state: EditorAnimationState,
+  storeId: number,
+  frame: number,
+  boundaries: readonly number[],
+): EditorAnimationState | null {
+  const bone = state.index.bones.get(storeId)
+  if (!bone) return null
+
+  const position = boundaries.indexOf(frame)
+  if (position < 0) return null
+
+  const keySet = new Set(state.model.bones.get(storeId)?.keys ?? [])
+  const candidates: (number | undefined)[] = [boundaries[position - 1]]
+  if (!state.holdLastPose) candidates.push(boundaries[position + 1])
+  const targets: number[] = []
+  for (const candidate of candidates) {
+    if (candidate === undefined) continue
+    if (!isFrameInRange(state.model.frameCount, candidate)) continue
+    if (keySet.has(candidate)) continue
+    targets.push(candidate)
+  }
+  if (targets.length === 0) return null
+
+  const poses = targets.map((target): EditorPose => bonePoseAt(state, bone, target))
+  let next: EditorAnimationState | null = null
+  for (const [targetIndex, target] of targets.entries()) {
+    const pose = poses[targetIndex]
+    if (pose === undefined) continue
+    const inserted = insertKeyWithPose(next ?? state, bone, target, pose)
+    if (inserted !== null) next = inserted
+  }
+
+  return next
 }
 
 export function setBonePose(
@@ -217,8 +252,8 @@ export function setBonePose(
 
   copyPose(current, snapped)
   track.keys = addKey(track.keys, frame)
-  refreshTrackFrames(track, [frame], rest, state.data.interpolator)
-  return commitTrack(state, bone, track)
+  refreshTrackFrames(track, [frame], rest, state.data.interpolator, state.holdLastPose)
+  return commitTrack(state, track)
 }
 
 export function addBoneKey(
@@ -227,12 +262,15 @@ export function addBoneKey(
   frame: number,
 ): EditorAnimationState | null {
   if (!isFrameInRange(state.model.frameCount, frame)) return null
-  const found = findTrack(state, storeId)
-  if (!found || found.track.keys.includes(frame)) return null
+  const bone = state.index.bones.get(storeId)
+  if (!bone) return null
 
-  const source = found.track.frames[frame]
-  if (!source) return null
-  return insertKeyWithPose(state, found.bone, frame, poseFromFrame(source))
+  const track = state.model.bones.get(storeId)
+  if (track?.keys.includes(frame)) return null
+
+  const source = track?.frames[frame]
+  const pose = source === undefined ? bonePoseAt(state, bone, frame) : poseFromFrame(source)
+  return insertKeyWithPose(state, bone, frame, pose)
 }
 
 export function eraseBoneKey(
@@ -248,8 +286,8 @@ export function eraseBoneKey(
   nextTrack.keys = nextTrack.keys.filter((key) => key !== frame)
   const removed = nextTrack.frames[frame]
   if (removed) resetFrame(removed, rest)
-  refreshTrackFrames(nextTrack, [frame], rest, state.data.interpolator)
-  return commitTrack(state, found.bone, nextTrack)
+  refreshTrackFrames(nextTrack, [frame], rest, state.data.interpolator, state.holdLastPose)
+  return commitTrack(state, nextTrack)
 }
 
 export function insertPoseAtFraction(
@@ -312,8 +350,8 @@ export function moveBoneKey(
   copyFrameData(target, source)
   nextTrack.keys = addKey(nextTrack.keys.filter((key) => key !== fromFrame), toFrame)
   resetFrame(source, rest)
-  refreshTrackFrames(nextTrack, [fromFrame, toFrame], rest, state.data.interpolator)
-  return commitTrack(state, found.bone, nextTrack)
+  refreshTrackFrames(nextTrack, [fromFrame, toFrame], rest, state.data.interpolator, state.holdLastPose)
+  return commitTrack(state, nextTrack)
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -381,8 +419,8 @@ export function shiftKeysProportionally(
   }
 
   nextTrack.keys = uniqueKeys
-  refreshTrackFrames(nextTrack, [...oldKeys, ...uniqueKeys], rest, state.data.interpolator)
-  return commitTrack(state, found.bone, nextTrack)
+  refreshTrackFrames(nextTrack, [...oldKeys, ...uniqueKeys], rest, state.data.interpolator, state.holdLastPose)
+  return commitTrack(state, nextTrack)
 }
 
 function mirrorPose(pose: EditorPose, rest: EditorPose): EditorPose {
@@ -470,8 +508,8 @@ export function smoothBoneTrack(
   }
 
   if (!changed) return null
-  refillTrack(nextTrack, rest, state.data.interpolator)
-  return commitTrack(state, found.bone, nextTrack)
+  refillTrack(nextTrack, rest, state.data.interpolator, state.holdLastPose)
+  return commitTrack(state, nextTrack)
 }
 
 export function updateAnimationData(
@@ -492,10 +530,8 @@ export function updateAnimationData(
     if (!bone) continue
     const rest = resolveBoneRest(bone, data.additive)
     const nextTrack = cloneBoneTrack(track)
-    refillTrack(nextTrack, rest, data.interpolator)
-    if (nextTrack.keys.length > 0 && !isTrackDefault(nextTrack, rest)) {
-      bones.set(nextTrack.storeId, nextTrack)
-    }
+    refillTrack(nextTrack, rest, data.interpolator, state.holdLastPose)
+    if (nextTrack.keys.length > 0) bones.set(nextTrack.storeId, nextTrack)
   }
 
   return { ...state, data, model: { ...state.model, bones } }
@@ -603,11 +639,94 @@ export function resizeEditorModel(
     if (keys.length === 0) continue
 
     const nextTrack: EditorBoneTrack = { storeId: track.storeId, frames, keys }
-    refillTrack(nextTrack, rest, state.data.interpolator)
-    if (!isTrackDefault(nextTrack, rest)) bones.set(nextTrack.storeId, nextTrack)
+    refillTrack(nextTrack, rest, state.data.interpolator, state.holdLastPose)
+    bones.set(nextTrack.storeId, nextTrack)
   }
 
-  return { ...state, model: { frameCount: target, bones } }
+  return {
+    ...state,
+    model: { frameCount: target, bones },
+    frameColors: new Map([...state.frameColors].filter(([frame]) => frame < target)),
+  }
+}
+
+function relocateFrameIndex(index: number, fromFrame: number, toFrame: number): number {
+  if (index === fromFrame) return toFrame
+  if (fromFrame < toFrame && index > fromFrame && index <= toFrame) return index - 1
+  if (toFrame < fromFrame && index >= toFrame && index < fromFrame) return index + 1
+  return index
+}
+
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  const next = [...items]
+  const [item] = next.splice(fromIndex, 1)
+  if (item === undefined) return next
+  next.splice(toIndex, 0, item)
+  return next
+}
+
+function moveFrameColors(
+  colors: ReadonlyMap<number, string>,
+  fromFrame: number,
+  toFrame: number,
+): Map<number, string> {
+  const next = new Map<number, string>()
+  for (const [frame, color] of colors) {
+    next.set(relocateFrameIndex(frame, fromFrame, toFrame), color)
+  }
+  return next
+}
+
+export function moveEditorFrame(
+  state: EditorAnimationState,
+  fromFrame: number,
+  toFrame: number,
+): EditorAnimationState | null {
+  if (!isFrameInRange(state.model.frameCount, fromFrame)) return null
+  if (!isFrameInRange(state.model.frameCount, toFrame)) return null
+  if (fromFrame === toFrame) return null
+
+  const bones = new Map<number, EditorBoneTrack>()
+  for (const track of state.model.bones.values()) {
+    const bone = state.index.bones.get(track.storeId)
+    if (!bone) continue
+
+    const rest = resolveBoneRest(bone, state.data.additive)
+    const keys = [...new Set(track.keys.map((key) => relocateFrameIndex(key, fromFrame, toFrame)))]
+      .sort((first, second) => first - second)
+    const nextTrack: EditorBoneTrack = {
+      storeId: track.storeId,
+      frames: moveArrayItem(track.frames, fromFrame, toFrame),
+      keys,
+    }
+
+    refillTrack(nextTrack, rest, state.data.interpolator, state.holdLastPose)
+    bones.set(nextTrack.storeId, nextTrack)
+  }
+
+  return {
+    ...state,
+    model: { ...state.model, bones },
+    frameColors: moveFrameColors(state.frameColors, fromFrame, toFrame),
+  }
+}
+
+export function setFrameColor(
+  state: EditorAnimationState,
+  frame: number,
+  color: string | null,
+): EditorAnimationState | null {
+  if (!isFrameInRange(state.model.frameCount, frame)) return null
+
+  const next = new Map(state.frameColors)
+  if (color === null) {
+    if (!next.delete(frame)) return null
+  } else {
+    if (next.get(frame) === color) return null
+    next.set(frame, color)
+  }
+
+  return { ...state, frameColors: next }
 }
 
 export function scaleEditorDuration(
@@ -630,6 +749,27 @@ export function insertEditorFrame(state: EditorAnimationState): EditorAnimationS
     next.model.frameCount,
   )
   return { ...next, data: { ...next.data, duration } }
+}
+
+export function insertEditorStep(state: EditorAnimationState): EditorAnimationState | null {
+  const duration = Math.max(state.data.duration, 1)
+  if (duration >= EDITOR_MAX_DURATION_MS) return null
+
+  const nextDuration = normalizeEditorDuration(duration + EDITOR_SIMPLE_STEP_MS)
+  if (nextDuration <= duration) return null
+
+  const target = Math.min(
+    EDITOR_MAX_FRAMES,
+    Math.max(
+      state.model.frameCount + 1,
+      Math.round((state.model.frameCount * nextDuration) / duration),
+    ),
+  )
+  if (target === state.model.frameCount) return null
+
+  const next = resizeEditorModel(state, target)
+  if (next === null) return null
+  return { ...next, data: { ...next.data, duration: nextDuration } }
 }
 
 export function removeEditorFrame(state: EditorAnimationState): EditorAnimationState | null {

@@ -20,7 +20,7 @@ const FACE_MAP: Record<string, number> = {
   south: 5,
 }
 
-const ROOT_PIVOTS: Record<string, CPMVec3> = {
+export const ROOT_PIVOTS: Record<string, CPMVec3> = {
   head:             { x: 0,  y: 24, z: 0 },
   body:             { x: 0,  y: 24, z: 0 },
   left_arm:         { x: 5,  y: 22, z: 0 },
@@ -282,10 +282,15 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
         : element.storeID
       group.userData.isRoot = true
       group.userData.isVanillaPart = isVanillaRoot
+      if (!isVanillaRoot) {
+        const defaultVisible = element.show !== false
+        group.visible = defaultVisible
+        group.userData.defaultVisible = defaultVisible
+      }
     } else {
       const child = node as CPMChild
       group.userData.storeID = child.storeID
-      const defaultVisible = child.hidden !== true
+      const defaultVisible = child.hidden !== true && child.show !== false
       group.visible = defaultVisible
       group.userData.defaultVisible = defaultVisible
 
@@ -450,6 +455,7 @@ export function useCpmViewer(
           onFinished: () => {
             options.onAnimationFinished?.()
           },
+          hiddenStoreIds: options.editor?.bridge.hiddenBoneIds,
         }, animationClocks)
 
         player.setSpeed(animationSpeed.value)

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick, ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import { useNotificationStore, type CPMAnimation, type CPMConfig, type CPMData } from '@/05-entities'
 import { withSetup } from '@/test-support/withSetup'
-import { createCpmEditorBridge } from '../../cpm-viewer/cpmEditorBridge'
+import { createCpmEditorBridge, type CpmEditorBridge } from '../../cpm-viewer/cpmEditorBridge'
 import {
   hasUnsavedCpmAnimationChanges,
   useCpmAnimationEditor,
@@ -47,6 +47,16 @@ const config: CPMConfig = {
           scale: vec(1, 1, 1),
           storeID: 100,
         },
+        {
+          name: 'Скрытая',
+          size: vec(1, 1, 1),
+          offset: vec(),
+          pos: vec(),
+          rotation: vec(),
+          scale: vec(1, 1, 1),
+          storeID: 101,
+          show: false,
+        },
       ],
     },
     {
@@ -54,6 +64,25 @@ const config: CPMConfig = {
       name: 'Тело',
       pos: vec(),
       rotation: vec(),
+    },
+    {
+      id: 'duplicate',
+      name: 'Дубли',
+      pos: vec(),
+      rotation: vec(),
+      customPart: true,
+      storeID: 7,
+      children: [
+        {
+          name: 'Шляпа',
+          size: vec(8, 8, 8),
+          offset: vec(),
+          pos: vec(0, -20, 0),
+          rotation: vec(),
+          scale: vec(1, 1, 1),
+          storeID: 102,
+        },
+      ],
     },
   ],
 }
@@ -90,6 +119,7 @@ interface Harness {
   editor: CpmAnimationEditorApi
   data: ShallowRef<CPMData | null>
   bytes: Ref<Uint8Array | null>
+  bridge: CpmEditorBridge
   notification: ReturnType<typeof useNotificationStore>
   unmount: () => void
 }
@@ -111,7 +141,7 @@ function setup(
   )
   if (simpleMode !== null) result.setSimpleMode(simpleMode)
   const notification = useNotificationStore()
-  harness = { editor: result, data, bytes, notification, unmount }
+  harness = { editor: result, data, bytes, bridge, notification, unmount }
   return harness
 }
 
@@ -125,6 +155,7 @@ const componentOf = (
 }
 
 beforeEach((): void => {
+  localStorage.clear()
   measureCpmProjectWeight.mockResolvedValue(weightResult())
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
@@ -144,6 +175,11 @@ describe('useCpmAnimationEditor', () => {
     expect(editor.isSimpleMode.value).toBe(true)
   })
 
+  it('holds the last pose by default', () => {
+    const { editor } = setup([makeAnimation()], null)
+    expect(editor.isHoldLastPose.value).toBe(true)
+  })
+
   it('opens an existing animation without marking it dirty', () => {
     const { editor, data } = setup()
 
@@ -156,6 +192,41 @@ describe('useCpmAnimationEditor', () => {
     expect(editor.kindLabel.value).toBe('Жест')
     expect(editor.selectedBoneId.value).toBe(0)
     expect(data.value?.animations).toHaveLength(1)
+  })
+
+  it('hides coincident duplicate bones from the tree while editing', async () => {
+    const { editor } = setup()
+
+    editor.startEditing('g_wave.json')
+
+    expect(editor.boneRows.value.map((row) => row.storeId)).not.toContain(102)
+    expect([...editor.hiddenBoneIds.value]).toEqual([102])
+
+    expect(await editor.stopEditing()).toBe(true)
+    expect(editor.hiddenBoneIds.value.size).toBe(0)
+  })
+
+  it('skips bones hidden in the model editor when choosing the first bone', () => {
+    const hiddenOnly = makeAnimation({
+      frames: [
+        {
+          components: [{
+            storeID: 101,
+            pos: vec(),
+            rotation: vec(),
+            scale: vec(1, 1, 1),
+            show: true,
+          }],
+        },
+        ...Array.from({ length: 5 }, () => ({ components: [] })),
+      ],
+    })
+    const { editor } = setup([hiddenOnly])
+
+    editor.startEditing('g_wave.json')
+
+    expect(editor.selectedBoneId.value).toBe(0)
+    expect(editor.boneRows.value.map((row) => row.storeId)).not.toContain(101)
   })
 
   it('creates a new gesture animation and appends it to the project', async () => {
@@ -244,8 +315,26 @@ describe('useCpmAnimationEditor', () => {
     expect(editor.currentFrame.value).toBe(0)
   })
 
-  it('snaps navigation and pose edits to whole seconds in simple mode', () => {
-    const { editor } = setup([makeAnimation({ duration: 3000 })])
+  it('adds the first key to a bone that has no track yet', () => {
+    const { editor } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(2)
+
+    expect(editor.canAddKey.value).toBe(true)
+    editor.addKey()
+
+    expect(editor.selectedBoneKeys.value).toEqual([2])
+    expect(editor.canRemoveKey.value).toBe(true)
+
+    editor.removeKey()
+    expect(editor.selectedBoneKeys.value).toEqual([])
+    expect(editor.canAddKey.value).toBe(true)
+  })
+
+  it('snaps navigation and pose edits to whole steps in simple mode', () => {
+    const frames = Array.from({ length: 12 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 3000, frames })])
     editor.startEditing('g_wave.json')
     editor.selectBone(100)
 
@@ -260,7 +349,7 @@ describe('useCpmAnimationEditor', () => {
 
     editor.goToFrame(4)
     editor.setBoneRotation('y', 80)
-    expect(editor.selectedBoneKeys.value).toEqual([2, 4])
+    expect(editor.selectedBoneKeys.value).toEqual([0, 2, 4])
     expect(componentOf(editor.animation.value, 3, 100)?.rotation.y).toBeCloseTo(60)
 
     editor.currentFrame.value = 3
@@ -271,15 +360,16 @@ describe('useCpmAnimationEditor', () => {
     expect(componentOf(editor.animation.value, 2, 100)?.rotation.x).toBe(15)
   })
 
-  it('goes to a second and steps between second boundaries', () => {
-    const { editor } = setup([makeAnimation({ duration: 3000 })])
+  it('goes to a second and steps between step boundaries', () => {
+    const frames = Array.from({ length: 12 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 3000, frames })])
     editor.startEditing('g_wave.json')
     editor.setSimpleMode(true)
 
     editor.goToSecond(1)
-    expect(editor.currentFrame.value).toBe(2)
-    editor.goToSecond(2)
     expect(editor.currentFrame.value).toBe(4)
+    editor.goToSecond(2)
+    expect(editor.currentFrame.value).toBe(8)
 
     editor.goToFrame(0)
     editor.stepFrame(1)
@@ -287,7 +377,7 @@ describe('useCpmAnimationEditor', () => {
     editor.stepFrame(1)
     expect(editor.currentFrame.value).toBe(4)
     editor.stepFrame(1)
-    expect(editor.currentFrame.value).toBe(5)
+    expect(editor.currentFrame.value).toBe(6)
     editor.stepFrame(-1)
     expect(editor.currentFrame.value).toBe(4)
   })
@@ -304,6 +394,133 @@ describe('useCpmAnimationEditor', () => {
     expect(editor.editFrame.value).toBe(3)
   })
 
+  it('holds the pose to the end of the animation in simple mode', () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.goToFrame(0)
+    editor.setBoneRotation('y', 90)
+
+    expect(editor.selectedBoneKeys.value).toEqual([0])
+    expect(componentOf(editor.animation.value, 0, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 4, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 5, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 19, 100)?.rotation.y).toBe(90)
+  })
+
+  it('copies a simple-mode pose into the following steps', () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.goToSecond(0.5)
+    editor.setBoneRotation('y', 90)
+
+    expect(editor.currentFrame.value).toBe(5)
+    expect(editor.selectedBoneKeys.value).toEqual([0, 5])
+    expect(componentOf(editor.animation.value, 5, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 10, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 19, 100)?.rotation.y).toBe(90)
+  })
+
+  it('keeps a later authored step when an earlier one changes', () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.goToSecond(0.5)
+    editor.setBoneRotation('y', 90)
+    editor.goToSecond(1)
+    editor.setBoneRotation('y', 180)
+    editor.goToSecond(0.5)
+    editor.setBoneRotation('y', 45)
+
+    expect(editor.selectedBoneKeys.value).toEqual([0, 5, 10])
+    expect(componentOf(editor.animation.value, 5, 100)?.rotation.y).toBe(45)
+    expect(componentOf(editor.animation.value, 10, 100)?.rotation.y).toBe(180)
+  })
+
+  it('returns to rest after the last key when holding is disabled', () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.setHoldLastPose(false)
+    editor.goToSecond(0.5)
+    editor.setBoneRotation('y', 90)
+
+    expect(editor.isHoldLastPose.value).toBe(false)
+    expect(editor.selectedBoneKeys.value).toEqual([0, 5, 10])
+    expect(componentOf(editor.animation.value, 10, 100)?.rotation.y).toBe(0)
+    expect(componentOf(editor.animation.value, 19, 100)?.rotation.y).toBe(0)
+  })
+
+  it('keeps the step keys when the animation is reopened in the same session', async () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.goToSecond(0.5)
+    editor.setBoneRotation('y', 90)
+    editor.markSaved()
+    expect(await editor.stopEditing()).toBe(true)
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+
+    expect(editor.selectedBoneKeys.value).toEqual([0, 5])
+    editor.goToSecond(1)
+    editor.setBoneRotation('y', 180)
+    expect(componentOf(editor.animation.value, 10, 100)?.rotation.y).toBe(180)
+    expect(componentOf(editor.animation.value, 19, 100)?.rotation.y).toBe(180)
+  })
+
+  it('starts the pose from the previous step boundary and holds it forward', () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.goToFrame(5)
+    editor.setBoneRotation('y', 90)
+
+    expect(editor.selectedBoneKeys.value).toEqual([0, 5])
+    expect(componentOf(editor.animation.value, 0, 100)?.rotation.y).toBe(0)
+    expect(componentOf(editor.animation.value, 2, 100)?.rotation.y).toBeCloseTo(36)
+    expect(componentOf(editor.animation.value, 5, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 7, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 10, 100)?.rotation.y).toBe(90)
+  })
+
+  it('holds the dragged pose to the end of the animation in simple mode', () => {
+    const frames = Array.from({ length: 20 }, () => ({ components: [] }))
+    const { editor } = setup([makeAnimation({ duration: 2000, frames })])
+
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.setSimpleMode(true)
+    editor.beginBoneDrag(100, 0)
+    editor.dragBoneRotation('y', 90)
+    editor.endBoneDrag()
+
+    expect(editor.selectedBoneKeys.value).toEqual([0])
+    expect(componentOf(editor.animation.value, 4, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 5, 100)?.rotation.y).toBe(90)
+    expect(componentOf(editor.animation.value, 19, 100)?.rotation.y).toBe(90)
+  })
+
   it('translates the dragged bone from its start pose', () => {
     const { editor } = setup()
     editor.startEditing('g_wave.json')
@@ -318,20 +535,38 @@ describe('useCpmAnimationEditor', () => {
     expect(editor.canUndo.value).toBe(true)
   })
 
-  it('applies a pivot offset together with a dragged rotation', () => {
+  it('starts a bone drag from the first drag call without an explicit begin', () => {
+    const { editor } = setup()
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
+
+    editor.dragBoneTranslation(1, 0, 0)
+
+    expect(componentOf(editor.animation.value, 0, 100)?.pos.x).toBeCloseTo(1)
+    editor.endBoneDrag()
+  })
+
+  it('rotates the dragged bone around each gizmo axis', () => {
     const { editor } = setup()
     editor.startEditing('g_wave.json')
     editor.selectBone(100)
     editor.goToFrame(0)
 
     editor.beginBoneDrag(100, 0)
-    editor.dragBoneRotation(40, 10, { x: 1.5, y: -2, z: 0.5 })
+    editor.dragBoneRotation('x', 10)
+    editor.endBoneDrag()
+
+    editor.beginBoneDrag(100, 0)
+    editor.dragBoneRotation('y', 40)
+    editor.endBoneDrag()
+
+    editor.beginBoneDrag(100, 0)
+    editor.dragBoneRotation('z', -25)
     editor.endBoneDrag()
 
     const component = componentOf(editor.animation.value, 0, 100)
-    expect(component?.rotation.x).toBe(10)
-    expect(component?.rotation.y).toBe(40)
-    expect(component?.pos).toEqual({ x: 1.5, y: 2, z: 0.5 })
+    expect(component?.rotation).toEqual({ x: 10, y: 40, z: 335 })
   })
 
   it('reverts the last edit of the selected bone', () => {
@@ -390,15 +625,21 @@ describe('useCpmAnimationEditor', () => {
     expect(componentOf(editor.animation.value, 0, 0)?.rotation.y).toBe(40)
   })
 
-  it('switches the rotation pivot', () => {
+  it('records a gizmo rotation drag as one undo step', () => {
     const { editor } = setup()
     editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
 
-    expect(editor.rotationPivot.value).toBe('base')
-    editor.setRotationPivot('tip')
-    expect(editor.rotationPivot.value).toBe('tip')
-    editor.setRotationPivot('base')
-    expect(editor.rotationPivot.value).toBe('base')
+    editor.beginBoneDrag(100, 0)
+    editor.dragBoneRotation('y', 20)
+    editor.dragBoneRotation('y', 45)
+    editor.endBoneDrag()
+
+    expect(componentOf(editor.animation.value, 0, 100)?.rotation.y).toBe(45)
+
+    editor.undo()
+    expect(componentOf(editor.animation.value, 0, 100)).toBeNull()
   })
 
   it('toggles playback and keeps the playhead at the paused frame', () => {
@@ -733,7 +974,7 @@ describe('useCpmAnimationEditor', () => {
     expect(componentOf(editor.animation.value, 4, 100)?.rotation.y).toBe(10)
   })
 
-  it('rotates the selected bone from an arc marker at its key frame', () => {
+  it('rotates the selected bone from a gizmo drag at the edit frame', () => {
     const { editor } = setup()
     editor.startEditing('g_wave.json')
     editor.selectBone(100)
@@ -745,16 +986,23 @@ describe('useCpmAnimationEditor', () => {
     editor.beginBoneDrag(100, 4)
     expect(editor.currentFrame.value).toBe(4)
 
-    editor.dragBoneRotation(20, -10)
-    editor.dragBoneRotation(40, -20)
+    editor.dragBoneRotation('y', 20)
+    editor.dragBoneRotation('y', 40)
     editor.endBoneDrag()
 
     expect(componentOf(editor.animation.value, 4, 100)?.rotation.y).toBe(90)
-    expect(componentOf(editor.animation.value, 4, 100)?.rotation.x).toBe(340)
 
     editor.undo()
     expect(componentOf(editor.animation.value, 4, 100)?.rotation.y).toBe(50)
-    expect(componentOf(editor.animation.value, 4, 100)?.rotation.x).toBe(0)
+  })
+
+  it('starts a session without onion-skin ghosts', () => {
+    const { editor } = setup()
+
+    editor.startEditing('g_wave.json')
+
+    expect(editor.ghostBefore.value).toBe(0)
+    expect(editor.ghostAfter.value).toBe(0)
   })
 
   it('clamps the ghost frame counts', () => {
@@ -918,6 +1166,26 @@ describe('useCpmAnimationEditor', () => {
     expect(Math.abs(after - before)).toBeLessThan(1)
   })
 
+  it('adds a step in simple mode and moves the playhead to the new boundary', () => {
+    const { editor } = setup([makeAnimation()], true)
+    editor.startEditing('g_wave.json')
+    editor.selectBone(100)
+    editor.goToFrame(0)
+    editor.setBoneRotation('y', 10)
+    editor.goToFrame(5)
+    editor.setBoneRotation('y', 50)
+    const before = frameToTimeMs(5, editor.frameCount.value, editor.animation.value?.duration ?? 0)
+
+    editor.insertStep()
+
+    expect(editor.frameCount.value).toBe(9)
+    expect(editor.animation.value?.duration).toBe(1500)
+    expect(editor.currentFrame.value).toBe(8)
+    expect(editor.selectedBoneKeys.value).toEqual([0, 3, 5])
+    const after = frameToTimeMs(5, editor.frameCount.value, editor.animation.value?.duration ?? 0)
+    expect(Math.abs(after - before)).toBeLessThan(1)
+  })
+
   it('asks before trimming keys when the frame count decreases', async () => {
     const { editor, notification } = setup()
     const confirm = vi.spyOn(notification, 'confirm')
@@ -1047,5 +1315,58 @@ describe('useCpmAnimationEditor', () => {
 
     editor.setVanillaPose(VANILLA_POSES.indexOf('standing'))
     expect(editor.vanillaPoseHint.value).toBeNull()
+  })
+
+  it('scrubs the preview at an arbitrary time and snaps to a frame on release', () => {
+    const { editor, bridge } = setup()
+    const seekTime = vi.spyOn(bridge, 'seekTime')
+    editor.startEditing('g_wave.json')
+
+    editor.beginScrub()
+
+    expect(editor.isScrubbing.value).toBe(true)
+    expect(seekTime).toHaveBeenCalledWith(0)
+
+    editor.scrubTo(0.5)
+
+    expect(seekTime).toHaveBeenLastCalledWith(500)
+
+    editor.endScrub()
+
+    expect(editor.isScrubbing.value).toBe(false)
+    expect(editor.currentFrame.value).toBe(3)
+  })
+
+  it('moves a frame with its color and restores both on undo', () => {
+    const { editor } = setup()
+    editor.startEditing('g_wave.json')
+    editor.goToFrame(3)
+    editor.setBoneRotation('y', 45)
+    editor.setFrameColor(3, '#ef4444')
+
+    editor.moveFrame(3, 0)
+
+    expect(editor.currentFrame.value).toBe(0)
+    expect(editor.frameColors.value.get(0)).toBe('#ef4444')
+    expect(componentOf(editor.animation.value, 0, 0)?.rotation.y).toBe(45)
+
+    editor.undo()
+
+    expect(editor.frameColors.value.get(3)).toBe('#ef4444')
+    expect(componentOf(editor.animation.value, 3, 0)?.rotation.y).toBe(45)
+  })
+
+  it('persists frame colors and restores them when the animation is reopened', () => {
+    const first = setup()
+    first.editor.startEditing('g_wave.json')
+    first.editor.setFrameColor(2, '#3b82f6')
+
+    expect(first.editor.isDirty.value).toBe(false)
+    first.unmount()
+
+    const second = setup()
+    second.editor.startEditing('g_wave.json')
+
+    expect(second.editor.frameColors.value.get(2)).toBe('#3b82f6')
   })
 })

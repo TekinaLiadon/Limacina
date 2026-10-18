@@ -58,6 +58,7 @@ const mountedScene = vi.hoisted(() => ({
 const playerState = vi.hoisted(() => ({
   disposed: 0,
   instances: [] as Array<{ calls: string[] }>,
+  hosts: [] as unknown[],
 }))
 
 vi.mock('@/06-shared', async (importOriginal) => {
@@ -94,8 +95,9 @@ vi.mock('../cpmAnimationPlayer', async (importOriginal) => {
   class FakeCpmAnimationPlayer {
     calls: string[] = []
 
-    constructor() {
+    constructor(_index?: unknown, host?: unknown) {
       playerState.instances.push(this)
+      playerState.hosts.push(host)
     }
 
     setSpeed(): void {
@@ -281,6 +283,16 @@ function firstModelMesh(): THREE.Mesh {
   return mesh
 }
 
+function modelNodeGroups(): Map<number, THREE.Group> {
+  const groups = new Map<number, THREE.Group>()
+  mountedScene.current?.value?.traverse((object) => {
+    if (object instanceof THREE.Group && typeof object.userData.storeID === 'number') {
+      groups.set(object.userData.storeID, object)
+    }
+  })
+  return groups
+}
+
 async function resolveLastLoad(texture: THREE.Texture): Promise<void> {
   const load = textureLoads[textureLoads.length - 1]
   if (!load) throw new Error('no pending texture load')
@@ -334,6 +346,7 @@ describe('useCpmViewer', () => {
     mountedScene.current = null
     playerState.disposed = 0
     playerState.instances = []
+    playerState.hosts = []
     vi.stubGlobal('requestAnimationFrame', vi.fn((_callback: FrameRequestCallback): number => 1))
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
@@ -460,6 +473,40 @@ describe('useCpmViewer', () => {
     })
     expect(meshes.map((mesh) => mesh.visible)).toEqual([true, false])
     unmount()
+  })
+
+  it('hides cubes marked hidden in the model editor', async () => {
+    const harness = await mountViewer()
+    await loadModelWithConfig(harness, makeConfigWithChildren([
+      makeChild({ name: 'visible', storeID: 1 }),
+      makeChild({ name: 'editor-hidden', storeID: 2, show: false }),
+    ]), 'model.png')
+
+    expect(modelNodeGroups().get(1)?.visible).toBe(true)
+    expect(modelNodeGroups().get(2)?.visible).toBe(false)
+    harness.unmount()
+  })
+
+  it('hides custom roots that the model marks hidden', async () => {
+    const harness = await mountViewer()
+    await loadModelWithConfig(harness, {
+      skinSize: { x: 64, y: 64 },
+      elements: [{
+        id: 'cape',
+        name: 'cape',
+        pos: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        customPart: true,
+        show: false,
+        storeID: 6,
+        children: [makeChild({ name: 'cape-cube', storeID: 7 })],
+      }],
+    }, 'model.png')
+
+    const [modelRoot] = modelGroups()
+    const cape = modelRoot?.children.find((group): boolean => group.userData.storeID === 6)
+    expect(cape?.visible).toBe(false)
+    harness.unmount()
   })
 
   it('disposes the previous model when new cpm data arrives', async () => {
@@ -695,6 +742,22 @@ describe('useCpmViewer', () => {
     expect(bridge.modelGroup.value).toBeNull()
     expect(bridge.nodeIndex.value).toBeNull()
     expect(bridge.player.value).toBeNull()
+    harness.unmount()
+  })
+
+  it('passes the editor hidden bones to the animation player', async () => {
+    const bridge = createCpmEditorBridge()
+    const isEditing = ref(true)
+    const selectedBoneId = ref<number | null>(null)
+    const harness = await mountViewer({
+      editor: { bridge, isEditing, selectedBoneId, onBonePicked: vi.fn() },
+    })
+    await loadModel(harness, 'model.png')
+
+    const host = playerState.hosts[playerState.hosts.length - 1] as
+      | { hiddenStoreIds?: unknown }
+      | undefined
+    expect(host?.hiddenStoreIds).toBe(bridge.hiddenBoneIds)
     harness.unmount()
   })
 

@@ -12,7 +12,9 @@ import {
   formatProjectWeight,
   type ActiveCpmAnimation,
 } from '@/04-features'
-import CpmAnimationBar from './CpmAnimationBar.vue'
+import CpmAnimationPanel from './CpmAnimationPanel.vue'
+import CpmTabbedPanel from './CpmTabbedPanel.vue'
+import type { CpmTabbedPanelData } from './cpmTabbedPanel'
 import CpmAnimationEditorHead from './cpm-animation-editor/CpmAnimationEditorHead.vue'
 import CpmAnimationTools from './cpm-animation-editor/CpmAnimationTools.vue'
 import CpmAnimationTimeline from './cpm-animation-editor/CpmAnimationTimeline.vue'
@@ -26,9 +28,10 @@ const {
   modelName,
   errorMessage,
   showEmptyLayers,
-  displayLayers,
   activeLayerIds,
-  toggleLayer,
+  layerPanelData,
+  visibleLayerKeys,
+  setVisibleLayerKeys,
   setTextureError,
   isUploading,
   isOffline,
@@ -52,7 +55,7 @@ const { isSaving, handleSaveModelOffline } = useOfflineCpmModel({
 })
 
 const {
-  animationOptions,
+  animationGroups,
   selectedAnimationIds,
   activeAnimations,
   isAnimationPlaying,
@@ -72,6 +75,7 @@ const editor = useCpmAnimationEditor({
   projectBytes: cpmFileBytes,
   bridge: editorBridge,
   isPlaybackLooped: isAnimationLooped,
+  modelKey: modelName,
 })
 
 useCpmEditorScene(editor, editorBridge)
@@ -103,6 +107,19 @@ const onFullscreenChange = (value: boolean): void => {
 }
 
 const hasModel = computed((): boolean => cpmData.value !== null)
+
+const animationTabs = computed((): CpmTabbedPanelData => {
+  const data: CpmTabbedPanelData = { tabs: [] }
+  for (const group of animationGroups.value) {
+    const tab = group.group ?? 'Без группы'
+    data.tabs.push(tab)
+    data[tab] = group.animations.map((animation) => ({
+      id: animation.id,
+      label: animation.name,
+    }))
+  }
+  return data
+})
 
 const viewerAnimations = computed((): ActiveCpmAnimation[] =>
   editor.isEditing.value ? editor.activeAnimations.value : activeAnimations.value,
@@ -242,10 +259,10 @@ onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
           @toggle-loop="toggleAnimationLoop"
         />
         <div v-else class="cpm-settings__playback">
-          <CpmAnimationBar
-            v-if="animationOptions.length > 0"
+          <CpmAnimationPanel
+            v-if="hasModel"
             v-model="selectedAnimationIds"
-            :options="animationOptions"
+            :data="animationTabs"
             :has-animation="activeAnimations.length > 0"
             :is-playing="isAnimationPlaying"
             :is-looped="isAnimationLooped"
@@ -256,14 +273,13 @@ onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
             @toggle-loop="toggleAnimationLoop"
             @speed-down="speedDown"
             @speed-up="speedUp"
-          />
-          <Button
-            v-if="hasModel"
-            class="btn-secondary cpm-settings__edit"
-            @click="startEditing"
           >
-            {{ editLabel }}
-          </Button>
+            <template #actions>
+              <Button class="btn-secondary cpm-settings__edit" @click="startEditing">
+                {{ editLabel }}
+              </Button>
+            </template>
+          </CpmAnimationPanel>
         </div>
       </template>
     </Viewer3D>
@@ -293,40 +309,34 @@ onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
     </template>
 
     <template #below-error>
-      <div v-if="hasModel" class="cpm-settings__layers">
-        <Checkbox
-          v-model="showEmptyLayers"
-          label="Показать пустые слои"
-        />
-
-        <div class="cpm-settings__layer-list">
+      <CpmTabbedPanel
+        v-if="hasModel"
+        class="cpm-settings__layer-panel"
+        :data="layerPanelData"
+        :model-value="visibleLayerKeys"
+        title="Слои"
+        count-prefix="Показано"
+        :show-selection="false"
+        empty-data-label="В модели нет слоёв"
+        @update:model-value="setVisibleLayerKeys"
+      >
+        <template #actions>
           <Checkbox
-            v-for="layer in displayLayers"
-            :key="layer.storeId ?? layer.name"
-            :model-value="layer.visible"
-            :disabled="layer.storeId === null"
-            :label="layer.name"
-            @update:model-value="toggleLayer(layer.storeId)"
+            v-model="showEmptyLayers"
+            label="Показать пустые слои"
           />
-        </div>
-      </div>
+        </template>
+      </CpmTabbedPanel>
     </template>
   </UserContentViewer>
 </template>
 
 <style lang="scss">
-@use '@/01-app/assets/mixins';
-
 .cpm-settings {
   &__playback {
     display: flex;
-    align-items: stretch;
+    flex-direction: column;
     gap: var(--space-4);
-
-    .cpm-anim-bar {
-      flex: 1;
-      min-width: 0;
-    }
   }
 
   &__edit {
@@ -348,22 +358,7 @@ onBeforeRouteLeave((): Promise<boolean> => editor.confirmLeave())
     color: var(--error);
   }
 
-  &__layers {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-12);
-    align-items: flex-start;
-  }
-
-  &__layer-list {
-    @include mixins.subtle-card;
-
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-8);
-    max-height: var(--options-max-height);
-    overflow-y: auto;
+  &__layer-panel {
     width: 100%;
   }
 }

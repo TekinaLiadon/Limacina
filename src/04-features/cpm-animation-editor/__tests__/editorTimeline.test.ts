@@ -119,23 +119,26 @@ describe('clampBeadDelta', () => {
 })
 
 describe('buildSimpleFrames', () => {
-  it('maps every whole second to its frame and keeps the last frame', () => {
+  it('maps every half-second step to its frame and keeps the last frame', () => {
     expect(buildSimpleFrames(20, 2500)).toEqual([
       { frame: 0, seconds: 0 },
+      { frame: 4, seconds: 0.5 },
       { frame: 8, seconds: 1 },
+      { frame: 12, seconds: 1.5 },
       { frame: 16, seconds: 2 },
       { frame: 19, seconds: 2.5 },
     ])
   })
 
-  it('keeps both ends for an animation shorter than a second', () => {
+  it('keeps both ends when the duration is a multiple of the step', () => {
     expect(buildSimpleFrames(20, 1000)).toEqual([
       { frame: 0, seconds: 0 },
+      { frame: 10, seconds: 0.5 },
       { frame: 19, seconds: 1 },
     ])
   })
 
-  it('drops duplicate frames when the animation has more seconds than frames', () => {
+  it('drops duplicate frames when the animation has more steps than frames', () => {
     expect(buildSimpleFrames(2, 5000)).toEqual([
       { frame: 0, seconds: 0 },
       { frame: 1, seconds: 5 },
@@ -148,14 +151,14 @@ describe('buildSimpleFrames', () => {
 })
 
 describe('nearestSimpleFrame', () => {
-  it('snaps to the closest second boundary', () => {
-    expect(nearestSimpleFrame(1, 6, 3000)).toBe(0)
-    expect(nearestSimpleFrame(3, 6, 3000)).toBe(2)
+  it('snaps to the closest step boundary', () => {
+    expect(nearestSimpleFrame(1, 6, 3000)).toBe(1)
+    expect(nearestSimpleFrame(3, 6, 3000)).toBe(3)
     expect(nearestSimpleFrame(5, 6, 3000)).toBe(5)
   })
 
   it('keeps the earlier boundary when the distances are equal', () => {
-    expect(nearestSimpleFrame(1, 20, 1000)).toBe(0)
+    expect(nearestSimpleFrame(5, 20, 1000)).toBe(0)
   })
 
   it('clamps when there are no simple frames', () => {
@@ -180,10 +183,10 @@ describe('secondsToEditorFrame', () => {
 describe('stepSimpleFrame', () => {
   const frames = buildSimpleFrames(6, 3000)
 
-  it('moves between second boundaries', () => {
-    expect(stepSimpleFrame(0, 1, frames)).toBe(2)
-    expect(stepSimpleFrame(2, 1, frames)).toBe(4)
-    expect(stepSimpleFrame(4, -1, frames)).toBe(2)
+  it('moves between step boundaries', () => {
+    expect(stepSimpleFrame(0, 1, frames)).toBe(1)
+    expect(stepSimpleFrame(1, 1, frames)).toBe(2)
+    expect(stepSimpleFrame(2, -1, frames)).toBe(1)
   })
 
   it('returns null at the edges', () => {
