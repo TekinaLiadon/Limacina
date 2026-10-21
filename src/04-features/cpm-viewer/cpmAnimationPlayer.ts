@@ -3,15 +3,6 @@ import type { Ref } from 'vue'
 import type { CPMAnimation, CPMAnimationInterpolator, CPMVec3 } from '@/05-entities'
 import { computeMeshVisible } from './meshVisibility'
 
-const PLAYER_PART_IDS: Record<string, number> = {
-  head: 0,
-  body: 1,
-  left_arm: 2,
-  right_arm: 3,
-  left_leg: 4,
-  right_leg: 5,
-}
-
 export const SPEED_MIN = 0.25
 export const SPEED_MAX = 3
 
@@ -633,5 +624,3 @@ export class CpmAnimationPlayer {
     return this.host.hiddenStoreIds?.value.has(storeId) === true
   }
 }
-
-export { PLAYER_PART_IDS }

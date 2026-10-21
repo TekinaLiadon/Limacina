@@ -23,6 +23,7 @@ import { runScopedAction } from './runScopedAction'
 export interface ModrinthCategory {
   value: string
   label: string
+  filterable: boolean
 }
 
 export const MODRINTH_BASE_URL = 'https://modrinth.com'
@@ -39,42 +40,36 @@ export const MODRINTH_SORTS: Array<{ value: string; label: string }> = [
   { value: 'updated', label: 'Недавно обновлённые' },
 ]
 
-export const MODRINTH_CATEGORIES: ModrinthCategory[] = [
-  { value: 'adventure', label: 'Приключения' },
-  { value: 'technology', label: 'Технологии' },
-  { value: 'magic', label: 'Магия' },
-  { value: 'utility', label: 'Утилиты' },
-  { value: 'optimization', label: 'Оптимизация' },
-  { value: 'worldgen', label: 'Генерация мира' },
-  { value: 'storage', label: 'Хранение' },
-  { value: 'food', label: 'Еда' },
-  { value: 'equipment', label: 'Снаряжение' },
-  { value: 'game-mechanics', label: 'Игровая механика' },
-  { value: 'library', label: 'Библиотеки' },
+const MODRINTH_CATEGORY_REGISTRY: ModrinthCategory[] = [
+  { value: 'adventure', label: 'Приключения', filterable: true },
+  { value: 'technology', label: 'Технологии', filterable: true },
+  { value: 'magic', label: 'Магия', filterable: true },
+  { value: 'utility', label: 'Утилиты', filterable: true },
+  { value: 'optimization', label: 'Оптимизация', filterable: true },
+  { value: 'worldgen', label: 'Генерация мира', filterable: true },
+  { value: 'storage', label: 'Хранение', filterable: true },
+  { value: 'food', label: 'Еда', filterable: true },
+  { value: 'equipment', label: 'Снаряжение', filterable: true },
+  { value: 'game-mechanics', label: 'Игровая механика', filterable: true },
+  { value: 'library', label: 'Библиотеки', filterable: true },
+  { value: 'cursed', label: 'Проклятое', filterable: false },
+  { value: 'decoration', label: 'Декор', filterable: false },
+  { value: 'economy', label: 'Экономика', filterable: false },
+  { value: 'education', label: 'Обучение', filterable: false },
+  { value: 'management', label: 'Управление', filterable: false },
+  { value: 'minigame', label: 'Мини-игры', filterable: false },
+  { value: 'mobs', label: 'Мобы', filterable: false },
+  { value: 'social', label: 'Социальное', filterable: false },
+  { value: 'transportation', label: 'Транспорт', filterable: false },
 ]
 
-export const MODRINTH_CATEGORY_LABELS: Record<string, string> = {
-  adventure: 'Приключения',
-  cursed: 'Проклятое',
-  decoration: 'Декор',
-  economy: 'Экономика',
-  education: 'Обучение',
-  equipment: 'Снаряжение',
-  food: 'Еда',
-  'game-mechanics': 'Игровая механика',
-  library: 'Библиотеки',
-  magic: 'Магия',
-  management: 'Управление',
-  minigame: 'Мини-игры',
-  mobs: 'Мобы',
-  optimization: 'Оптимизация',
-  social: 'Социальное',
-  storage: 'Хранение',
-  technology: 'Технологии',
-  transportation: 'Транспорт',
-  utility: 'Утилиты',
-  worldgen: 'Генерация мира',
-}
+export const MODRINTH_CATEGORIES: ModrinthCategory[] = MODRINTH_CATEGORY_REGISTRY.filter(
+  (category) => category.filterable,
+)
+
+export const MODRINTH_CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  MODRINTH_CATEGORY_REGISTRY.map((category) => [category.value, category.label]),
+)
 
 export const PAGE_SIZE = 20
 

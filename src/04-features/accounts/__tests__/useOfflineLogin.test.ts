@@ -4,12 +4,8 @@ import { authLogin, authLogins, getSessionInfo } from '@/06-shared/api'
 import { useAuth } from '../useAuth'
 import { useOfflineLogin } from '../useOfflineLogin'
 import { withSetup } from '@/test-support/withSetup'
-import {
-  useAccountsStore,
-  useCoreStore,
-  useNotificationStore,
-  type ProjectConfig,
-} from '@/05-entities'
+import { makeProjectConfig } from '@/test-support/fixtures'
+import { useAccountsStore, useCoreStore, useNotificationStore } from '@/05-entities'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -17,22 +13,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   authLogins: vi.fn(),
   getSessionInfo: vi.fn(),
 }))
-
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useOfflineLogin', () => {
   beforeEach(() => {
@@ -60,7 +40,7 @@ describe('useOfflineLogin', () => {
 
   it('does not require a password for an offline project', () => {
     useCoreStore().currentProject = 'proj'
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     useAccountsStore().loginFormData.username = 'user'
     const { offline, unmount } = setupAuth()
 
@@ -71,7 +51,7 @@ describe('useOfflineLogin', () => {
 
   it('validates the offline login by its trimmed length', () => {
     useCoreStore().currentProject = 'proj'
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     useAccountsStore().loginFormData.username = '  ab  '
     const { offline, unmount } = setupAuth()
 
@@ -83,7 +63,7 @@ describe('useOfflineLogin', () => {
   })
 
   it('requires a project for the offline login', () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     useAccountsStore().loginFormData.username = 'user'
     const { offline, unmount } = setupAuth()
 
@@ -93,7 +73,7 @@ describe('useOfflineLogin', () => {
 
   it('falls back to the server validation for an online project', () => {
     useCoreStore().currentProject = 'proj'
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     useAccountsStore().loginFormData.username = 'user'
     const { offline, unmount } = setupAuth()
 
@@ -106,7 +86,7 @@ describe('useOfflineLogin', () => {
   })
 
   it('does not submit an invalid offline login', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     const { offline, unmount } = setupAuth()
 
     await offline.handleLogin()
@@ -118,7 +98,7 @@ describe('useOfflineLogin', () => {
   it('logs in without a password for an offline project', async () => {
     vi.mocked(getSessionInfo).mockResolvedValue({ uuid: 'u-1', username: 'user' })
     useCoreStore().currentProject = 'proj'
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     useAccountsStore().loginFormData.username = 'user'
     const { offline, unmount } = setupAuth()
 
@@ -133,7 +113,7 @@ describe('useOfflineLogin', () => {
   it('trims the nickname before an offline login', async () => {
     vi.mocked(getSessionInfo).mockResolvedValue(null)
     useCoreStore().currentProject = 'proj'
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     useAccountsStore().loginFormData.username = '  user  '
     const { offline, unmount } = setupAuth()
 

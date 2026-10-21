@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { ProjectConfig } from '../../core/types'
+import { makeProjectConfig as projectConfigFixture } from '@/test-support/fixtures'
 import { projectSettingsFormFromConfig, useProjectSettingsStore, type ProjectSettingsForm } from '../projectSettingsStore'
 
 const makeForm = (overrides: Partial<ProjectSettingsForm> = {}): ProjectSettingsForm => ({
@@ -196,22 +197,14 @@ describe('useProjectSettingsStore', () => {
 })
 
 describe('projectSettingsFormFromConfig', () => {
-  const makeConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
-    projectName: 'Alpha',
-    mcVersion: '1.20.1',
-    modLoader: 'fabric',
-    loaderVersion: null,
-    javaPath: null,
-    javaVersion: null,
-    jvmArgs: [],
-    minMemory: '-Xms512M',
-    maxMemory: '-Xmx4G',
-    online: true,
-    initialized: true,
-    serverUrl: null,
-    autoJoinServer: false,
-    ...overrides,
-  })
+  const makeConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig =>
+    projectConfigFixture({
+      projectName: 'Alpha',
+      modLoader: 'fabric',
+      minMemory: '-Xms512M',
+      maxMemory: '-Xmx4G',
+      ...overrides,
+    })
 
   it('maps the config fields into the form defaults', () => {
     const form = projectSettingsFormFromConfig(makeConfig())

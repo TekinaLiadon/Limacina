@@ -211,6 +211,7 @@ impl LauncherDirGuard {
             std::env::temp_dir().join(format!("limacina_it_{}_{}", label, std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("создание тестовой директории лаунчера");
+        crate::auth::storage::clear_test_keyring();
         crate::state::launcher_config::LauncherConfig::override_resolved_launcher_path_for_tests(
             &root,
         );

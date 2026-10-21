@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAccountsStore, useCoreStore, useProjectSettingsStore } from '@/05-entities'
 import { useSettingsNav } from '../useSettingsNav'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const setupNav = (): ReturnType<typeof useSettingsNav> => useSettingsNav()
 
@@ -10,21 +11,7 @@ describe('useSettingsNav', () => {
     setActivePinia(createPinia())
     const core = useCoreStore()
     const store = useProjectSettingsStore()
-    core.projectConfig = {
-      projectName: 'proj',
-      mcVersion: '1.20.1',
-      modLoader: 'vanilla',
-      loaderVersion: null,
-      javaPath: null,
-      javaVersion: null,
-      jvmArgs: [],
-      minMemory: '512',
-      maxMemory: '4096',
-      online: true,
-      initialized: true,
-      serverUrl: null,
-      autoJoinServer: false,
-    }
+    core.projectConfig = makeProjectConfig()
     store.isLoaded = true
     store.config.initialized = true
     useAccountsStore().isLoggedIn = true

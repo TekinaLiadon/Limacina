@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
-import { useCoreStore, useServerStore, type ProjectConfig } from '@/05-entities'
+import { useCoreStore, useServerStore } from '@/05-entities'
+import { makeProjectConfig } from '@/test-support/fixtures'
 import { SERVER_POLL_FAILURE_THRESHOLD as FAILURE_THRESHOLD } from '../../server-polling/createServerPoller'
 
 const api = vi.hoisted(() => ({
@@ -12,22 +13,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   pingLauncherServer: api.pingLauncherServer,
 }))
-
-const makeConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: 'https://example.com',
-  autoJoinServer: false,
-})
 
 const OK_INTERVAL_MS = 30_000
 
@@ -55,7 +40,7 @@ describe('useServerAvailability', () => {
   }
 
   const watchProject = async (online: boolean): Promise<void> => {
-    useCoreStore().projectConfig = makeConfig(online)
+    useCoreStore().projectConfig = makeProjectConfig({ online, serverUrl: 'https://example.com' })
     await nextTick()
     await vi.advanceTimersByTimeAsync(0)
   }

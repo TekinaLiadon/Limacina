@@ -3,8 +3,9 @@ import * as THREE from 'three'
 import { DEFAULT_RGB, parseHexColor, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitToView } from '@/04-features/viewer/useViewerCamera'
-import type { CPMConfig, CPMData, CPMVec3, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
-import { CpmAnimationPlayer, indexModelNodes, PLAYER_PART_IDS, type ActiveCpmAnimation, type NodeIndex, type SharedClock } from './cpmAnimationPlayer'
+import type { CPMConfig, CPMData, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
+import { CpmAnimationPlayer, indexModelNodes, type ActiveCpmAnimation, type NodeIndex, type SharedClock } from './cpmAnimationPlayer'
+import { PLAYER_PART_ORDINALS, ROOT_PIVOTS } from './playerParts'
 import type { CpmEditorBridge } from './cpmEditorBridge'
 import { computeMeshVisible } from './meshVisibility'
 
@@ -18,27 +19,6 @@ const FACE_MAP: Record<string, number> = {
   down: 3,
   north: 4,
   south: 5,
-}
-
-export const ROOT_PIVOTS: Record<string, CPMVec3> = {
-  head:             { x: 0,  y: 24, z: 0 },
-  body:             { x: 0,  y: 24, z: 0 },
-  left_arm:         { x: 5,  y: 22, z: 0 },
-  right_arm:        { x: -5, y: 22, z: 0 },
-  left_leg:         { x: 2,  y: 12, z: 0 },
-  right_leg:        { x: -2, y: 12, z: 0 },
-  cape:             { x: 0,  y: 24, z: 0 },
-  elytra_left:      { x: 0,  y: 24, z: 0 },
-  elytra_right:     { x: 0,  y: 24, z: 0 },
-  armor_helmet:     { x: 0,  y: 24, z: 0 },
-  armor_body:       { x: 0,  y: 24, z: 0 },
-  armor_left_arm:   { x: 5,  y: 22, z: 0 },
-  armor_right_arm:  { x: -5, y: 22, z: 0 },
-  armor_leggings_body: { x: 0,  y: 24, z: 0 },
-  armor_left_leg:   { x: 2,  y: 12, z: 0 },
-  armor_right_leg:  { x: -2, y: 12, z: 0 },
-  armor_left_foot:  { x: 2,  y: 12, z: 0 },
-  armor_right_foot: { x: -2, y: 12, z: 0 },
 }
 
 function setFaceQuad(uvAttr: THREE.BufferAttribute, base: number, quad: Array<[number, number]>): void {
@@ -278,7 +258,7 @@ function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
       const element = node as CPMElement
       const isVanillaRoot = element.customPart !== true && element.dup !== true
       group.userData.storeID = isVanillaRoot
-        ? (PLAYER_PART_IDS[element.id] ?? element.storeID)
+        ? (PLAYER_PART_ORDINALS[element.id] ?? element.storeID)
         : element.storeID
       group.userData.isRoot = true
       group.userData.isVanillaPart = isVanillaRoot

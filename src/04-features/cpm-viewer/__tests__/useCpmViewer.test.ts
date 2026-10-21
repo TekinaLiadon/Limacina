@@ -21,20 +21,7 @@ const boxGeometryState = vi.hoisted(() => ({ created: [] as Array<{ disposed: bo
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()
-  class FakeTextureLoader {
-    load(
-      url: string,
-      onLoad: (texture: THREE.Texture) => void,
-      _onProgress?: undefined,
-      onError?: (error: unknown) => void,
-    ): void {
-      textureLoads.push({
-        url,
-        resolve: (texture) => onLoad(texture),
-        fail: (error) => onError?.(error),
-      })
-    }
-  }
+  const { createFakeTextureLoader } = await import('@/test-support/fakeTextureLoader')
   class TrackingBoxGeometry extends actual.BoxGeometry {
     disposed = false
 
@@ -48,7 +35,7 @@ vi.mock('three', async (importOriginal) => {
       super.dispose()
     }
   }
-  return { ...actual, TextureLoader: FakeTextureLoader, BoxGeometry: TrackingBoxGeometry }
+  return { ...actual, TextureLoader: createFakeTextureLoader(textureLoads), BoxGeometry: TrackingBoxGeometry }
 })
 
 const mountedScene = vi.hoisted(() => ({

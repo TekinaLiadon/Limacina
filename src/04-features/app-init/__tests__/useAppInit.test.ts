@@ -7,11 +7,11 @@ import {
   useSettingsStore,
   type AppInitData,
   type LauncherConfig,
-  type ProjectConfig,
   type UpdateInfo,
 } from '@/05-entities'
 import { useAppInit } from '../useAppInit'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const api = vi.hoisted(() => ({
   applyUpdateCmd: vi.fn(),
@@ -73,22 +73,6 @@ const makeInitData = (overrides: Partial<AppInitData> = {}): AppInitData => ({
   ...overrides,
 })
 
-const makeProjectConfig = (name: string): ProjectConfig => ({
-  projectName: name,
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online: true,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
-
 describe('useAppInit', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -98,7 +82,7 @@ describe('useAppInit', () => {
     api.checkUpdate.mockReset()
     api.getAppInitData.mockReset()
     api.loadSettingsProject.mockReset()
-    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
     api.preloadThemeFonts.mockReset()
     api.preloadThemeFonts.mockResolvedValue(undefined)
   })
@@ -123,7 +107,7 @@ describe('useAppInit', () => {
 
   it('hydrates the init data and loads the saved project', async () => {
     api.getAppInitData.mockResolvedValue(makeInitData())
-    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
 
     const app = setupApp()
     await runInit()
@@ -134,7 +118,7 @@ describe('useAppInit', () => {
     expect(core.totalMemoryMb).toBe(16384)
     expect(core.projects).toEqual(['proj'])
     expect(core.currentProject).toBe('proj')
-    expect(core.projectConfig).toEqual(makeProjectConfig('proj'))
+    expect(core.projectConfig).toEqual(makeProjectConfig({ projectName: 'proj' }))
     expect(useSettingsStore().theme).toBe('default-dark')
     expect(useSettingsStore().animationsEnabled).toBe(true)
     expect(app.startupError()).toBe('')
@@ -145,7 +129,7 @@ describe('useAppInit', () => {
   it('loads the project config through one pipeline into both stores', async () => {
     api.getAppInitData.mockResolvedValue(makeInitData())
     api.loadSettingsProject.mockClear()
-    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
 
     setupApp()
     await runInit()
@@ -164,7 +148,7 @@ describe('useAppInit', () => {
       .mockResolvedValueOnce(makeInitData({ version: '2.0.0' }))
     api.checkUpdate.mockResolvedValue({ version: '2.0.0' })
     api.applyUpdateCmd.mockResolvedValue(undefined)
-    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
 
     setupApp()
     await runInit()
@@ -195,7 +179,7 @@ describe('useAppInit', () => {
         }),
     )
     api.applyUpdateCmd.mockResolvedValue(undefined)
-    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('beta'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'beta' }))
 
     setupApp()
     await vi.advanceTimersByTimeAsync(50)
@@ -318,7 +302,7 @@ describe('useAppInit', () => {
     api.getAppInitData
       .mockRejectedValueOnce(new Error('ipc down'))
       .mockResolvedValueOnce(makeInitData())
-    api.loadSettingsProject.mockResolvedValue(makeProjectConfig('proj'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
 
     const app = setupApp()
     await runInit()

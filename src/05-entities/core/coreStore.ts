@@ -2,6 +2,8 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { LauncherConfig, ProjectConfig } from './types/index'
 
+type LauncherConfigPatch = Partial<Omit<LauncherConfig, 'projectNames' | 'currentProject' | 'projects'>>
+
 export const useCoreStore = defineStore('core', () => {
   const isLoading = ref<boolean>(true)
   const launcherName = ref<string>('')
@@ -61,6 +63,11 @@ export const useCoreStore = defineStore('core', () => {
     }
   }
 
+  function patchLauncherConfig(patch: LauncherConfigPatch): void {
+    if (launcherConfig.value === null) return
+    launcherConfig.value = { ...launcherConfig.value, ...patch }
+  }
+
   function applyProjectSwitch(projectName: string, config: ProjectConfig | null): void {
     currentProject.value = projectName
     projectConfig.value = config
@@ -113,6 +120,7 @@ export const useCoreStore = defineStore('core', () => {
     isOnlineProject,
     setLauncherConfig,
     applySavedLauncherConfig,
+    patchLauncherConfig,
     applyProjectSwitch,
     addProject,
     setProjectConfig,

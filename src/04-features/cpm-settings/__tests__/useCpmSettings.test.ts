@@ -18,6 +18,7 @@ import {
 } from '@/05-entities'
 import { useCpmSettings, type CpmLayerPanelData, type CpmLayerTabItem } from '../useCpmSettings'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const exporter = vi.hoisted(() => ({
   cpmProjectToLinkBase64: vi.fn(),
@@ -112,21 +113,7 @@ describe('useCpmSettings', () => {
     createObjectURLMock.mockClear()
     const core = useCoreStore()
     core.currentProject = 'proj'
-    core.projectConfig = {
-      projectName: 'proj',
-      mcVersion: '1.20.1',
-      modLoader: 'vanilla',
-      loaderVersion: null,
-      javaPath: null,
-      javaVersion: null,
-      jvmArgs: [],
-      minMemory: '512',
-      maxMemory: '4096',
-      online: true,
-      initialized: true,
-      serverUrl: null,
-      autoJoinServer: false,
-    }
+    core.projectConfig = makeProjectConfig()
     useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
   })
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useCoreStore } from '../coreStore'
 import type { LauncherConfig, ProjectConfig } from '../types'
+import { makeProjectConfig as projectConfigFixture } from '@/test-support/fixtures'
 
 const makeConfig = (projectNames: string[], currentProject: string | null): LauncherConfig => ({
   launcherPath: '/launcher',
@@ -22,22 +23,14 @@ const makeConfig = (projectNames: string[], currentProject: string | null): Laun
   projects: {},
 })
 
-const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
-  projectName: 'Alpha',
-  mcVersion: '1.21.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512M',
-  maxMemory: '2048M',
-  online: true,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-  ...overrides,
-})
+const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig =>
+  projectConfigFixture({
+    projectName: 'Alpha',
+    mcVersion: '1.21.1',
+    minMemory: '512M',
+    maxMemory: '2048M',
+    ...overrides,
+  })
 
 type CoreStore = ReturnType<typeof useCoreStore>
 
@@ -179,6 +172,43 @@ describe('useCoreStore', () => {
     expect(store.launcherConfig?.currentProject).toBeNull()
     expect(store.projects).toEqual([])
     expect(store.currentProject).toBe('')
+    expectInvariant(store)
+  })
+
+  it('patchLauncherConfig replaces only the given fields and keeps the project scope', () => {
+    const store = useCoreStore()
+    store.setLauncherConfig(makeConfig(['Alpha', 'Beta'], 'Beta'))
+
+    store.patchLauncherConfig({ theme: 'lime-dark', debugMode: true })
+
+    expect(store.launcherConfig?.theme).toBe('lime-dark')
+    expect(store.launcherConfig?.debugMode).toBe(true)
+    expect(store.launcherConfig?.launcherPath).toBe('/launcher')
+    expect(store.launcherConfig?.projectNames).toEqual(['Alpha', 'Beta'])
+    expect(store.launcherConfig?.currentProject).toBe('Beta')
+    expect(store.projects).toEqual(['Alpha', 'Beta'])
+    expect(store.currentProject).toBe('Beta')
+    expectInvariant(store)
+  })
+
+  it('patchLauncherConfig ignores the patch when no config is loaded', () => {
+    const store = useCoreStore()
+
+    store.patchLauncherConfig({ theme: 'lime-dark' })
+
+    expect(store.launcherConfig).toBeNull()
+    expectInvariant(store)
+  })
+
+  it('patchLauncherConfig keeps a value written by another save between patches', () => {
+    const store = useCoreStore()
+    store.setLauncherConfig(makeConfig(['Alpha'], 'Alpha'))
+
+    store.patchLauncherConfig({ theme: 'lime-dark' })
+    store.patchLauncherConfig({ debugMode: true })
+
+    expect(store.launcherConfig?.theme).toBe('lime-dark')
+    expect(store.launcherConfig?.debugMode).toBe(true)
     expectInvariant(store)
   })
 

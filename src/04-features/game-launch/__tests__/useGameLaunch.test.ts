@@ -24,6 +24,7 @@ import {
 } from '@/05-entities'
 import { createStepItem, STEP_IDS, type StepPlanItem } from '@/06-shared'
 import { DEFAULT_GAME_OPTIONS } from '@/04-features/game-settings/useGameOptions'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -50,22 +51,8 @@ vi.mock('../useLaunchStepsStream', () => ({
   useLaunchStepsStream: () => streamMocks,
 }))
 
-const makeConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online: true,
-  initialized: false,
-  serverUrl: 'https://example.com',
-  autoJoinServer: false,
-  ...overrides,
-})
+const makeConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig =>
+  makeProjectConfig({ initialized: false, serverUrl: 'https://example.com', ...overrides })
 
 const prefillPlanKeys = (): string[] => {
   const { calls } = streamMocks.prefillLaunchSteps.mock

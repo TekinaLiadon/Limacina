@@ -14,11 +14,11 @@ import {
   useAccountsStore,
   useCoreStore,
   useNotificationStore,
-  type ProjectConfig,
   type SkinModelMode,
 } from '@/05-entities'
 import { useOfflineSkinSettings } from '../useOfflineSkinSettings'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -43,22 +43,6 @@ interface FakeBitmap {
 
 const createImageBitmapMock = vi.fn(async (): Promise<FakeBitmap> => ({ width: 64, height: 64, close: () => {} }))
 vi.stubGlobal('createImageBitmap', createImageBitmapMock)
-
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useOfflineSkinSettings', () => {
   beforeEach(() => {
@@ -88,7 +72,7 @@ describe('useOfflineSkinSettings', () => {
   }
 
   const goOffline = (): void => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
   }
 
   it('loads the offline skin with the stored model', async () => {
@@ -343,14 +327,14 @@ describe('useOfflineSkinSettings', () => {
 
   it('reloads the offline skin when the project switches to an offline project', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     vi.mocked(listSkins).mockResolvedValue([])
     core.currentProject = 'proj'
     const skins = setupSkins()
     await vi.waitFor(() => expect(skins.isSkinLoading.value).toBe(false))
     expect(skins.hasSkin.value).toBe(false)
 
-    core.projectConfig = makeProjectConfig(false)
+    core.projectConfig = makeProjectConfig({ online: false })
     core.currentProject = 'offline-proj'
     useAccountsStore().clearSessionState()
     vi.mocked(getOfflineSkin).mockResolvedValue(new Uint8Array([9, 9]))

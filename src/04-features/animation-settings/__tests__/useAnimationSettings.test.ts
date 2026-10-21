@@ -96,7 +96,7 @@ describe('useAnimationSettings', () => {
     expect(document.documentElement.dataset.animations).toBe('on')
   })
 
-  it('applies the response without rolling back the live project scope', async () => {
+  it('saves without rolling back the live project scope', async () => {
     const core = useCoreStore()
     core.setLauncherConfig({
       ...makeConfig(true),
@@ -115,5 +115,20 @@ describe('useAnimationSettings', () => {
     expect(core.launcherConfig?.animationsEnabled).toBe(false)
     expect(core.currentProject).toBe('beta')
     expect(core.projects).toEqual(['alpha', 'beta'])
+  })
+
+  it('patches only the animations flag without overwriting a newer theme', async () => {
+    const core = useCoreStore()
+    core.setLauncherConfig({ ...makeConfig(true), theme: 'lime-dark' })
+    vi.mocked(saveAnimationsEnabled).mockResolvedValue({
+      ...makeConfig(false),
+      theme: 'default-dark',
+    })
+    const animations = useAnimationSettings()
+
+    await animations.setAnimationsEnabled(false)
+
+    expect(core.launcherConfig?.animationsEnabled).toBe(false)
+    expect(core.launcherConfig?.theme).toBe('lime-dark')
   })
 })

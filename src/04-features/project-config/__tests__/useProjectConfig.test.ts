@@ -4,27 +4,12 @@ import { loadSettingsProject } from '@/06-shared/api'
 import { useCoreStore, type ProjectConfig } from '@/05-entities'
 import { useProjectConfig } from '../useProjectConfig'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   loadSettingsProject: vi.fn(),
 }))
-
-const makeConfig = (name: string): ProjectConfig => ({
-  projectName: name,
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online: true,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useProjectConfig', () => {
   beforeEach(() => {
@@ -40,7 +25,7 @@ describe('useProjectConfig', () => {
   it('loads the config on mount for the current project', async () => {
     const core = useCoreStore()
     core.currentProject = 'proj'
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('proj'))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
 
     const { unmount } = withSetup(() => useProjectConfig())
     await vi.waitFor(() => expect(core.projectConfig).not.toBeNull())
@@ -53,7 +38,7 @@ describe('useProjectConfig', () => {
   it('skips the load when the config is already current', () => {
     const core = useCoreStore()
     core.currentProject = 'proj'
-    core.projectConfig = makeConfig('proj')
+    core.projectConfig = makeProjectConfig({ projectName: 'proj' })
 
     const { unmount } = withSetup(() => useProjectConfig())
 
@@ -81,7 +66,7 @@ describe('useProjectConfig', () => {
 
     const { unmount } = withSetup(() => useProjectConfig())
     core.currentProject = 'beta'
-    releaseConfig(makeConfig('alpha'))
+    releaseConfig(makeProjectConfig({ projectName: 'alpha' }))
     await Promise.resolve()
 
     expect(core.projectConfig).toBeNull()

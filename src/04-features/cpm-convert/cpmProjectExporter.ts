@@ -1,6 +1,7 @@
 import { CpmBinaryWriter, HEADER, bytesToBase64 } from './cpmBinaryWriter'
 import { ANIMATION_DATA_PART, writeAnimationParts, type CpmAnimationElementIndex } from './cpmAnimationWriter'
 import { readCpmProjectZip } from './cpmProjectZip'
+import { CUSTOM_PART_ORDINAL, PLAYER_PART_ORDINALS } from '@/04-features/cpm-viewer/playerParts'
 import { DEFAULT_RGB, parseHexColor } from '@/06-shared'
 import type { CPMAnimEnc, CPMAnimation, CPMChild, CPMConfig, CPMElement, CPMFaceUV } from '@/05-entities'
 
@@ -20,10 +21,6 @@ const ROOT_MODEL_TYPE: Record<string, number> = {
   armor_helmet: 3, armor_body: 4, armor_left_arm: 5, armor_right_arm: 6,
   armor_leggings_body: 7, armor_left_leg: 8, armor_right_leg: 9,
   armor_left_foot: 10, armor_right_foot: 11,
-}
-
-const PLAYER_PART_INDEX: Record<string, number> = {
-  head: 0, body: 1, left_arm: 2, right_arm: 3, left_leg: 4, right_leg: 5, custom_part: 6,
 }
 
 const ROT_ORDINAL: Record<string, number> = { '0': 0, '90': 1, '180': 2, '270': 3 }
@@ -175,13 +172,13 @@ function flatten(config: CPMConfig): FlatModel {
       if ('id' in el) {
         const root = el as CPMElement
         if (root.customPart === true || root.dup === true) {
-          const fakeId = pushPivotCube(root, PLAYER_PART_INDEX.custom_part ?? 0)
+          const fakeId = pushPivotCube(root, CUSTOM_PART_ORDINAL)
           walk(root.children ?? [], fakeId)
           continue
         }
-        const ordinal = PLAYER_PART_INDEX[root.id]
+        const ordinal = PLAYER_PART_ORDINALS[root.id]
         if (ordinal === undefined) {
-          const fakeId = pushPivotCube(root, PLAYER_PART_INDEX.custom_part ?? 0)
+          const fakeId = pushPivotCube(root, CUSTOM_PART_ORDINAL)
           walk(root.children ?? [], fakeId)
           continue
         }
@@ -313,7 +310,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null, sou
   const keepBits = new Array(8).fill(false)
   for (const el of config.elements ?? []) {
     if (el.customPart === true || el.dup === true) continue
-    const idx = PLAYER_PART_INDEX[el.id]
+    const idx = PLAYER_PART_ORDINALS[el.id]
     if (idx === undefined) continue
     keepBits[idx] = el.show !== false
   }
@@ -337,7 +334,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null, sou
 
   for (const el of config.elements ?? []) {
     if (el.customPart === true || el.dup === true) continue
-    if (PLAYER_PART_INDEX[el.id] === undefined) continue
+    if (PLAYER_PART_ORDINALS[el.id] === undefined) continue
     if (!epsilonVec(el.pos, 0.1) || !epsilonVec(el.rotation, 0.1)) {
       const id = elementIds.get(el) ?? 0
       def.writeObjectBlock(PT.PLAYER_PARTPOS, (w) => {
@@ -424,7 +421,7 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null, sou
       }
       def.writeObjectBlock(PT.DUP_ROOT, (w) => {
         w.writeVarInt(id)
-        w.writeEnum(PLAYER_PART_INDEX[el.id] ?? 0)
+        w.writeEnum(PLAYER_PART_ORDINALS[el.id] ?? 0)
       })
     } else if (el.customPart === true || ROOT_MODEL_TYPE[el.id] !== undefined) {
       if (el.show === false) {

@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { copyToClipboard, reportError } from '@/06-shared'
-import { useAccountsStore, useCoreStore, useNotificationStore, type ProjectConfig, type UserContentItem } from '@/05-entities'
+import { useAccountsStore, useCoreStore, useNotificationStore, type UserContentItem } from '@/05-entities'
 import { useUserContent } from '../useUserContent'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared')>()),
@@ -29,22 +30,6 @@ const makeApi = () => ({
   listLoadErrorMessage: 'Не удалось загрузить список',
 })
 
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
-
 describe('useUserContent', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -64,12 +49,12 @@ describe('useUserContent', () => {
 
   const loginSession = (): void => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
   }
 
   it('skips the list load for an offline project', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     const { content, api } = setupContent()
 
     await content.loadItems()
@@ -78,7 +63,7 @@ describe('useUserContent', () => {
   })
 
   it('skips the list load without a session', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     const { content, api } = setupContent()
 
     await content.loadItems()

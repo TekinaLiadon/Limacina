@@ -4,7 +4,8 @@ import { nextTick, ref } from 'vue'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import AppLayout from '../AppLayout.vue'
 import { Sidebar, ThemeModeToggle } from '@/03-widgets'
-import { useCoreStore, type ProjectConfig } from '@/05-entities'
+import { useCoreStore } from '@/05-entities'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const currentRoute = { name: 'Accounts' }
 const routerPush = vi.fn()
@@ -30,22 +31,6 @@ vi.mock('@/04-features', async (importOriginal) => {
     useSettingsNav: () => ({ items: settingsNavItems }),
     useProjectSwitch: () => ({ projectOptions, canSwitch, isSwitching: isProjectSwitching, selectProject }),
   }
-})
-
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
 })
 
 const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')
@@ -115,7 +100,7 @@ describe('AppLayout', () => {
   })
 
   it('passes the debug flag and the offline state to the sidebar', () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     const wrapper = mountLayout(true)
 
     const sidebar = wrapper.findComponent(Sidebar)

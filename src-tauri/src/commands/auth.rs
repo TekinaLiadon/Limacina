@@ -124,6 +124,20 @@ pub(crate) async fn wipe_project_credentials(
     );
 }
 
+fn validate_username(username: &str) -> Result<()> {
+    if username.trim().is_empty() {
+        bail!(LauncherError::UsernameEmpty);
+    }
+    Ok(())
+}
+
+fn validate_password(password: &str) -> Result<()> {
+    if password.len() < 6 {
+        bail!(LauncherError::PasswordTooShort);
+    }
+    Ok(())
+}
+
 pub(crate) async fn restore_session(
     project_name: &str,
     username: &str,
@@ -131,9 +145,16 @@ pub(crate) async fn restore_session(
 ) -> Result<AuthData> {
     let server_url = project_server_url(project_name, "серверная авторизация недоступна").await?;
 
-    if let Ok(refresh_token) =
-        storage::get_credential(project_name, username, "refresh_token").await
-    {
+    let stored_token = storage::find_credential(project_name, username, "refresh_token").await;
+    let (refresh_token, read_error) = match stored_token {
+        Ok(token) => (token, None),
+        Err(e) => {
+            log_err!("restore_session: не удалось прочитать сохранённый refresh-токен ({e:#})");
+            (None, Some(e))
+        }
+    };
+
+    if let Some(refresh_token) = refresh_token {
         match auth::refresh(&server_url, &refresh_token).await {
             Ok(data) => return Ok(data),
             Err(e) if is_refresh_rejected(&e) => {
@@ -165,7 +186,16 @@ pub(crate) async fn restore_session(
     let stored_password = password.map(|password| password.to_string());
     match stored_password {
         Some(password) => auth::login(&server_url, username, &password).await,
-        None => bail!(LauncherError::NoSavedCredentials(username.to_string())),
+        None => {
+            if let Some(e) = read_error {
+                return LauncherError::classify::<AuthData>(
+                    Err(e),
+                    LauncherError::CredentialsStorage,
+                )
+                .context("Не удалось прочитать сохранённые учётные данные. Повторите попытку");
+            }
+            bail!(LauncherError::NoSavedCredentials(username.to_string()))
+        }
     }
 }
 
@@ -175,9 +205,9 @@ async fn refresh_after_rejection(
     server_url: &str,
     rejected_token: &str,
 ) -> Result<Option<AuthData>> {
-    let current = storage::get_credential(project_name, username, "refresh_token").await;
+    let current = storage::find_credential(project_name, username, "refresh_token").await;
     match current {
-        Ok(current) if current != rejected_token => {
+        Ok(Some(current)) if current != rejected_token => {
             log_err!(
                 "restore_session: refresh-токен уже сменён параллельным вызовом, повторяем с новым"
             );
@@ -205,13 +235,14 @@ async fn refresh_after_rejection(
                 }
             }
         }
-        Ok(_) => {
+        Ok(Some(_)) => {
             let _ = storage::delete_credential(project_name, username, "refresh_token").await;
             Ok(None)
         }
+        Ok(None) => Ok(None),
         Err(e) => {
             log_err!(
-                "restore_session: не удалось перечитать refresh-токен ({e}), запись не тронута"
+                "restore_session: не удалось перечитать refresh-токен ({e:#}), запись не тронута"
             );
             Ok(None)
         }
@@ -235,7 +266,10 @@ async fn register_account(
     username: &str,
     password: &str,
 ) -> Result<()> {
+    let username = username.trim();
     let server_url = project_server_url(project_name, "регистрация недоступна").await?;
+    validate_username(username)?;
+    validate_password(password)?;
 
     auth::register(&server_url, username, password).await?;
 
@@ -271,11 +305,14 @@ async fn login_account(
     remember_me: bool,
 ) -> Result<()> {
     let username = username.trim();
+    validate_username(username)?;
     let project = load_config_or_default(project_name).await?;
 
     if !project.online {
         return auth_offline::login(state, project_name, username, remember_me).await;
     }
+
+    validate_password(password)?;
 
     let data = login_online_session(project_name, username, password, remember_me).await?;
 
@@ -317,9 +354,7 @@ async fn auth_refresh_flow(
     username: &str,
 ) -> Result<()> {
     let username = username.trim();
-    if username.is_empty() {
-        bail!(LauncherError::UsernameEmpty);
-    }
+    validate_username(username)?;
     let project = load_config_or_default(project_name).await?;
 
     if !project.online {
@@ -352,9 +387,7 @@ async fn change_password_flow(
     old_password: &str,
     new_password: &str,
 ) -> Result<()> {
-    if new_password.trim().len() < 6 {
-        bail!(LauncherError::PasswordTooShort);
-    }
+    validate_password(new_password)?;
     if old_password == new_password {
         bail!(LauncherError::PasswordUnchanged);
     }
@@ -407,9 +440,9 @@ async fn change_password_session(
         .await
         .context("Не удалось сменить пароль")?;
 
-    let remembered = storage::get_credential(project_name, username, "refresh_token").await;
+    let remembered = storage::find_credential(project_name, username, "refresh_token").await;
     match remembered {
-        Ok(_) => {
+        Ok(Some(_)) => {
             storage::save_credential(
                 project_name,
                 username,
@@ -418,9 +451,14 @@ async fn change_password_session(
             )
             .await?;
         }
-        Err(e) => {
+        Ok(None) => {
             log_info!(
-                "Смена пароля: аккаунт \"{username}\" не запомнен, refresh-токен не сохраняется ({e})"
+                "Смена пароля: аккаунт \"{username}\" не запомнен, refresh-токен не сохраняется"
+            );
+        }
+        Err(e) => {
+            log_err!(
+                "Смена пароля: не удалось прочитать сохранённый токен \"{username}\" ({e:#}), refresh-токен не сохраняется"
             );
         }
     }
@@ -456,17 +494,23 @@ async fn delete_account_flow(
 ) -> Result<()> {
     let _guard = SESSION_RESTORE_LOCK.lock().await;
 
-    if let Ok(refresh_token) =
-        storage::get_credential(project_name, username, "refresh_token").await
-    {
-        if !refresh_token.is_empty() {
-            if let Ok(server_url) =
-                project_server_url(project_name, "удаление аккаунта недоступно").await
-            {
-                if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
-                    log_err!("Не удалось отозвать токен на сервере: {}", e);
+    match storage::find_credential(project_name, username, "refresh_token").await {
+        Ok(Some(refresh_token)) => {
+            if !refresh_token.is_empty() {
+                if let Ok(server_url) =
+                    project_server_url(project_name, "удаление аккаунта недоступно").await
+                {
+                    if let Err(e) = auth::invalidate(&server_url, &refresh_token).await {
+                        log_err!("Не удалось отозвать токен на сервере: {}", e);
+                    }
                 }
             }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            log_err!(
+                "Удаление аккаунта: не удалось прочитать сохранённый токен \"{username}\" ({e:#}), отзыв на сервере пропущен"
+            );
         }
     }
 
@@ -922,6 +966,119 @@ mod account_flow_tests {
     }
 
     #[tokio::test]
+    async fn login_rejects_blank_username_and_short_password_without_server() {
+        let dir = LauncherDirGuard::acquire("auth_login_validation").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let server = Server::new_async().await;
+        seed_online_project("TestProj", &server.url()).await;
+        let state = state_with_session("Steve", "TestProj");
+
+        let blank = login_account(&state, "TestProj", "   ", "secret1", true)
+            .await
+            .expect_err("пустой ник должен отклоняться");
+        assert!(
+            matches!(
+                blank.downcast_ref::<LauncherError>(),
+                Some(LauncherError::UsernameEmpty)
+            ),
+            "ожидается UsernameEmpty: {blank}"
+        );
+
+        let short = login_account(&state, "TestProj", "Steve", "12345", true)
+            .await
+            .expect_err("короткий пароль должен отклоняться");
+        assert!(
+            matches!(
+                short.downcast_ref::<LauncherError>(),
+                Some(LauncherError::PasswordTooShort)
+            ),
+            "ожидается PasswordTooShort: {short}"
+        );
+    }
+
+    #[tokio::test]
+    async fn register_rejects_blank_username_and_short_password_and_trims_login() {
+        let dir = LauncherDirGuard::acquire("auth_register_validation").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let mut server = Server::new_async().await;
+        let registration = server
+            .mock("POST", "/v1/common/auth/registration")
+            .match_body(Matcher::PartialJsonString(
+                json!({"username": "Steve", "password": "secret1"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-1", "refresh-1"))
+            .expect(1)
+            .create_async()
+            .await;
+        seed_online_project("TestProj", &server.url()).await;
+        let state = state_with_session("Steve", "TestProj");
+
+        let blank = register_account(&state, "TestProj", "   ", "secret1")
+            .await
+            .expect_err("пустой ник должен отклоняться");
+        assert!(
+            matches!(
+                blank.downcast_ref::<LauncherError>(),
+                Some(LauncherError::UsernameEmpty)
+            ),
+            "ожидается UsernameEmpty: {blank}"
+        );
+
+        let short = register_account(&state, "TestProj", "Steve", "12345")
+            .await
+            .expect_err("короткий пароль должен отклоняться");
+        assert!(
+            matches!(
+                short.downcast_ref::<LauncherError>(),
+                Some(LauncherError::PasswordTooShort)
+            ),
+            "ожидается PasswordTooShort: {short}"
+        );
+
+        register_account(&state, "TestProj", "  Steve  ", "secret1")
+            .await
+            .expect("регистрация после валидации");
+
+        registration.assert_async().await;
+        assert_eq!(
+            state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .get_logins("TestProj"),
+            vec!["Steve".to_string()],
+            "логин должен сохраняться тримнутым"
+        );
+    }
+
+    #[tokio::test]
+    async fn change_password_finds_token_saved_under_other_username_case() {
+        let env = password_change_env("auth_flow_password_username_case").await;
+        let project = "PwdProj";
+
+        login_account(&env.state, project, "steve", "old-pass", true)
+            .await
+            .expect("вход с запоминанием под ником в нижнем регистре");
+
+        change_password_session(project, "Steve", "access-1", "old-pass", "new-pass")
+            .await
+            .expect("смена пароля должна найти сохранённый токен");
+
+        env.login.assert_async().await;
+        env.password_change.assert_async().await;
+        assert_eq!(
+            storage::get_credential(project, "STEVE", "refresh_token")
+                .await
+                .expect("ротированный токен должен сохраниться"),
+            "tok-new",
+            "смена пароля должна перезаписать токен, несмотря на регистр ника"
+        );
+    }
+
+    #[tokio::test]
     async fn delete_account_resets_session_and_saved_login_for_current_user() {
         let dir = LauncherDirGuard::acquire("auth_flow_delete_current").await;
         let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
@@ -1259,6 +1416,98 @@ mod restore_session_tests {
 
         rejected.assert_async().await;
         recovered.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn transient_read_failure_is_not_reported_as_missing_credentials() {
+        let _guard = LauncherDirGuard::acquire("restore_session_read_failure").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("POST", "/v1/common/auth/refresh")
+            .expect(0)
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
+            .expect("сохранение токена");
+        storage::arm_transient_read_failure();
+
+        let error = restore_session("TestProj", "Steve", None)
+            .await
+            .expect_err("сбой чтения хранилища должен вернуть ошибку");
+
+        let message = format!("{error:#}");
+        assert!(
+            !message.contains("Нет сохранённых учётных данных"),
+            "сбой чтения не должен выдаваться за отсутствие токена: {message}"
+        );
+        assert!(
+            message.contains("Не удалось прочитать сохранённые учётные данные"),
+            "ошибка должна указывать на сбой хранилища: {message}"
+        );
+        assert_eq!(
+            storage::get_credential("TestProj", "Steve", "refresh_token")
+                .await
+                .expect("токен должен остаться на диске"),
+            "tok-keep"
+        );
+    }
+
+    #[tokio::test]
+    async fn transient_read_failure_falls_back_to_password_login() {
+        let _guard = LauncherDirGuard::acquire("restore_session_read_failure_password").await;
+        let mut server = Server::new_async().await;
+        let login = server
+            .mock("POST", "/v1/common/auth/login")
+            .with_status(200)
+            .with_body(rotation_payload("access-login", "tok-login"))
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
+            .expect("сохранение токена");
+        storage::arm_transient_read_failure();
+
+        let data = restore_session("TestProj", "Steve", Some("secret1"))
+            .await
+            .expect("при сбое чтения должен сработать вход по паролю");
+
+        assert_eq!(data.tokens.access_token, "access-login");
+        login.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn username_case_difference_restores_and_persists_token() {
+        let _guard = LauncherDirGuard::acquire("restore_session_username_case").await;
+        let mut server = Server::new_async().await;
+        let refresh = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-case"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-case", "tok-case-2"))
+            .expect(1)
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "steve", "refresh_token", "tok-case")
+            .expect("сохранение токена под введённым ником");
+
+        restore_and_persist_session("TestProj", "Steve", None)
+            .await
+            .expect("канонизированный сервером ник не должен мешать восстановлению");
+
+        refresh.assert_async().await;
+        assert_eq!(
+            storage::get_credential("TestProj", "STEVE", "refresh_token")
+                .await
+                .expect("ротированный токен должен сохраниться под нормализованным ключом"),
+            "tok-case-2"
+        );
     }
 
     #[tokio::test]

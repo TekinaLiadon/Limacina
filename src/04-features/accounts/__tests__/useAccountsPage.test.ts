@@ -10,13 +10,13 @@ import {
   useServerStore,
   type CPMAnimation,
   type CPMData,
-  type ProjectConfig,
 } from '@/05-entities'
 import { useAccountsPage } from '../useAccountsPage'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { useCpmAnimationEditor } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
 import { createCpmEditorBridge } from '@/04-features/cpm-viewer/cpmEditorBridge'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const stubs = vi.hoisted(() => ({
   executeSteps: vi.fn(),
@@ -59,22 +59,6 @@ vi.mock('@/04-features', async (importOriginal) => ({
   }),
 }))
 
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
-
 describe('useAccountsPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -107,7 +91,7 @@ describe('useAccountsPage', () => {
 
   it('detects the offline launcher server only for online projects', () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     const page = setupPage()
 
     expect(page.isServerOffline.value).toBe(false)
@@ -115,17 +99,17 @@ describe('useAccountsPage', () => {
     useServerStore().isServerReachable = false
     expect(page.isServerOffline.value).toBe(true)
 
-    core.projectConfig = makeProjectConfig(false)
+    core.projectConfig = makeProjectConfig({ online: false })
     expect(page.isServerOffline.value).toBe(false)
 
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     core.offlineBuild = true
     expect(page.isServerOffline.value).toBe(false)
   })
 
   it('blocks the launch while the launcher server is offline', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     useServerStore().isServerReachable = false
     const page = setupPage()
 
@@ -139,7 +123,7 @@ describe('useAccountsPage', () => {
 
   it('blocks the launch while a file integrity check is running', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     stubs.isIntegrityCheckRunning.mockReturnValue(true)
     const page = setupPage()
 
@@ -301,7 +285,7 @@ describe('useAccountsPage', () => {
           releaseSwitch = resolve
         }),
     )
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig(true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ online: true }))
     vi.mocked(authLogins).mockResolvedValue([])
     const projectSwitch = useProjectSwitch()
     const pendingSwitch = projectSwitch.selectProject('beta')

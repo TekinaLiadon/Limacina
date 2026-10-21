@@ -38,6 +38,10 @@ type FieldTransfer<T> = {
   toPayload: (value: T) => T
 }
 
+type AutostartState = {
+  previous: boolean
+}
+
 const identityTransfer = <T>(defaultValue: T): FieldTransfer<T> => ({
   default: defaultValue,
   fromConfig: (raw) => raw,
@@ -159,19 +163,21 @@ export function useLauncherSettings(): {
     }
   }
 
-  const applyStartWithSystem = async (enabled: boolean): Promise<boolean> => {
+  const applyStartWithSystem = async (enabled: boolean): Promise<AutostartState | null> => {
     try {
-      if ((await isAutostartEnabled()) === enabled) return true
-      if (enabled) {
-        await enableAutostart()
-      } else {
-        await disableAutostart()
+      const previous = await isAutostartEnabled()
+      if (previous !== enabled) {
+        if (enabled) {
+          await enableAutostart()
+        } else {
+          await disableAutostart()
+        }
       }
-      return true
+      return { previous }
     } catch (e: unknown) {
       reportError(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск`, e)
       notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
-      return false
+      return null
     }
   }
 
@@ -265,18 +271,29 @@ export function useLauncherSettings(): {
       return
     }
     await saveAction.run(async () => {
-      const savedSettings = await saveLauncherSettings(settings.value)
-      coreStore.applySavedLauncherConfig(savedSettings)
+      const startWithSystemDirty = dirtyState.isFieldDirty('startWithSystem')
+      const osState = startWithSystemDirty
+        ? await applyStartWithSystem(behaviorForm.value.startWithSystem)
+        : null
+      if (startWithSystemDirty && osState === null) return
+
+      const settingsPayload = settings.value
+      try {
+        await saveLauncherSettings(settingsPayload)
+      } catch (e: unknown) {
+        if (osState !== null) await applyStartWithSystem(osState.previous)
+        throw e
+      }
+      coreStore.patchLauncherConfig(settingsPayload)
 
       const config = coreStore.launcherConfig
       if (config && launcherPath.value !== config.launcherPath) {
         const parentPath = stripPathSuffix(launcherPath.value, coreStore.launcherName)
-        coreStore.applySavedLauncherConfig(await saveLauncherConfig(parentPath))
+        const savedConfig = await saveLauncherConfig(parentPath)
+        coreStore.patchLauncherConfig({ launcherPath: savedConfig.launcherPath })
       }
 
       dirtyState.captureBaseline()
-
-      if (!(await applyStartWithSystem(behaviorForm.value.startWithSystem))) return
       notification.show('Настройки сохранены')
     })
   }

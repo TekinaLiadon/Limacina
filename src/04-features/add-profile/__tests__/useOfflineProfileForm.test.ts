@@ -13,6 +13,7 @@ import {
 } from '@/05-entities'
 import { useAddProfile } from '../useAddProfile'
 import { useOfflineProfileForm } from '../useOfflineProfileForm'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -22,22 +23,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   getLoaderVersions: vi.fn(),
   getMinecraftVersions: vi.fn(),
 }))
-
-const makeConfig = (name: string): ProjectConfig => ({
-  projectName: name,
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online: false,
-  initialized: false,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useOfflineProfileForm', () => {
   beforeEach(() => {
@@ -216,7 +201,7 @@ describe('useOfflineProfileForm', () => {
   })
 
   it('creates the offline profile without a loader version for vanilla', async () => {
-    vi.mocked(createOfflineProfile).mockResolvedValue(makeConfig('My profile'))
+    vi.mocked(createOfflineProfile).mockResolvedValue(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const { offline } = setupForms()
     offline.offlineForm.value.name = '  My profile  '
@@ -225,13 +210,13 @@ describe('useOfflineProfileForm', () => {
     const created = await offline.submitOffline()
 
     expect(createOfflineProfile).toHaveBeenCalledWith('My profile', '1.20.1', 'vanilla', null)
-    expect(created).toEqual(makeConfig('My profile'))
+    expect(created).toEqual(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     expect(offline.offlineForm.value.name).toBe('')
     expect(useNotificationStore().message).toBe('Профиль "My profile" создан')
   })
 
   it('passes the loader version for a loader-based profile', async () => {
-    vi.mocked(createOfflineProfile).mockResolvedValue(makeConfig('fabricated'))
+    vi.mocked(createOfflineProfile).mockResolvedValue(makeProjectConfig({ projectName: 'fabricated', online: false, initialized: false }))
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const { offline } = setupForms()
     offline.offlineForm.value.name = 'fabricated'
@@ -273,7 +258,7 @@ describe('useOfflineProfileForm', () => {
     expect(createOfflineProfile).toHaveBeenCalledWith('My profile', '1.20.1', 'vanilla', null)
     expect(add.isSubmitting.value).toBe(true)
 
-    releaseCreate(makeConfig('My profile'))
+    releaseCreate(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     await first
 
     expect(add.isSubmitting.value).toBe(false)
@@ -298,7 +283,7 @@ describe('useOfflineProfileForm', () => {
     expect(second).toBeNull()
     expect(createServerProfile).not.toHaveBeenCalled()
 
-    releaseCreate(makeConfig('My profile'))
+    releaseCreate(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     await first
   })
 })
