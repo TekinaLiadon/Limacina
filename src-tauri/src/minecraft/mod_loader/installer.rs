@@ -588,12 +588,20 @@ mod loader_install_tests {
             .await
             .expect("install-манифест");
         assert!(installed.files.contains_key("1.20.1-0.16.9.jar"));
-        assert!(installed
-            .files
-            .contains_key("libraries/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"));
-        assert!(installed
-            .files
-            .contains_key("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar"));
+        assert!(
+            !installed.files.contains_key(
+                "libraries/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"
+            ),
+            "библиотека с исходным хешем не должна попадать в install-манифест: {:?}",
+            installed.files
+        );
+        assert!(
+            !installed
+                .files
+                .contains_key("libraries/org/ow2/asm/asm/9.7/asm-9.7.jar"),
+            "библиотека с исходным хешем не должна попадать в install-манифест: {:?}",
+            installed.files
+        );
     }
 
     #[tokio::test]
@@ -720,9 +728,18 @@ mod loader_install_tests {
         let installed = crate::utils::install_manifest::load_install_manifest("NeoProj")
             .await
             .expect("install-манифест");
-        assert!(installed
-            .files
-            .contains_key("libraries/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"));
+        assert!(
+            !installed
+                .files
+                .contains_key("libraries/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"),
+            "библиотека с исходным хешем не должна попадать в install-манифест: {:?}",
+            installed.files
+        );
+        assert!(
+            installed.files.contains_key("1.20.1-21.1.80.jar"),
+            "jar инсталлера без исходного хеша должен записываться: {:?}",
+            installed.files
+        );
     }
 
     #[tokio::test]
