@@ -95,8 +95,18 @@ async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf
     };
     let archive_path = java_dir.join(format!("archive.{}", extension));
 
+    remove_stale_archive(&archive_path).await?;
     download_file(&url, &archive_path).await?;
     Ok(archive_path)
+}
+
+pub(crate) async fn remove_stale_archive(archive_path: &Path) -> Result<()> {
+    match fs::remove_file(archive_path).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e)
+            .with_context(|| format!("Не удалось удалить прежний архив Java {archive_path:?}")),
+    }
 }
 
 pub(crate) fn get_java_version(mc_version: &str) -> String {
@@ -146,6 +156,18 @@ pub(crate) async fn install_java_archive(
     archive_path: &Path,
     vendor: &str,
 ) -> Result<PathBuf> {
+    let result = install_java_archive_inner(java_parent, archive_path, vendor).await;
+    if result.is_err() {
+        remove_archive_best_effort(archive_path).await;
+    }
+    result
+}
+
+async fn install_java_archive_inner(
+    java_parent: &Path,
+    archive_path: &Path,
+    vendor: &str,
+) -> Result<PathBuf> {
     let staging_dir = java_parent.join(format!("staging_{vendor}"));
     cleanup_staging_dir(&staging_dir).await?;
     fs::create_dir_all(&staging_dir).await.with_context(|| {
@@ -158,6 +180,11 @@ pub(crate) async fn install_java_archive(
         .await
         .context("Не удалось распаковать архив Java")??;
 
+    let staging_for_root = staging_dir.clone();
+    let source_root = task::spawn_blocking(move || staging_root(&staging_for_root))
+        .await
+        .context("Не удалось определить корневой каталог Java")??;
+
     let vendor_path = java_parent.join(vendor);
     if vendor_path.exists() {
         fs::remove_dir_all(&vendor_path).await.with_context(|| {
@@ -165,7 +192,6 @@ pub(crate) async fn install_java_archive(
         })?;
     }
 
-    let source_root = staging_root(&staging_dir).await?;
     fs::rename(&source_root, &vendor_path)
         .await
         .with_context(|| {
@@ -195,24 +221,33 @@ async fn cleanup_staging_dir(staging_dir: &Path) -> Result<()> {
     }
 }
 
-async fn staging_root(staging_dir: &Path) -> Result<PathBuf> {
-    let mut entries = fs::read_dir(staging_dir).await.with_context(|| {
+fn staging_root(staging_dir: &Path) -> Result<PathBuf> {
+    let entries = std::fs::read_dir(staging_dir).with_context(|| {
         format!("Не удалось прочитать временную папку распаковки Java {staging_dir:?}")
     })?;
     let mut candidates = Vec::new();
-    while let Some(entry) = entries.next_entry().await.with_context(|| {
-        format!("Не удалось прочитать временную папку распаковки Java {staging_dir:?}")
-    })? {
+    for entry in entries {
+        let entry = entry.with_context(|| {
+            format!("Не удалось прочитать временную папку распаковки Java {staging_dir:?}")
+        })?;
         let path = entry.path();
         if path.is_dir() {
             candidates.push(path);
         }
     }
     candidates.sort();
-    Ok(candidates
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| staging_dir.to_path_buf()))
+    candidates.push(staging_dir.to_path_buf());
+
+    candidates
+        .iter()
+        .find(|path| find_java_executable(path).is_ok())
+        .cloned()
+        .ok_or_else(|| {
+            LauncherError::Java(format!(
+                "В распакованном архиве Java не найден исполняемый файл bin/java в {staging_dir:?}"
+            ))
+            .into()
+        })
 }
 
 async fn remove_archive_best_effort(archive_path: &Path) {
@@ -396,11 +431,37 @@ mod tests {
     }
 
     #[cfg(not(target_os = "windows"))]
+    fn write_test_tar_gz_entries(archive_path: &std::path::Path, entries: &[(&str, &[u8])]) {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        use tar::{Builder, Header};
+
+        let buffer = std::io::Cursor::new(Vec::new());
+        let mut builder = Builder::new(buffer);
+
+        for (name, data) in entries {
+            let mut header = Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, *name, *data)
+                .expect("добавление записи в tar");
+        }
+        let tar_bytes = builder.into_inner().expect("сборка tar").into_inner();
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&tar_bytes).expect("сжатие tar");
+        let bytes = gz.finish().expect("завершение gz");
+        std::fs::write(archive_path, bytes).expect("запись архива");
+    }
+
+    #[cfg(not(target_os = "windows"))]
     mod install_staging {
         use super::super::{
             find_java_executable, install_java_archive, remove_archive_best_effort,
         };
-        use super::write_test_tar_gz;
+        use super::{write_test_tar_gz, write_test_tar_gz_entries};
         use crate::test_support::TempDir;
 
         #[tokio::test]
@@ -502,6 +563,88 @@ mod tests {
             assert!(
                 !broken.join("junk").exists(),
                 "старое дерево не должно оставаться"
+            );
+        }
+
+        #[tokio::test]
+        async fn corrupt_archive_is_removed_so_retry_downloads_again() {
+            let dir = TempDir::new("java_stage_corrupt");
+            let java_parent = dir.0.join("21");
+            std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
+            let archive_path = java_parent.join("archive.tar.gz");
+            write_test_tar_gz(&archive_path, "jdk-21-test");
+            let mut bytes = std::fs::read(&archive_path).expect("чтение архива");
+            bytes.truncate(20);
+            std::fs::write(&archive_path, &bytes).expect("запись обрезанного архива");
+
+            let result = install_java_archive(&java_parent, &archive_path, "eclipse").await;
+
+            assert!(result.is_err(), "обрезанный архив должен ломать установку");
+            assert!(
+                !archive_path.exists(),
+                "битый архив удаляется, чтобы повторная попытка скачала его заново"
+            );
+
+            write_test_tar_gz(&archive_path, "jdk-21-test");
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+                .await
+                .expect("повторная установка после перекачки");
+            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
+        }
+
+        #[tokio::test]
+        async fn jdk_root_is_chosen_by_java_executable_not_alphabetical_order() {
+            let dir = TempDir::new("java_stage_multiroot");
+            let java_parent = dir.0.join("21");
+            std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
+            let archive_path = java_parent.join("archive.tar.gz");
+            write_test_tar_gz_entries(
+                &archive_path,
+                &[
+                    ("aaa/bin/tool", b"tool"),
+                    ("aaa/release", b"OLD"),
+                    ("zzz/bin/java", b"elf"),
+                    ("zzz/release", b"JAVA_HOME"),
+                ],
+            );
+
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+                .await
+                .expect("корень с bin/java должен выбираться независимо от имени");
+
+            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
+            assert_eq!(
+                std::fs::read(java_parent.join("eclipse").join("release")).expect("чтение release"),
+                b"JAVA_HOME",
+                "переносится каталог с bin/java, а не первый по алфавиту"
+            );
+        }
+
+        #[tokio::test]
+        async fn archive_without_java_fails_without_touching_existing_install() {
+            let dir = TempDir::new("java_stage_nojava");
+            let java_parent = dir.0.join("21");
+            let installed = java_parent.join("eclipse").join("bin");
+            std::fs::create_dir_all(&installed).expect("создание рабочей установки");
+            std::fs::write(installed.join("java"), b"working").expect("запись java");
+
+            let archive_path = java_parent.join("archive.tar.gz");
+            write_test_tar_gz_entries(
+                &archive_path,
+                &[("jdk/bin/readme", b"no java"), ("jdk/release", b"JDK")],
+            );
+
+            let result = install_java_archive(&java_parent, &archive_path, "eclipse").await;
+
+            assert!(result.is_err(), "архив без bin/java не должен ставиться");
+            assert_eq!(
+                std::fs::read(installed.join("java")).expect("чтение рабочей Java"),
+                b"working",
+                "предыдущая установка не должна удаляться до проверки распаковки"
+            );
+            assert!(
+                !archive_path.exists(),
+                "неудачная установка не оставляет архив для повторного использования"
             );
         }
 

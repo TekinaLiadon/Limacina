@@ -387,11 +387,23 @@ fn hash_file_blocking<D: sha1::Digest>(path: &Path) -> Result<String> {
     Ok(hex::digest_hex(hasher.finalize()))
 }
 
-pub async fn file_sha1(path: &Path) -> Result<String> {
+async fn file_hash<D: sha1::Digest + Send + 'static>(path: &Path) -> Result<String> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || hash_file_blocking::<Sha1>(&path))
+    tokio::task::spawn_blocking(move || hash_file_blocking::<D>(&path))
         .await
-        .map_err(|e| LauncherError::Download(format!("Ошибка при вычислении SHA1: {e:#}")))?
+        .map_err(|e| LauncherError::Download(format!("Ошибка при вычислении хеша: {e:#}")))?
+}
+
+pub async fn file_sha1(path: &Path) -> Result<String> {
+    file_hash::<Sha1>(path).await
+}
+
+pub async fn file_sha256(path: &Path) -> Result<String> {
+    file_hash::<sha2::Sha256>(path).await
+}
+
+pub async fn file_sha512(path: &Path) -> Result<String> {
+    file_hash::<sha2::Sha512>(path).await
 }
 
 #[cfg(test)]
