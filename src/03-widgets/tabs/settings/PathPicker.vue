@@ -17,6 +17,7 @@ const emit = defineEmits<{
     <span class="path-picker__label eyebrow">{{ label }}</span>
     <div class="path-picker__row">
       <Input
+        class="path-picker__input"
         :model-value="modelValue"
         :options="{ placeholder: placeholder ?? '', disabled: true }"
       />
@@ -37,10 +38,10 @@ const emit = defineEmits<{
     display: flex;
     gap: var(--space-8);
     align-items: center;
+  }
 
-    .input__core {
-      flex: 1;
-    }
+  &__input {
+    flex: 1;
   }
 
   &__browse-btn {

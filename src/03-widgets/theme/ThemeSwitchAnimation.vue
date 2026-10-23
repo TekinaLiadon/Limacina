@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import shigureAnim from './assets/shigure-ui-smol.webp'
+import shigureAnim from '@/01-app/assets/shigure-ui-smol.webp'
 
 defineProps<{
   visible: boolean

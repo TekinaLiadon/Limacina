@@ -55,9 +55,7 @@ const togglePack = (packId: string): void => {
   @include mixins.settings-fields-grid;
 
   &__empty {
-    @include mixins.caption-hint;
-
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 }
 </style>

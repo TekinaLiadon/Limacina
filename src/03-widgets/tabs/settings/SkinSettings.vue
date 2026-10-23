@@ -138,11 +138,10 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__active-badge {
-    border-radius: var(--radius-badge);
+    @include mixins.badge(var(--accent-text));
+
     background: var(--accent-active-bg);
-    color: var(--accent-text);
     font-weight: var(--weight-medium);
-    white-space: nowrap;
   }
 }
 </style>

@@ -33,6 +33,7 @@ const versionOptions = computed((): DropdownOption[] =>
 
     <div class="launcher-update__row">
       <Dropdown
+        class="launcher-update__control"
         :options="versionOptions"
         :model-value="selectedVersion"
         :disabled="isLoading || isApplying"
@@ -66,11 +67,11 @@ const versionOptions = computed((): DropdownOption[] =>
     display: flex;
     gap: var(--space-8);
     align-items: center;
+  }
 
-    .select-base {
-      flex: 1;
-      min-width: 0;
-    }
+  &__control {
+    flex: 1;
+    min-width: 0;
   }
 
   &__apply {

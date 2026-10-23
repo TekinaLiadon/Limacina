@@ -96,13 +96,9 @@ const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.is
   gap: var(--space-20);
 
   &__title {
-    font-family: var(--font-display);
-    font-size: var(--text-subheading);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-heading);
-    color: var(--login-text-primary);
+    @include mixins.popup-title;
+
     margin: 0;
-    text-align: center;
   }
 
   &__steps {
@@ -148,14 +144,6 @@ const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.is
     word-break: break-all;
   }
 
-  &__actions {
-    display: flex;
-    gap: var(--space-8);
-  }
-
-  &__btn {
-    flex: 1;
-    min-height: var(--control-height);
-  }
+  @include mixins.popup-actions('&__btn');
 }
 </style>

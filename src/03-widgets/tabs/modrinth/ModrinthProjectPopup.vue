@@ -237,8 +237,7 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__meta {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__close {
@@ -319,11 +318,9 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__versions-warning {
-    @include mixins.caption-hint;
+    @include mixins.caption-hint(left);
 
-    margin: 0;
     color: var(--error);
-    text-align: left;
   }
 
   &__versions {
@@ -349,8 +346,7 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__version-meta {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__changelog-toggle {

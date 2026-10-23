@@ -106,13 +106,9 @@ const dropdownOptions = computed((): { title: string; value: string }[] =>
   @include mixins.popup-card;
 
   &__title {
-    font-family: var(--font-display);
-    font-size: var(--text-subheading);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-heading);
-    color: var(--login-text-primary);
+    @include mixins.popup-title;
+
     margin: 0 0 var(--space-20) 0;
-    text-align: center;
   }
 
   &__form {
@@ -128,11 +124,6 @@ const dropdownOptions = computed((): { title: string; value: string }[] =>
     text-align: left;
   }
 
-  &__actions {
-    display: flex;
-    gap: var(--space-8);
-  }
-
   &__empty {
     font-size: var(--text-body-sm);
     color: var(--login-text-muted);
@@ -145,10 +136,7 @@ const dropdownOptions = computed((): { title: string; value: string }[] =>
     word-break: break-word;
   }
 
-  &__btn {
-    flex: 1;
-    min-height: var(--control-height);
-  }
+  @include mixins.popup-actions('&__btn');
 
   &__loading {
     position: relative;

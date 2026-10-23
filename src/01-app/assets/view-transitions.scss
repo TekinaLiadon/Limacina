@@ -15,17 +15,14 @@
   animation: var(--switch-name) var(--switch-duration);
   animation-timing-function: cubic-bezier(0.7, 0, 0.84, 0);
   animation-fill-mode: both;
+  -webkit-mask: url('@/01-app/assets/shigure-ui-smol.webp') 50%/0 no-repeat;
+  mask: url('@/01-app/assets/shigure-ui-smol.webp') 50%/0 no-repeat;
 }
 
 .dark::view-transition-old(root) {
   animation: var(--switch-name) var(--switch-duration);
   animation-timing-function: cubic-bezier(0.7, 0, 0.84, 0);
   animation-fill-mode: both;
-}
-
-::view-transition-new(root) {
-  -webkit-mask: url('@/03-widgets/theme/assets/shigure-ui-smol.webp') 50%/0 no-repeat;
-  mask: url('@/03-widgets/theme/assets/shigure-ui-smol.webp') 50%/0 no-repeat;
 }
 
 @keyframes scale {

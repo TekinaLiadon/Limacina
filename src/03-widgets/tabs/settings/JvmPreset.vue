@@ -29,6 +29,7 @@ const { presetOptions, activePresetId, applyPreset } = useJvmPresets(jvmConfig)
   <div class="jvm-preset">
     <span class="jvm-preset__text">Пресет</span>
     <Dropdown
+      class="jvm-preset__control"
       :options="presetOptions"
       :model-value="activePresetId"
       @update:model-value="applyPreset"
@@ -42,7 +43,7 @@ const { presetOptions, activePresetId, applyPreset } = useJvmPresets(jvmConfig)
 .jvm-preset {
   @include mixins.settings-row-body;
 
-  .select-base {
+  &__control {
     flex: 1;
     min-width: 0;
   }

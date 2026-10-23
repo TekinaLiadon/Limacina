@@ -102,8 +102,7 @@ const errorTexts = computed((): string[] => {
   }
 
   &__empty {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__error {
