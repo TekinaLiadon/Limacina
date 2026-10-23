@@ -1,7 +1,7 @@
 import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
-import { captureProjectScope, reportError } from '@/06-shared'
+import { captureProjectScope, runScopedAction } from '@/06-shared'
 import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMElement, type CPMVec3, type UserContentItem } from '@/05-entities'
-import { getErrorMessage, readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
+import { readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
 import { cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
 import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
@@ -195,6 +195,7 @@ export function useCpmSettings() {
     cpmFileBytes.value = null
     cpmFileName.value = ''
     hiddenLayerIds.value = new Set()
+    isUploading.value = false
     content.errorMessage.value = ''
   }
 
@@ -217,30 +218,38 @@ export function useCpmSettings() {
     if (isUploading.value) return
 
     const scope = captureProjectScope((): string => coreStore.currentProject)
-    isUploading.value = true
-    content.errorMessage.value = ''
     let uploaded: UserContentItem | null = null
-    try {
-      const base64 = await cpmProjectToLinkBase64(cpmFileBytes.value, cpmData.value)
-      uploaded = await content.handleUpload(base64)
-      if (uploaded === null) return
+    await runScopedAction({
+      scope,
+      busyFlag: isUploading,
+      errorTarget: content.errorMessage,
+      errorMessage: 'Не удалось сохранить модель',
+      run: async (): Promise<boolean> => {
+        try {
+          const bytes = cpmFileBytes.value
+          const data = cpmData.value
+          if (!bytes || !data) return false
+          const base64 = await cpmProjectToLinkBase64(bytes, data)
+          uploaded = await content.handleUpload(base64)
+          if (uploaded === null) return false
 
-      await savePlayerModel(scope.project, {
-        name: modelName.value,
-        url: uploaded.url,
-        modelId: uploaded.id ?? null,
-        slim: cpmData.value.config.skinType === 'slim',
-        data: null,
-      })
-      if (!scope.isCurrent()) return
-      notification.show('Модель добавлена в игру')
-    } catch (e: unknown) {
-      if (uploaded !== null) await rollbackUploadedModel(uploaded)
-      reportError('Не удалось сохранить модель', e)
-      content.errorMessage.value = getErrorMessage(e)
-    } finally {
-      isUploading.value = false
-    }
+          await savePlayerModel(scope.project, {
+            name: modelName.value,
+            url: uploaded.url,
+            modelId: uploaded.id ?? null,
+            slim: data.config.skinType === 'slim',
+            data: null,
+          })
+          return true
+        } catch (e: unknown) {
+          if (uploaded !== null) await rollbackUploadedModel(uploaded)
+          throw e
+        }
+      },
+      apply: (saved: boolean): void => {
+        if (saved) notification.show('Модель добавлена в игру')
+      },
+    })
   }
 
   watch((): string => coreStore.currentProject, (): void => {

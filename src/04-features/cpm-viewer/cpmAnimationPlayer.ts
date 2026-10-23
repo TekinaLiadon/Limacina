@@ -3,15 +3,6 @@ import type { Ref } from 'vue'
 import type { CPMAnimation, CPMAnimationInterpolator, CPMVec3 } from '@/05-entities'
 import { computeMeshVisible } from './meshVisibility'
 
-const PLAYER_PART_IDS: Record<string, number> = {
-  head: 0,
-  body: 1,
-  left_arm: 2,
-  right_arm: 3,
-  left_leg: 4,
-  right_leg: 5,
-}
-
 export const SPEED_MIN = 0.25
 export const SPEED_MAX = 3
 
@@ -359,7 +350,6 @@ export interface CpmPlayerHost {
   activeLayerIds: Ref<number[]>
   isPlaying: Ref<boolean>
   onFinished: () => void
-  hiddenStoreIds?: Ref<ReadonlySet<number>> | undefined
 }
 
 export interface SharedClock {
@@ -527,11 +517,11 @@ export class CpmAnimationPlayer {
   }
 
   resetNodes(): void {
-    this.index.forEach((node, storeId) => {
+    this.index.forEach((node) => {
       node.group.position.copy(node.basePos)
       node.group.rotation.copy(node.baseRot)
       node.group.scale.copy(node.baseScale)
-      node.group.visible = node.baseVisible && !this.isHiddenByEditor(storeId)
+      node.group.visible = node.baseVisible
       node.meshes.forEach((mesh) => {
         const layerId = mesh.userData.layerId as number | undefined
         mesh.userData.animVisible = mesh.userData.defaultVisible !== false
@@ -614,7 +604,7 @@ export class CpmAnimationPlayer {
       }
 
       if (!node.isVanillaPart) {
-        const visible = show && !this.isHiddenByEditor(track.storeId)
+        const visible = show
         node.group.visible = visible
         node.meshes.forEach((mesh) => {
           mesh.userData.animVisible = visible
@@ -628,10 +618,4 @@ export class CpmAnimationPlayer {
       }
     })
   }
-
-  private isHiddenByEditor(storeId: number): boolean {
-    return this.host.hiddenStoreIds?.value.has(storeId) === true
-  }
 }
-
-export { PLAYER_PART_IDS }

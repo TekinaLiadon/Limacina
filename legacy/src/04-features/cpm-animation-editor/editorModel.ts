@@ -17,16 +17,7 @@ import type {
   EditorBoneTrack,
   EditorPose,
 } from './types'
-
-export const PLAYER_PART_STORE_IDS: Record<string, number> = {
-  head: 0,
-  body: 1,
-  left_arm: 2,
-  right_arm: 3,
-  left_leg: 4,
-  right_leg: 5,
-  custom_part: 6,
-}
+import { PLAYER_PART_ORDINALS } from '../cpm-viewer/playerParts'
 
 const zeroVec = (): CPMVec3 => ({ x: 0, y: 0, z: 0 })
 const oneVec = (): CPMVec3 => ({ x: 1, y: 1, z: 1 })
@@ -118,7 +109,7 @@ function addElementBone(element: CPMElement, storeId: number, index: EditorBoneI
 
 export function resolveRootStoreId(element: CPMElement): number | null {
   const isPivot = element.customPart === true || element.dup === true
-  const ordinal = PLAYER_PART_STORE_IDS[element.id]
+  const ordinal = PLAYER_PART_ORDINALS[element.id]
   const storeId = isPivot || ordinal === undefined ? element.storeID : ordinal
   return typeof storeId === 'number' ? storeId : null
 }

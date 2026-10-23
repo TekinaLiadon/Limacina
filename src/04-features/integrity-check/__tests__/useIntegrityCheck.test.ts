@@ -5,11 +5,11 @@ import {
   useLaunchStore,
   useNotificationStore,
   type IntegrityReport,
-  type ProjectConfig,
   type StepEvent,
 } from '@/05-entities'
 import { STEP_IDS } from '@/06-shared'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 import type { useIntegrityCheck } from '../useIntegrityCheck'
 
 const api = vi.hoisted(() => ({
@@ -22,22 +22,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   checkFilesIntegrity: api.checkFilesIntegrity,
   listenIntegritySteps: api.listenIntegritySteps,
 }))
-
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 const makeReport = (failed: string[] = []): IntegrityReport => ({
   total: 10,
@@ -88,7 +72,7 @@ describe('useIntegrityCheck', () => {
   }
 
   it('prefills the full plan for an online project and stores the report', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
 
@@ -114,7 +98,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('derives the report summary and the running phase', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     api.checkFilesIntegrity.mockResolvedValue(makeReport(['a', 'b']))
     const { check } = await setupCheck()
 
@@ -135,7 +119,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('lists only the non-zero counters in the report summary', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     api.checkFilesIntegrity.mockResolvedValue({ total: 10, broken: 0, repaired: 3, missing: 2, failed: [] })
     const { check } = await setupCheck()
 
@@ -147,7 +131,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('drops the server steps for an offline project', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
 
@@ -169,7 +153,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('applies step events while the check is running', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     const { release } = deferredReport()
     const { check } = await setupCheck()
 
@@ -193,7 +177,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('ignores step events after the check completes', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
 
@@ -205,7 +189,7 @@ describe('useIntegrityCheck', () => {
 
   it('does not apply the report or step events after the project switches mid-check', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     core.currentProject = 'alpha'
     const { release } = deferredReport()
     const { check } = await setupCheck()
@@ -226,7 +210,7 @@ describe('useIntegrityCheck', () => {
 
   it('applies step events and the report on a rerun after the project switches between checks', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     core.currentProject = 'alpha'
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
@@ -248,7 +232,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('surfaces the command error and shows a toast for the hidden popup', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockRejectedValue(new Error('ipc down'))
     const { check } = await setupCheck()
 
@@ -264,7 +248,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('keeps the error without a toast while the popup is visible', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockRejectedValue(new Error('ipc down'))
     const { check } = await setupCheck()
 
@@ -275,7 +259,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('keeps the popup hidden and toasts the summary when closed mid-check', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockResolvedValue(makeReport(['client.jar', 'notes.txt']))
     const { check } = await setupCheck()
 
@@ -291,7 +275,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('toasts the all-good summary when the popup was hidden', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
 
@@ -303,7 +287,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('clears the result on close after completion', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockResolvedValue(makeReport())
     const { check } = await setupCheck()
 
@@ -318,7 +302,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('does not start a second check while one is running', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     api.checkFilesIntegrity.mockReturnValue(new Promise(() => {}))
     const { check } = await setupCheck()
 
@@ -329,7 +313,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('does not start a second backend check after remount while one is running', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     const { release } = deferredReport()
     const first = await setupCheck()
     const pending = first.check.handleCheck()
@@ -353,7 +337,7 @@ describe('useIntegrityCheck', () => {
   })
 
   it('blocks the check while the game launch is running and allows it after', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     useLaunchStore().beginLaunch()
     const { check } = await setupCheck()
 

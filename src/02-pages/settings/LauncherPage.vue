@@ -8,6 +8,7 @@ const coreStore = useCoreStore()
 const {
   behaviorForm,
   launcherPath,
+  downloadSpeedLimitError,
   isLoading,
   loadError,
   isSaving,
@@ -39,7 +40,7 @@ const {
       </div>
     </SettingsSection>
 
-    <LauncherBehavior v-model:form="behaviorForm" />
+    <LauncherBehavior v-model:form="behaviorForm" :speed-limit-error="downloadSpeedLimitError" />
 
     <SettingsSection title="Внешний вид" storage-key="launcher-appearance">
       <AnimationToggle />

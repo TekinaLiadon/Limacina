@@ -1,12 +1,13 @@
 import { onMounted } from 'vue'
-import { useCoreStore, useAccountsStore } from '@/05-entities'
+import { useCoreStore, useAccountsStore, useLaunchStore } from '@/05-entities'
 import { authRefresh, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { captureProjectScope, reportError, storeBinding } from '@/06-shared'
+import { captureProjectScope, refreshSession, reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAccounts() {
   const coreStore = useCoreStore()
   const store = useAccountsStore()
+  const launch = useLaunchStore()
   const { logins, loadAccounts } = useAccountsList()
 
   const isLoading = storeBinding(store, 'isLoading')
@@ -15,19 +16,15 @@ export function useAccounts() {
 
   const checkSession = async (): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
-    try {
-      const session = await getSessionInfo()
-      if (!scope.isCurrent()) return
-      if (!session) return
+    await refreshSession(scope, (session): void => {
       store.applySession(session)
       store.selectedUsername = session.username
-    } catch (e: unknown) {
-      reportError('Не удалось проверить сессию', e)
-    }
+    }, 'Не удалось проверить сессию')
   }
 
   const handleSelect = async (username: string): Promise<void> => {
     if (isLoading.value) return
+    launch.clearLoginError()
     isLoading.value = true
     errorMessage.value = ''
     const scope = captureProjectScope((): string => coreStore.currentProject)

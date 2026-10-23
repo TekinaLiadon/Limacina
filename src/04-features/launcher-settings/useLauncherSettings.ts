@@ -3,6 +3,7 @@ import {
   useCoreStore,
   useNotificationStore,
   bindSettingsDirtyTab,
+  type AppInitData,
   type LauncherBehaviorForm,
   type LauncherConfig,
   type LauncherSettingsPayload,
@@ -20,6 +21,7 @@ import {
   useAsyncRaceGuard,
   useDirtySnapshot,
   useAsyncAction,
+  runScopedAction,
 } from '@/06-shared'
 
 type LauncherFormField = keyof LauncherBehaviorForm
@@ -36,6 +38,10 @@ type FieldTransfer<T> = {
   default: T
   fromConfig: (raw: T) => T
   toPayload: (value: T) => T
+}
+
+type AutostartState = {
+  previous: boolean
 }
 
 const identityTransfer = <T>(defaultValue: T): FieldTransfer<T> => ({
@@ -159,19 +165,21 @@ export function useLauncherSettings(): {
     }
   }
 
-  const applyStartWithSystem = async (enabled: boolean): Promise<boolean> => {
+  const applyStartWithSystem = async (enabled: boolean): Promise<AutostartState | null> => {
     try {
-      if ((await isAutostartEnabled()) === enabled) return true
-      if (enabled) {
-        await enableAutostart()
-      } else {
-        await disableAutostart()
+      const previous = await isAutostartEnabled()
+      if (previous !== enabled) {
+        if (enabled) {
+          await enableAutostart()
+        } else {
+          await disableAutostart()
+        }
       }
-      return true
+      return { previous }
     } catch (e: unknown) {
       reportError(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск`, e)
       notification.show(`Не удалось ${enabled ? 'включить' : 'выключить'} автозапуск: ${getErrorMessage(e)}`)
-      return false
+      return null
     }
   }
 
@@ -198,28 +206,24 @@ export function useLauncherSettings(): {
       return
     }
 
-    const generation = loadGuard.next()
-    isLoading.value = true
-    loadError.value = ''
     dirtyState.clearBaseline()
-    try {
-      const data = await getAppInitData()
-      if (!loadGuard.isCurrent(generation)) return
-      const config = data.launcherConfig
-      if (!config) {
-        loadError.value = 'Не удалось загрузить настройки лаунчера'
-        return
-      }
-      coreStore.applySavedLauncherConfig(config)
-      applyConfig(config)
-      finishLoad()
-    } catch (e: unknown) {
-      if (!loadGuard.isCurrent(generation)) return
-      reportError('Не удалось загрузить настройки лаунчера', e)
-      loadError.value = getErrorMessage(e)
-    } finally {
-      if (loadGuard.isCurrent(generation)) isLoading.value = false
-    }
+    await runScopedAction({
+      guard: loadGuard,
+      busyFlag: isLoading,
+      errorTarget: loadError,
+      errorMessage: 'Не удалось загрузить настройки лаунчера',
+      run: getAppInitData,
+      apply: (data: AppInitData): void => {
+        const config = data.launcherConfig
+        if (!config) {
+          loadError.value = 'Не удалось загрузить настройки лаунчера'
+          return
+        }
+        coreStore.applySavedLauncherConfig(config)
+        applyConfig(config)
+        finishLoad()
+      },
+    })
   }
 
   const retryLoad = (): Promise<void> => loadConfig(true)
@@ -265,18 +269,29 @@ export function useLauncherSettings(): {
       return
     }
     await saveAction.run(async () => {
-      const savedSettings = await saveLauncherSettings(settings.value)
-      coreStore.applySavedLauncherConfig(savedSettings)
+      const startWithSystemDirty = dirtyState.isFieldDirty('startWithSystem')
+      const osState = startWithSystemDirty
+        ? await applyStartWithSystem(behaviorForm.value.startWithSystem)
+        : null
+      if (startWithSystemDirty && osState === null) return
+
+      const settingsPayload = settings.value
+      try {
+        await saveLauncherSettings(settingsPayload)
+      } catch (e: unknown) {
+        if (osState !== null) await applyStartWithSystem(osState.previous)
+        throw e
+      }
+      coreStore.patchLauncherConfig(settingsPayload)
 
       const config = coreStore.launcherConfig
       if (config && launcherPath.value !== config.launcherPath) {
         const parentPath = stripPathSuffix(launcherPath.value, coreStore.launcherName)
-        coreStore.applySavedLauncherConfig(await saveLauncherConfig(parentPath))
+        const savedConfig = await saveLauncherConfig(parentPath)
+        coreStore.patchLauncherConfig({ launcherPath: savedConfig.launcherPath })
       }
 
       dirtyState.captureBaseline()
-
-      if (!(await applyStartWithSystem(behaviorForm.value.startWithSystem))) return
       notification.show('Настройки сохранены')
     })
   }

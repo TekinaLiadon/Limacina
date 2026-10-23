@@ -117,6 +117,7 @@ export function useSystemNotifications(): {
 
   const handleGameExit = async (info: GameExitInfo): Promise<void> => {
     pendingStartUsername = null
+    if (info.killedByLauncher) return
     const windowHidden = await isWindowHidden()
     if (info.success) {
       if (windowHidden) {

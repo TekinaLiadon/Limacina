@@ -5,32 +5,16 @@ import {
   useAccountsStore,
   useCoreStore,
   useNotificationStore,
-  type ProjectConfig,
   type SessionInfo,
 } from '@/05-entities'
 import { useAccountSettings } from '../useAccountSettings'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   changePassword: vi.fn(),
   getSessionInfo: vi.fn(),
 }))
-
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 const makeSession = (username: string): SessionInfo => ({ uuid: 'u-1', username })
 
@@ -56,7 +40,7 @@ describe('useAccountSettings', () => {
     const core = useCoreStore()
     const accounts = useAccountsStore()
     accounts.session = makeSession('alice')
-    core.projectConfig = makeProjectConfig(false)
+    core.projectConfig = makeProjectConfig({ online: false })
     const settings = useAccountSettings()
 
     expect(settings.username.value).toBe('alice')
@@ -65,7 +49,7 @@ describe('useAccountSettings', () => {
 
   it('disables the submit for an offline project even with a valid form', () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(false)
+    core.projectConfig = makeProjectConfig({ online: false })
     const settings = useAccountSettings()
     settings.oldPassword.value = 'oldpassword'
     settings.newPassword.value = 'newpassword'
@@ -77,7 +61,7 @@ describe('useAccountSettings', () => {
 
   it('enables the submit for an online project only with a valid form', () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     const settings = useAccountSettings()
 
     expect(settings.isSubmitDisabled.value).toBe(true)
@@ -183,6 +167,26 @@ describe('useAccountSettings', () => {
     expect(useNotificationStore().message).toBe('Пароль изменён')
     expect(settings.oldPassword.value).toBe('')
     expect(accounts.session).toEqual(makeSession('alice'))
+  })
+
+  it('does not apply the refreshed session when the project changed during the refresh', async () => {
+    const core = useCoreStore()
+    const accounts = useAccountsStore()
+    core.currentProject = 'proj'
+    accounts.applySession(makeSession('alice'))
+    vi.mocked(changePassword).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockImplementation(async () => {
+      core.currentProject = 'other'
+      return { uuid: 'u-2', username: 'bob' }
+    })
+    const settings = useAccountSettings()
+    fillForm(settings)
+
+    await settings.handleChangePassword()
+
+    expect(accounts.session).toEqual(makeSession('alice'))
+    expect(accounts.isLoggedIn).toBe(true)
+    expect(settings.isChanging.value).toBe(false)
   })
 
   it('skips the session refresh and the toast when the project changed during the change', async () => {

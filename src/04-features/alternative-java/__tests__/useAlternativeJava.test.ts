@@ -5,7 +5,8 @@ import {
   getJavaDistributions,
   getJavaVersion,
 } from '@/06-shared/api'
-import { useCoreStore, type JavaDistribution, type LauncherConfig } from '@/05-entities'
+import { reportError } from '@/06-shared'
+import { useCoreStore, useNotificationStore, type JavaDistribution, type LauncherConfig } from '@/05-entities'
 import { useAlternativeJava } from '../useAlternativeJava'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -13,6 +14,11 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   downloadAlternativeJava: vi.fn(),
   getJavaDistributions: vi.fn(),
   getJavaVersion: vi.fn(),
+}))
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  reportError: vi.fn(),
 }))
 
 const makeDistribution = (name: string): JavaDistribution => ({
@@ -47,6 +53,7 @@ describe('useAlternativeJava', () => {
     vi.mocked(downloadAlternativeJava).mockReset()
     vi.mocked(getJavaDistributions).mockReset()
     vi.mocked(getJavaVersion).mockReset()
+    vi.mocked(reportError).mockClear()
     useCoreStore().launcherConfig = makeLauncherConfig()
   })
 
@@ -158,13 +165,14 @@ describe('useAlternativeJava', () => {
     expect(java.javaVersion.value).toBe('')
   })
 
-  it('returns false without a selection', async () => {
+  it('reports a missing distribution instead of failing silently', async () => {
     const java = useAlternativeJava()
 
-    const started = await java.startDownload()
+    const result = await java.startDownload()
 
-    expect(started).toBe(false)
+    expect(result).toBe('unavailable')
     expect(downloadAlternativeJava).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe('Выберите дистрибутив Java')
   })
 
   it('downloads the selected distribution and closes the popup', async () => {
@@ -175,9 +183,9 @@ describe('useAlternativeJava', () => {
     await java.openPopup('1.20.1')
     java.replaceDefault.value = true
 
-    const started = await java.startDownload()
+    const result = await java.startDownload()
 
-    expect(started).toBe(true)
+    expect(result).toBe('replaced')
     expect(downloadAlternativeJava).toHaveBeenCalledWith('temurin-api', '17', true)
     expect(java.isPopupOpen.value).toBe(false)
     expect(java.isDownloading.value).toBe(false)
@@ -190,21 +198,25 @@ describe('useAlternativeJava', () => {
     const java = useAlternativeJava()
     await java.openPopup('99.0')
 
-    await java.startDownload()
+    const result = await java.startDownload()
 
+    expect(result).toBe('downloaded')
     expect(downloadAlternativeJava).toHaveBeenCalledWith('temurin-api', null, false)
   })
 
-  it('shows the download error and keeps the popup open', async () => {
+  it('shows and reports the download error and keeps the popup open', async () => {
+    const failure = new Error('checksum mismatch')
     vi.mocked(getJavaDistributions).mockResolvedValue([makeDistribution('temurin')])
     vi.mocked(getJavaVersion).mockResolvedValue('17')
-    vi.mocked(downloadAlternativeJava).mockRejectedValue(new Error('checksum mismatch'))
+    vi.mocked(downloadAlternativeJava).mockRejectedValue(failure)
     const java = useAlternativeJava()
     await java.openPopup('1.20.1')
 
-    const started = await java.startDownload()
+    const result = await java.startDownload()
 
-    expect(started).toBe(false)
+    expect(result).toBe('failed')
+    expect(reportError).toHaveBeenCalledWith('Не удалось скачать Java', failure)
+    expect(useNotificationStore().message).toBe('Ошибка загрузки Java: checksum mismatch')
     expect(java.isPopupOpen.value).toBe(true)
     expect(java.isDownloading.value).toBe(false)
   })
@@ -294,7 +306,7 @@ describe('useAlternativeJava', () => {
     const pending = java.startDownload()
     const repeated = await java.startDownload()
 
-    expect(repeated).toBe(false)
+    expect(repeated).toBe('busy')
     expect(downloadAlternativeJava).toHaveBeenCalledTimes(1)
 
     releaseDownload()

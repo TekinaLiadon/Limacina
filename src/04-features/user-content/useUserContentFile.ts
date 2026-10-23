@@ -1,5 +1,5 @@
 import { type Ref } from 'vue'
-import { reportError, selectFile, useFileDrop, fileSizeLimitMessage } from '@/06-shared'
+import { reportError, selectFile, useFileDrop, fileSizeLimitMessage, getPathBaseName } from '@/06-shared'
 import { getErrorMessage } from '@/06-shared/api'
 
 interface UserContentFileOptions {
@@ -21,7 +21,7 @@ export function useUserContentFile(options: UserContentFileOptions) {
         options.errorMessage.value = fileSizeLimitMessage(options.maxBytes, bytes.byteLength)
         return
       }
-      const name = path.split(/[\\/]/).pop() ?? path
+      const name = getPathBaseName(path)
       const invalidMessage = options.validateBytes?.(bytes, name) ?? null
       if (invalidMessage !== null) {
         options.errorMessage.value = invalidMessage

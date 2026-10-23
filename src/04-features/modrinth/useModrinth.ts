@@ -8,7 +8,7 @@ import {
   modrinthUninstall,
   openModsFolder,
 } from '@/06-shared/api'
-import { captureProjectScope, useAsyncRaceGuard, type PluralForms } from '@/06-shared'
+import { captureProjectScope, runScopedAction, useAsyncRaceGuard, type PluralForms } from '@/06-shared'
 import {
   useCoreStore,
   type ModrinthSearchHit,
@@ -18,11 +18,11 @@ import {
   type ModrinthUpdateCheck,
   type ModrinthInstallResult,
 } from '@/05-entities'
-import { runScopedAction } from './runScopedAction'
 
 export interface ModrinthCategory {
   value: string
   label: string
+  filterable: boolean
 }
 
 export const MODRINTH_BASE_URL = 'https://modrinth.com'
@@ -39,42 +39,36 @@ export const MODRINTH_SORTS: Array<{ value: string; label: string }> = [
   { value: 'updated', label: 'Недавно обновлённые' },
 ]
 
-export const MODRINTH_CATEGORIES: ModrinthCategory[] = [
-  { value: 'adventure', label: 'Приключения' },
-  { value: 'technology', label: 'Технологии' },
-  { value: 'magic', label: 'Магия' },
-  { value: 'utility', label: 'Утилиты' },
-  { value: 'optimization', label: 'Оптимизация' },
-  { value: 'worldgen', label: 'Генерация мира' },
-  { value: 'storage', label: 'Хранение' },
-  { value: 'food', label: 'Еда' },
-  { value: 'equipment', label: 'Снаряжение' },
-  { value: 'game-mechanics', label: 'Игровая механика' },
-  { value: 'library', label: 'Библиотеки' },
+const MODRINTH_CATEGORY_REGISTRY: ModrinthCategory[] = [
+  { value: 'adventure', label: 'Приключения', filterable: true },
+  { value: 'technology', label: 'Технологии', filterable: true },
+  { value: 'magic', label: 'Магия', filterable: true },
+  { value: 'utility', label: 'Утилиты', filterable: true },
+  { value: 'optimization', label: 'Оптимизация', filterable: true },
+  { value: 'worldgen', label: 'Генерация мира', filterable: true },
+  { value: 'storage', label: 'Хранение', filterable: true },
+  { value: 'food', label: 'Еда', filterable: true },
+  { value: 'equipment', label: 'Снаряжение', filterable: true },
+  { value: 'game-mechanics', label: 'Игровая механика', filterable: true },
+  { value: 'library', label: 'Библиотеки', filterable: true },
+  { value: 'cursed', label: 'Проклятое', filterable: false },
+  { value: 'decoration', label: 'Декор', filterable: false },
+  { value: 'economy', label: 'Экономика', filterable: false },
+  { value: 'education', label: 'Обучение', filterable: false },
+  { value: 'management', label: 'Управление', filterable: false },
+  { value: 'minigame', label: 'Мини-игры', filterable: false },
+  { value: 'mobs', label: 'Мобы', filterable: false },
+  { value: 'social', label: 'Социальное', filterable: false },
+  { value: 'transportation', label: 'Транспорт', filterable: false },
 ]
 
-export const MODRINTH_CATEGORY_LABELS: Record<string, string> = {
-  adventure: 'Приключения',
-  cursed: 'Проклятое',
-  decoration: 'Декор',
-  economy: 'Экономика',
-  education: 'Обучение',
-  equipment: 'Снаряжение',
-  food: 'Еда',
-  'game-mechanics': 'Игровая механика',
-  library: 'Библиотеки',
-  magic: 'Магия',
-  management: 'Управление',
-  minigame: 'Мини-игры',
-  mobs: 'Мобы',
-  optimization: 'Оптимизация',
-  social: 'Социальное',
-  storage: 'Хранение',
-  technology: 'Технологии',
-  transportation: 'Транспорт',
-  utility: 'Утилиты',
-  worldgen: 'Генерация мира',
-}
+export const MODRINTH_CATEGORIES: ModrinthCategory[] = MODRINTH_CATEGORY_REGISTRY.filter(
+  (category) => category.filterable,
+)
+
+export const MODRINTH_CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  MODRINTH_CATEGORY_REGISTRY.map((category) => [category.value, category.label]),
+)
 
 export const PAGE_SIZE = 20
 
@@ -121,9 +115,8 @@ export function useModrinth() {
   const searchGuard = useAsyncRaceGuard()
 
   const search = async (newOffset: number = 0): Promise<void> => {
-    const generation = searchGuard.next()
     await runScopedAction({
-      isCurrent: (): boolean => searchGuard.isCurrent(generation),
+      guard: searchGuard,
       errorTarget: searchError,
       errorMessage: 'Не удалось выполнить поиск Modrinth',
       busyFlag: isSearching,
@@ -152,9 +145,9 @@ export function useModrinth() {
 
   const loadInstalled = async (): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
-    const generation = installedGuard.next()
     await runScopedAction({
-      isCurrent: (): boolean => installedGuard.isCurrent(generation) && scope.isCurrent(),
+      guard: installedGuard,
+      scope,
       errorTarget: installedError,
       errorMessage: 'Не удалось загрузить список установленных модов',
       busyFlag: isLoadingInstalled,
@@ -169,10 +162,10 @@ export function useModrinth() {
 
   const loadProjectDetails = async (projectId: string): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
-    const generation = detailsGuard.next()
     popupDetails.value = null
     await runScopedAction({
-      isCurrent: (): boolean => detailsGuard.isCurrent(generation) && scope.isCurrent(),
+      guard: detailsGuard,
+      scope,
       errorTarget: popupError,
       errorMessage: 'Не удалось загрузить информацию о моде',
       busyFlag: isPopupLoading,
@@ -194,9 +187,8 @@ export function useModrinth() {
   }
 
   const checkForUpdates = async (): Promise<void> => {
-    const generation = updatesGuard.next()
     await runScopedAction({
-      isCurrent: (): boolean => updatesGuard.isCurrent(generation),
+      guard: updatesGuard,
       errorTarget: actionError,
       errorMessage: 'Не удалось проверить обновления модов',
       busyFlag: isCheckingUpdates,
@@ -223,7 +215,7 @@ export function useModrinth() {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     installingId.value = projectId
     return await runScopedAction({
-      isCurrent: (): boolean => scope.isCurrent(),
+      scope,
       errorTarget: actionError,
       errorMessage,
       cleanup: (): void => {
@@ -265,7 +257,7 @@ export function useModrinth() {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     isOpeningFolder.value = true
     await runScopedAction({
-      isCurrent: (): boolean => scope.isCurrent(),
+      scope,
       errorTarget: actionError,
       errorMessage: 'Не удалось открыть папку модов',
       cleanup: (): void => {

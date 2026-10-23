@@ -3,7 +3,6 @@ import { nextTick, ref, type Ref, type ShallowRef } from 'vue'
 import * as THREE from 'three'
 import { withSetup } from '@/test-support/withSetup'
 import { useCpmViewer, type CpmViewerOptions } from '../useCpmViewer'
-import { createCpmEditorBridge } from '../cpmEditorBridge'
 import type { ActiveCpmAnimation } from '../cpmAnimationPlayer'
 import type { CPMAnimation, CPMChild, CPMConfig, CPMData, CPMElement } from '@/05-entities'
 
@@ -21,20 +20,7 @@ const boxGeometryState = vi.hoisted(() => ({ created: [] as Array<{ disposed: bo
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()
-  class FakeTextureLoader {
-    load(
-      url: string,
-      onLoad: (texture: THREE.Texture) => void,
-      _onProgress?: undefined,
-      onError?: (error: unknown) => void,
-    ): void {
-      textureLoads.push({
-        url,
-        resolve: (texture) => onLoad(texture),
-        fail: (error) => onError?.(error),
-      })
-    }
-  }
+  const { createFakeTextureLoader } = await import('@/test-support/fakeTextureLoader')
   class TrackingBoxGeometry extends actual.BoxGeometry {
     disposed = false
 
@@ -48,7 +34,7 @@ vi.mock('three', async (importOriginal) => {
       super.dispose()
     }
   }
-  return { ...actual, TextureLoader: FakeTextureLoader, BoxGeometry: TrackingBoxGeometry }
+  return { ...actual, TextureLoader: createFakeTextureLoader(textureLoads), BoxGeometry: TrackingBoxGeometry }
 })
 
 const mountedScene = vi.hoisted(() => ({
@@ -58,7 +44,6 @@ const mountedScene = vi.hoisted(() => ({
 const playerState = vi.hoisted(() => ({
   disposed: 0,
   instances: [] as Array<{ calls: string[] }>,
-  hosts: [] as unknown[],
 }))
 
 vi.mock('@/06-shared', async (importOriginal) => {
@@ -95,9 +80,8 @@ vi.mock('../cpmAnimationPlayer', async (importOriginal) => {
   class FakeCpmAnimationPlayer {
     calls: string[] = []
 
-    constructor(_index?: unknown, host?: unknown) {
+    constructor(_index?: unknown) {
       playerState.instances.push(this)
-      playerState.hosts.push(host)
     }
 
     setSpeed(): void {
@@ -346,7 +330,6 @@ describe('useCpmViewer', () => {
     mountedScene.current = null
     playerState.disposed = 0
     playerState.instances = []
-    playerState.hosts = []
     vi.stubGlobal('requestAnimationFrame', vi.fn((_callback: FrameRequestCallback): number => 1))
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
@@ -716,131 +699,6 @@ describe('useCpmViewer', () => {
     })
     const colors = meshes.map((mesh) => (mesh.material as THREE.MeshLambertMaterial).color.getHex())
     expect(colors).toEqual([DEFAULT_RGB, DEFAULT_RGB])
-    harness.unmount()
-  })
-
-  it('fills the editor bridge on model load and clears it with the model', async () => {
-    const bridge = createCpmEditorBridge()
-    const isEditing = ref(true)
-    const selectedBoneId = ref<number | null>(null)
-    const harness = await mountViewer({
-      editor: { bridge, isEditing, selectedBoneId, onBonePicked: vi.fn() },
-    })
-
-    expect(bridge.modelGroup.value).toBeNull()
-    expect(bridge.player.value).toBeNull()
-
-    await loadModel(harness, 'model.png')
-
-    expect(bridge.modelGroup.value).not.toBeNull()
-    expect(bridge.nodeIndex.value?.has(0)).toBe(true)
-    expect(bridge.player.value).not.toBeNull()
-
-    harness.cpmData.value = null
-    await nextTick()
-
-    expect(bridge.modelGroup.value).toBeNull()
-    expect(bridge.nodeIndex.value).toBeNull()
-    expect(bridge.player.value).toBeNull()
-    harness.unmount()
-  })
-
-  it('passes the editor hidden bones to the animation player', async () => {
-    const bridge = createCpmEditorBridge()
-    const isEditing = ref(true)
-    const selectedBoneId = ref<number | null>(null)
-    const harness = await mountViewer({
-      editor: { bridge, isEditing, selectedBoneId, onBonePicked: vi.fn() },
-    })
-    await loadModel(harness, 'model.png')
-
-    const host = playerState.hosts[playerState.hosts.length - 1] as
-      | { hiddenStoreIds?: unknown }
-      | undefined
-    expect(host?.hiddenStoreIds).toBe(bridge.hiddenBoneIds)
-    harness.unmount()
-  })
-
-  it('highlights the selected editor bone and clears the highlight', async () => {
-    const bridge = createCpmEditorBridge()
-    const isEditing = ref(true)
-    const selectedBoneId = ref<number | null>(null)
-    const harness = await mountViewer({
-      editor: { bridge, isEditing, selectedBoneId, onBonePicked: vi.fn() },
-    })
-    await loadModel(harness, 'model.png')
-
-    const material = firstModelMesh().material as THREE.MeshLambertMaterial
-    expect(material.emissive.getHex()).toBe(0)
-
-    selectedBoneId.value = 0
-    await nextTick()
-    expect(material.emissive.getHex()).not.toBe(0)
-
-    selectedBoneId.value = null
-    await nextTick()
-    expect(material.emissive.getHex()).toBe(0)
-    harness.unmount()
-  })
-
-  it('reports a bone picked in the scene while editing', async () => {
-    const bridge = createCpmEditorBridge()
-    const isEditing = ref(true)
-    const selectedBoneId = ref<number | null>(null)
-    const onBonePicked = vi.fn()
-    const harness = await mountViewer({
-      editor: { bridge, isEditing, selectedBoneId, onBonePicked },
-    })
-    await loadModel(harness, 'model.png')
-
-    const element = harness.container.value
-    if (!element) throw new Error('viewer container is missing')
-    element.getBoundingClientRect = (): DOMRect => ({
-      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100,
-      toJSON: (): Record<string, number> => ({}),
-    })
-
-    const camera = mountedScene.camera?.value
-    camera?.position.set(0, 0, 22)
-    camera?.lookAt(0, 0, 0)
-    camera?.updateMatrixWorld()
-    mountedScene.current?.value?.updateMatrixWorld(true)
-
-    element.dispatchEvent(new MouseEvent('pointerdown', { clientX: 50, clientY: 50, button: 0 }))
-    element.dispatchEvent(new MouseEvent('pointerup', { clientX: 50, clientY: 50, button: 0 }))
-
-    expect(onBonePicked).toHaveBeenCalledWith(1)
-    harness.unmount()
-  })
-
-  it('does not pick a bone while the editor gizmo is dragging', async () => {
-    const bridge = createCpmEditorBridge()
-    const isEditing = ref(true)
-    const selectedBoneId = ref<number | null>(null)
-    const onBonePicked = vi.fn()
-    const harness = await mountViewer({
-      editor: { bridge, isEditing, selectedBoneId, onBonePicked },
-    })
-    await loadModel(harness, 'model.png')
-
-    const element = harness.container.value
-    if (!element) throw new Error('viewer container is missing')
-    element.getBoundingClientRect = (): DOMRect => ({
-      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100,
-      toJSON: (): Record<string, number> => ({}),
-    })
-
-    const camera = mountedScene.camera?.value
-    camera?.position.set(0, 0, 22)
-    camera?.lookAt(0, 0, 0)
-    camera?.updateMatrixWorld()
-    mountedScene.current?.value?.updateMatrixWorld(true)
-
-    element.dispatchEvent(new MouseEvent('pointerdown', { clientX: 50, clientY: 50, button: 0 }))
-    bridge.isGizmoDragging.value = true
-    element.dispatchEvent(new MouseEvent('pointerup', { clientX: 50, clientY: 50, button: 0 }))
-
-    expect(onBonePicked).not.toHaveBeenCalled()
     harness.unmount()
   })
 })

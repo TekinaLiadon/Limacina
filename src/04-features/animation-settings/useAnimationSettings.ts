@@ -1,6 +1,6 @@
 import { computed, ref, type ComputedRef } from 'vue'
 
-import { useCoreStore, useNotificationStore, useSettingsStore, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsStore } from '@/05-entities'
 import { getErrorMessage, saveAnimationsEnabled } from '@/06-shared/api'
 import { reportError } from '@/06-shared'
 
@@ -23,8 +23,8 @@ export function useAnimationSettings(): {
     const previous = settingsStore.animationsEnabled
     settingsStore.setAnimationsEnabled(value)
     try {
-      const config: LauncherConfig = await saveAnimationsEnabled(value)
-      coreStore.applySavedLauncherConfig(config)
+      await saveAnimationsEnabled(value)
+      coreStore.patchLauncherConfig({ animationsEnabled: value })
     } catch (e: unknown) {
       settingsStore.setAnimationsEnabled(previous)
       reportError('Не удалось сохранить настройку анимаций', e)

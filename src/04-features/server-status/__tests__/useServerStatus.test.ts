@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
-import { useCoreStore, useServerStore, type ProjectConfig, type ServerStatus } from '@/05-entities'
+import { useCoreStore, useServerStore, type ServerStatus } from '@/05-entities'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const api = vi.hoisted(() => ({
   getServerStatus: vi.fn(),
@@ -11,22 +12,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   getServerStatus: api.getServerStatus,
 }))
-
-const makeConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: 'https://example.com',
-  autoJoinServer: false,
-})
 
 const OK_INTERVAL_MS = 60_000
 
@@ -50,7 +35,7 @@ describe('useServerStatus', () => {
   }
 
   const watchProject = async (online: boolean): Promise<void> => {
-    useCoreStore().projectConfig = makeConfig(online)
+    useCoreStore().projectConfig = makeProjectConfig({ online, serverUrl: 'https://example.com' })
     await nextTick()
     await vi.advanceTimersByTimeAsync(0)
   }

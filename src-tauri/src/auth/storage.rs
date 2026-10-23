@@ -8,10 +8,13 @@ use std::sync::{Mutex, OnceLock};
 use crate::{
     log_err, log_info,
     utils::download_file::write_atomic_sync_private,
-    utils::env_info::{get_launcher_name, launcher_path},
+    utils::env_info::launcher_path,
     utils::errors::LauncherError,
     utils::hex::{from_hex, to_hex},
 };
+
+#[cfg(not(test))]
+use crate::utils::env_info::get_launcher_name;
 
 const FALLBACK_ALLOWED_SUFFIXES: &[&str] = &["refresh_token", "uuid"];
 #[cfg(not(test))]
@@ -90,6 +93,29 @@ static TEST_SECRET_UNAVAILABLE: std::sync::atomic::AtomicBool =
 #[cfg(test)]
 static TEST_TRANSIENT_READ_FAILURE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+fn test_keyring() -> &'static Mutex<std::collections::HashMap<String, String>> {
+    static TEST_KEYRING: OnceLock<Mutex<std::collections::HashMap<String, String>>> =
+        OnceLock::new();
+    TEST_KEYRING.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+pub(crate) fn clear_test_keyring() {
+    test_keyring()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+#[cfg(test)]
+pub(crate) fn test_keyring_contains(key_name: &str) -> bool {
+    test_keyring()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains_key(key_name)
+}
 
 #[cfg(test)]
 pub(crate) fn arm_transient_read_failure() {
@@ -241,39 +267,46 @@ fn ensure_private_mode(path: &std::path::Path) {
 #[cfg(not(unix))]
 fn ensure_private_mode(_path: &std::path::Path) {}
 
-pub(crate) fn save_fallback(
-    project: &str,
-    username: &str,
-    key_suffix: &str,
-    value: &str,
-) -> Result<()> {
+fn ensure_fallback_suffix_allowed(key_suffix: &str) -> Result<()> {
     if !FALLBACK_ALLOWED_SUFFIXES.contains(&key_suffix) {
         anyhow::bail!("\"{key_suffix}\" не сохраняется в fallback-хранилище");
     }
-    let key_name = keyring_key(project, username, key_suffix);
-    let entry = encrypt_entry_value(obfuscation_secret().as_deref(), &key_name, value);
+    Ok(())
+}
+
+fn save_fallback_key(key_name: &str, value: &str) -> Result<()> {
+    let entry = encrypt_entry_value(obfuscation_secret().as_deref(), key_name, value);
     mutate_fallback_store(true, |store| {
         store.entries.retain(|e| e.username != key_name);
         store.entries.insert(0, entry);
     })
 }
 
-pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+#[cfg(test)]
+pub(crate) fn save_fallback(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+    value: &str,
+) -> Result<()> {
+    ensure_fallback_suffix_allowed(key_suffix)?;
+    save_fallback_key(&keyring_key(project, username, key_suffix), value)
+}
+
+fn find_fallback_key(key_name: &str) -> Result<Option<String>> {
     let path = fallback_path()?;
     if !path.exists() {
-        anyhow::bail!("Файл хранилища credentials не найден");
+        return Ok(None);
     }
 
     let content =
         fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
     ensure_private_mode(&path);
     let store = read_fallback_store(&path, &content);
-    let key_name = keyring_key(project, username, key_suffix);
-    let entry = store
-        .entries
-        .iter()
-        .find(|e| e.username == key_name)
-        .context("Credentials не найдены в хранилище")?;
+    let entry = match store.entries.iter().find(|e| e.username == key_name) {
+        Some(entry) => entry,
+        None => return Ok(None),
+    };
 
     let secret = obfuscation_secret();
     if entry.scheme == EntryScheme::XorSecret && secret.is_none() {
@@ -283,26 +316,55 @@ pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> 
     }
 
     match decrypt_entry_value(entry, secret.as_deref()) {
-        Some(value) => Ok(value),
+        Some(value) => Ok(Some(value)),
         None => {
             log_info!(
                 "Fallback-хранилище: запись \"{key_name}\" не расшифрована (алгоритм ключа обновлён), запись сброшена, потребуется повторный вход"
             );
-            let _ = delete_fallback(project, username, key_suffix);
+            let _ = delete_fallback_key(key_name);
             anyhow::bail!("Не удалось расшифровать credentials")
         }
     }
 }
 
-pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
-    let key_name = keyring_key(project, username, key_suffix);
+#[cfg(test)]
+fn load_fallback_key(key_name: &str) -> Result<String> {
+    find_fallback_key(key_name)?
+        .ok_or_else(|| anyhow::anyhow!("Credentials не найдены в хранилище"))
+}
+
+#[cfg(test)]
+pub(crate) fn load_fallback(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+    load_fallback_key(&keyring_key(project, username, key_suffix))
+}
+
+fn delete_fallback_key(key_name: &str) -> Result<()> {
     mutate_fallback_store(false, |store| {
         store.entries.retain(|e| e.username != key_name);
     })
 }
 
+#[cfg(test)]
+pub(crate) fn delete_fallback(project: &str, username: &str, key_suffix: &str) -> Result<()> {
+    delete_fallback_key(&keyring_key(project, username, key_suffix))
+}
+
 fn keyring_key(project: &str, username: &str, key_suffix: &str) -> String {
     format!("{}_{}_{}", project, username, key_suffix)
+}
+
+fn normalized_username(username: &str) -> String {
+    username.trim().to_lowercase()
+}
+
+fn credential_key_names(project: &str, username: &str, key_suffix: &str) -> Vec<String> {
+    let canonical = keyring_key(project, &normalized_username(username), key_suffix);
+    let legacy = keyring_key(project, username.trim(), key_suffix);
+    if canonical == legacy {
+        vec![canonical]
+    } else {
+        vec![canonical, legacy]
+    }
 }
 
 async fn run_credential_task<T>(
@@ -329,10 +391,84 @@ where
     )
 }
 
-fn open_keyring_entry(project: &str, username: &str, key_suffix: &str) -> Result<keyring::Entry> {
-    let key = keyring_key(project, username, key_suffix);
-    keyring::Entry::new(&get_launcher_name(), &key)
+#[cfg(not(test))]
+fn open_keyring_entry(key_name: &str) -> Result<keyring::Entry> {
+    keyring::Entry::new(&get_launcher_name(), key_name)
         .context("Не удалось получить доступ к хранилищу")
+}
+
+#[cfg(test)]
+fn keyring_save(key_name: &str, _key_suffix: &str, value: &str) -> Result<()> {
+    test_keyring()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key_name.to_string(), value.to_string());
+    Ok(())
+}
+
+#[cfg(not(test))]
+fn keyring_save(key_name: &str, key_suffix: &str, value: &str) -> Result<()> {
+    open_keyring_entry(key_name)?
+        .set_password(value)
+        .with_context(|| format!("Не удалось сохранить {key_suffix} в keyring"))
+}
+
+#[cfg(test)]
+fn keyring_load(key_name: &str, _key_suffix: &str) -> Result<Option<String>> {
+    Ok(test_keyring()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(key_name)
+        .cloned())
+}
+
+#[cfg(not(test))]
+fn keyring_load(key_name: &str, key_suffix: &str) -> Result<Option<String>> {
+    match open_keyring_entry(key_name)?.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => {
+            Err(anyhow::Error::new(e)
+                .context(format!("Не удалось прочитать {key_suffix} из keyring")))
+        }
+    }
+}
+
+#[cfg(test)]
+fn keyring_delete(key_name: &str, _key_suffix: &str) -> Result<()> {
+    test_keyring()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(key_name);
+    Ok(())
+}
+
+#[cfg(not(test))]
+fn keyring_delete(key_name: &str, key_suffix: &str) -> Result<()> {
+    match open_keyring_entry(key_name)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => {
+            Err(anyhow::Error::new(e)
+                .context(format!("Не удалось удалить {key_suffix} из keyring")))
+        }
+    }
+}
+
+#[cfg(test)]
+fn is_keyring_unavailable(_error: &anyhow::Error) -> bool {
+    false
+}
+
+#[cfg(not(test))]
+fn is_keyring_unavailable(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<keyring::Error>().is_some_and(|err| {
+            matches!(
+                err,
+                keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)
+            )
+        })
+    })
 }
 
 pub async fn save_credential(
@@ -360,21 +496,57 @@ fn save_credential_sync(
     key_suffix: &str,
     value: &str,
 ) -> Result<()> {
-    let keyring_result = open_keyring_entry(project, username, key_suffix).and_then(|entry| {
-        entry
-            .set_password(value)
-            .context(format!("Не удалось сохранить {} в keyring", key_suffix))
-    });
+    let key_names = credential_key_names(project, username, key_suffix);
+    let canonical_key = &key_names[0];
 
-    if let Err(e) = &keyring_result {
+    if let Err(e) = keyring_save(canonical_key, key_suffix, value) {
         log_err!("Keyring save {}: ошибка {:?}", key_suffix, e);
-        save_fallback(project, username, key_suffix, value)?;
+        ensure_fallback_suffix_allowed(key_suffix)?;
+        save_fallback_key(canonical_key, value)?;
     }
 
+    remove_legacy_credentials(&key_names[1..], key_suffix);
     Ok(())
 }
 
-pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+fn remove_legacy_credentials(key_names: &[String], key_suffix: &str) {
+    for key_name in key_names {
+        if let Err(e) = keyring_delete(key_name, key_suffix) {
+            log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+        }
+        if let Err(e) = delete_fallback_key(key_name) {
+            log_err!("Fallback delete {}: ошибка {}", key_suffix, e);
+        }
+    }
+}
+
+fn migrate_legacy_credential(canonical_key: &str, found_key: &str, value: &str, key_suffix: &str) {
+    if found_key == canonical_key {
+        return;
+    }
+    match keyring_save(canonical_key, key_suffix, value) {
+        Ok(()) => {
+            if let Err(e) = keyring_delete(found_key, key_suffix) {
+                log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+            }
+            if let Err(e) = delete_fallback_key(found_key) {
+                log_err!("Fallback delete {}: ошибка {}", key_suffix, e);
+            }
+            log_info!(
+                "Хранилище credentials: запись \"{found_key}\" перенесена под нормализованный ключ"
+            );
+        }
+        Err(e) => log_err!(
+            "Хранилище credentials: не удалось перенести запись \"{found_key}\" под нормализованный ключ: {e:#}"
+        ),
+    }
+}
+
+pub async fn find_credential(
+    project: &str,
+    username: &str,
+    key_suffix: &str,
+) -> Result<Option<String>> {
     #[cfg(test)]
     {
         if TEST_TRANSIENT_READ_FAILURE.swap(false, std::sync::atomic::Ordering::Relaxed) {
@@ -386,34 +558,46 @@ pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> 
         username,
         key_suffix,
         "Не удалось выполнить задачу чтения credentials",
-        get_credential_sync,
+        find_credential_sync,
     )
     .await
 }
 
-fn get_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<String> {
-    let entry = match open_keyring_entry(project, username, key_suffix) {
-        Ok(entry) => entry,
-        Err(e) => {
-            log_err!("Keyring load {}: ошибка {}", key_suffix, e);
-            return load_fallback(project, username, key_suffix);
-        }
-    };
+fn find_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<Option<String>> {
+    let key_names = credential_key_names(project, username, key_suffix);
+    let canonical_key = &key_names[0];
+    let mut keyring_error: Option<anyhow::Error> = None;
 
-    match entry.get_password() {
-        Ok(value) => Ok(value),
-        Err(keyring::Error::NoEntry) => {
-            log_info!(
-                "Keyring load {}: записи нет, читаю fallback-хранилище",
-                key_suffix
-            );
-            load_fallback(project, username, key_suffix)
+    for key_name in &key_names {
+        match keyring_load(key_name, key_suffix) {
+            Ok(Some(value)) => {
+                migrate_legacy_credential(canonical_key, key_name, &value, key_suffix);
+                return Ok(Some(value));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log_err!("Keyring load {}: ошибка {}", key_suffix, e);
+                keyring_error.get_or_insert(e);
+            }
         }
-        Err(e) => {
-            log_err!("Keyring load {}: ошибка {}", key_suffix, e);
-            load_fallback(project, username, key_suffix)
+
+        if let Some(value) = find_fallback_key(key_name)? {
+            migrate_legacy_credential(canonical_key, key_name, &value, key_suffix);
+            return Ok(Some(value));
         }
     }
+
+    match keyring_error {
+        Some(e) => Err(e.context("Не удалось прочитать сохранённые учётные данные")),
+        None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+pub async fn get_credential(project: &str, username: &str, key_suffix: &str) -> Result<String> {
+    find_credential(project, username, key_suffix)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Credentials не найдены в хранилище"))
 }
 
 pub async fn delete_credential(project: &str, username: &str, key_suffix: &str) -> Result<()> {
@@ -428,31 +612,34 @@ pub async fn delete_credential(project: &str, username: &str, key_suffix: &str) 
 }
 
 fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<()> {
-    let keyring_delete = open_keyring_entry(project, username, key_suffix).and_then(|entry| {
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(anyhow::Error::new(e)
-                .context(format!("Не удалось удалить {} из keyring", key_suffix))),
+    let key_names = credential_key_names(project, username, key_suffix);
+    let mut first_error: Option<anyhow::Error> = None;
+
+    for key_name in &key_names {
+        if let Err(e) = delete_credential_key(key_name, key_suffix) {
+            first_error.get_or_insert(e);
         }
-    });
+    }
+
+    match first_error {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+fn delete_credential_key(key_name: &str, key_suffix: &str) -> Result<()> {
+    let keyring_delete = keyring_delete(key_name, key_suffix);
 
     if let Err(e) = &keyring_delete {
         log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
     }
 
-    let keyring_unavailable = matches!(
-        &keyring_delete,
-        Err(e) if e.chain().any(|cause| {
-            cause
-                .downcast_ref::<keyring::Error>()
-                .is_some_and(|err| matches!(
-                    err,
-                    keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)
-                ))
-        })
-    );
+    let keyring_unavailable = keyring_delete
+        .as_ref()
+        .err()
+        .is_some_and(is_keyring_unavailable);
 
-    let fallback_result = delete_fallback(project, username, key_suffix);
+    let fallback_result = delete_fallback_key(key_name);
 
     if keyring_unavailable {
         return fallback_result;
@@ -474,7 +661,8 @@ fn delete_credential_sync(project: &str, username: &str, key_suffix: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::{
-        delete_fallback, load_fallback, save_fallback, to_hex, xor_crypt, EntryScheme,
+        delete_credential, delete_fallback, find_credential, load_fallback, save_credential,
+        save_fallback, test_keyring_contains, to_hex, xor_crypt, EntryScheme,
         SecretUnavailableGuard,
     };
     use crate::test_support::LauncherDirGuard;
@@ -499,6 +687,95 @@ mod tests {
             .expect("файл хранилища")
             .permissions()
             .mode()
+    }
+
+    #[tokio::test]
+    async fn credentials_are_found_by_normalized_username() {
+        let _dir = LauncherDirGuard::acquire("credentials_username_normalization").await;
+
+        save_credential("Cordelia", "Steve", "refresh_token", "token-normalized")
+            .await
+            .expect("сохранение credentials");
+
+        for username in ["steve", "STEVE", "  Steve  "] {
+            assert_eq!(
+                find_credential("Cordelia", username, "refresh_token")
+                    .await
+                    .expect("чтение credentials"),
+                Some("token-normalized".to_string()),
+                "ник \"{username}\" должен находить запись"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_case_entry_is_migrated_to_normalized_key() {
+        let _dir = LauncherDirGuard::acquire("credentials_username_migration").await;
+
+        save_fallback("Cordelia", "Steve", "refresh_token", "legacy-token")
+            .expect("сохранение legacy-записи");
+
+        assert_eq!(
+            find_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .expect("чтение legacy-записи"),
+            Some("legacy-token".to_string())
+        );
+        assert!(
+            test_keyring_contains("Cordelia_steve_refresh_token"),
+            "запись должна переехать под нормализованный ключ"
+        );
+        assert!(
+            load_fallback("Cordelia", "Steve", "refresh_token").is_err(),
+            "legacy-запись должна удаляться после переноса"
+        );
+        assert_eq!(
+            find_credential("Cordelia", "STEVE", "refresh_token")
+                .await
+                .expect("чтение после переноса"),
+            Some("legacy-token".to_string()),
+            "после переноса регистр ника не должен влиять на чтение"
+        );
+    }
+
+    #[tokio::test]
+    async fn keyring_path_in_tests_never_writes_fallback_file() {
+        let dir = LauncherDirGuard::acquire("credentials_test_keyring").await;
+
+        save_credential("Cordelia", "Steve", "refresh_token", "token")
+            .await
+            .expect("сохранение в тестовый keyring");
+
+        assert!(test_keyring_contains("Cordelia_steve_refresh_token"));
+        assert!(
+            !dir.root().join("credentials.json").exists(),
+            "keyring-путь не должен создавать fallback-файл"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_credential_removes_normalized_and_legacy_entries() {
+        let _dir = LauncherDirGuard::acquire("credentials_delete_all_keys").await;
+
+        save_fallback("Cordelia", "Steve", "refresh_token", "legacy").expect("legacy-запись");
+        save_credential("Cordelia", "STEVE", "refresh_token", "canonical")
+            .await
+            .expect("canonical-запись");
+
+        delete_credential("Cordelia", "Steve", "refresh_token")
+            .await
+            .expect("удаление credentials");
+
+        assert_eq!(
+            find_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .expect("чтение после удаления"),
+            None
+        );
+        assert!(
+            load_fallback("Cordelia", "Steve", "refresh_token").is_err(),
+            "legacy-запись должна быть удалена"
+        );
     }
 
     #[tokio::test]

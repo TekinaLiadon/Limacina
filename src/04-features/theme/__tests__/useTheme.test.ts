@@ -188,29 +188,69 @@ describe('useTheme', () => {
     )
   })
 
-  it('applies the save response without rolling back the live project scope', async () => {
+  it('patches only the saved theme and keeps the live project scope and newer fields', async () => {
     prepareStore('default', 'dark', true)
     const core = useCoreStore()
     core.setLauncherConfig({
       theme: 'default-dark',
+      debugMode: false,
       projectNames: ['alpha', 'beta'],
       currentProject: 'beta',
     } as LauncherConfig)
     api.saveTheme.mockResolvedValue({
       theme: 'lime-dark',
+      debugMode: false,
       projectNames: ['alpha'],
       currentProject: 'alpha',
     } as LauncherConfig)
     await loadTheme()
 
+    core.patchLauncherConfig({ debugMode: true })
     useSettingsStore().setTheme('lime', 'dark')
     await nextTick()
     await Promise.resolve()
     await Promise.resolve()
 
     expect(core.launcherConfig?.theme).toBe('lime-dark')
+    expect(core.launcherConfig?.debugMode).toBe(true)
     expect(core.projects).toEqual(['alpha', 'beta'])
     expect(core.currentProject).toBe('beta')
+  })
+
+  it('drops a stale theme response that lands after a newer switch', async () => {
+    prepareStore('default', 'dark', true)
+    const core = useCoreStore()
+    core.setLauncherConfig({
+      theme: 'default-dark',
+      debugMode: false,
+      projectNames: ['alpha'],
+      currentProject: 'alpha',
+    } as LauncherConfig)
+    let releaseFirst: () => void = () => {}
+    api.saveTheme
+      .mockImplementationOnce(
+        () =>
+          new Promise<LauncherConfig>((resolve) => {
+            releaseFirst = (): void => resolve({ theme: 'lime-dark' } as LauncherConfig)
+          }),
+      )
+      .mockResolvedValueOnce({ theme: 'spark-dark' } as LauncherConfig)
+    await loadTheme()
+
+    useSettingsStore().setTheme('lime', 'dark')
+    await nextTick()
+    useSettingsStore().setTheme('spark', 'dark')
+    await nextTick()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(core.launcherConfig?.theme).toBe('spark-dark')
+
+    releaseFirst()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(core.launcherConfig?.theme).toBe('spark-dark')
   })
 
   it('applies the hydration theme immediately without animation or save', async () => {

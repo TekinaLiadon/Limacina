@@ -1,5 +1,5 @@
 import { ref, watch, type Ref } from 'vue'
-import { useCoreStore, useNotificationStore, useSettingsStore, parseThemeId, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, useSettingsStore, parseThemeId } from '@/05-entities'
 import { saveTheme, setWindowBackgroundColor, cssDurationMs, reportError } from '@/06-shared'
 
 const isSwitching = ref<boolean>(false)
@@ -58,8 +58,9 @@ export function useTheme(): {
     if (!oldTheme || newTheme === oldTheme) return
 
     saveTheme(newTheme)
-      .then((config: LauncherConfig): void => {
-        coreStore.applySavedLauncherConfig(config)
+      .then((): void => {
+        if (settingsStore.theme !== newTheme) return
+        coreStore.patchLauncherConfig({ theme: newTheme })
       })
       .catch((e: unknown) => {
         reportError('Ошибка сохранения темы', e)

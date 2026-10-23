@@ -13,6 +13,7 @@ import {
 } from '@/05-entities'
 import { useAddProfile } from '../useAddProfile'
 import { useOfflineProfileForm } from '../useOfflineProfileForm'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
@@ -22,22 +23,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   getLoaderVersions: vi.fn(),
   getMinecraftVersions: vi.fn(),
 }))
-
-const makeConfig = (name: string): ProjectConfig => ({
-  projectName: name,
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online: false,
-  initialized: false,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useOfflineProfileForm', () => {
   beforeEach(() => {
@@ -101,26 +86,58 @@ describe('useOfflineProfileForm', () => {
     expect(offline.isLoadingMcVersions.value).toBe(false)
   })
 
-  it('reports the version list failure', async () => {
+  it('reports the version list failure in its own slot', async () => {
     vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
     const { add, offline } = setupForms()
 
     await offline.selectKind('offline')
 
-    expect(add.errorMessage.value).toBe('manifest unreachable')
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
+    expect(add.errorMessage.value).toBe('')
     expect(offline.mcVersionOptions.value).toEqual([])
   })
 
-  it('clears the shared error when the kind switches', async () => {
-    vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
+  it('keeps the submit error when the version list fails', async () => {
+    vi.mocked(getMinecraftVersions)
+      .mockResolvedValueOnce(['1.20.1'])
+      .mockRejectedValueOnce(new Error('manifest unreachable'))
     const { add, offline } = setupForms()
 
     await offline.selectKind('offline')
-    expect(add.errorMessage.value).toBe('manifest unreachable')
+    add.errorMessage.value = 'unreachable server'
+
+    offline.offlineForm.value.includeSnapshots = true
+    await vi.waitFor(() => expect(offline.mcVersionsError.value).toBe('manifest unreachable'))
+
+    expect(add.errorMessage.value).toBe('unreachable server')
+  })
+
+  it('keeps the minecraft version error when the loader list fails', async () => {
+    vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
+    vi.mocked(getLoaderVersions).mockRejectedValue(new Error('loader unreachable'))
+    const { offline } = setupForms()
+
+    await offline.selectKind('offline')
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
+
+    offline.offlineForm.value.mcVersion = '1.20.1'
+    offline.offlineForm.value.modLoader = 'fabric'
+    await vi.waitFor(() => expect(offline.loaderVersionsError.value).toBe('loader unreachable'))
+
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
+  })
+
+  it('clears the loader errors when the kind switches', async () => {
+    vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
+    const { offline } = setupForms()
+
+    await offline.selectKind('offline')
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
 
     await offline.selectKind('server')
 
-    expect(add.errorMessage.value).toBe('')
+    expect(offline.mcVersionsError.value).toBe('')
+    expect(offline.loaderVersionsError.value).toBe('')
   })
 
   it('drops a stale version list after a newer request', async () => {
@@ -209,14 +226,15 @@ describe('useOfflineProfileForm', () => {
 
     offline.offlineForm.value.modLoader = 'neoforge'
     vi.mocked(getLoaderVersions).mockResolvedValue([])
-    await vi.waitFor(() => expect(add.errorMessage.value).not.toBe(''))
+    await vi.waitFor(() => expect(offline.loaderVersionsError.value).not.toBe(''))
 
-    expect(add.errorMessage.value).toBe('Нет версий neoforge для Minecraft 1.20.1')
+    expect(offline.loaderVersionsError.value).toBe('Нет версий neoforge для Minecraft 1.20.1')
+    expect(add.errorMessage.value).toBe('')
     expect(offline.offlineForm.value.loaderVersion).toBe('')
   })
 
   it('creates the offline profile without a loader version for vanilla', async () => {
-    vi.mocked(createOfflineProfile).mockResolvedValue(makeConfig('My profile'))
+    vi.mocked(createOfflineProfile).mockResolvedValue(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const { offline } = setupForms()
     offline.offlineForm.value.name = '  My profile  '
@@ -225,13 +243,13 @@ describe('useOfflineProfileForm', () => {
     const created = await offline.submitOffline()
 
     expect(createOfflineProfile).toHaveBeenCalledWith('My profile', '1.20.1', 'vanilla', null)
-    expect(created).toEqual(makeConfig('My profile'))
+    expect(created).toEqual(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     expect(offline.offlineForm.value.name).toBe('')
     expect(useNotificationStore().message).toBe('Профиль "My profile" создан')
   })
 
   it('passes the loader version for a loader-based profile', async () => {
-    vi.mocked(createOfflineProfile).mockResolvedValue(makeConfig('fabricated'))
+    vi.mocked(createOfflineProfile).mockResolvedValue(makeProjectConfig({ projectName: 'fabricated', online: false, initialized: false }))
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const { offline } = setupForms()
     offline.offlineForm.value.name = 'fabricated'
@@ -273,7 +291,7 @@ describe('useOfflineProfileForm', () => {
     expect(createOfflineProfile).toHaveBeenCalledWith('My profile', '1.20.1', 'vanilla', null)
     expect(add.isSubmitting.value).toBe(true)
 
-    releaseCreate(makeConfig('My profile'))
+    releaseCreate(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     await first
 
     expect(add.isSubmitting.value).toBe(false)
@@ -298,7 +316,7 @@ describe('useOfflineProfileForm', () => {
     expect(second).toBeNull()
     expect(createServerProfile).not.toHaveBeenCalled()
 
-    releaseCreate(makeConfig('My profile'))
+    releaseCreate(makeProjectConfig({ projectName: 'My profile', online: false, initialized: false }))
     await first
   })
 })

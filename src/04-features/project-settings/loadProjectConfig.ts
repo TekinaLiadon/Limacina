@@ -1,6 +1,6 @@
-import { useCoreStore, useProjectSettingsStore, projectSettingsFormFromConfig } from '@/05-entities'
+import { useCoreStore, useProjectSettingsStore, projectSettingsFormFromConfig, type ProjectConfig } from '@/05-entities'
 import { getErrorMessage, loadSettingsProject } from '@/06-shared/api'
-import { captureProjectScope, reportError } from '@/06-shared'
+import { captureProjectScope, runScopedAction } from '@/06-shared'
 
 export async function loadProjectConfig(project: string, force: boolean = false): Promise<boolean> {
   if (!project) return false
@@ -12,16 +12,17 @@ export async function loadProjectConfig(project: string, force: boolean = false)
 
   const scope = captureProjectScope((): string => coreStore.currentProject)
   store.startLoading(project)
-  try {
-    const loaded = await loadSettingsProject(project)
-    store.applyLoaded(project, projectSettingsFormFromConfig(loaded))
-    if (scope.project === project && scope.isCurrent()) coreStore.setProjectConfig(loaded)
-    return true
-  } catch (e: unknown) {
-    reportError('Не удалось загрузить настройки проекта', e)
-    store.applyError(project, getErrorMessage(e))
-    return false
-  } finally {
-    store.finishLoading(project)
-  }
+  const loaded = await runScopedAction({
+    scope,
+    errorMessage: 'Не удалось загрузить настройки проекта',
+    onError: (e: unknown): void => store.applyError(project, getErrorMessage(e)),
+    run: (): Promise<ProjectConfig> => loadSettingsProject(project),
+    apply: (config: ProjectConfig): boolean => {
+      store.applyLoaded(project, projectSettingsFormFromConfig(config))
+      if (scope.project === project) coreStore.setProjectConfig(config)
+      return true
+    },
+  })
+  store.finishLoading(project)
+  return loaded ?? false
 }

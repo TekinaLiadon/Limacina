@@ -91,9 +91,8 @@ function toggleChangelog(versionId: string): void {
   expandedChangelogs.value = next
 }
 
-watch((): string => props.hit?.project_id ?? '', (projectId: string): void => {
-  expandedChangelogs.value = new Set()
-  if (projectId === '') return
+watch((): boolean => props.visible, (visible: boolean): void => {
+  if (visible) expandedChangelogs.value = new Set()
 })
 
 async function handleLink(url: string): Promise<void> {

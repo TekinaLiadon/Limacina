@@ -34,8 +34,8 @@ const handleOpenPopup = async (): Promise<void> => {
 }
 
 const handleDownload = async (): Promise<void> => {
-  const replaced = await startDownload()
-  if (replaced) emit('java-replaced')
+  const result = await startDownload()
+  if (result === 'replaced') emit('java-replaced')
 }
 </script>
 

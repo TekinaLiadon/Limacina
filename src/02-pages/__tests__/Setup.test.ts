@@ -42,6 +42,8 @@ vi.mock('@/04-features', async (importOriginal) => {
       needsLoaderVersion: computed((): boolean => false),
       isLoadingMcVersions: ref(false),
       isLoadingLoaderVersions: ref(false),
+      mcVersionsError: ref(''),
+      loaderVersionsError: ref(''),
       isOfflineValid: computed((): boolean => false),
       selectKind: vi.fn(),
       submitOffline: vi.fn(),

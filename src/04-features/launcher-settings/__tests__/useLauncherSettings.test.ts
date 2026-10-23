@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { saveLauncherSettings, getAppInitData } from '@/06-shared/api'
-import { isAutostartEnabled, selectDirectory } from '@/06-shared'
+import { isAutostartEnabled, enableAutostart, disableAutostart, selectDirectory } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type AppInitData, type LauncherBehaviorForm, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
 import { useLauncherSettings } from '../useLauncherSettings'
 import { withSetup } from '@/test-support/withSetup'
@@ -17,6 +17,8 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 vi.mock('@/06-shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared')>()),
   isAutostartEnabled: vi.fn(),
+  enableAutostart: vi.fn(),
+  disableAutostart: vi.fn(),
   selectDirectory: vi.fn(),
 }))
 
@@ -53,6 +55,10 @@ describe('useLauncherSettings', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(enableAutostart).mockReset()
+    vi.mocked(disableAutostart).mockReset()
+    vi.mocked(enableAutostart).mockResolvedValue(undefined)
+    vi.mocked(disableAutostart).mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -324,21 +330,139 @@ describe('useLauncherSettings', () => {
     unmount()
   })
 
-  it('resets dirty state and skips the success toast when the autostart apply fails after a successful save', async () => {
+  it('applies the OS autostart before writing the settings and aborts the save when it fails', async () => {
     vi.mocked(isAutostartEnabled).mockResolvedValue(false)
     vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
-    useCoreStore().launcherConfig = makeLauncherConfig(false)
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const showSpy = vi.spyOn(useNotificationStore(), 'show')
+    settings.behaviorForm.value.startWithSystem = true
+    vi.mocked(isAutostartEnabled).mockRejectedValueOnce(new Error('autostart locked'))
+    await settings.handleSave()
+
+    expect(enableAutostart).not.toHaveBeenCalled()
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(core.launcherConfig?.startWithSystem).toBe(false)
+    expect(settings.isDirty.value).toBe(true)
+    expect(showSpy).toHaveBeenCalledWith('Не удалось включить автозапуск: autostart locked')
+    expect(showSpy).not.toHaveBeenCalledWith('Настройки сохранены')
+
+    unmount()
+  })
+
+  it('saves the other fields without touching a broken autostart plugin when the toggle is untouched', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue({
+      ...makeLauncherConfig(true),
+      startWithSystem: false,
+    })
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    vi.mocked(isAutostartEnabled).mockClear()
+    vi.mocked(isAutostartEnabled).mockRejectedValue(new Error('autostart locked'))
+    settings.behaviorForm.value.debugMode = true
+    await settings.handleSave()
+
+    expect(isAutostartEnabled).not.toHaveBeenCalled()
+    expect(enableAutostart).not.toHaveBeenCalled()
+    expect(disableAutostart).not.toHaveBeenCalled()
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
+    expect(core.launcherConfig?.debugMode).toBe(true)
+    expect(settings.isDirty.value).toBe(false)
+    expect(useNotificationStore().message).toBe('Настройки сохранены')
+
+    unmount()
+  })
+
+  it('applies the OS autostart before the config write', async () => {
+    const calls: string[] = []
+    let osAutostart = false
+    vi.mocked(saveLauncherSettings).mockImplementation(async () => {
+      calls.push('save')
+      return makeLauncherConfig(true)
+    })
+    vi.mocked(isAutostartEnabled).mockImplementation(async () => osAutostart)
+    vi.mocked(enableAutostart).mockImplementation(async () => {
+      calls.push('enable')
+      osAutostart = true
+    })
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
 
     const { result: settings, unmount } = withSetup(() => useLauncherSettings())
     await flushPromises()
 
     settings.behaviorForm.value.startWithSystem = true
-    vi.mocked(isAutostartEnabled).mockRejectedValueOnce(new Error('autostart locked'))
     await settings.handleSave()
 
-    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
-    expect(useNotificationStore().message).toBe('Не удалось включить автозапуск: autostart locked')
+    expect(calls).toEqual(['enable', 'save'])
+    expect(osAutostart).toBe(true)
+    expect(core.launcherConfig?.startWithSystem).toBe(true)
     expect(settings.isDirty.value).toBe(false)
+    expect(useNotificationStore().message).toBe('Настройки сохранены')
+
+    unmount()
+  })
+
+  it('rolls the OS autostart back when the config write fails after the OS apply', async () => {
+    let osAutostart = false
+    vi.mocked(isAutostartEnabled).mockImplementation(async () => osAutostart)
+    vi.mocked(enableAutostart).mockImplementation(async () => {
+      osAutostart = true
+    })
+    vi.mocked(disableAutostart).mockImplementation(async () => {
+      osAutostart = false
+    })
+    vi.mocked(saveLauncherSettings).mockRejectedValueOnce(new Error('disk full'))
+    vi.mocked(getAppInitData).mockResolvedValueOnce(makeAppInitData(makeLauncherConfig(false)))
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.behaviorForm.value.startWithSystem = true
+    await settings.handleSave()
+
+    expect(enableAutostart).toHaveBeenCalledTimes(1)
+    expect(disableAutostart).toHaveBeenCalledTimes(1)
+    expect(osAutostart).toBe(false)
+    expect(core.launcherConfig?.startWithSystem).toBe(false)
+    expect(settings.isDirty.value).toBe(true)
+    expect(useNotificationStore().message).toBe('disk full')
+
+    unmount()
+  })
+
+  it('patches only the saved fields and keeps newer fields from another save', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue({
+      ...makeLauncherConfig(false),
+      theme: 'stale-theme',
+      animationsEnabled: false,
+      debugMode: true,
+    })
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    core.patchLauncherConfig({ theme: 'lime-dark', animationsEnabled: true })
+    settings.behaviorForm.value.debugMode = true
+    await settings.handleSave()
+
+    expect(core.launcherConfig?.debugMode).toBe(true)
+    expect(core.launcherConfig?.theme).toBe('lime-dark')
+    expect(core.launcherConfig?.animationsEnabled).toBe(true)
 
     unmount()
   })

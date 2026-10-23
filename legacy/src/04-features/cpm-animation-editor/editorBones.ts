@@ -1,5 +1,5 @@
 import type { CPMChild, CPMConfig, CPMElement } from '@/05-entities'
-import { ROOT_PIVOTS } from '../cpm-viewer/useCpmViewer'
+import { ROOT_PIVOTS } from '../cpm-viewer/playerParts'
 import { resolveRootStoreId } from './editorModel'
 
 const DUPLICATE_EPSILON = 0.1

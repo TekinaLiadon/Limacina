@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, getActivePinia, setActivePinia } from 'pinia'
-import { nextTick, ref, shallowRef } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import {
   authLogins,
   clearSession,
@@ -15,14 +14,9 @@ import {
   useNotificationStore,
   useProjectSettingsStore,
   useSettingsDirtyStore,
-  type CPMAnimation,
-  type CPMData,
-  type ProjectConfig,
 } from '@/05-entities'
 import { useKillGame } from '@/04-features/game-session/useKillGame'
-import { useCpmAnimationEditor, hasUnsavedCpmAnimationChanges } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
-import { createCpmEditorBridge } from '@/04-features/cpm-viewer/cpmEditorBridge'
-import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 import { useProjectSwitch } from '../useProjectSwitch'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -33,22 +27,6 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   loadSettingsProject: vi.fn(),
   saveCurrentProject: vi.fn(),
 }))
-
-const makeConfig = (name: string, online: boolean): ProjectConfig => ({
-  projectName: name,
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useProjectSwitch', () => {
   const setup = (): ReturnType<typeof useProjectSwitch> => useProjectSwitch()
@@ -97,7 +75,7 @@ describe('useProjectSwitch', () => {
     launch.loginError = 'stale error'
     launch.launchInterrupted = true
 
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     const ps = setup()
 
@@ -105,7 +83,7 @@ describe('useProjectSwitch', () => {
 
     expect(saveCurrentProject).toHaveBeenCalledWith('beta')
     expect(core.currentProject).toBe('beta')
-    expect(core.projectConfig).toEqual(makeConfig('beta', true))
+    expect(core.projectConfig).toEqual(makeProjectConfig({ projectName: 'beta', online: true }))
     expect(accounts.logins).toEqual(['carol'])
     expect(accounts.showAuthForm).toBe(false)
     expect(accounts.loginFormData.username).toBe('')
@@ -122,7 +100,7 @@ describe('useProjectSwitch', () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
     vi.mocked(saveCurrentProject).mockResolvedValue(undefined)
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue([])
 
     const ps = setup()
@@ -175,7 +153,7 @@ describe('useProjectSwitch', () => {
     ps.resetAccountsState()
     expect(launch.gameUsernames).toEqual([])
 
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     await ps.selectProject('beta')
 
@@ -196,7 +174,7 @@ describe('useProjectSwitch', () => {
     await kill.killGame()
     expect(launch.gameUsernames).toEqual([])
 
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     await ps.selectProject('beta')
 
@@ -260,7 +238,7 @@ describe('useProjectSwitch', () => {
     settings.config.jvmArgs = '-XX:+UseG1GC'
     expect(settings.isDirty).toBe(true)
 
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     const ps = setup()
 
@@ -362,7 +340,7 @@ describe('useProjectSwitch', () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
     core.projects = ['alpha', 'beta']
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     const ps = setup()
 
@@ -379,7 +357,7 @@ describe('useProjectSwitch', () => {
     const accounts = useAccountsStore()
     accounts.isLoggedIn = true
     accounts.session = { uuid: 'u-1', username: 'alice' }
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeConfig('beta', true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])
     vi.mocked(clearSession).mockRejectedValue(new Error('session stuck'))
     const ps = setup()
@@ -461,59 +439,5 @@ describe('useProjectSwitch', () => {
     expect(useNotificationStore().message).toBe(
       'config locked. Не удалось вернуть предыдущий проект, после перезапуска откроется "beta"',
     )
-  })
-
-  it('blocks a project switch while the animation editor has unsaved changes', async () => {
-    const pinia = getActivePinia()
-    if (!pinia) throw new Error('pinia is not active')
-    const animation: CPMAnimation = {
-      id: 'g_wave.json',
-      name: 'Машет',
-      kind: 'gesture',
-      duration: 1000,
-      priority: 0,
-      loop: false,
-      additive: false,
-      interpolator: 'linear_loop',
-      hidden: false,
-      frames: Array.from({ length: 6 }, () => ({ components: [] })),
-    }
-    const data = shallowRef<CPMData | null>(null)
-    const { result: editor, unmount } = withSetup(() => useCpmAnimationEditor({
-      data,
-      projectBytes: ref<Uint8Array | null>(null),
-      bridge: createCpmEditorBridge(),
-    }), [pinia])
-
-    data.value = {
-      config: {
-        skinSize: { x: 64, y: 64 },
-        elements: [{
-          id: 'head',
-          name: 'Head',
-          pos: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0 },
-        }],
-      },
-      textureUrl: 'blob:model',
-      animations: [animation],
-    }
-    await nextTick()
-    editor.startEditing('g_wave.json')
-    editor.setBoneRotation('y', 30)
-    expect(hasUnsavedCpmAnimationChanges()).toBe(true)
-
-    const core = useCoreStore()
-    core.currentProject = 'alpha'
-    core.projects = ['alpha', 'beta']
-    const ps = useProjectSwitch()
-
-    await ps.selectProject('beta')
-
-    expect(useNotificationStore().message).toContain('переключение проекта заблокировано')
-    expect(saveCurrentProject).not.toHaveBeenCalled()
-    expect(core.currentProject).toBe('alpha')
-
-    unmount()
   })
 })

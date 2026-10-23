@@ -1,5 +1,7 @@
 use anyhow::Result;
+use futures::stream::{self, StreamExt};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
@@ -64,46 +66,105 @@ struct ScanOutcome {
     failed: Vec<String>,
 }
 
-async fn scan_targets(
+const MAX_CONCURRENT_HASHES: usize = 8;
+
+enum ScanItem {
+    Intact,
+    Broken {
+        target: IntegrityTarget,
+        missing: bool,
+    },
+    Unreadable(IntegrityTarget),
+}
+
+async fn scan_targets<H, Fut>(
     base_path: &Path,
     step: &StepHandle,
     targets: Vec<IntegrityTarget>,
     mut expected_hash: impl FnMut(&IntegrityTarget) -> Option<String>,
-) -> ScanOutcome {
+    hash_matches: H,
+) -> ScanOutcome
+where
+    H: Fn(HashKind, PathBuf, String) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<bool>> + Send,
+{
+    let planned: Vec<(IntegrityTarget, Option<String>)> = targets
+        .into_iter()
+        .map(|target| {
+            let expected = expected_hash(&target);
+            (target, expected)
+        })
+        .collect();
+
+    let base_path = base_path.to_path_buf();
+    let step = step.clone();
+    let hash_matches = &hash_matches;
+
+    let outcomes = stream::iter(planned)
+        .map(|(target, expected)| {
+            let file_path = base_path.join(&target.rel_path);
+            let step = step.clone();
+            async move {
+                let outcome = if !file_path.exists() {
+                    ScanItem::Broken {
+                        target,
+                        missing: true,
+                    }
+                } else {
+                    match expected.as_deref() {
+                        None | Some("") => ScanItem::Intact,
+                        Some(expected) => {
+                            match hash_matches(
+                                target.hash_kind,
+                                file_path.clone(),
+                                expected.to_string(),
+                            )
+                            .await
+                            {
+                                Ok(true) => ScanItem::Intact,
+                                Ok(false) => {
+                                    let _ = tokio::fs::remove_file(&file_path).await;
+                                    ScanItem::Broken {
+                                        target,
+                                        missing: false,
+                                    }
+                                }
+                                Err(e) => {
+                                    log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
+                                    ScanItem::Unreadable(target)
+                                }
+                            }
+                        }
+                    }
+                };
+                step.inc();
+                outcome
+            }
+        })
+        .buffered(MAX_CONCURRENT_HASHES)
+        .collect::<Vec<ScanItem>>()
+        .await;
+
     let mut broken: Vec<IntegrityTarget> = Vec::new();
     let mut missing: u64 = 0;
     let mut failed: Vec<String> = Vec::new();
 
-    for target in targets {
-        let file_path = base_path.join(&target.rel_path);
-        let expected = expected_hash(&target);
-        let intact = if !file_path.exists() {
-            missing += 1;
-            false
-        } else if expected.as_deref().is_none_or(str::is_empty) {
-            true
-        } else {
-            match target
-                .hash_kind
-                .matches(&file_path, expected.as_deref().unwrap_or_default())
-                .await
-            {
-                Ok(matches) => matches,
-                Err(e) => {
-                    log_err!("Не удалось прочитать файл {:?}: {}", file_path, e);
-                    failed.push(target.rel_path.to_string_lossy().into_owned());
-                    true
+    for outcome in outcomes {
+        match outcome {
+            ScanItem::Intact => {}
+            ScanItem::Broken {
+                target,
+                missing: is_missing,
+            } => {
+                if is_missing {
+                    missing += 1;
                 }
+                broken.push(target);
             }
-        };
-
-        if !intact {
-            if file_path.exists() {
-                let _ = tokio::fs::remove_file(&file_path).await;
+            ScanItem::Unreadable(target) => {
+                failed.push(target.rel_path.to_string_lossy().into_owned());
             }
-            broken.push(target);
         }
-        step.inc();
     }
 
     ScanOutcome {
@@ -208,11 +269,13 @@ async fn settle_results(
                                 );
                                 false
                             } else {
-                                merge_installed(
-                                    installed,
-                                    &target.rel_path.to_string_lossy(),
-                                    &hash,
-                                );
+                                if target.hash.is_empty() {
+                                    merge_installed(
+                                        installed,
+                                        &target.rel_path.to_string_lossy(),
+                                        &hash,
+                                    );
+                                }
                                 true
                             }
                         }
@@ -254,13 +317,19 @@ where
         broken,
         missing,
         failed,
-    } = scan_targets(base_path, &step, targets, |target| {
-        if target.hash.is_empty() {
-            None
-        } else {
-            Some(target.hash.clone())
-        }
-    })
+    } = scan_targets(
+        base_path,
+        &step,
+        targets,
+        |target| {
+            if target.hash.is_empty() {
+                None
+            } else {
+                Some(target.hash.clone())
+            }
+        },
+        |kind, path, expected| async move { kind.matches(&path, &expected).await },
+    )
     .await;
 
     if broken.is_empty() {
@@ -309,6 +378,17 @@ where
     })
 }
 
+async fn persist_install_manifest(project_name: &str, manifest: &InstallManifest) -> Result<()> {
+    save_install_manifest(project_name, manifest)
+        .await
+        .map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось сохранить манифест установленных файлов: {e:#}"
+            ))
+        })?;
+    Ok(())
+}
+
 pub async fn ensure_files(
     step: &StepHandle,
     base_path: &Path,
@@ -326,6 +406,16 @@ pub async fn ensure_files(
             "Не удалось загрузить манифест установленных файлов: {e:#}"
         ))
     })?;
+    let source_hashed: HashSet<String> = targets
+        .iter()
+        .filter(|target| !target.hash.is_empty())
+        .map(|target| target.rel_path.to_string_lossy().into_owned())
+        .collect();
+    let manifest_len = installed.files.len();
+    installed
+        .files
+        .retain(|rel_path, _| !source_hashed.contains(rel_path));
+    let pruned = manifest_len != installed.files.len();
     let total = targets.len() as u64;
     step.set_total(total);
 
@@ -333,18 +423,27 @@ pub async fn ensure_files(
         broken,
         missing: _,
         failed,
-    } = scan_targets(base_path, step, targets, |target| {
-        if !target.hash.is_empty() {
-            return Some(target.hash.clone());
-        }
-        installed
-            .files
-            .get(&target.rel_path.to_string_lossy().into_owned())
-            .cloned()
-    })
+    } = scan_targets(
+        base_path,
+        step,
+        targets,
+        |target| {
+            if !target.hash.is_empty() {
+                return Some(target.hash.clone());
+            }
+            installed
+                .files
+                .get(&target.rel_path.to_string_lossy().into_owned())
+                .cloned()
+        },
+        |kind, path, expected| async move { kind.matches(&path, &expected).await },
+    )
     .await;
 
     if broken.is_empty() {
+        if pruned {
+            persist_install_manifest(project_name, &installed).await?;
+        }
         log_info!("[install] Все файлы на месте: {}", total);
         return Ok(IntegrityReport {
             total,
@@ -373,15 +472,9 @@ pub async fn ensure_files(
     .await;
 
     if failed.is_empty() {
-        save_install_manifest(project_name, &installed)
-            .await
-            .map_err(|e| {
-                LauncherError::DiskIo(format!(
-                    "Не удалось сохранить манифест установленных файлов: {e:#}"
-                ))
-            })?;
+        persist_install_manifest(project_name, &installed).await?;
     } else {
-        let _ = save_install_manifest(project_name, &installed).await;
+        let _ = persist_install_manifest(project_name, &installed).await;
     }
 
     log_info!(
@@ -428,14 +521,7 @@ pub async fn record_installed_hash(
         ))
     })?;
     merge_installed(&mut manifest, &rel_path.to_string_lossy(), &hash);
-    save_install_manifest(project_name, &manifest)
-        .await
-        .map_err(|e| {
-            LauncherError::DiskIo(format!(
-                "Не удалось сохранить манифест установленных файлов: {e:#}"
-            ))
-        })?;
-    Ok(())
+    persist_install_manifest(project_name, &manifest).await
 }
 
 #[cfg(test)]
@@ -463,6 +549,92 @@ mod hash_kind_tests {
             .matches(&path, "0000000000000000000000000000000000000000")
             .await
             .expect("проверка несовпадающего хеша"));
+    }
+}
+
+#[cfg(test)]
+mod scan_targets_tests {
+    use super::*;
+    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn hashes_files_concurrently_and_reports_outcomes() {
+        let dir = LauncherDirGuard::acquire("scan_concurrent").await;
+        let base = dir.project_dir("Cordelia");
+        tokio::fs::create_dir_all(base.join("assets/objects"))
+            .await
+            .unwrap();
+
+        let mut targets = Vec::new();
+        for index in 0..8u32 {
+            let rel = format!("assets/objects/{index}.bin");
+            let content = format!("content {index}");
+            tokio::fs::write(base.join(&rel), content.as_bytes())
+                .await
+                .unwrap();
+            targets.push(integrity_url_target(
+                &rel,
+                &sha1_hex(content.as_bytes()),
+                "http://127.0.0.1:1/asset".to_string(),
+            ));
+        }
+        tokio::fs::write(base.join("assets/objects/0.bin"), b"corrupted")
+            .await
+            .unwrap();
+
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let current = Arc::clone(&in_flight);
+        let peak_counter = Arc::clone(&peak);
+
+        let outcome = scan_targets(
+            &base,
+            &StepHandle::start("scan", "Тест"),
+            targets,
+            |target| Some(target.hash.clone()),
+            move |kind, path, expected| {
+                let current = Arc::clone(&current);
+                let peak_counter = Arc::clone(&peak_counter);
+                async move {
+                    let now = current.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak_counter.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    current.fetch_sub(1, Ordering::SeqCst);
+                    kind.matches(&path, &expected).await
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(
+            outcome.broken.len(),
+            1,
+            "повреждённый файл должен попасть в broken: {:?}",
+            outcome
+                .broken
+                .iter()
+                .map(|target| target.rel_path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            outcome.broken[0].rel_path,
+            PathBuf::from("assets/objects/0.bin")
+        );
+        assert_eq!(outcome.missing, 0);
+        assert!(outcome.failed.is_empty());
+        assert!(
+            peak.load(Ordering::SeqCst) > 1,
+            "хеши должны считаться параллельно, пик одновременных проверок: {}",
+            peak.load(Ordering::SeqCst)
+        );
+        assert!(
+            !base.join("assets/objects/0.bin").exists(),
+            "повреждённый файл удаляется перед перекачкой"
+        );
+        assert!(base.join("assets/objects/1.bin").exists());
     }
 }
 
@@ -515,7 +687,7 @@ mod ensure_files_tests {
     }
 
     #[tokio::test]
-    async fn downloads_missing_file_and_records_hash() {
+    async fn downloads_missing_file_without_recording_source_hash() {
         let dir = LauncherDirGuard::acquire("ensure_ok").await;
         let mut server = Server::new_async().await;
         let body = b"library bytes".to_vec();
@@ -532,9 +704,63 @@ mod ensure_files_tests {
         );
 
         let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert!(
+            installed.files.is_empty(),
+            "файл с исходным хешем не должен попадать в install-манифест: {:?}",
+            installed.files
+        );
+    }
+
+    #[tokio::test]
+    async fn prunes_stale_entries_for_source_hashed_targets() {
+        let dir = LauncherDirGuard::acquire("ensure_prune").await;
+        let mut server = Server::new_async().await;
+        let body = b"library bytes".to_vec();
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("каталог libraries");
+        std::fs::write(base.join("libraries/a.jar"), &body).expect("целый файл");
+
+        let mut stale = InstallManifest::default();
+        merge_installed(&mut stale, "libraries/a.jar", &sha1_hex(&body));
+        merge_installed(
+            &mut stale,
+            "libraries/installer.jar",
+            "recorded-by-installer",
+        );
+        super::persist_install_manifest("Cordelia", &stale)
+            .await
+            .expect("исходный манифест");
+
+        server
+            .mock("GET", "/libs/a.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![integrity_url_target(
+                "libraries/a.jar",
+                &sha1_hex(&body),
+                format!("{}/libs/a.jar", server.url()),
+            )],
+        )
+        .await
+        .expect("установка по целым файлам");
+
+        assert_eq!(report.broken, 0);
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert!(
+            !installed.files.contains_key("libraries/a.jar"),
+            "запись с исходным хешем должна вычищаться: {:?}",
+            installed.files
+        );
         assert_eq!(
-            installed.files.get("libraries/a.jar"),
-            Some(&sha1_hex(&body))
+            installed.files.get("libraries/installer.jar"),
+            Some(&"recorded-by-installer".to_string()),
+            "записи файлов без источника хеша должны сохраняться"
         );
     }
 
@@ -638,9 +864,10 @@ mod ensure_files_tests {
         assert!(report.failed.is_empty());
 
         let installed = load_install_manifest("Cordelia").await.expect("манифест");
-        assert_eq!(
-            installed.files.get("libraries/a.jar"),
-            Some(&sha1_hex(&body))
+        assert!(
+            installed.files.is_empty(),
+            "файл с исходным хешем не должен записываться: {:?}",
+            installed.files
         );
         let raw =
             std::fs::read_to_string(dir.root().join("manifest").join("installed_Cordelia.json"))
@@ -743,13 +970,10 @@ mod ensure_files_tests {
             );
         }
         for m in 0..2u32 {
-            assert_eq!(
-                installed
-                    .files
-                    .get(&format!("mods/m{m}.jar"))
-                    .map(String::as_str),
-                Some(sha1_hex(format!("mod{m} bytes").as_bytes()).as_str()),
-                "хеш m{m} потерян в гонке записей"
+            assert!(
+                !installed.files.contains_key(&format!("mods/m{m}.jar")),
+                "файл m{m} с исходным хешем не должен попадать в манифест: {:?}",
+                installed.files
             );
         }
 

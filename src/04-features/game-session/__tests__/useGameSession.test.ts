@@ -57,6 +57,7 @@ describe('useGameSession', () => {
     code: 0,
     reason: null,
     username,
+    killedByLauncher: false,
   })
 
   it('hydrates the running usernames from the game state command', async () => {

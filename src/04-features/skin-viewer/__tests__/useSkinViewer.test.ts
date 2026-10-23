@@ -13,21 +13,8 @@ const textureLoads = vi.hoisted(() => [] as Array<{
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()
-  class FakeTextureLoader {
-    load(
-      url: string,
-      onLoad: (texture: THREE.Texture) => void,
-      _onProgress?: undefined,
-      onError?: (error: unknown) => void,
-    ): void {
-      textureLoads.push({
-        url,
-        resolve: (texture) => onLoad(texture),
-        fail: (error) => onError?.(error),
-      })
-    }
-  }
-  return { ...actual, TextureLoader: FakeTextureLoader }
+  const { createFakeTextureLoader } = await import('@/test-support/fakeTextureLoader')
+  return { ...actual, TextureLoader: createFakeTextureLoader(textureLoads) }
 })
 
 const mountedScene = vi.hoisted(() => ({ current: null as ShallowRef<THREE.Scene | null> | null }))

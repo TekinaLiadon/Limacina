@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { copyToClipboard, reportError } from '@/06-shared'
-import { useAccountsStore, useCoreStore, useNotificationStore, type ProjectConfig, type UserContentItem } from '@/05-entities'
+import { useAccountsStore, useCoreStore, useNotificationStore, type UserContentItem } from '@/05-entities'
 import { useUserContent } from '../useUserContent'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared')>()),
@@ -29,22 +30,6 @@ const makeApi = () => ({
   listLoadErrorMessage: 'Не удалось загрузить список',
 })
 
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
-
 describe('useUserContent', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -64,12 +49,12 @@ describe('useUserContent', () => {
 
   const loginSession = (): void => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
   }
 
   it('skips the list load for an offline project', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(false)
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
     const { content, api } = setupContent()
 
     await content.loadItems()
@@ -78,7 +63,7 @@ describe('useUserContent', () => {
   })
 
   it('skips the list load without a session', async () => {
-    useCoreStore().projectConfig = makeProjectConfig(true)
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
     const { content, api } = setupContent()
 
     await content.loadItems()
@@ -336,6 +321,76 @@ describe('useUserContent', () => {
 
     releaseUpload(makeItem(1))
     await pendingUpload
+  })
+
+  it('drops a stale upload after the project switch and keeps the new upload running', async () => {
+    loginSession()
+    const core = useCoreStore()
+    const notification = useNotificationStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+
+    let releaseOld: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseOld = resolve
+        }),
+    )
+    const oldUpload = content.handleUpload({ data: 'old' })
+
+    core.currentProject = 'new'
+    useAccountsStore().clearSessionState()
+    await nextTick()
+    expect(content.isUploading.value).toBe(false)
+
+    let releaseNew: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseNew = resolve
+        }),
+    )
+    const newUpload = content.handleUpload({ data: 'new' })
+    expect(content.isUploading.value).toBe(true)
+
+    releaseOld(makeItem(1))
+    expect(await oldUpload).toBeNull()
+    expect(content.isUploading.value).toBe(true)
+    expect(notification.message).toBe('')
+    expect(api.list).not.toHaveBeenCalled()
+
+    releaseNew(makeItem(2))
+    expect(await newUpload).toEqual(makeItem(2))
+    expect(notification.message).toBe('Контент загружен')
+  })
+
+  it('drops a stale delete failure after the project switch', async () => {
+    loginSession()
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+
+    let rejectDelete: (error: Error) => void = () => {}
+    api.delete.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectDelete = reject
+        }),
+    )
+    const pending = content.handleDelete(3)
+
+    core.currentProject = 'new'
+    useAccountsStore().clearSessionState()
+    await nextTick()
+
+    rejectDelete(new Error('locked'))
+    await pending
+
+    expect(api.list).not.toHaveBeenCalled()
+    expect(content.errorMessage.value).toBe('')
+    expect(reportError).not.toHaveBeenCalled()
+    expect(content.isMutating.value).toBe(false)
   })
 
   it('drops the stale list response when the project switches mid-load', async () => {

@@ -496,11 +496,16 @@ pub fn collect_asset_index_target(manifest: &VersionDetailsManifest) -> Result<I
 
 pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<IntegrityTarget>> {
     let mut targets = Vec::new();
+    let mut queued: HashSet<PathBuf> = HashSet::new();
     for asset in asset_index.objects.values() {
         ensure_valid_sha1(&asset.hash)?;
         let hash_prefix = &asset.hash[..2];
+        let rel_path = PathBuf::from(format!("assets/objects/{hash_prefix}/{}", asset.hash));
+        if !queued.insert(rel_path.clone()) {
+            continue;
+        }
         targets.push(IntegrityTarget {
-            rel_path: PathBuf::from(format!("assets/objects/{hash_prefix}/{}", asset.hash)),
+            rel_path,
             hash: asset.hash.clone(),
             hash_kind: HashKind::Sha1,
             download: TargetDownload::Url(format!(
@@ -512,12 +517,13 @@ pub fn collect_asset_targets(asset_index: &AssetIndexContent) -> Result<Vec<Inte
     Ok(targets)
 }
 
-pub async fn preflight_asset_disk_space(
-    base_path: &Path,
-    asset_index: &AssetIndexContent,
-) -> Result<()> {
+async fn count_missing_asset_bytes(base_path: &Path, asset_index: &AssetIndexContent) -> u64 {
+    let mut seen: HashSet<&str> = HashSet::new();
     let mut needed: u64 = 0;
     for asset in asset_index.objects.values() {
+        if !seen.insert(asset.hash.as_str()) {
+            continue;
+        }
         let Some(hash_prefix) = asset.hash.get(..2) else {
             continue;
         };
@@ -529,6 +535,14 @@ pub async fn preflight_asset_disk_space(
             needed += asset.size;
         }
     }
+    needed
+}
+
+pub async fn preflight_asset_disk_space(
+    base_path: &Path,
+    asset_index: &AssetIndexContent,
+) -> Result<()> {
+    let needed = count_missing_asset_bytes(base_path, asset_index).await;
     if needed == 0 {
         return Ok(());
     }
@@ -562,9 +576,9 @@ pub async fn preflight_asset_disk_space(
 mod tests {
     use super::{
         collect_asset_index_target, collect_asset_targets, collect_client_jar_target,
-        collect_library_targets, collect_natives_to_extract, extract_natives,
-        natives_match_version, preflight_asset_disk_space, should_download_library_for,
-        AssetIndexContent,
+        collect_library_targets, collect_natives_to_extract, count_missing_asset_bytes,
+        extract_natives, natives_match_version, preflight_asset_disk_space,
+        should_download_library_for, AssetIndexContent,
     };
     use crate::utils::env_info::{get_arch_label, get_current_os};
     #[tokio::test]
@@ -650,6 +664,57 @@ mod tests {
             targets[0].rel_path,
             PathBuf::from("assets/objects/ab/abcdef1234567890abcdef1234567890abcdef12")
         );
+    }
+
+    #[test]
+    fn asset_targets_dedupe_duplicate_hashes() {
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": {
+                "a.png": { "hash": "abcdef1234567890abcdef1234567890abcdef12", "size": 10 },
+                "b.png": { "hash": "abcdef1234567890abcdef1234567890abcdef12", "size": 10 },
+                "c.png": { "hash": "1234567890abcdef1234567890abcdef12345678", "size": 20 }
+            }
+        }))
+        .unwrap();
+
+        let targets = collect_asset_targets(&index).expect("валидные ассеты");
+
+        assert_eq!(
+            targets.len(),
+            2,
+            "разные имена с одним хешем должны давать одну цель: {targets:?}"
+        );
+        let unique: HashSet<&PathBuf> = targets.iter().map(|target| &target.rel_path).collect();
+        assert_eq!(
+            unique.len(),
+            targets.len(),
+            "пути целей не должны повторяться"
+        );
+    }
+
+    #[tokio::test]
+    async fn count_missing_asset_bytes_count_duplicate_hashes_once() {
+        let dir = LauncherDirGuard::acquire("preflight_dedup").await;
+        let base = dir.project_dir("Cordelia");
+        let hash = "abcdef1234567890abcdef1234567890abcdef12";
+        let index: AssetIndexContent = serde_json::from_value(serde_json::json!({
+            "objects": {
+                "a.png": { "hash": hash, "size": 1024 },
+                "b.png": { "hash": hash, "size": 1024 }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            count_missing_asset_bytes(&base, &index).await,
+            1024,
+            "дубль хеша должен учитываться в прогнозе места один раз"
+        );
+
+        std_fs::create_dir_all(base.join("assets/objects/ab")).unwrap();
+        std_fs::write(base.join(format!("assets/objects/ab/{hash}")), b"x").unwrap();
+
+        assert_eq!(count_missing_asset_bytes(&base, &index).await, 0);
     }
 
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;

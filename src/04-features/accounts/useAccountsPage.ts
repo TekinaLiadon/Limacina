@@ -6,7 +6,6 @@ import { useGameLaunch } from '@/04-features/game-launch/useGameLaunch'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
-import { hasUnsavedCpmAnimationChanges } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
 import { reportError, storeBinding, useAsyncAction } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
@@ -53,10 +52,6 @@ export function useAccountsPage() {
     }
     if (isIntegrityCheckRunning()) {
       notificationStore.show('Идёт проверка целостности, запуск невозможен')
-      return
-    }
-    if (hasUnsavedCpmAnimationChanges()) {
-      notificationStore.show('В редакторе анимаций есть несохранённые изменения, запуск игры заблокирован')
       return
     }
     if (isSwitching.value) {

@@ -11,6 +11,8 @@ defineProps<{
   needsLoaderVersion: boolean
   isLoadingMcVersions: boolean
   isLoadingLoaderVersions: boolean
+  mcVersionsError: string
+  loaderVersionsError: string
   isSubmitting: boolean
   isValid: boolean
   errorMessage: string
@@ -56,6 +58,7 @@ const emit = defineEmits<{
         @update:model-value="emit('update:form', { ...form, includeSnapshots: $event })"
         label="Показывать снапшоты"
       />
+      <p v-if="mcVersionsError" class="profile-form__error">{{ mcVersionsError }}</p>
     </div>
 
     <div class="offline-profile__field">
@@ -77,6 +80,7 @@ const emit = defineEmits<{
         :max-visible="6"
         :disabled="isLoadingLoaderVersions || loaderVersionOptions.length === 0"
       />
+      <p v-if="loaderVersionsError" class="profile-form__error">{{ loaderVersionsError }}</p>
     </div>
   </ProfileFormShell>
 </template>

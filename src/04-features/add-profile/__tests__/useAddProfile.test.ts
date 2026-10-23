@@ -8,28 +8,13 @@ import {
   type ProjectConfig,
 } from '@/05-entities'
 import { useAddProfile } from '../useAddProfile'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   clearSession: vi.fn(),
   createServerProfile: vi.fn(),
 }))
-
-const makeConfig = (name: string): ProjectConfig => ({
-  projectName: name,
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online: false,
-  initialized: false,
-  serverUrl: null,
-  autoJoinServer: false,
-})
 
 describe('useAddProfile', () => {
   beforeEach(() => {
@@ -56,7 +41,7 @@ describe('useAddProfile', () => {
   })
 
   it('creates the server profile and activates it', async () => {
-    vi.mocked(createServerProfile).mockResolvedValue(makeConfig('example'))
+    vi.mocked(createServerProfile).mockResolvedValue(makeProjectConfig({ projectName: 'example', online: false, initialized: false }))
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const core = useCoreStore()
     core.launcherConfig = {
@@ -84,10 +69,10 @@ describe('useAddProfile', () => {
     const created = await add.submitServer()
 
     expect(createServerProfile).toHaveBeenCalledWith('mc.example.com')
-    expect(created).toEqual(makeConfig('example'))
+    expect(created).toEqual(makeProjectConfig({ projectName: 'example', online: false, initialized: false }))
     expect(core.projects).toEqual(['example'])
     expect(core.currentProject).toBe('example')
-    expect(core.projectConfig).toEqual(makeConfig('example'))
+    expect(core.projectConfig).toEqual(makeProjectConfig({ projectName: 'example', online: false, initialized: false }))
     expect(core.launcherConfig?.projectNames).toEqual(['example'])
     expect(core.launcherConfig?.currentProject).toBe('example')
     expect(useAccountsStore().logins).toEqual([])
@@ -125,10 +110,10 @@ describe('useAddProfile', () => {
     expect(createServerProfile).toHaveBeenCalledWith('mc.example.com')
     expect(add.isSubmitting.value).toBe(true)
 
-    releaseCreate(makeConfig('example'))
+    releaseCreate(makeProjectConfig({ projectName: 'example', online: false, initialized: false }))
     const created = await first
 
-    expect(created).toEqual(makeConfig('example'))
+    expect(created).toEqual(makeProjectConfig({ projectName: 'example', online: false, initialized: false }))
     expect(add.isSubmitting.value).toBe(false)
   })
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { authLogins, authRefresh, getSessionInfo } from '@/06-shared/api'
-import { useAccountsStore, useCoreStore, type SessionInfo } from '@/05-entities'
+import { useAccountsStore, useCoreStore, useLaunchStore, type SessionInfo } from '@/05-entities'
 import { useAccounts } from '../useAccounts'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -93,6 +93,18 @@ describe('useAccounts', () => {
     expect(accountsStore.isLoggedIn).toBe(true)
     expect(accounts.selectedUsername.value).toBe('bob')
     expect(accounts.isLoading.value).toBe(false)
+  })
+
+  it('clears the previous launch error when the account changes', async () => {
+    const launch = useLaunchStore()
+    launch.loginError = 'Не удалось запустить игру'
+    const accounts = setupAccounts()
+    vi.mocked(authRefresh).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockResolvedValue(makeSession('bob'))
+
+    await accounts.handleSelect('bob')
+
+    expect(launch.loginError).toBe('')
   })
 
   it('reverts the selection and keeps the previous session on failure', async () => {

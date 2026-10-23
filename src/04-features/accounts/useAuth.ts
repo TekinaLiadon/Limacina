@@ -1,7 +1,7 @@
 import { computed, onMounted } from 'vue'
 import { useCoreStore, useNotificationStore, useAccountsStore, MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, isPasswordConfirmed, minLengthMessage, AUTH_LOGIN_TAB } from '@/05-entities'
-import { authLogin, authRegister, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { captureProjectScope, reportError, storeBinding } from '@/06-shared'
+import { authLogin, authRegister, getErrorMessage } from '@/06-shared/api'
+import { captureProjectScope, refreshSession, reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
 export function useAuth() {
@@ -84,13 +84,7 @@ export function useAuth() {
       )
       if (!scope.isCurrent()) return
 
-      try {
-        const session = await getSessionInfo()
-        if (!scope.isCurrent()) return
-        if (session) store.applySession(session)
-      } catch (e: unknown) {
-        reportError('Не удалось обновить сессию после входа', e)
-      }
+      await refreshSession(scope, store.applySession, 'Не удалось обновить сессию после входа')
 
       await loadAccounts()
       if (!scope.isCurrent()) return

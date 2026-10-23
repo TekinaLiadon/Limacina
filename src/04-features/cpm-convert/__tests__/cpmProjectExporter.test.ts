@@ -10,6 +10,7 @@ import {
   cpmProjectToBytes,
   cpmProjectToLinkBase64,
 } from '../cpmProjectExporter'
+import { VANILLA_PLAYER_PARTS } from '@/04-features/cpm-viewer/playerParts'
 
 const makeElement = (children: CPMChild[]): CPMElement => ({
   id: 'head',
@@ -305,6 +306,16 @@ describe('definition structure from the mod sources', () => {
       0, 0,
       0, 177,
     ])
+  })
+
+  it('addresses every vanilla root by its shared part ordinal', () => {
+    for (const part of VANILLA_PLAYER_PARTS) {
+      const bytes = cpmConfigToLinkBytes(
+        rootsConfig([{ ...makeRoot(part.id), pos: { x: 0.2, y: 0, z: 0 } }]),
+      )
+
+      expect(containsSequence(bytes, [7, 13, part.ordinal])).toBe(true)
+    }
   })
 
   it('skips PLAYER_PARTPOS inside the epsilon window', () => {

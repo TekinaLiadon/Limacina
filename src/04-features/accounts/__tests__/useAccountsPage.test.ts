@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { computed, nextTick, ref, shallowRef } from 'vue'
-import { createPinia, getActivePinia, setActivePinia } from 'pinia'
+import { computed } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import { authLogins, clearSession, deleteAccount, getGameState, getSessionInfo, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import {
   useAccountsStore,
@@ -8,15 +8,11 @@ import {
   useLaunchStore,
   useNotificationStore,
   useServerStore,
-  type CPMAnimation,
-  type CPMData,
-  type ProjectConfig,
 } from '@/05-entities'
 import { useAccountsPage } from '../useAccountsPage'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
-import { useCpmAnimationEditor } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
-import { createCpmEditorBridge } from '@/04-features/cpm-viewer/cpmEditorBridge'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig } from '@/test-support/fixtures'
 
 const stubs = vi.hoisted(() => ({
   executeSteps: vi.fn(),
@@ -59,22 +55,6 @@ vi.mock('@/04-features', async (importOriginal) => ({
   }),
 }))
 
-const makeProjectConfig = (online: boolean): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'vanilla',
-  loaderVersion: null,
-  javaPath: null,
-  javaVersion: null,
-  jvmArgs: [],
-  minMemory: '512',
-  maxMemory: '4096',
-  online,
-  initialized: true,
-  serverUrl: null,
-  autoJoinServer: false,
-})
-
 describe('useAccountsPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -107,7 +87,7 @@ describe('useAccountsPage', () => {
 
   it('detects the offline launcher server only for online projects', () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     const page = setupPage()
 
     expect(page.isServerOffline.value).toBe(false)
@@ -115,17 +95,17 @@ describe('useAccountsPage', () => {
     useServerStore().isServerReachable = false
     expect(page.isServerOffline.value).toBe(true)
 
-    core.projectConfig = makeProjectConfig(false)
+    core.projectConfig = makeProjectConfig({ online: false })
     expect(page.isServerOffline.value).toBe(false)
 
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     core.offlineBuild = true
     expect(page.isServerOffline.value).toBe(false)
   })
 
   it('blocks the launch while the launcher server is offline', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     useServerStore().isServerReachable = false
     const page = setupPage()
 
@@ -139,7 +119,7 @@ describe('useAccountsPage', () => {
 
   it('blocks the launch while a file integrity check is running', async () => {
     const core = useCoreStore()
-    core.projectConfig = makeProjectConfig(true)
+    core.projectConfig = makeProjectConfig({ online: true })
     stubs.isIntegrityCheckRunning.mockReturnValue(true)
     const page = setupPage()
 
@@ -149,58 +129,6 @@ describe('useAccountsPage', () => {
     expect(getGameState).not.toHaveBeenCalled()
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe('Идёт проверка целостности, запуск невозможен')
-  })
-
-  it('blocks the launch while the animation editor has unsaved changes', async () => {
-    const pinia = getActivePinia()
-    if (!pinia) throw new Error('pinia is not active')
-    const animation: CPMAnimation = {
-      id: 'g_wave.json',
-      name: 'Машет',
-      kind: 'gesture',
-      duration: 1000,
-      priority: 0,
-      loop: false,
-      additive: false,
-      interpolator: 'linear_loop',
-      hidden: false,
-      frames: Array.from({ length: 6 }, () => ({ components: [] })),
-    }
-    const data = shallowRef<CPMData | null>(null)
-    const { result: editor, unmount } = withSetup(() => useCpmAnimationEditor({
-      data,
-      projectBytes: ref<Uint8Array | null>(null),
-      bridge: createCpmEditorBridge(),
-    }), [pinia])
-
-    data.value = {
-      config: {
-        skinSize: { x: 64, y: 64 },
-        elements: [{
-          id: 'head',
-          name: 'Head',
-          pos: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0 },
-        }],
-      },
-      textureUrl: 'blob:model',
-      animations: [animation],
-    }
-    await nextTick()
-    editor.startEditing('g_wave.json')
-    editor.setBoneRotation('y', 30)
-
-    const page = setupPage()
-    await page.handleLaunch()
-
-    expect(stubs.executeSteps).not.toHaveBeenCalled()
-    expect(getGameState).not.toHaveBeenCalled()
-    expect(useLaunchStore().isLaunching).toBe(false)
-    expect(useNotificationStore().message).toBe(
-      'В редакторе анимаций есть несохранённые изменения, запуск игры заблокирован',
-    )
-
-    unmount()
   })
 
   it('blocks the launch while the current account already has a running game', async () => {
@@ -301,7 +229,7 @@ describe('useAccountsPage', () => {
           releaseSwitch = resolve
         }),
     )
-    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig(true))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ online: true }))
     vi.mocked(authLogins).mockResolvedValue([])
     const projectSwitch = useProjectSwitch()
     const pendingSwitch = projectSwitch.selectProject('beta')

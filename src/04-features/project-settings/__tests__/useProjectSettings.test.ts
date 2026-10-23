@@ -25,6 +25,7 @@ import { useKillGame } from '@/04-features/game-session/useKillGame'
 import { useProjectSettings } from '../useProjectSettings'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { withSetup } from '@/test-support/withSetup'
+import { makeProjectConfig as projectConfigFixture } from '@/test-support/fixtures'
 
 const api = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
@@ -62,22 +63,18 @@ vi.mock('vue-router', () => ({
   useRouter: (): { replace: (route: unknown) => void; push: (route: unknown) => void } => router,
 }))
 
-const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
-  projectName: 'proj',
-  mcVersion: '1.20.1',
-  modLoader: 'fabric',
-  loaderVersion: '0.14.21',
-  javaPath: '/java/temurin',
-  javaVersion: 17,
-  jvmArgs: ['-Xms512M', '-XX:+UseG1GC'],
-  minMemory: '-Xms512M',
-  maxMemory: '-Xmx4G',
-  online: true,
-  initialized: true,
-  serverUrl: 'https://example.com',
-  autoJoinServer: false,
-  ...overrides,
-})
+const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig =>
+  projectConfigFixture({
+    modLoader: 'fabric',
+    loaderVersion: '0.14.21',
+    javaPath: '/java/temurin',
+    javaVersion: 17,
+    jvmArgs: ['-Xms512M', '-XX:+UseG1GC'],
+    minMemory: '-Xms512M',
+    maxMemory: '-Xmx4G',
+    serverUrl: 'https://example.com',
+    ...overrides,
+  })
 
 const makeLauncherConfig = (projectNames: string[]): LauncherConfig => ({
   launcherPath: '/games/limacina',
