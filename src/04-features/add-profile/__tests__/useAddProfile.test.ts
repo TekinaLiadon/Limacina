@@ -4,6 +4,7 @@ import { clearSession, createServerProfile } from '@/06-shared/api'
 import {
   useAccountsStore,
   useCoreStore,
+  useLaunchStore,
   useNotificationStore,
   type ProjectConfig,
 } from '@/05-entities'
@@ -80,6 +81,34 @@ describe('useAddProfile', () => {
     expect(add.serverForm.value.serverUrl).toBe('')
     expect(useNotificationStore().message).toBe('Сервер "example" добавлен')
     expect(add.isSubmitting.value).toBe(false)
+  })
+
+  it('blocks the server submit while a game is running', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['Steve']
+    const add = useAddProfile()
+    add.serverForm.value.serverUrl = 'mc.example.com'
+
+    const created = await add.submitServer()
+
+    expect(created).toBeNull()
+    expect(createServerProfile).not.toHaveBeenCalled()
+    expect(launch.gameUsernames).toEqual(['Steve'])
+    expect(useNotificationStore().message).toBe('Нельзя добавить профиль, пока запущена игра')
+  })
+
+  it('blocks the server submit while a launch is in progress', async () => {
+    const launch = useLaunchStore()
+    launch.isLaunching = true
+    const add = useAddProfile()
+    add.serverForm.value.serverUrl = 'mc.example.com'
+
+    const created = await add.submitServer()
+
+    expect(created).toBeNull()
+    expect(createServerProfile).not.toHaveBeenCalled()
+    expect(launch.isLaunching).toBe(true)
+    expect(useNotificationStore().message).toBe('Дождитесь завершения запуска игры')
   })
 
   it('does not submit an invalid server form', async () => {
