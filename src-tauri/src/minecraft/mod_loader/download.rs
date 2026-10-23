@@ -109,4 +109,21 @@ mod tests {
         )]);
         assert!(targets.is_err());
     }
+
+    #[test]
+    fn targets_reject_hostile_maven_names() {
+        for name in [
+            "..:evil:1.0",
+            "../..:evil:1.0",
+            "/etc:passwd:1.0",
+            "C::evil:1.0",
+            "net.fabricmc:..:1.0",
+        ] {
+            let targets = library_targets(&[lib(name, "https://maven.fabricmc.net", "abc")]);
+            assert!(
+                targets.is_err(),
+                "враждебное имя библиотеки должно отклоняться: {name}"
+            );
+        }
+    }
 }

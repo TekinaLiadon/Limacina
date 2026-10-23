@@ -639,6 +639,80 @@ mod loader_install_tests {
         );
     }
 
+    #[tokio::test]
+    async fn setup_loader_fast_path_rejects_hostile_library_name_without_files() {
+        fn collect_files(dir: &Path) -> Vec<PathBuf> {
+            let mut out = Vec::new();
+            let mut stack = vec![dir.to_path_buf()];
+            while let Some(next) = stack.pop() {
+                for entry in std::fs::read_dir(&next).expect("чтение каталога").flatten()
+                {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else {
+                        out.push(path);
+                    }
+                }
+            }
+            out.sort();
+            out
+        }
+
+        let dir = LauncherDirGuard::acquire("loader_setup_hostile").await;
+        let manifest_path = crate::test_support::write_loader_manifest(
+            dir.root(),
+            "forge_evil",
+            &json!({
+                "id": "1.20.1-forge-evil",
+                "time": "2023-01-01T00:00:00+00:00",
+                "releaseTime": "2023-01-01T00:00:00+00:00",
+                "type": "release",
+                "mainClass": "net.minecraftforge.bootstrap.Bootstrap",
+                "inheritsFrom": "1.20.1",
+                "libraries": [
+                    {
+                        "name": "../..:evil:1.0",
+                        "downloads": { "artifact": { "path": "", "url": "", "sha1": "", "size": 1 } }
+                    }
+                ]
+            }),
+        );
+
+        let state = ProjectConfig {
+            project_name: "EvilProj".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("evil".to_string()),
+            ..ProjectConfig::default()
+        };
+        let manifest = vec![VersionMod {
+            url: String::new(),
+            id: "1.20.1-evil".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+
+        let error = setup_loader(
+            "Forge",
+            "forge",
+            &state,
+            &manifest,
+            "https://maven.minecraftforge.net",
+        )
+        .await
+        .expect_err("враждебное имя библиотеки должно отклоняться");
+
+        assert!(
+            error.to_string().contains("Некорректная Maven-координата"),
+            "ошибка должна называть враждебную координату: {error}"
+        );
+        assert_eq!(
+            collect_files(dir.root()),
+            vec![manifest_path],
+            "никаких файлов, кроме самого манифеста, создаваться не должно"
+        );
+    }
+
     fn neoforge_manifest_json() -> serde_json::Value {
         let mergetool_sha1 = sha1_hex(b"mergetool bytes");
         json!({

@@ -56,13 +56,18 @@ fn parse_maven(coord: &str) -> Result<MavenCoord> {
         return Err(invalid());
     }
 
-    Ok(MavenCoord {
+    let coord = MavenCoord {
         group_path: group_id.replace('.', "/"),
         artifact_id: artifact_id.to_string(),
         version: version.to_string(),
         classifier: classifier.map(str::to_string),
         extension,
-    })
+    };
+    if !coord.rel_path().to_str().is_some_and(is_safe_relative_path) {
+        return Err(invalid());
+    }
+
+    Ok(coord)
 }
 
 pub fn maven_to_path(name: &str) -> Result<PathBuf> {
@@ -107,6 +112,7 @@ pub fn library_rel_path(lib: &LibraryMod) -> Result<PathBuf> {
 mod maven_coords_tests {
     use super::{library_rel_path, maven_to_path, maven_to_url};
     use crate::test_support::library_mod;
+    use crate::utils::errors::LauncherError;
 
     #[test]
     fn path_for_valid_coordinate() {
@@ -193,6 +199,64 @@ mod maven_coords_tests {
         assert!(maven_to_url(":fabric-loader:0.16.9", "https://maven.fabricmc.net").is_err());
         assert!(maven_to_url("net.fabricmc::0.16.9", "https://maven.fabricmc.net").is_err());
         assert!(maven_to_url("net.fabricmc:fabric-loader:", "https://maven.fabricmc.net").is_err());
+    }
+
+    #[test]
+    fn path_accepts_live_loader_coordinates() {
+        for name in [
+            "net.minecraftforge:forge:1.20.1-47.3.0:universal",
+            "cpw.mods:securejarhandler:2.1.10",
+            "net.neoforged.fancymodloader:loader:2.0.4",
+            "net.fabricmc:intermediary:1.20.1",
+            "net.fabricmc:fabric-loader:0.16.9",
+            "org.ow2.asm:asm:9.7",
+        ] {
+            assert!(
+                maven_to_path(name).is_ok(),
+                "живая координата из манифеста не должна отклоняться: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_rejects_unsafe_coordinates() {
+        for name in [
+            "..:evil:1.0",
+            "../..:evil:1.0",
+            "/etc:passwd:1.0",
+            "C::evil:1.0",
+            "..\\..:evil:1.0",
+            "net.fabricmc:..:1.0",
+            "net.fabricmc:fabric-loader:..",
+            "net.fabricmc:fabric-loader:0.16.9@../../evil.jar",
+        ] {
+            assert!(
+                maven_to_path(name).is_err(),
+                "небезопасная координата должна отклоняться: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn url_rejects_unsafe_coordinates() {
+        assert!(maven_to_url("..:evil:1.0", "https://maven.fabricmc.net").is_err());
+        assert!(maven_to_url("/etc:passwd:1.0", "https://maven.fabricmc.net").is_err());
+        assert!(maven_to_url("C::evil:1.0", "https://maven.fabricmc.net").is_err());
+    }
+
+    #[test]
+    fn library_rel_path_rejects_unsafe_name_derived_path() {
+        let lib = library_mod("../..:evil:1.0", "");
+
+        let error = library_rel_path(&lib).expect_err("враждебная координата должна отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::LoaderSetup(_))
+            ),
+            "ошибка должна быть LoaderSetup: {error}"
+        );
     }
 
     #[test]
