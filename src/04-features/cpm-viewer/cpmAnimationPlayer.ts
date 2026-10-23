@@ -350,7 +350,6 @@ export interface CpmPlayerHost {
   activeLayerIds: Ref<number[]>
   isPlaying: Ref<boolean>
   onFinished: () => void
-  hiddenStoreIds?: Ref<ReadonlySet<number>> | undefined
 }
 
 export interface SharedClock {
@@ -518,11 +517,11 @@ export class CpmAnimationPlayer {
   }
 
   resetNodes(): void {
-    this.index.forEach((node, storeId) => {
+    this.index.forEach((node) => {
       node.group.position.copy(node.basePos)
       node.group.rotation.copy(node.baseRot)
       node.group.scale.copy(node.baseScale)
-      node.group.visible = node.baseVisible && !this.isHiddenByEditor(storeId)
+      node.group.visible = node.baseVisible
       node.meshes.forEach((mesh) => {
         const layerId = mesh.userData.layerId as number | undefined
         mesh.userData.animVisible = mesh.userData.defaultVisible !== false
@@ -605,7 +604,7 @@ export class CpmAnimationPlayer {
       }
 
       if (!node.isVanillaPart) {
-        const visible = show && !this.isHiddenByEditor(track.storeId)
+        const visible = show
         node.group.visible = visible
         node.meshes.forEach((mesh) => {
           mesh.userData.animVisible = visible
@@ -618,9 +617,5 @@ export class CpmAnimationPlayer {
         })
       }
     })
-  }
-
-  private isHiddenByEditor(storeId: number): boolean {
-    return this.host.hiddenStoreIds?.value.has(storeId) === true
   }
 }

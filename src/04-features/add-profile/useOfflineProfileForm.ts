@@ -9,11 +9,10 @@ import {
 } from '@/05-entities'
 import {
   createOfflineProfile,
-  getErrorMessage,
   getLoaderVersions,
   getMinecraftVersions,
 } from '@/06-shared/api'
-import { reportError, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
+import { runScopedAction, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
 
 const loaderOption = (value: ModLoaderKind): DropdownOption => ({
@@ -45,6 +44,8 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
 
   const mcVersions = ref<string[]>([])
   const loaderVersions = ref<string[]>([])
+  const mcVersionsError = ref<string>('')
+  const loaderVersionsError = ref<string>('')
   const isLoadingMcVersions = ref<boolean>(false)
   const isLoadingLoaderVersions = ref<boolean>(false)
 
@@ -71,26 +72,22 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
   })
 
   const loadMcVersions = async (): Promise<void> => {
-    const generation = mcVersionsGuard.next()
-
-    isLoadingMcVersions.value = true
-    errorMessage.value = ''
-
-    try {
-      const versions = await getMinecraftVersions(offlineForm.value.includeSnapshots)
-      if (!mcVersionsGuard.isCurrent(generation)) return
-      mcVersions.value = versions
-      if (!mcVersions.value.includes(offlineForm.value.mcVersion)) {
-        offlineForm.value.mcVersion = mcVersions.value[0] ?? ''
-      }
-    } catch (e: unknown) {
-      if (!mcVersionsGuard.isCurrent(generation)) return
-      reportError('Не удалось загрузить версии Minecraft', e)
-      errorMessage.value = getErrorMessage(e)
-      mcVersions.value = []
-    } finally {
-      if (mcVersionsGuard.isCurrent(generation)) isLoadingMcVersions.value = false
-    }
+    await runScopedAction({
+      guard: mcVersionsGuard,
+      busyFlag: isLoadingMcVersions,
+      errorTarget: mcVersionsError,
+      errorMessage: 'Не удалось загрузить версии Minecraft',
+      run: (): Promise<string[]> => getMinecraftVersions(offlineForm.value.includeSnapshots),
+      onError: (): void => {
+        mcVersions.value = []
+      },
+      apply: (versions: string[]): void => {
+        mcVersions.value = versions
+        if (!mcVersions.value.includes(offlineForm.value.mcVersion)) {
+          offlineForm.value.mcVersion = mcVersions.value[0] ?? ''
+        }
+      },
+    })
   }
 
   const loadLoaderVersions = async (): Promise<void> => {
@@ -98,40 +95,39 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
       loaderVersionsGuard.cancel()
       isLoadingLoaderVersions.value = false
       loaderVersions.value = []
+      loaderVersionsError.value = ''
       offlineForm.value.loaderVersion = ''
       return
     }
 
-    const generation = loaderVersionsGuard.next()
-
-    isLoadingLoaderVersions.value = true
-    errorMessage.value = ''
-
-    try {
-      const versions = await getLoaderVersions(
+    await runScopedAction({
+      guard: loaderVersionsGuard,
+      busyFlag: isLoadingLoaderVersions,
+      errorTarget: loaderVersionsError,
+      errorMessage: 'Не удалось загрузить версии загрузчика',
+      run: (): Promise<string[]> => getLoaderVersions(
         offlineForm.value.modLoader,
-        offlineForm.value.mcVersion
-      )
-      if (!loaderVersionsGuard.isCurrent(generation)) return
-      loaderVersions.value = versions
-      offlineForm.value.loaderVersion = loaderVersions.value[0] ?? ''
-      if (loaderVersions.value.length === 0) {
-        errorMessage.value = `Нет версий ${offlineForm.value.modLoader} для Minecraft ${offlineForm.value.mcVersion}`
-      }
-    } catch (e: unknown) {
-      if (!loaderVersionsGuard.isCurrent(generation)) return
-      reportError('Не удалось загрузить версии загрузчика', e)
-      errorMessage.value = getErrorMessage(e)
-      loaderVersions.value = []
-      offlineForm.value.loaderVersion = ''
-    } finally {
-      if (loaderVersionsGuard.isCurrent(generation)) isLoadingLoaderVersions.value = false
-    }
+        offlineForm.value.mcVersion,
+      ),
+      onError: (): void => {
+        loaderVersions.value = []
+        offlineForm.value.loaderVersion = ''
+      },
+      apply: (versions: string[]): void => {
+        loaderVersions.value = versions
+        offlineForm.value.loaderVersion = loaderVersions.value[0] ?? ''
+        if (loaderVersions.value.length === 0) {
+          loaderVersionsError.value = `Нет версий ${offlineForm.value.modLoader} для Minecraft ${offlineForm.value.mcVersion}`
+        }
+      },
+    })
   }
 
   const selectKind = async (value: ProfileKind): Promise<void> => {
     kind.value = value
     errorMessage.value = ''
+    mcVersionsError.value = ''
+    loaderVersionsError.value = ''
 
     if (value === 'offline' && mcVersions.value.length === 0) {
       await loadMcVersions()
@@ -142,27 +138,24 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
     if (isSubmitting.value) return null
     if (!isOfflineValid.value) return null
 
-    isSubmitting.value = true
-    errorMessage.value = ''
-
-    try {
-      const config = await createOfflineProfile(
+    const created = await runScopedAction({
+      busyFlag: isSubmitting,
+      errorTarget: errorMessage,
+      errorMessage: 'Не удалось создать профиль',
+      run: (): Promise<ProjectConfig> => createOfflineProfile(
         offlineForm.value.name.trim(),
         offlineForm.value.mcVersion,
         offlineForm.value.modLoader,
-        needsLoaderVersion.value ? offlineForm.value.loaderVersion : null
-      )
-      await applyCreatedProfile(config)
-      offlineForm.value.name = ''
-      notification.show(`Профиль "${config.projectName}" создан`)
-      return config
-    } catch (e: unknown) {
-      reportError('Не удалось создать профиль', e)
-      errorMessage.value = getErrorMessage(e)
-      return null
-    } finally {
-      isSubmitting.value = false
-    }
+        needsLoaderVersion.value ? offlineForm.value.loaderVersion : null,
+      ),
+      apply: async (config: ProjectConfig): Promise<ProjectConfig> => {
+        await applyCreatedProfile(config)
+        offlineForm.value.name = ''
+        notification.show(`Профиль "${config.projectName}" создан`)
+        return config
+      },
+    })
+    return created ?? null
   }
 
   watch(() => offlineForm.value.includeSnapshots, loadMcVersions)
@@ -180,6 +173,8 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
     needsLoaderVersion,
     isLoadingMcVersions,
     isLoadingLoaderVersions,
+    mcVersionsError,
+    loaderVersionsError,
     isOfflineValid,
     selectKind,
     submitOffline,

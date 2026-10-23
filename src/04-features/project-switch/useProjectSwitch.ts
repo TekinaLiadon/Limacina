@@ -9,10 +9,9 @@ import {
   projectSettingsFormFromConfig,
 } from '@/05-entities'
 import { authLogins, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
-import { reportError, type DropdownOption } from '@/06-shared'
+import { reportError, runScopedAction, type DropdownOption } from '@/06-shared'
 import { finalizeSession } from '@/04-features/accounts/finalizeSession'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
-import { hasUnsavedCpmAnimationChanges } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
 
 const isProjectSwitching = ref<boolean>(false)
 
@@ -44,9 +43,6 @@ export function useProjectSwitch() {
     if (launchStore.gameUsernames.length > 0) return 'Нельзя переключить проект, пока запущена игра'
     if (launchStore.isLaunching) return 'Дождитесь завершения запуска игры'
     if (accountsStore.authLoading || accountsStore.isLoading) return 'Дождитесь завершения авторизации'
-    if (hasUnsavedCpmAnimationChanges()) {
-      return 'В редакторе анимаций есть несохранённые изменения, переключение проекта заблокировано'
-    }
     return null
   }
 
@@ -96,23 +92,27 @@ export function useProjectSwitch() {
 
     let backendOnNewProject = false
 
-    try {
-      await saveCurrentProject(projectName)
-      backendOnNewProject = true
-      await applyProjectSwitch(projectName)
-    } catch (e: unknown) {
-      reportError('Не удалось переключить проект', e)
-      let message = getErrorMessage(e)
-      if (backendOnNewProject && coreStore.currentProject === previousProject) {
-        const restored = await restoreSavedProject(previousProject)
-        if (!restored) {
-          message = `${message}. Не удалось вернуть предыдущий проект, после перезапуска откроется "${projectName}"`
+    await runScopedAction({
+      errorMessage: 'Не удалось переключить проект',
+      run: async (): Promise<void> => {
+        await saveCurrentProject(projectName)
+        backendOnNewProject = true
+        await applyProjectSwitch(projectName)
+      },
+      onError: async (e: unknown): Promise<void> => {
+        let message = getErrorMessage(e)
+        if (backendOnNewProject && coreStore.currentProject === previousProject) {
+          const restored = await restoreSavedProject(previousProject)
+          if (!restored) {
+            message = `${message}. Не удалось вернуть предыдущий проект, после перезапуска откроется "${projectName}"`
+          }
         }
-      }
-      notification.show(message)
-    } finally {
-      isProjectSwitching.value = false
-    }
+        notification.show(message)
+      },
+      cleanup: (): void => {
+        isProjectSwitching.value = false
+      },
+    })
   }
 
   return {

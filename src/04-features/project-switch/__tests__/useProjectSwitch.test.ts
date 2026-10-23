@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, getActivePinia, setActivePinia } from 'pinia'
-import { nextTick, ref, shallowRef } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import {
   authLogins,
   clearSession,
@@ -15,13 +14,8 @@ import {
   useNotificationStore,
   useProjectSettingsStore,
   useSettingsDirtyStore,
-  type CPMAnimation,
-  type CPMData,
 } from '@/05-entities'
 import { useKillGame } from '@/04-features/game-session/useKillGame'
-import { useCpmAnimationEditor, hasUnsavedCpmAnimationChanges } from '@/04-features/cpm-animation-editor/useCpmAnimationEditor'
-import { createCpmEditorBridge } from '@/04-features/cpm-viewer/cpmEditorBridge'
-import { withSetup } from '@/test-support/withSetup'
 import { makeProjectConfig } from '@/test-support/fixtures'
 import { useProjectSwitch } from '../useProjectSwitch'
 
@@ -445,59 +439,5 @@ describe('useProjectSwitch', () => {
     expect(useNotificationStore().message).toBe(
       'config locked. Не удалось вернуть предыдущий проект, после перезапуска откроется "beta"',
     )
-  })
-
-  it('blocks a project switch while the animation editor has unsaved changes', async () => {
-    const pinia = getActivePinia()
-    if (!pinia) throw new Error('pinia is not active')
-    const animation: CPMAnimation = {
-      id: 'g_wave.json',
-      name: 'Машет',
-      kind: 'gesture',
-      duration: 1000,
-      priority: 0,
-      loop: false,
-      additive: false,
-      interpolator: 'linear_loop',
-      hidden: false,
-      frames: Array.from({ length: 6 }, () => ({ components: [] })),
-    }
-    const data = shallowRef<CPMData | null>(null)
-    const { result: editor, unmount } = withSetup(() => useCpmAnimationEditor({
-      data,
-      projectBytes: ref<Uint8Array | null>(null),
-      bridge: createCpmEditorBridge(),
-    }), [pinia])
-
-    data.value = {
-      config: {
-        skinSize: { x: 64, y: 64 },
-        elements: [{
-          id: 'head',
-          name: 'Head',
-          pos: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0 },
-        }],
-      },
-      textureUrl: 'blob:model',
-      animations: [animation],
-    }
-    await nextTick()
-    editor.startEditing('g_wave.json')
-    editor.setBoneRotation('y', 30)
-    expect(hasUnsavedCpmAnimationChanges()).toBe(true)
-
-    const core = useCoreStore()
-    core.currentProject = 'alpha'
-    core.projects = ['alpha', 'beta']
-    const ps = useProjectSwitch()
-
-    await ps.selectProject('beta')
-
-    expect(useNotificationStore().message).toContain('переключение проекта заблокировано')
-    expect(saveCurrentProject).not.toHaveBeenCalled()
-    expect(core.currentProject).toBe('alpha')
-
-    unmount()
   })
 })

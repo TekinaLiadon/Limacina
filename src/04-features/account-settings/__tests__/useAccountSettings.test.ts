@@ -169,6 +169,26 @@ describe('useAccountSettings', () => {
     expect(accounts.session).toEqual(makeSession('alice'))
   })
 
+  it('does not apply the refreshed session when the project changed during the refresh', async () => {
+    const core = useCoreStore()
+    const accounts = useAccountsStore()
+    core.currentProject = 'proj'
+    accounts.applySession(makeSession('alice'))
+    vi.mocked(changePassword).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockImplementation(async () => {
+      core.currentProject = 'other'
+      return { uuid: 'u-2', username: 'bob' }
+    })
+    const settings = useAccountSettings()
+    fillForm(settings)
+
+    await settings.handleChangePassword()
+
+    expect(accounts.session).toEqual(makeSession('alice'))
+    expect(accounts.isLoggedIn).toBe(true)
+    expect(settings.isChanging.value).toBe(false)
+  })
+
   it('skips the session refresh and the toast when the project changed during the change', async () => {
     const core = useCoreStore()
     const accounts = useAccountsStore()

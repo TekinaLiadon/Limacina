@@ -5,6 +5,7 @@ import type { LauncherBehaviorForm } from '@/05-entities'
 
 defineProps<{
   form: LauncherBehaviorForm
+  speedLimitError: string
 }>()
 
 const emit = defineEmits<{
@@ -55,13 +56,17 @@ const emit = defineEmits<{
         label="Обновлять лаунчер автоматически"
         @update:model-value="emit('update:form', { ...form, autoUpdate: $event })"
       />
-      <Input
-        class="launcher-behavior__speed span-full"
-        :model-value="form.downloadSpeedLimit"
-        :options="{ label: 'Ограничение скорости скачивания (КБ/с)', placeholder: 'Без ограничений', type: 'number' }"
-        :min="1"
-        @update:model-value="emit('update:form', { ...form, downloadSpeedLimit: $event })"
-      />
+      <div class="launcher-behavior__speed span-full">
+        <Input
+          :class="{ 'launcher-behavior__speed-input--invalid': speedLimitError !== '' }"
+          :model-value="form.downloadSpeedLimit"
+          :options="{ label: 'Ограничение скорости скачивания (КБ/с)', placeholder: 'Без ограничений', type: 'number' }"
+          :min="1"
+          :aria-invalid="speedLimitError !== '' ? 'true' : undefined"
+          @update:model-value="emit('update:form', { ...form, downloadSpeedLimit: $event })"
+        />
+        <p v-if="speedLimitError" class="launcher-behavior__speed-error">{{ speedLimitError }}</p>
+      </div>
     </div>
   </SettingsSection>
 
@@ -82,8 +87,23 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .launcher-behavior__speed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
   width: 100%;
   max-width: var(--settings-row-width);
+}
+
+.launcher-behavior__speed-input--invalid .input__text {
+  box-shadow: inset 0 0 0 1px var(--error-border);
+}
+
+.launcher-behavior__speed-error {
+  @include mixins.error-box;
+
+  margin: 0;
 }
 </style>

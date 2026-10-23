@@ -18,7 +18,6 @@ afterAll((): void => {
 })
 
 interface ViewerProps {
-  workspace?: boolean
   fullscreen?: boolean
 }
 
@@ -31,21 +30,6 @@ const mountViewer = (props: ViewerProps = {}) =>
     },
     attachTo: document.body,
   })
-
-const mountWorkspace = async (props: ViewerProps = {}): Promise<VueWrapper> => {
-  const wrapper = mount(Viewer3D, {
-    props: { workspace: true, fullscreen: false, ...props },
-    slots: {
-      default: '<div class="fake-canvas" />',
-      head: '<div class="fake-head">Голова</div>',
-      side: '<div class="fake-side">Настройки</div>',
-      bottom: '<div class="fake-timeline">Кадры</div>',
-    },
-    attachTo: document.body,
-  })
-  await wrapper.setProps({ fullscreen: true })
-  return wrapper
-}
 
 const fullscreenOverlay = (): HTMLElement | null => document.body.querySelector('.popup-shell__overlay')
 
@@ -71,8 +55,6 @@ describe('Viewer3D', () => {
 
     expect(fullscreenOverlay()).not.toBeNull()
     expect(isOverlayHidden()).toBe(true)
-    expect(document.body.querySelector('.viewer-3d-fullscreen__head')).toBeNull()
-    expect(document.body.querySelector('.viewer-3d-fullscreen__side')).toBeNull()
   })
 
   it('renders the fullscreen overlay as a modal dialog with an accessible name', async () => {
@@ -122,32 +104,6 @@ describe('Viewer3D', () => {
 
     expect(wrapper.emitted('update:fullscreen')).toEqual([[true]])
     expect(isOverlayHidden()).toBe(true)
-
-    wrapper.unmount()
-  })
-
-  it('renders the head and side panels in workspace mode', async () => {
-    const wrapper = await mountWorkspace()
-
-    expect(document.body.querySelector('.viewer-3d-fullscreen__head')).not.toBeNull()
-    expect(document.body.querySelector('.viewer-3d-fullscreen__side')).not.toBeNull()
-    expect(document.body.querySelector('.viewer-3d-fullscreen__content--workspace')).not.toBeNull()
-
-    wrapper.unmount()
-  })
-
-  it('lays out the scene, the settings column and the frame panel in workspace mode', async () => {
-    const wrapper = await mountWorkspace()
-
-    const head = document.body.querySelector('.viewer-3d-fullscreen__head')
-    const side = document.body.querySelector('.viewer-3d-fullscreen__side')
-    const bottom = document.body.querySelector('.viewer-3d-fullscreen__bottom')
-    const stage = document.body.querySelector('.viewer-3d-fullscreen__scene .viewer-3d-fullscreen__stage')
-
-    expect(head?.textContent).toContain('Голова')
-    expect(side?.textContent).toContain('Настройки')
-    expect(bottom?.textContent).toContain('Кадры')
-    expect(stage?.querySelector('.fake-canvas')).not.toBeNull()
 
     wrapper.unmount()
   })

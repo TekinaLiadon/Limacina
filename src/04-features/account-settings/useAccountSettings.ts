@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { useCoreStore, useAccountsStore, useNotificationStore, MIN_PASSWORD_LENGTH, isPasswordConfirmed } from '@/05-entities'
-import { changePassword, getErrorMessage, getSessionInfo } from '@/06-shared/api'
-import { captureProjectScope, reportError, useAsyncAction } from '@/06-shared'
+import { changePassword, getErrorMessage } from '@/06-shared/api'
+import { captureProjectScope, refreshSession, reportError, useAsyncAction } from '@/06-shared'
 
 export function useAccountSettings() {
   const coreStore = useCoreStore()
@@ -64,12 +64,7 @@ export function useAccountSettings() {
       )
       if (!scope.isCurrent()) return
 
-      try {
-        const session = await getSessionInfo()
-        if (session) accountsStore.applySession(session)
-      } catch (e: unknown) {
-        reportError('Не удалось обновить сессию после смены пароля', e)
-      }
+      await refreshSession(scope, accountsStore.applySession, 'Не удалось обновить сессию после смены пароля')
 
       notification.show('Пароль изменён')
       resetForm()

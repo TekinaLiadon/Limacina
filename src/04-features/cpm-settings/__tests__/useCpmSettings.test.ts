@@ -35,6 +35,8 @@ vi.mock('@/06-shared', async (importOriginal) => ({
   reportError,
 }))
 
+vi.mock('@/06-shared/utils/reportError', () => ({ reportError }))
+
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   deleteModel: vi.fn(),
@@ -511,6 +513,40 @@ describe('useCpmSettings', () => {
     expect(cpm.errorMessage.value).toBe('denied')
     expect(reportError).toHaveBeenCalledWith('Не удалось удалить модель', expect.objectContaining({ message: 'also down' }))
     expect(reportError).toHaveBeenCalledWith('Не удалось сохранить модель', expect.objectContaining({ message: 'denied' }))
+    expect(cpm.isUploading.value).toBe(false)
+  })
+
+  it('rolls back the uploaded model without an error after the project switches mid-upload', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(deleteModel).mockResolvedValue(undefined)
+    vi.mocked(listModels).mockResolvedValue([])
+    exporter.cpmProjectToLinkBase64.mockResolvedValue('base64-link')
+    let rejectSave: (error: Error) => void = () => {}
+    vi.mocked(savePlayerModel).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject
+        }),
+    )
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    const pending = cpm.handleUploadModel()
+    await vi.waitFor(() => expect(savePlayerModel).toHaveBeenCalledOnce())
+
+    core.currentProject = 'other'
+    await nextTick()
+    rejectSave(new Error('denied'))
+    await pending
+
+    expect(deleteModel).toHaveBeenCalledWith(9)
+    expect(cpm.errorMessage.value).toBe('')
     expect(cpm.isUploading.value).toBe(false)
   })
 

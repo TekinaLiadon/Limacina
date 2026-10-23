@@ -323,6 +323,76 @@ describe('useUserContent', () => {
     await pendingUpload
   })
 
+  it('drops a stale upload after the project switch and keeps the new upload running', async () => {
+    loginSession()
+    const core = useCoreStore()
+    const notification = useNotificationStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+
+    let releaseOld: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseOld = resolve
+        }),
+    )
+    const oldUpload = content.handleUpload({ data: 'old' })
+
+    core.currentProject = 'new'
+    useAccountsStore().clearSessionState()
+    await nextTick()
+    expect(content.isUploading.value).toBe(false)
+
+    let releaseNew: (item: UserContentItem) => void = () => {}
+    api.upload.mockImplementationOnce(
+      () =>
+        new Promise<UserContentItem>((resolve) => {
+          releaseNew = resolve
+        }),
+    )
+    const newUpload = content.handleUpload({ data: 'new' })
+    expect(content.isUploading.value).toBe(true)
+
+    releaseOld(makeItem(1))
+    expect(await oldUpload).toBeNull()
+    expect(content.isUploading.value).toBe(true)
+    expect(notification.message).toBe('')
+    expect(api.list).not.toHaveBeenCalled()
+
+    releaseNew(makeItem(2))
+    expect(await newUpload).toEqual(makeItem(2))
+    expect(notification.message).toBe('Контент загружен')
+  })
+
+  it('drops a stale delete failure after the project switch', async () => {
+    loginSession()
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const { content, api } = setupContent()
+
+    let rejectDelete: (error: Error) => void = () => {}
+    api.delete.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectDelete = reject
+        }),
+    )
+    const pending = content.handleDelete(3)
+
+    core.currentProject = 'new'
+    useAccountsStore().clearSessionState()
+    await nextTick()
+
+    rejectDelete(new Error('locked'))
+    await pending
+
+    expect(api.list).not.toHaveBeenCalled()
+    expect(content.errorMessage.value).toBe('')
+    expect(reportError).not.toHaveBeenCalled()
+    expect(content.isMutating.value).toBe(false)
+  })
+
   it('drops the stale list response when the project switches mid-load', async () => {
     loginSession()
     const core = useCoreStore()

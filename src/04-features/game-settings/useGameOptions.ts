@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useCoreStore, useGameOptionsStore, useNotificationStore, bindSettingsDirtyTab, type GameOptions } from '@/05-entities'
+import { useCoreStore, useGameOptionsStore, useNotificationStore, bindSettingsDirtyTab, type GameOptions, type GameOptionsData } from '@/05-entities'
 import {
   getErrorMessage,
   getGameOptions,
@@ -7,7 +7,7 @@ import {
   saveGlobalGameOptions,
   importGlobalGameOptions,
 } from '@/06-shared/api'
-import { captureProjectScope, reportError, useAsyncAction, useAsyncRaceGuard, useDirtySnapshot } from '@/06-shared'
+import { captureProjectScope, reportError, runScopedAction, useAsyncAction, useAsyncRaceGuard, useDirtySnapshot } from '@/06-shared'
 
 export const DEFAULT_GAME_OPTIONS: GameOptions = {
   fov: 70,
@@ -89,32 +89,30 @@ export function useGameOptions(): {
     if (!project) return
     if (!force && loadedProject === project) return
 
-    const generation = loadGuard.next()
-    isLoading.value = true
-    loadError.value = ''
-    try {
-      const data = await getGameOptions(project)
-      if (!loadGuard.isCurrent(generation)) return
-      const pending = gameOptionsStore.pendingFor(project)
-      const stored = !data.versionReady && pending ? pending : data.options
-      options.value = { ...cloneDefaults(), ...stored }
-      versionReady.value = data.versionReady
-      hasGlobal.value = data.hasGlobal
-      availableResourcePacks.value = data.availableResourcePacks
-      loadedProject = project
-      dirtyState.captureBaseline()
-    } catch (e: unknown) {
-      if (!loadGuard.isCurrent(generation)) return
-      options.value = cloneDefaults()
-      versionReady.value = false
-      hasGlobal.value = false
-      availableResourcePacks.value = []
-      dirtyState.captureBaseline()
-      loadError.value = getErrorMessage(e)
-      reportError('Не удалось загрузить настройки игры', e)
-    } finally {
-      if (loadGuard.isCurrent(generation)) isLoading.value = false
-    }
+    await runScopedAction({
+      guard: loadGuard,
+      busyFlag: isLoading,
+      errorTarget: loadError,
+      errorMessage: 'Не удалось загрузить настройки игры',
+      run: (): Promise<GameOptionsData> => getGameOptions(project),
+      onError: (): void => {
+        options.value = cloneDefaults()
+        versionReady.value = false
+        hasGlobal.value = false
+        availableResourcePacks.value = []
+        dirtyState.captureBaseline()
+      },
+      apply: (data: GameOptionsData): void => {
+        const pending = gameOptionsStore.pendingFor(project)
+        const stored = !data.versionReady && pending ? pending : data.options
+        options.value = { ...cloneDefaults(), ...stored }
+        versionReady.value = data.versionReady
+        hasGlobal.value = data.hasGlobal
+        availableResourcePacks.value = data.availableResourcePacks
+        loadedProject = project
+        dirtyState.captureBaseline()
+      },
+    })
   }
 
   const retryLoad = (): Promise<void> => loadOptions(coreStore.currentProject, true)
@@ -130,21 +128,22 @@ export function useGameOptions(): {
 
   const handleImportGlobal = async (): Promise<void> => {
     if (isLoading.value) return
-    const generation = loadGuard.next()
-    try {
-      const global = await importGlobalGameOptions()
-      if (!loadGuard.isCurrent(generation)) return
-      if (!global) {
-        notification.show('Общие настройки не найдены')
-        return
-      }
-      options.value = { ...cloneDefaults(), ...global }
-      notification.show('Общие настройки подставлены, не забудьте сохранить')
-    } catch (e: unknown) {
-      if (!loadGuard.isCurrent(generation)) return
-      reportError('Не удалось подставить общие настройки игры', e)
-      notification.show(getErrorMessage(e))
-    }
+    await runScopedAction({
+      guard: loadGuard,
+      errorMessage: 'Не удалось подставить общие настройки игры',
+      run: (): Promise<GameOptions | null> => importGlobalGameOptions(),
+      apply: (global: GameOptions | null): void => {
+        if (!global) {
+          notification.show('Общие настройки не найдены')
+          return
+        }
+        options.value = { ...cloneDefaults(), ...global }
+        notification.show('Общие настройки подставлены, не забудьте сохранить')
+      },
+      onError: (e: unknown): void => {
+        notification.show(getErrorMessage(e))
+      },
+    })
   }
 
   const saveAction = useAsyncAction((e: unknown): void => {

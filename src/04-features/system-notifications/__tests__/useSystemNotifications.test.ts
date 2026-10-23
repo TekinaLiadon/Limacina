@@ -70,6 +70,7 @@ const exitInfo = (overrides: Partial<GameExitInfo>): GameExitInfo => ({
   code: 1,
   reason: null,
   username: 'Steve',
+  killedByLauncher: false,
   ...overrides,
 })
 
@@ -148,6 +149,27 @@ describe('useSystemNotifications', () => {
 
       expect(notification.visible).toBe(true)
       expect(notification.message).toBe('Игра Steve была аварийно завершена')
+    })
+
+    it('stays silent about a game the launcher terminated', async () => {
+      await start()
+      const notification = useNotificationStore()
+
+      await emitExit?.(exitInfo({ code: 1, killedByLauncher: true }))
+
+      expect(notification.visible).toBe(false)
+      expect(api.sendOsNotification).not.toHaveBeenCalled()
+    })
+
+    it('stays silent about a launcher termination while the window is hidden', async () => {
+      windowApi.minimized = true
+      await start()
+      const notification = useNotificationStore()
+
+      await emitExit?.(exitInfo({ code: null, killedByLauncher: true }))
+
+      expect(notification.visible).toBe(false)
+      expect(api.sendOsNotification).not.toHaveBeenCalled()
     })
 
     it('ignores successful exits while the window is visible', async () => {

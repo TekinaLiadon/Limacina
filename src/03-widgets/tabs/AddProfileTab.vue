@@ -30,6 +30,8 @@ const {
   needsLoaderVersion,
   isLoadingMcVersions,
   isLoadingLoaderVersions,
+  mcVersionsError,
+  loaderVersionsError,
   isOfflineValid,
   selectKind,
   submitOffline,
@@ -122,6 +124,8 @@ const handleOfflineSubmit = async (): Promise<void> => {
         :needs-loader-version="needsLoaderVersion"
         :is-loading-mc-versions="isLoadingMcVersions"
         :is-loading-loader-versions="isLoadingLoaderVersions"
+        :mc-versions-error="mcVersionsError"
+        :loader-versions-error="loaderVersionsError"
         :is-submitting="isSubmitting"
         :is-valid="isOfflineValid"
         :error-message="errorMessage"

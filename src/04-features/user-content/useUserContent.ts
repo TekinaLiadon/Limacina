@@ -39,6 +39,8 @@ export function useUserContent<T>(api: UserContentApi<T>) {
   const isOffline = computed((): boolean => coreStore.isOfflineProject)
 
   const listGuard = useAsyncRaceGuard()
+  const uploadGuard = useAsyncRaceGuard()
+  const mutationGuard = useAsyncRaceGuard()
 
   const loadItems = async (): Promise<void> => {
     if (isOffline.value) return
@@ -63,50 +65,59 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 
   const handleUpload = async (payload: T): Promise<UserContentItem | null> => {
     if (isUploading.value) return null
+    const generation = uploadGuard.next()
     isUploading.value = true
     errorMessage.value = ''
 
     try {
       const item = await api.upload(payload)
+      if (!uploadGuard.isCurrent(generation)) return null
       notification.show(api.uploadSuccessMessage)
       await loadItems()
       return item
     } catch (e: unknown) {
+      if (!uploadGuard.isCurrent(generation)) return null
       reportError(api.uploadErrorMessage, e)
       errorMessage.value = getErrorMessage(e)
       return null
     } finally {
-      isUploading.value = false
+      if (uploadGuard.isCurrent(generation)) isUploading.value = false
     }
   }
 
   const handleDelete = async (id: number): Promise<void> => {
     if (isMutating.value) return
+    const generation = mutationGuard.next()
     isMutating.value = true
     errorMessage.value = ''
     try {
       await api.delete(id)
+      if (!mutationGuard.isCurrent(generation)) return
       await loadItems()
     } catch (e: unknown) {
+      if (!mutationGuard.isCurrent(generation)) return
       reportError(api.deleteErrorMessage, e)
       errorMessage.value = getErrorMessage(e)
     } finally {
-      isMutating.value = false
+      if (mutationGuard.isCurrent(generation)) isMutating.value = false
     }
   }
 
   const handleActivate = async (id: number): Promise<void> => {
     if (api.activate === undefined || isMutating.value) return
+    const generation = mutationGuard.next()
     isMutating.value = true
     errorMessage.value = ''
     try {
       await api.activate(id)
+      if (!mutationGuard.isCurrent(generation)) return
       await loadItems()
     } catch (e: unknown) {
+      if (!mutationGuard.isCurrent(generation)) return
       reportError(api.activateErrorMessage ?? 'Не удалось установить скин', e)
       errorMessage.value = getErrorMessage(e)
     } finally {
-      isMutating.value = false
+      if (mutationGuard.isCurrent(generation)) isMutating.value = false
     }
   }
 
@@ -122,6 +133,8 @@ export function useUserContent<T>(api: UserContentApi<T>) {
 
   watch((): string => coreStore.currentProject, (): void => {
     listGuard.cancel()
+    uploadGuard.cancel()
+    mutationGuard.cancel()
     items.value = []
     isListLoading.value = false
     listError.value = ''

@@ -1,17 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { CPMElement, CPMVec3 } from '@/05-entities'
-import { resolveRootStoreId } from '../../cpm-animation-editor/editorModel'
 import { CUSTOM_PART_ORDINAL, PLAYER_PART_ORDINALS, ROOT_PIVOTS, VANILLA_PLAYER_PARTS } from '../playerParts'
-
-const vec = (x = 0, y = 0, z = 0): CPMVec3 => ({ x, y, z })
-
-const makeElement = (id: string, overrides: Partial<CPMElement> = {}): CPMElement => ({
-  id,
-  name: id,
-  pos: vec(),
-  rotation: vec(),
-  ...overrides,
-})
 
 describe('player parts registry', () => {
   it('maps the vanilla parts to the game ordinals', () => {
@@ -46,16 +34,5 @@ describe('player parts registry', () => {
     expect(ROOT_PIVOTS.armor_right_arm).toEqual(ROOT_PIVOTS.right_arm)
     expect(ROOT_PIVOTS.armor_left_leg).toEqual(ROOT_PIVOTS.left_leg)
     expect(ROOT_PIVOTS.armor_right_leg).toEqual(ROOT_PIVOTS.right_leg)
-  })
-
-  it('resolves the editor roots through the shared ordinals', () => {
-    for (const part of VANILLA_PLAYER_PARTS) {
-      expect(resolveRootStoreId(makeElement(part.id))).toBe(part.ordinal)
-    }
-  })
-
-  it('keeps the store id of custom and duplicated roots', () => {
-    expect(resolveRootStoreId(makeElement('custom_part', { customPart: true, storeID: 42 }))).toBe(42)
-    expect(resolveRootStoreId(makeElement('head', { dup: true, storeID: 43 }))).toBe(43)
   })
 })

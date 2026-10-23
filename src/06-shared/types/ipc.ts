@@ -105,6 +105,7 @@ export interface GameExitInfo {
   code: number | null
   reason: string | null
   username: string
+  killedByLauncher: boolean
 }
 
 export interface IntegrityReport {

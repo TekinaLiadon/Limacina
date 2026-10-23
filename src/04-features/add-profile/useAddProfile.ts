@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { useNotificationStore, type ProjectConfig, type ServerProfileForm } from '@/05-entities'
-import { createServerProfile, getErrorMessage } from '@/06-shared/api'
-import { reportError } from '@/06-shared'
+import { createServerProfile } from '@/06-shared/api'
+import { runScopedAction } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
 
 export function useAddProfile() {
@@ -17,22 +17,19 @@ export function useAddProfile() {
     if (isSubmitting.value) return null
     if (!isServerValid.value) return null
 
-    isSubmitting.value = true
-    errorMessage.value = ''
-
-    try {
-      const config = await createServerProfile(serverForm.value.serverUrl.trim())
-      await applyCreatedProfile(config)
-      serverForm.value.serverUrl = ''
-      notification.show(`Сервер "${config.projectName}" добавлен`)
-      return config
-    } catch (e: unknown) {
-      reportError('Не удалось добавить сервер', e)
-      errorMessage.value = getErrorMessage(e)
-      return null
-    } finally {
-      isSubmitting.value = false
-    }
+    const created = await runScopedAction({
+      busyFlag: isSubmitting,
+      errorTarget: errorMessage,
+      errorMessage: 'Не удалось добавить сервер',
+      run: (): Promise<ProjectConfig> => createServerProfile(serverForm.value.serverUrl.trim()),
+      apply: async (config: ProjectConfig): Promise<ProjectConfig> => {
+        await applyCreatedProfile(config)
+        serverForm.value.serverUrl = ''
+        notification.show(`Сервер "${config.projectName}" добавлен`)
+        return config
+      },
+    })
+    return created ?? null
   }
 
   return {

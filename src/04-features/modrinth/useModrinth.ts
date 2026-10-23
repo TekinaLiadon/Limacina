@@ -8,7 +8,7 @@ import {
   modrinthUninstall,
   openModsFolder,
 } from '@/06-shared/api'
-import { captureProjectScope, useAsyncRaceGuard, type PluralForms } from '@/06-shared'
+import { captureProjectScope, runScopedAction, useAsyncRaceGuard, type PluralForms } from '@/06-shared'
 import {
   useCoreStore,
   type ModrinthSearchHit,
@@ -18,7 +18,6 @@ import {
   type ModrinthUpdateCheck,
   type ModrinthInstallResult,
 } from '@/05-entities'
-import { runScopedAction } from './runScopedAction'
 
 export interface ModrinthCategory {
   value: string
@@ -116,9 +115,8 @@ export function useModrinth() {
   const searchGuard = useAsyncRaceGuard()
 
   const search = async (newOffset: number = 0): Promise<void> => {
-    const generation = searchGuard.next()
     await runScopedAction({
-      isCurrent: (): boolean => searchGuard.isCurrent(generation),
+      guard: searchGuard,
       errorTarget: searchError,
       errorMessage: 'Не удалось выполнить поиск Modrinth',
       busyFlag: isSearching,
@@ -147,9 +145,9 @@ export function useModrinth() {
 
   const loadInstalled = async (): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
-    const generation = installedGuard.next()
     await runScopedAction({
-      isCurrent: (): boolean => installedGuard.isCurrent(generation) && scope.isCurrent(),
+      guard: installedGuard,
+      scope,
       errorTarget: installedError,
       errorMessage: 'Не удалось загрузить список установленных модов',
       busyFlag: isLoadingInstalled,
@@ -164,10 +162,10 @@ export function useModrinth() {
 
   const loadProjectDetails = async (projectId: string): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
-    const generation = detailsGuard.next()
     popupDetails.value = null
     await runScopedAction({
-      isCurrent: (): boolean => detailsGuard.isCurrent(generation) && scope.isCurrent(),
+      guard: detailsGuard,
+      scope,
       errorTarget: popupError,
       errorMessage: 'Не удалось загрузить информацию о моде',
       busyFlag: isPopupLoading,
@@ -189,9 +187,8 @@ export function useModrinth() {
   }
 
   const checkForUpdates = async (): Promise<void> => {
-    const generation = updatesGuard.next()
     await runScopedAction({
-      isCurrent: (): boolean => updatesGuard.isCurrent(generation),
+      guard: updatesGuard,
       errorTarget: actionError,
       errorMessage: 'Не удалось проверить обновления модов',
       busyFlag: isCheckingUpdates,
@@ -218,7 +215,7 @@ export function useModrinth() {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     installingId.value = projectId
     return await runScopedAction({
-      isCurrent: (): boolean => scope.isCurrent(),
+      scope,
       errorTarget: actionError,
       errorMessage,
       cleanup: (): void => {
@@ -260,7 +257,7 @@ export function useModrinth() {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     isOpeningFolder.value = true
     await runScopedAction({
-      isCurrent: (): boolean => scope.isCurrent(),
+      scope,
       errorTarget: actionError,
       errorMessage: 'Не удалось открыть папку модов',
       cleanup: (): void => {

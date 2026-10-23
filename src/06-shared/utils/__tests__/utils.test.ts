@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { copyToClipboard, joinPath, matchesExtension, randomId, stripPathSuffix } from '../utils'
+import { copyToClipboard, getPathBaseName, joinPath, matchesExtension, randomId, stripPathSuffix } from '../utils'
 
 describe('joinPath', () => {
   it('joins with the forward separator for a posix parent', () => {
@@ -32,6 +32,17 @@ describe('stripPathSuffix', () => {
 
   it('keeps the path when the suffix is not at the end', () => {
     expect(stripPathSuffix('/home/user/java/bin', 'java')).toBe('/home/user/java/bin')
+  })
+})
+
+describe('getPathBaseName', () => {
+  it('returns the last segment for posix and windows paths', () => {
+    expect(getPathBaseName('/models/hero.cpmproject')).toBe('hero.cpmproject')
+    expect(getPathBaseName('C:\\Models\\hero.cpmproject')).toBe('hero.cpmproject')
+  })
+
+  it('returns a bare name unchanged', () => {
+    expect(getPathBaseName('hero.cpmproject')).toBe('hero.cpmproject')
   })
 })
 

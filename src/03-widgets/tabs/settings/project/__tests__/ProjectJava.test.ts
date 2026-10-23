@@ -6,7 +6,7 @@ import AlternativeJavaButton from '../../AlternativeJavaButton.vue'
 
 const openPopup = vi.fn().mockResolvedValue(undefined)
 const closePopup = vi.fn()
-const startDownload = vi.fn().mockResolvedValue(false)
+const startDownload = vi.fn().mockResolvedValue('downloaded')
 const isPopupOpen = ref(false)
 
 vi.mock('@/04-features', async (importOriginal) => {
@@ -43,7 +43,7 @@ beforeEach((): void => {
   openPopup.mockClear()
   closePopup.mockClear()
   startDownload.mockClear()
-  startDownload.mockResolvedValue(false)
+  startDownload.mockResolvedValue('downloaded')
 })
 
 describe('ProjectJava', () => {
@@ -75,7 +75,7 @@ describe('ProjectJava', () => {
   })
 
   it('asks the page to reload the config when the download replaced the default java', async () => {
-    startDownload.mockResolvedValue(true)
+    startDownload.mockResolvedValue('replaced')
     const wrapper = mountJava()
 
     wrapper.findComponent(AlternativeJavaButton).vm.$emit('download')

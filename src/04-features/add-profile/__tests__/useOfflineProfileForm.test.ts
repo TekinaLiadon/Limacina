@@ -86,26 +86,58 @@ describe('useOfflineProfileForm', () => {
     expect(offline.isLoadingMcVersions.value).toBe(false)
   })
 
-  it('reports the version list failure', async () => {
+  it('reports the version list failure in its own slot', async () => {
     vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
     const { add, offline } = setupForms()
 
     await offline.selectKind('offline')
 
-    expect(add.errorMessage.value).toBe('manifest unreachable')
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
+    expect(add.errorMessage.value).toBe('')
     expect(offline.mcVersionOptions.value).toEqual([])
   })
 
-  it('clears the shared error when the kind switches', async () => {
-    vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
+  it('keeps the submit error when the version list fails', async () => {
+    vi.mocked(getMinecraftVersions)
+      .mockResolvedValueOnce(['1.20.1'])
+      .mockRejectedValueOnce(new Error('manifest unreachable'))
     const { add, offline } = setupForms()
 
     await offline.selectKind('offline')
-    expect(add.errorMessage.value).toBe('manifest unreachable')
+    add.errorMessage.value = 'unreachable server'
+
+    offline.offlineForm.value.includeSnapshots = true
+    await vi.waitFor(() => expect(offline.mcVersionsError.value).toBe('manifest unreachable'))
+
+    expect(add.errorMessage.value).toBe('unreachable server')
+  })
+
+  it('keeps the minecraft version error when the loader list fails', async () => {
+    vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
+    vi.mocked(getLoaderVersions).mockRejectedValue(new Error('loader unreachable'))
+    const { offline } = setupForms()
+
+    await offline.selectKind('offline')
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
+
+    offline.offlineForm.value.mcVersion = '1.20.1'
+    offline.offlineForm.value.modLoader = 'fabric'
+    await vi.waitFor(() => expect(offline.loaderVersionsError.value).toBe('loader unreachable'))
+
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
+  })
+
+  it('clears the loader errors when the kind switches', async () => {
+    vi.mocked(getMinecraftVersions).mockRejectedValue(new Error('manifest unreachable'))
+    const { offline } = setupForms()
+
+    await offline.selectKind('offline')
+    expect(offline.mcVersionsError.value).toBe('manifest unreachable')
 
     await offline.selectKind('server')
 
-    expect(add.errorMessage.value).toBe('')
+    expect(offline.mcVersionsError.value).toBe('')
+    expect(offline.loaderVersionsError.value).toBe('')
   })
 
   it('drops a stale version list after a newer request', async () => {
@@ -194,9 +226,10 @@ describe('useOfflineProfileForm', () => {
 
     offline.offlineForm.value.modLoader = 'neoforge'
     vi.mocked(getLoaderVersions).mockResolvedValue([])
-    await vi.waitFor(() => expect(add.errorMessage.value).not.toBe(''))
+    await vi.waitFor(() => expect(offline.loaderVersionsError.value).not.toBe(''))
 
-    expect(add.errorMessage.value).toBe('Нет версий neoforge для Minecraft 1.20.1')
+    expect(offline.loaderVersionsError.value).toBe('Нет версий neoforge для Minecraft 1.20.1')
+    expect(add.errorMessage.value).toBe('')
     expect(offline.offlineForm.value.loaderVersion).toBe('')
   })
 

@@ -3,6 +3,7 @@ import {
   useCoreStore,
   useNotificationStore,
   bindSettingsDirtyTab,
+  type AppInitData,
   type LauncherBehaviorForm,
   type LauncherConfig,
   type LauncherSettingsPayload,
@@ -20,6 +21,7 @@ import {
   useAsyncRaceGuard,
   useDirtySnapshot,
   useAsyncAction,
+  runScopedAction,
 } from '@/06-shared'
 
 type LauncherFormField = keyof LauncherBehaviorForm
@@ -204,28 +206,24 @@ export function useLauncherSettings(): {
       return
     }
 
-    const generation = loadGuard.next()
-    isLoading.value = true
-    loadError.value = ''
     dirtyState.clearBaseline()
-    try {
-      const data = await getAppInitData()
-      if (!loadGuard.isCurrent(generation)) return
-      const config = data.launcherConfig
-      if (!config) {
-        loadError.value = 'Не удалось загрузить настройки лаунчера'
-        return
-      }
-      coreStore.applySavedLauncherConfig(config)
-      applyConfig(config)
-      finishLoad()
-    } catch (e: unknown) {
-      if (!loadGuard.isCurrent(generation)) return
-      reportError('Не удалось загрузить настройки лаунчера', e)
-      loadError.value = getErrorMessage(e)
-    } finally {
-      if (loadGuard.isCurrent(generation)) isLoading.value = false
-    }
+    await runScopedAction({
+      guard: loadGuard,
+      busyFlag: isLoading,
+      errorTarget: loadError,
+      errorMessage: 'Не удалось загрузить настройки лаунчера',
+      run: getAppInitData,
+      apply: (data: AppInitData): void => {
+        const config = data.launcherConfig
+        if (!config) {
+          loadError.value = 'Не удалось загрузить настройки лаунчера'
+          return
+        }
+        coreStore.applySavedLauncherConfig(config)
+        applyConfig(config)
+        finishLoad()
+      },
+    })
   }
 
   const retryLoad = (): Promise<void> => loadConfig(true)

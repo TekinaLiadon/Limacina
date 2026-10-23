@@ -4,6 +4,13 @@ import { reportError, useAsyncRaceGuard } from '@/06-shared'
 import { useNotificationStore, type JavaDistribution } from '@/05-entities'
 import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
 
+export type AlternativeJavaDownloadResult =
+  | 'replaced'
+  | 'downloaded'
+  | 'failed'
+  | 'unavailable'
+  | 'busy'
+
 export function useAlternativeJava() {
   const notification = useNotificationStore()
   const { sendSystemNotification } = useSystemNotifications()
@@ -68,10 +75,13 @@ export function useAlternativeJava() {
     if (!isDownloading.value) isPopupOpen.value = false
   }
 
-  const startDownload = async (): Promise<boolean> => {
-    if (isDownloading.value) return false
+  const startDownload = async (): Promise<AlternativeJavaDownloadResult> => {
+    if (isDownloading.value) return 'busy'
     const dist = distributions.value.find((d) => d.name === selectedDistribution.value)
-    if (!dist) return false
+    if (!dist) {
+      notification.show('Выберите дистрибутив Java')
+      return 'unavailable'
+    }
 
     isDownloading.value = true
     try {
@@ -82,11 +92,12 @@ export function useAlternativeJava() {
       )
       void sendSystemNotification('Java установлена', `Дистрибутив ${dist.name} готов к использованию`)
       isPopupOpen.value = false
-      return replaceDefault.value
+      return replaceDefault.value ? 'replaced' : 'downloaded'
     } catch (e: unknown) {
       const message = getErrorMessage(e)
+      reportError('Не удалось скачать Java', e)
       notification.show(`Ошибка загрузки Java: ${message}`)
-      return false
+      return 'failed'
     } finally {
       isDownloading.value = false
     }
