@@ -213,3 +213,41 @@ describe('parseCpmProjectFile', () => {
     expect(reportError).toHaveBeenCalledWith(expect.stringContaining('bad.json'))
   })
 })
+
+describe('parseCpmProjectFile preset mode', () => {
+  beforeEach(() => {
+    reportError.mockReset()
+  })
+
+  it('parses a preset project without skin.png and returns no texture blob', async () => {
+    const data = await buildZip({
+      'config.json': JSON.stringify(config),
+      'animations/g_pulse.json': JSON.stringify({ name: 'Pulse', duration: 700 }),
+    })
+
+    const project = await parseCpmProjectFile(data, { preset: true })
+
+    expect(project.config).toEqual(config)
+    expect(project.animations).toHaveLength(1)
+    expect(project.animations[0]?.name).toBe('Pulse')
+    expect(project.animEnc).toBeNull()
+    expect('textureBlob' in project).toBe(false)
+  })
+
+  it('rejects a preset project that still embeds skin.png', async () => {
+    const data = await buildZip({
+      'config.json': JSON.stringify(config),
+      'skin.png': skinBytes,
+    })
+
+    await expect(parseCpmProjectFile(data, { preset: true })).rejects.toThrow(
+      'Пресет не должен содержать skin.png',
+    )
+  })
+
+  it('keeps the user-mode error when skin.png is absent and no preset flag is passed', async () => {
+    const data = await buildZip({ 'config.json': JSON.stringify(config) })
+
+    await expect(parseCpmProjectFile(data)).rejects.toThrow('Файл не содержит skin.png')
+  })
+})
