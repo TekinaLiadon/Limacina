@@ -13,6 +13,8 @@ export interface CommandErrorPayload {
 
 const INTERNAL_ERROR_CODE = 'internal'
 
+export const AUTH_NO_SAVED_CREDENTIALS_CODE = 'auth_no_saved_credentials'
+
 export function getCommandError(e: unknown): CommandErrorPayload {
   if (typeof e === 'object' && e !== null && 'code' in e && 'message' in e) {
     const payload = e as { code: unknown; message: unknown }
