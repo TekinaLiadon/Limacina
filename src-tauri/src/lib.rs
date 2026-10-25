@@ -39,7 +39,8 @@ use commands::launcher_config::{
     save_theme,
 };
 use commands::modrinth::{
-    modrinth_check_updates, modrinth_install, modrinth_installed, modrinth_project,
+    modrinth_check_updates, modrinth_export_prepare, modrinth_export_save, modrinth_import_apply,
+    modrinth_import_preview, modrinth_install, modrinth_installed, modrinth_project,
     modrinth_search, modrinth_uninstall,
 };
 use commands::notification::get_notification_icon;
@@ -299,6 +300,10 @@ pub fn run() {
             modrinth_check_updates,
             modrinth_install,
             modrinth_uninstall,
+            modrinth_export_prepare,
+            modrinth_export_save,
+            modrinth_import_preview,
+            modrinth_import_apply,
         ])
         .run(tauri::generate_context!());
 

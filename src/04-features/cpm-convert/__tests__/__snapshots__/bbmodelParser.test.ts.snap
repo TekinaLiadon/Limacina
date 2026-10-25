@@ -1,0 +1,310 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`parseBbmodel > golden-снапшот мини-модели со всеми Supported-фичами 1`] = `
+{
+  "elements": [
+    {
+      "children": [
+        {
+          "name": "Head",
+          "offset": {
+            "x": -4,
+            "y": -8,
+            "z": -4,
+          },
+          "pos": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+          },
+          "size": {
+            "x": 8,
+            "y": 8,
+            "z": 8,
+          },
+          "storeID": 100,
+          "textureSize": 1,
+          "u": 0,
+          "v": 0,
+        },
+        {
+          "name": "Hat",
+          "offset": {
+            "x": -5,
+            "y": -9,
+            "z": -5,
+          },
+          "pos": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+          },
+          "size": {
+            "x": 10,
+            "y": 10,
+            "z": 10,
+          },
+          "storeID": 101,
+          "textureSize": 1,
+          "u": 32,
+          "v": 0,
+        },
+      ],
+      "id": "head",
+      "name": "Head",
+      "pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0,
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0,
+      },
+    },
+    {
+      "children": [
+        {
+          "faceUV": {
+            "down": {
+              "autoUV": false,
+              "ex": 8,
+              "ey": 20,
+              "rot": "180",
+              "sx": 12,
+              "sy": 16,
+            },
+            "east": {
+              "autoUV": false,
+              "ex": 4,
+              "ey": 32,
+              "rot": "0",
+              "sx": 0,
+              "sy": 26,
+            },
+            "north": {
+              "autoUV": false,
+              "ex": 16,
+              "ey": 32,
+              "rot": "0",
+              "sx": 12,
+              "sy": 26,
+            },
+            "south": {
+              "autoUV": false,
+              "ex": 8,
+              "ey": 32,
+              "rot": "0",
+              "sx": 4,
+              "sy": 26,
+            },
+            "up": {
+              "autoUV": false,
+              "ex": 4,
+              "ey": 16,
+              "rot": "180",
+              "sx": 8,
+              "sy": 20,
+            },
+            "west": {
+              "autoUV": false,
+              "ex": 12,
+              "ey": 32,
+              "rot": "90",
+              "sx": 8,
+              "sy": 26,
+            },
+          },
+          "name": "Chest",
+          "offset": {
+            "x": -4,
+            "y": 0,
+            "z": -2,
+          },
+          "pos": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+          },
+          "size": {
+            "x": 8,
+            "y": 12,
+            "z": 4,
+          },
+          "storeID": 102,
+        },
+        {
+          "children": [
+            {
+              "name": "Gem",
+              "offset": {
+                "x": -1,
+                "y": -1,
+                "z": -1,
+              },
+              "pos": {
+                "x": 2,
+                "y": 3,
+                "z": 2,
+              },
+              "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": -15,
+              },
+              "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1,
+              },
+              "size": {
+                "x": 2,
+                "y": 2,
+                "z": 2,
+              },
+              "storeID": 104,
+            },
+            {
+              "children": [
+                {
+                  "name": "Skirt",
+                  "offset": {
+                    "x": -4,
+                    "y": 0,
+                    "z": -2,
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                  },
+                  "rotation": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                  },
+                  "scale": {
+                    "x": 1,
+                    "y": 1,
+                    "z": 1,
+                  },
+                  "size": {
+                    "x": 8,
+                    "y": 8,
+                    "z": 4,
+                  },
+                  "storeID": 106,
+                  "textureSize": 1,
+                  "u": 16,
+                  "v": 48,
+                },
+              ],
+              "name": "Skirt",
+              "offset": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+              },
+              "pos": {
+                "x": 0,
+                "y": 12,
+                "z": 0,
+              },
+              "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+              },
+              "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1,
+              },
+              "size": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+              },
+              "storeID": 105,
+            },
+          ],
+          "name": "Body",
+          "offset": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "pos": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1,
+          },
+          "size": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+          },
+          "storeID": 103,
+        },
+      ],
+      "id": "body",
+      "name": "Body",
+      "pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0,
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0,
+      },
+    },
+  ],
+  "skinSize": {
+    "x": 64,
+    "y": 64,
+  },
+}
+`;

@@ -41,6 +41,13 @@ export type {
   ModrinthInstalledMod,
   ModrinthUpdateCheck,
   ModrinthInstallResult,
+  ModrinthExportMod,
+  ModrinthExportUnresolved,
+  ModrinthExportReport,
+  ModrinthModsetStatus,
+  ModrinthModsetEntry,
+  ModrinthImportPreview,
+  ModrinthImportReport,
 } from './modrinth'
 
 export interface InputOptions {

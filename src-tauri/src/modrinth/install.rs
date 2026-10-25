@@ -63,17 +63,22 @@ pub async fn save_manifest(path: &Path, manifest: &ModrinthManifest) -> Result<(
     })
 }
 
-pub async fn install_project(ctx: &InstallContext, project_id: &str) -> Result<InstallReport> {
+pub async fn install_project(
+    ctx: &InstallContext,
+    project_id: &str,
+    version_id: Option<&str>,
+) -> Result<InstallReport> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut resolved: Vec<ModrinthVersion> = Vec::new();
 
     log_info!(
-        "[modrinth] Установка мода {}: loaders={:?}, game_versions={:?}",
+        "[modrinth] Установка мода {}: version_id={:?}, loaders={:?}, game_versions={:?}",
         project_id,
+        version_id,
         ctx.loaders,
         ctx.game_versions
     );
-    resolve_project(ctx, project_id, &mut visited, &mut resolved).await?;
+    resolve_project(ctx, project_id, version_id, &mut visited, &mut resolved).await?;
 
     tokio::fs::create_dir_all(&ctx.mods_dir)
         .await
@@ -284,6 +289,7 @@ async fn remove_partial_download(
 async fn resolve_project(
     ctx: &InstallContext,
     project_id: &str,
+    pinned_version_id: Option<&str>,
     visited: &mut HashSet<String>,
     resolved: &mut Vec<ModrinthVersion>,
 ) -> Result<()> {
@@ -291,21 +297,10 @@ async fn resolve_project(
         return Ok(());
     }
 
-    let versions = client::get_project_versions(project_id, &ctx.loaders, &ctx.game_versions)
-        .await
-        .map_err(|e| {
-            LauncherError::Modrinth(format!(
-                "Не удалось получить версии мода {project_id}: {e:#}"
-            ))
-        })?;
-    let version = pick_version(&versions).ok_or_else(|| {
-        LauncherError::Modrinth(format!(
-            "Для Minecraft {} и лоадера {:?} не найдено совместимых версий мода {}",
-            ctx.game_versions.join(", "),
-            ctx.loaders,
-            project_id
-        ))
-    })?;
+    let version = match pinned_version_id {
+        Some(version_id) => resolve_pinned_version(ctx, project_id, version_id).await?,
+        None => resolve_latest_version(ctx, project_id).await?,
+    };
     log_info!(
         "[modrinth] Выбрана версия {} ({}) для проекта {}",
         version.version_number,
@@ -325,10 +320,76 @@ async fn resolve_project(
                 None => continue,
             },
         };
-        Box::pin(resolve_project(ctx, &dep_project_id, visited, resolved)).await?;
+        Box::pin(resolve_project(
+            ctx,
+            &dep_project_id,
+            None,
+            visited,
+            resolved,
+        ))
+        .await?;
     }
 
     Ok(())
+}
+
+async fn resolve_latest_version(ctx: &InstallContext, project_id: &str) -> Result<ModrinthVersion> {
+    let versions = client::get_project_versions(project_id, &ctx.loaders, &ctx.game_versions)
+        .await
+        .map_err(|e| {
+            LauncherError::Modrinth(format!(
+                "Не удалось получить версии мода {project_id}: {e:#}"
+            ))
+        })?;
+    let version = pick_version(&versions).ok_or_else(|| {
+        LauncherError::Modrinth(format!(
+            "Для Minecraft {} и лоадера {:?} не найдено совместимых версий мода {}",
+            ctx.game_versions.join(", "),
+            ctx.loaders,
+            project_id
+        ))
+    })?;
+    Ok(version.clone())
+}
+
+async fn resolve_pinned_version(
+    ctx: &InstallContext,
+    project_id: &str,
+    version_id: &str,
+) -> Result<ModrinthVersion> {
+    let version = client::get_version(version_id).await.map_err(|e| {
+        LauncherError::Modrinth(format!(
+            "Не удалось получить версию {version_id} мода {project_id}: {e:#}"
+        ))
+    })?;
+    if version.project_id != project_id {
+        return Err(LauncherError::Modrinth(format!(
+            "Версия {version_id} принадлежит моду {}, а не {project_id}",
+            version.project_id
+        ))
+        .into());
+    }
+    ensure_version_compatible(ctx, &version)?;
+    Ok(version)
+}
+
+fn ensure_version_compatible(ctx: &InstallContext, version: &ModrinthVersion) -> Result<()> {
+    let game_version_ok = ctx
+        .game_versions
+        .iter()
+        .any(|gv| version.game_versions.contains(gv));
+    let loader_ok = ctx.loaders.iter().any(|l| version.loaders.contains(l));
+    if game_version_ok && loader_ok {
+        return Ok(());
+    }
+    Err(LauncherError::Modrinth(format!(
+        "Версия {} мода {} несовместима с Minecraft {} или лоадером {:?}",
+        version.version_number,
+        version.project_id,
+        ctx.game_versions.join(", "),
+        ctx.loaders
+    ))
+    .into())
 }
 
 type ProjectDisplayInfo = HashMap<String, (String, Option<String>, Option<String>)>;
@@ -530,6 +591,14 @@ async fn collect_installed_hashes(mods_dir: &Path) -> HashMap<String, String> {
 }
 
 pub async fn sync_installed_from_scan(ctx: &InstallContext) -> Result<ModrinthManifest> {
+    sync_installed_from_scan_full(ctx)
+        .await
+        .map(|(manifest, _)| manifest)
+}
+
+pub async fn sync_installed_from_scan_full(
+    ctx: &InstallContext,
+) -> Result<(ModrinthManifest, HashMap<String, String>)> {
     let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
     let local_hashes = collect_installed_hashes(&ctx.mods_dir).await;
     sync_locked(ctx, local_hashes).await
@@ -541,13 +610,15 @@ pub async fn sync_installed_from_hashes(
     local_hashes: HashMap<String, String>,
 ) -> Result<ModrinthManifest> {
     let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
-    sync_locked(ctx, local_hashes).await
+    sync_locked(ctx, local_hashes)
+        .await
+        .map(|(manifest, _)| manifest)
 }
 
 async fn sync_locked(
     ctx: &InstallContext,
     local_hashes: HashMap<String, String>,
-) -> Result<ModrinthManifest> {
+) -> Result<(ModrinthManifest, HashMap<String, String>)> {
     let mut manifest = load_manifest(&ctx.manifest_path).await?;
     let mut changed = false;
 
@@ -643,7 +714,7 @@ async fn sync_locked(
     if changed {
         save_manifest(&ctx.manifest_path, &manifest).await?;
     }
-    Ok(manifest)
+    Ok((manifest, local_hashes))
 }
 
 #[cfg(test)]
@@ -837,7 +908,9 @@ mod tests {
 
         let ctx = env.install_ctx();
 
-        let report = install_project(&ctx, "A").await.expect("установка мода");
+        let report = install_project(&ctx, "A", None)
+            .await
+            .expect("установка мода");
 
         assert_eq!(report.installed.len(), 2);
         assert_eq!(std::fs::read(ctx.mods_dir.join("A.jar")).unwrap(), jar_a);
@@ -891,7 +964,7 @@ mod tests {
             .await;
 
         let ctx = env.install_ctx();
-        install_project(&ctx, "A")
+        install_project(&ctx, "A", None)
             .await
             .expect("сбой данных проекта не должен ронять установку");
 
@@ -925,7 +998,7 @@ mod tests {
 
         let ctx = env.install_ctx();
 
-        let result = install_project(&ctx, "A").await;
+        let result = install_project(&ctx, "A", None).await;
         assert!(result.is_err());
         assert!(!ctx.mods_dir.join("A.jar").exists());
         assert!(load_manifest(&ctx.manifest_path)
@@ -960,7 +1033,7 @@ mod tests {
 
         let ctx = env.install_ctx();
 
-        let result = install_project(&ctx, "A").await;
+        let result = install_project(&ctx, "A", None).await;
         assert!(result.is_err(), "мод с traversal-именем должен отклоняться");
 
         assert!(!ctx.mods_dir.join("evil.jar").exists());
@@ -994,7 +1067,9 @@ mod tests {
             .await
             .unwrap();
 
-        let report = install_project(&ctx, "A").await.expect("установка мода");
+        let report = install_project(&ctx, "A", None)
+            .await
+            .expect("установка мода");
 
         assert!(report.installed.is_empty());
         assert_eq!(report.skipped, vec!["A.jar".to_string()]);
@@ -1093,7 +1168,7 @@ mod tests {
         mock_version_env(&mut env, version_v1, &jar_v1).await;
         let ctx = env.install_ctx();
 
-        install_project(&ctx, "A")
+        install_project(&ctx, "A", None)
             .await
             .expect("первая установка мода");
         assert_eq!(mods_dir_file_names(&ctx), vec!["A.jar".to_string()]);
@@ -1101,7 +1176,7 @@ mod tests {
         clear_response_cache_for_tests();
         mock_version_env(&mut env, version_v2, &jar_v2).await;
 
-        install_project(&ctx, "A")
+        install_project(&ctx, "A", None)
             .await
             .expect("обновление мода до v2");
 
@@ -1152,7 +1227,7 @@ mod tests {
         mock_version_env(&mut env, version_v1, &jar_v1).await;
         let ctx = env.install_ctx();
 
-        install_project(&ctx, "A")
+        install_project(&ctx, "A", None)
             .await
             .expect("первая установка мода");
         assert_eq!(
@@ -1163,7 +1238,7 @@ mod tests {
         clear_response_cache_for_tests();
         mock_version_env(&mut env, version_v2, &jar_v2).await;
 
-        install_project(&ctx, "A")
+        install_project(&ctx, "A", None)
             .await
             .expect("обновление мода до v2");
 
@@ -1184,6 +1259,223 @@ mod tests {
             manifest.mods.get("A").expect("запись A").version_number,
             "2.0.0"
         );
+    }
+
+    #[tokio::test]
+    async fn install_pinned_version_installs_exactly_it() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_pinned").await;
+
+        let jar_v1 = b"mod a v1".to_vec();
+        let mut version_v1 = version_json(
+            "ver1",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a-1.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v1),
+            jar_v1.len() as u64,
+            json!([]),
+        );
+        version_v1["files"][0]["filename"] = json!("A-1.0.0.jar");
+        let mut version_v2 = version_json(
+            "ver2",
+            "A",
+            "2.0.0",
+            format!("{}/cdn/a-2.0.0.jar", env.server.url()),
+            sha1_hex(b"mod a v2"),
+            9,
+            json!([]),
+        );
+        version_v2["files"][0]["filename"] = json!("A-2.0.0.jar");
+
+        env.server
+            .mock("GET", "/v2/version/ver1")
+            .with_status(200)
+            .with_body(version_v1.to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/a-1.0.0.jar")
+            .with_status(200)
+            .with_body(jar_v1.clone())
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let report = install_project(&ctx, "A", Some("ver1"))
+            .await
+            .expect("установка версии по пину");
+
+        assert_eq!(report.installed, vec!["A-1.0.0.jar".to_string()]);
+        assert_eq!(
+            std::fs::read(ctx.mods_dir.join("A-1.0.0.jar")).expect("jar v1"),
+            jar_v1,
+            "должен скачаться jar запиненной версии, а не последней release"
+        );
+        let entry = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .get("A")
+            .expect("запись A")
+            .clone();
+        assert_eq!(entry.version_id, "ver1");
+        assert_eq!(entry.version_number, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn install_pinned_downgrade_replaces_newer_jar() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_downgrade").await;
+
+        let jar_v1 = b"mod a v1".to_vec();
+        let jar_v2 = b"mod a v2".to_vec();
+        let mut version_v1 = version_json(
+            "ver1",
+            "A",
+            "1.0.0",
+            format!("{}/cdn/a-1.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v1),
+            jar_v1.len() as u64,
+            json!([]),
+        );
+        version_v1["files"][0]["filename"] = json!("A-1.0.0.jar");
+        let mut version_v2 = version_json(
+            "ver2",
+            "A",
+            "2.0.0",
+            format!("{}/cdn/a-2.0.0.jar", env.server.url()),
+            sha1_hex(&jar_v2),
+            jar_v2.len() as u64,
+            json!([]),
+        );
+        version_v2["files"][0]["filename"] = json!("A-2.0.0.jar");
+
+        mock_version_env(&mut env, version_v2, &jar_v2).await;
+        let ctx = env.install_ctx();
+
+        install_project(&ctx, "A", None)
+            .await
+            .expect("установка последней версии без пина");
+        assert_eq!(
+            mods_dir_file_names(&ctx),
+            vec!["A-2.0.0.jar".to_string()],
+            "без пина должна выбираться последняя версия из списка"
+        );
+
+        clear_response_cache_for_tests();
+        env.server
+            .mock("GET", "/v2/version/ver1")
+            .with_status(200)
+            .with_body(version_v1.to_string())
+            .create_async()
+            .await;
+        env.server
+            .mock("GET", "/cdn/a-1.0.0.jar")
+            .with_status(200)
+            .with_body(jar_v1.clone())
+            .create_async()
+            .await;
+
+        install_project(&ctx, "A", Some("ver1"))
+            .await
+            .expect("даунгрейд до v1");
+
+        assert_eq!(
+            mods_dir_file_names(&ctx),
+            vec!["A-1.0.0.jar".to_string()],
+            "jar более новой версии не должен оставаться в mods"
+        );
+        assert_eq!(
+            std::fs::read(ctx.mods_dir.join("A-1.0.0.jar")).expect("jar v1"),
+            jar_v1
+        );
+        let entry = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .get("A")
+            .expect("запись A")
+            .clone();
+        assert_eq!(entry.version_id, "ver1");
+        assert_eq!(entry.version_number, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn install_pinned_incompatible_version_rejected_before_download() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_pinned_incompatible").await;
+
+        let mut version_old = version_json(
+            "verOld",
+            "A",
+            "0.5.0",
+            format!("{}/cdn/a-old.jar", env.server.url()),
+            sha1_hex(b"mod a old"),
+            10,
+            json!([]),
+        );
+        version_old["game_versions"] = json!(["1.20.1"]);
+        version_old["files"][0]["filename"] = json!("A-0.5.0.jar");
+
+        env.server
+            .mock("GET", "/v2/version/verOld")
+            .with_status(200)
+            .with_body(version_old.to_string())
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let error = install_project(&ctx, "A", Some("verOld"))
+            .await
+            .expect_err("несовместимая версия не должна ставиться");
+
+        assert!(
+            error.to_string().contains("несовместима"),
+            "ошибка должна объяснять несовместимость с профилем: {error:#}"
+        );
+        assert!(
+            !ctx.mods_dir.join("A-0.5.0.jar").exists(),
+            "скачивание несовместимой версии не должно начинаться"
+        );
+        assert!(load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn install_pinned_version_of_other_project_is_rejected() {
+        let mut env = ModrinthEnv::acquire("modrinth_install_pinned_foreign").await;
+
+        let version_b = version_json(
+            "verB",
+            "B",
+            "1.0.0",
+            format!("{}/cdn/b.jar", env.server.url()),
+            sha1_hex(b"mod b jar"),
+            10,
+            json!([]),
+        );
+        env.server
+            .mock("GET", "/v2/version/verB")
+            .with_status(200)
+            .with_body(version_b.to_string())
+            .create_async()
+            .await;
+
+        let ctx = env.install_ctx();
+        let error = install_project(&ctx, "A", Some("verB"))
+            .await
+            .expect_err("версия чужого проекта не должна ставиться");
+
+        assert!(
+            error.to_string().contains("принадлежит моду B"),
+            "ошибка должна называть чужой проект версии: {error:#}"
+        );
+        assert!(load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .is_empty());
     }
 
     fn manifest_entry(
@@ -1666,8 +1958,10 @@ mod tests {
             .await
             .unwrap();
 
-        let (install_result, uninstall_result) =
-            tokio::join!(install_project(&ctx, "A"), uninstall_project(&ctx, "B"),);
+        let (install_result, uninstall_result) = tokio::join!(
+            install_project(&ctx, "A", None),
+            uninstall_project(&ctx, "B"),
+        );
         install_result.expect("параллельная установка");
         uninstall_result.expect("параллельное удаление");
 
@@ -1714,7 +2008,7 @@ mod tests {
         mock_version_env(&mut env, version_v1, &jar_v1).await;
         let ctx = env.install_ctx();
 
-        install_project(&ctx, "A")
+        install_project(&ctx, "A", None)
             .await
             .expect("первая установка мода");
 
@@ -1726,7 +2020,7 @@ mod tests {
             .create_async()
             .await;
 
-        let result = install_project(&ctx, "A").await;
+        let result = install_project(&ctx, "A", None).await;
         assert!(
             result.is_err(),
             "сбой сети при обновлении должен давать ошибку"
@@ -1777,7 +2071,7 @@ mod tests {
             .await;
 
         let ctx = env.install_ctx();
-        let report = install_project(&ctx, "A")
+        let report = install_project(&ctx, "A", None)
             .await
             .expect("транзиентный сбой CDN не должен валить установку");
 
@@ -1812,7 +2106,7 @@ mod tests {
             .await;
 
         let ctx = env.install_ctx();
-        let result = install_project(&ctx, "A").await;
+        let result = install_project(&ctx, "A", None).await;
 
         let error = result.expect_err("заявленный размер должен ограничивать скачивание");
         assert!(
@@ -1908,7 +2202,7 @@ mod tests {
             .await;
 
         let ctx = env.install_ctx();
-        let result = install_project(&ctx, "A").await;
+        let result = install_project(&ctx, "A", None).await;
         assert!(
             result.is_err(),
             "отказ одного файла должен валить установку"
@@ -1992,7 +2286,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = install_project(&ctx, "A").await;
+        let result = install_project(&ctx, "A", None).await;
         assert!(result.is_err());
 
         assert!(

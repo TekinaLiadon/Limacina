@@ -32,8 +32,9 @@ describe('GameDropdownField', () => {
   })
 
   it('gives the control the settings min-width through the class the dropdown actually renders', () => {
-    expect(fieldSource).toContain('min-width: var(--settings-control-min-width)')
-    expect(fieldSource).toMatch(/\.select-base\s*\{[^}]*min-width: var\(--settings-control-min-width\)/)
+    expect(fieldSource).toContain('class="game-dropdown-field__control"')
+    expect(fieldSource).toMatch(/&__control\s*\{[^}]*min-width: var\(--settings-control-min-width\)/)
+    expect(fieldSource).not.toContain('.select-base')
     expect(fieldSource).not.toContain('.dropdown__value')
   })
 

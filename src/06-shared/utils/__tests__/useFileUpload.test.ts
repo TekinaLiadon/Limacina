@@ -98,4 +98,59 @@ describe('selectFile', () => {
     expect(onLoadMock).not.toHaveBeenCalled()
     expect(onErrorMock).not.toHaveBeenCalled()
   })
+
+  it('keeps the input attached to the document until the choice completes', () => {
+    selectFile({
+      accept: '.png',
+      maxBytes: 256 * 1024,
+      onError: onErrorMock,
+      onLoad: onLoadMock,
+    })
+    if (!fileInput) throw new Error('file input was not created')
+
+    expect(fileInput.isConnected).toBe(true)
+
+    fileInput.onchange?.(new Event('change'))
+    expect(fileInput.isConnected).toBe(false)
+  })
+
+  it('releases the input when the dialog is cancelled', () => {
+    selectFile({
+      accept: '.png',
+      maxBytes: 256 * 1024,
+      onError: onErrorMock,
+      onLoad: onLoadMock,
+    })
+    if (!fileInput) throw new Error('file input was not created')
+
+    fileInput.oncancel?.(new Event('cancel'))
+    expect(fileInput.isConnected).toBe(false)
+
+    fileInput.onchange?.(new Event('change'))
+    expect(onLoadMock).not.toHaveBeenCalled()
+    expect(onErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('replaces the pending input of a previous dialog', () => {
+    selectFile({
+      accept: '.png',
+      maxBytes: 256 * 1024,
+      onError: onErrorMock,
+      onLoad: onLoadMock,
+    })
+    if (!fileInput) throw new Error('file input was not created')
+    const first = fileInput
+
+    selectFile({
+      accept: '.png',
+      maxBytes: 256 * 1024,
+      onError: onErrorMock,
+      onLoad: onLoadMock,
+    })
+    if (!fileInput) throw new Error('second file input was not created')
+
+    expect(first.isConnected).toBe(false)
+    expect(fileInput.isConnected).toBe(true)
+    expect(fileInput).not.toBe(first)
+  })
 })

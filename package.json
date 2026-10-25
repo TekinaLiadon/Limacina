@@ -28,7 +28,7 @@
     "@tauri-apps/plugin-notification": "2.5.1",
     "@tauri-apps/plugin-opener": "2.7.0",
     "animejs": "3",
-    "dompurify": "3.4.16",
+    "dompurify": "3.4.17",
     "jszip": "^3.10.2",
     "marked": "18.0.12",
     "pinia": "^2.3.1",

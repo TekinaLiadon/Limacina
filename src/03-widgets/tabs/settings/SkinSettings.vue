@@ -47,7 +47,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
     :is-server-action-busy="isUploading"
     :is-offline-action-busy="false"
     reset-label="Сбросить скин"
-    format-hint="Формат: .png, не более 256 КБ"
+    format-hint="Формат: .png, не более 512 КБ"
     list-title="Загруженные скины"
     :items="uploadedSkins"
     :is-list-loading="isListLoading"
@@ -138,11 +138,10 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__active-badge {
-    border-radius: var(--radius-badge);
+    @include mixins.badge(var(--accent-text));
+
     background: var(--accent-active-bg);
-    color: var(--accent-text);
     font-weight: var(--weight-medium);
-    white-space: nowrap;
   }
 }
 </style>

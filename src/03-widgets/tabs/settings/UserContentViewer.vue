@@ -14,6 +14,8 @@ const props = defineProps<{
   offlineActionLabel: string | null
   isServerActionBusy: boolean
   isOfflineActionBusy: boolean
+  isServerActionDisabled?: boolean
+  isOfflineActionDisabled?: boolean
   resetLabel: string
   formatHint: string
   listTitle: string
@@ -56,7 +58,7 @@ const emit = defineEmits<{
         v-if="props.hasContent && !props.isOffline && props.serverActionLabel !== null"
         class="btn-secondary user-content-viewer__btn user-content-viewer__btn--upload"
         :is-loading="props.isServerActionBusy"
-        :is-disabled="props.isServerActionBusy"
+        :is-disabled="props.isServerActionBusy || (props.isServerActionDisabled ?? false)"
         @click="emit('serverAction')"
       >
         {{ props.serverActionLabel }}
@@ -65,7 +67,7 @@ const emit = defineEmits<{
         v-if="props.hasContent && props.isOffline && props.offlineActionLabel !== null"
         class="btn-secondary user-content-viewer__btn user-content-viewer__btn--upload"
         :is-loading="props.isOfflineActionBusy"
-        :is-disabled="props.isOfflineActionBusy"
+        :is-disabled="props.isOfflineActionBusy || (props.isOfflineActionDisabled ?? false)"
         @click="emit('offlineAction')"
       >
         {{ props.offlineActionLabel }}

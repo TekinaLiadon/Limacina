@@ -107,8 +107,7 @@ const emit = defineEmits<{
   }
 
   &__meta {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__actions {

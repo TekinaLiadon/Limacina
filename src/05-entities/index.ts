@@ -71,4 +71,11 @@ export type {
   ModrinthInstalledMod,
   ModrinthUpdateCheck,
   ModrinthInstallResult,
+  ModrinthExportMod,
+  ModrinthExportUnresolved,
+  ModrinthExportReport,
+  ModrinthModsetStatus,
+  ModrinthModsetEntry,
+  ModrinthImportPreview,
+  ModrinthImportReport,
 } from '@/06-shared/types/modrinth'

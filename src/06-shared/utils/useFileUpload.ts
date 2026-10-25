@@ -14,15 +14,27 @@ export function fileSizeLimitMessage(maxBytes: number, sizeBytes: number): strin
   return `Размер файла не должен превышать ${maxKb} КБ (загружено ${sizeKb} КБ)`
 }
 
+let activeInput: HTMLInputElement | null = null
+
 export function selectFile(options: FileUploadOptions): void {
   const { accept, maxBytes, readAs = 'dataURL', onError, onLoad } = options
 
+  activeInput?.remove()
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = accept
+  input.style.display = 'none'
+  activeInput = input
+  document.body.appendChild(input)
+
+  const release = (): void => {
+    input.remove()
+    if (activeInput === input) activeInput = null
+  }
 
   input.onchange = (): void => {
     const file = input.files?.[0]
+    release()
     if (!file) return
 
     if (!matchesExtension(file.name, accept.split(','))) {
@@ -52,6 +64,10 @@ export function selectFile(options: FileUploadOptions): void {
     } else {
       reader.readAsDataURL(file)
     }
+  }
+
+  input.oncancel = (): void => {
+    release()
   }
 
   input.click()

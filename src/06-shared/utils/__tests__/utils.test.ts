@@ -71,6 +71,13 @@ describe('matchesExtension', () => {
     expect(matchesExtension('archive.zip', ['png'])).toBe(false)
     expect(matchesExtension('README', ['png'])).toBe(false)
   })
+
+  it('matches multi-part extension tokens and the exact default file name', () => {
+    expect(matchesExtension('pack.limmods.json', ['.limmods.json'])).toBe(true)
+    expect(matchesExtension('limmods.json', ['.limmods.json'])).toBe(true)
+    expect(matchesExtension('skin.png', ['.png'])).toBe(true)
+    expect(matchesExtension('mods.txt', ['.limmods.json'])).toBe(false)
+  })
 })
 
 describe('randomId', () => {

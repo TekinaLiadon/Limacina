@@ -55,7 +55,7 @@ export async function readZipEntryText(budget: ZipReadBudget, file: JSZip.JSZipO
   return new TextDecoder().decode(bytes)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 

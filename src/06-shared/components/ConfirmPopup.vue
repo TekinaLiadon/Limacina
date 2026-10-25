@@ -49,14 +49,6 @@ const messageId = randomId()
     text-align: center;
   }
 
-  &__actions {
-    display: flex;
-    gap: var(--space-8);
-  }
-
-  &__btn {
-    flex: 1;
-    min-height: var(--control-height);
-  }
+  @include mixins.popup-actions('&__btn');
 }
 </style>

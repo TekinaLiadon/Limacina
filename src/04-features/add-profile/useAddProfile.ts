@@ -3,6 +3,7 @@ import { useNotificationStore, type ProjectConfig, type ServerProfileForm } from
 import { createServerProfile } from '@/06-shared/api'
 import { runScopedAction } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
+import { isProfileCreationBlocked } from './isProfileCreationBlocked'
 
 export function useAddProfile() {
   const notification = useNotificationStore()
@@ -16,6 +17,7 @@ export function useAddProfile() {
   const submitServer = async (): Promise<ProjectConfig | null> => {
     if (isSubmitting.value) return null
     if (!isServerValid.value) return null
+    if (isProfileCreationBlocked()) return null
 
     const created = await runScopedAction({
       busyFlag: isSubmitting,

@@ -25,7 +25,47 @@ export { useCpmProjectOpen } from './cpm-settings/useCpmProjectOpen'
 export { useCpmViewer } from './cpm-viewer/useCpmViewer'
 export type { CpmViewerOptions } from './cpm-viewer/useCpmViewer'
 export type { ActiveCpmAnimation } from './cpm-viewer/cpmAnimationPlayer'
+export {
+  maxPresetSkinScale,
+  skinScaleOf,
+  validatePresetConfig,
+  validatePresetMeta,
+  validatePresetPair,
+  validatePresetSkinFit,
+} from './cpm-presets/presetValidator'
+export { parsePresetProject } from './cpm-presets/presetLoader'
+export type { ParsedPreset } from './cpm-presets/presetLoader'
+export type { PresetMeta, PresetSkinType, PresetAuxRegion, SkinCompatiblePreset } from './cpm-presets/presetTypes'
+export { validateSkin, MAX_SKIN_FILE_BYTES } from './cpm-presets/skinValidate'
+export type { SkinValidation } from './cpm-presets/skinValidate'
+export { normalizeSkin } from './cpm-presets/skinNormalize'
+export type { SkinImage } from './cpm-presets/skinPng'
+export { scaleSkinLayout } from './cpm-presets/skinScale'
+export { fillAuxRegions } from './cpm-presets/skinAuxFill'
+export { compose, presetSkinTypeWarning } from './cpm-presets/dress'
+export type { DressedModel } from './cpm-presets/dress'
+export { downscaleSkin } from './cpm-presets/downscaleSkin'
+export type { PresetCatalogEntry, PresetCatalogSource, PresetPackageData } from './cpm-presets/presetCatalog'
+export { combinePresetSources } from './cpm-presets/presetCatalog'
+export { builtinPresetSource } from './cpm-presets/builtinPresetSource'
+export { serverPresetSource } from './cpm-presets/serverPresetSource'
+export type { PresetCatalogTransport, PresetPackageCache } from './cpm-presets/serverPresetSource'
+export { parsePresetManifest, PRESET_MANIFEST_VERSION } from './cpm-presets/presetManifest'
+export type { PresetManifest, PresetManifestEntry } from './cpm-presets/presetManifest'
+export { usePresetModels } from './cpm-presets/usePresetModels'
+export { usePresetSkinApply } from './cpm-presets/usePresetSkinApply'
+export type { PresetSkinApplySource, PresetApplyPreview } from './cpm-presets/usePresetSkinApply'
+export { useModelUserContent } from './user-content/useUserContent'
+export type { ModelUserContent } from './user-content/useUserContent'
 export { useModrinth, MODRINTH_BASE_URL, MODRINTH_SORTS, MODRINTH_CATEGORIES, MODRINTH_CATEGORY_LABELS, MODRINTH_DOWNLOAD_FORMS, MODRINTH_FOLLOW_FORMS } from './modrinth/useModrinth'
+export {
+  useModrinthModset,
+  MODSET_FILE_NAME,
+  MODSET_ACCEPT,
+  MODSET_FILTER,
+  MODSET_MAX_BYTES,
+} from './modrinth/useModrinthModset'
+export type { ModrinthModsetView } from './modrinth/useModrinthModset'
 export { useAlternativeJava } from './alternative-java/useAlternativeJava'
 export type { AlternativeJavaDownloadResult } from './alternative-java/useAlternativeJava'
 export { useSystemNotifications } from './system-notifications/useSystemNotifications'

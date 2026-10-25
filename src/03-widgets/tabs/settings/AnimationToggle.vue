@@ -29,9 +29,7 @@ const { animationsEnabled, toggleAnimations } = useAnimationSettings()
   max-width: var(--settings-row-width);
 
   &__hint {
-    @include mixins.caption-hint;
-
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 }
 </style>

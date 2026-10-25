@@ -185,3 +185,5 @@ export function useModelUserContent() {
     listLoadErrorMessage: 'Не удалось загрузить список моделей',
   })
 }
+
+export type ModelUserContent = ReturnType<typeof useModelUserContent>

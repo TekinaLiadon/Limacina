@@ -116,3 +116,46 @@ export interface ModrinthInstallResult {
   installed: string[]
   skipped: string[]
 }
+
+export interface ModrinthExportMod {
+  source: string
+  project_id?: string | null
+  slug?: string | null
+  version_id?: string | null
+  version_number?: string | null
+  title?: string | null
+  filename?: string | null
+}
+
+export interface ModrinthExportUnresolved {
+  filename: string
+  reason: string
+}
+
+export interface ModrinthExportReport {
+  mods: ModrinthExportMod[]
+  unresolved: ModrinthExportUnresolved[]
+}
+
+export type ModrinthModsetStatus = 'ready' | 'skipped' | 'installed' | 'already_installed' | 'failed'
+
+export interface ModrinthModsetEntry {
+  source: string
+  project_id?: string | null
+  slug?: string | null
+  version_id?: string | null
+  version_number?: string | null
+  title?: string | null
+  filename?: string | null
+  status: ModrinthModsetStatus
+  message?: string | null
+}
+
+export interface ModrinthImportPreview {
+  format_version: number
+  entries: ModrinthModsetEntry[]
+}
+
+export interface ModrinthImportReport {
+  entries: ModrinthModsetEntry[]
+}

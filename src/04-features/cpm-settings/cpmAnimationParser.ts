@@ -13,10 +13,10 @@ import {
   type CPMVec3,
 } from '@/05-entities'
 
-const LAYER_PREFIX = '$layer$'
-const VALUE_LAYER_PREFIX = '$value$'
-const SETUP_PREFIX = '$pre$'
-const FINISH_PREFIX = '$post$'
+export const LAYER_PREFIX = '$layer$'
+export const VALUE_LAYER_PREFIX = '$value$'
+export const SETUP_PREFIX = '$pre$'
+export const FINISH_PREFIX = '$post$'
 
 const ANIM_ENC_FILE = 'anim_enc.json'
 const ANIMATIONS_DIR = 'animations/'

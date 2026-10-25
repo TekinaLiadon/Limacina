@@ -14,6 +14,7 @@ import {
 } from '@/06-shared/api'
 import { runScopedAction, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
+import { isProfileCreationBlocked } from './isProfileCreationBlocked'
 
 const loaderOption = (value: ModLoaderKind): DropdownOption => ({
   value,
@@ -137,6 +138,7 @@ export function useOfflineProfileForm({ isSubmitting, errorMessage }: OfflinePro
   const submitOffline = async (): Promise<ProjectConfig | null> => {
     if (isSubmitting.value) return null
     if (!isOfflineValid.value) return null
+    if (isProfileCreationBlocked()) return null
 
     const created = await runScopedAction({
       busyFlag: isSubmitting,

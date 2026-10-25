@@ -327,6 +327,7 @@ describe('useAccountsPage', () => {
     )
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const page = setupPage()
+    useAccountsStore().selectedUsername = 'alice'
 
     const pending = page.handleLaunch()
     await vi.waitFor(() => expect(useLaunchStore().isLaunching).toBe(true))
@@ -342,6 +343,7 @@ describe('useAccountsPage', () => {
     expect(useLaunchStore().loginError).toBe('')
     expect(useAccountsStore().showAuthForm).toBe(false)
     expect(useAccountsStore().isLoggedIn).toBe(false)
+    expect(useAccountsStore().selectedUsername).toBe('')
   })
 
   it('shows the auth form instead of cancelling an idle page', async () => {

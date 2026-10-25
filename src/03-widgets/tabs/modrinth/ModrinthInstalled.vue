@@ -11,6 +11,7 @@ const props = defineProps<{
   isLoading: boolean
   isOpeningFolder: boolean
   isCheckingUpdates: boolean
+  isExporting: boolean
   actionError: string
   installedError: string
 }>()
@@ -18,6 +19,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'open-folder': []
   'check-updates': []
+  'export-modset': []
+  'import-modset': []
   update: [projectId: string]
   uninstall: [projectId: string]
 }>()
@@ -46,6 +49,17 @@ const errorTexts = computed((): string[] => {
         @click="emit('check-updates')"
       >
         Проверить обновления
+      </Button>
+      <Button
+        class="btn-secondary"
+        :is-loading="props.isExporting"
+        :is-disabled="props.isExporting || props.mods.length === 0"
+        @click="emit('export-modset')"
+      >
+        Сохранить набор
+      </Button>
+      <Button class="btn-secondary" :is-disabled="props.isExporting" @click="emit('import-modset')">
+        Импортировать набор
       </Button>
     </div>
 
@@ -102,8 +116,7 @@ const errorTexts = computed((): string[] => {
   }
 
   &__empty {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__error {

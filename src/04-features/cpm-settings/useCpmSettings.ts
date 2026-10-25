@@ -1,11 +1,24 @@
 import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, runScopedAction } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type CPMChild, type CPMData, type CPMElement, type CPMVec3, type UserContentItem } from '@/05-entities'
+import {
+  useCoreStore,
+  useNotificationStore,
+  type CPMAnimEnc,
+  type CPMAnimation,
+  type CPMChild,
+  type CPMConfig,
+  type CPMData,
+  type CPMElement,
+  type CPMVec3,
+  type UserContentItem,
+} from '@/05-entities'
 import { readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
-import { cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
-import { useModelUserContent } from '@/04-features/user-content/useUserContent'
+import { bytesToBase64 } from '@/04-features/cpm-convert/cpmBinaryWriter'
+import { cpmConfigToLinkBytes, cpmProjectToLinkBase64 } from '@/04-features/cpm-convert/cpmProjectExporter'
+import { parseBbmodel } from '@/04-features/cpm-convert/bbmodelParser'
+import { useModelUserContent, type ModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
-import { parseCpmProjectFile, type CpmProject } from './cpmProjectParser'
+import { parseCpmProjectFile } from './cpmProjectParser'
 
 export interface CpmLayer {
   storeId: number | null
@@ -27,6 +40,7 @@ export interface CpmLayerPanelData {
 }
 
 const TEXTURE_LOAD_ERROR = 'Не удалось загрузить текстуру модели'
+const BBMODEL_NO_TEXTURE_ERROR = 'В файле .bbmodel нет текстуры модели'
 
 const LAYER_GROUP_LABELS: Record<string, string> = {
   head: 'Голова',
@@ -63,13 +77,13 @@ function collectLayers(children: CPMChild[] | undefined, group: string, result: 
   }
 }
 
-export function useCpmSettings() {
+export function useCpmSettings(content: ModelUserContent = useModelUserContent()) {
   const coreStore = useCoreStore()
-  const content = useModelUserContent()
   const notification = useNotificationStore()
 
   const cpmData = shallowRef<CPMData | null>(null)
   const cpmFileBytes = ref<Uint8Array | null>(null)
+  const cpmSkinPng = ref<Uint8Array | null>(null)
   const cpmFileName = ref<string>('')
   const isUploading = ref<boolean>(false)
   const showEmptyLayers = ref<boolean>(false)
@@ -157,27 +171,44 @@ export function useCpmSettings() {
     hiddenLayerIds.value = new Set([...hiddenLayerIds.value].filter((id) => known.has(id)))
   })
 
-  function applyCpmProject(project: CpmProject, bytes: Uint8Array, name: string): void {
-    const textureUrl = URL.createObjectURL(project.textureBlob)
+  function applyModel(
+    config: CPMConfig,
+    textureBlob: Blob,
+    animations: CPMAnimation[],
+    animEnc: CPMAnimEnc | null,
+    bytes: Uint8Array,
+    name: string,
+  ): void {
+    const textureUrl = URL.createObjectURL(textureBlob)
     if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
-    cpmData.value = {
-      config: project.config,
-      textureUrl,
-      animations: project.animations,
-      animEnc: project.animEnc,
-    }
+    cpmData.value = { config, textureUrl, animations, animEnc }
     cpmFileBytes.value = bytes
     cpmFileName.value = name
   }
 
   const { isDragOver, openFileDialog: selectCpmFile, loadFromPath } = useUserContentFile({
-    accept: '.cpmproject',
-    extensions: ['cpmproject'],
-    maxBytes: 2 * 1024 * 1024,
+    accept: '.cpmproject,.bbmodel',
+    extensions: ['cpmproject', 'bbmodel'],
+    maxBytes: 4 * 1024 * 1024,
     readFile: readCpmProjectFile,
     processFile: async (bytes: Uint8Array, name: string): Promise<void> => {
+      cpmSkinPng.value = null
+      if (/\.bbmodel$/i.test(name)) {
+        const model = parseBbmodel(bytes)
+        if (model.skinPng === null) throw new Error(BBMODEL_NO_TEXTURE_ERROR)
+        cpmSkinPng.value = model.skinPng
+        applyModel(
+          model.config,
+          new Blob([model.skinPng]),
+          model.animations,
+          null,
+          bytes,
+          name.replace(/\.bbmodel$/i, ''),
+        )
+        return
+      }
       const project = await parseCpmProjectFile(bytes)
-      applyCpmProject(project, bytes, name.replace(/\.cpmproject$/i, ''))
+      applyModel(project.config, project.textureBlob, project.animations, project.animEnc, bytes, name.replace(/\.cpmproject$/i, ''))
     },
     errorMessage: content.errorMessage,
   })
@@ -193,6 +224,7 @@ export function useCpmSettings() {
 
     cpmData.value = null
     cpmFileBytes.value = null
+    cpmSkinPng.value = null
     cpmFileName.value = ''
     hiddenLayerIds.value = new Set()
     isUploading.value = false
@@ -229,7 +261,10 @@ export function useCpmSettings() {
           const bytes = cpmFileBytes.value
           const data = cpmData.value
           if (!bytes || !data) return false
-          const base64 = await cpmProjectToLinkBase64(bytes, data)
+          const skinPng = cpmSkinPng.value
+          const base64 = skinPng !== null
+            ? bytesToBase64(cpmConfigToLinkBytes(data.config, skinPng, { animations: data.animations ?? [] }))
+            : await cpmProjectToLinkBase64(bytes, data)
           uploaded = await content.handleUpload(base64)
           if (uploaded === null) return false
 
@@ -265,6 +300,7 @@ export function useCpmSettings() {
   return {
     cpmData,
     cpmFileBytes,
+    cpmSkinPng,
     modelName,
     errorMessage: content.errorMessage,
     showEmptyLayers,

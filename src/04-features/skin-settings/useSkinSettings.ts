@@ -142,7 +142,7 @@ export function useSkinSettings() {
   const { isDragOver, openFileDialog: selectSkin } = useUserContentFile({
     accept: '.png,image/png',
     extensions: ['png'],
-    maxBytes: 256 * 1024,
+    maxBytes: 512 * 1024,
     validateBytes: (skinBytes: Uint8Array): string | null =>
       hasPngSignature(skinBytes) ? null : 'Выбранный файл не является PNG-изображением',
     readFile: readSkinFile,

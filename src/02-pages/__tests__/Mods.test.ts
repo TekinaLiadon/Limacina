@@ -3,6 +3,8 @@ import { computed, nextTick, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useNotificationStore, type ModrinthInstalledMod, type ModrinthSearchHit } from '@/05-entities'
+import { ModrinthProjectPopup } from '@/03-widgets'
+import type { ModrinthModsetView } from '@/04-features'
 import Mods from '../Mods.vue'
 
 const query = ref('')
@@ -40,6 +42,19 @@ const uninstall = vi.fn()
 const openFolder = vi.fn()
 const openDetails = vi.fn()
 const closeDetails = vi.fn()
+
+const isExporting = ref(false)
+const modsetPopupVisible = ref(false)
+const modsetView = ref<ModrinthModsetView | null>(null)
+const modsetExportReport = ref(null)
+const modsetImportPreview = ref(null)
+const modsetImportReport = ref(null)
+const modsetIsBusy = ref(false)
+const modsetError = ref('')
+const openExport = vi.fn()
+const openImport = vi.fn()
+const confirmModset = vi.fn()
+const closeModset = vi.fn()
 
 vi.mock('@/04-features', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/04-features')>()
@@ -81,6 +96,20 @@ vi.mock('@/04-features', async (importOriginal) => {
       openDetails,
       closeDetails,
     }),
+    useModrinthModset: () => ({
+      isPopupVisible: modsetPopupVisible,
+      view: modsetView,
+      exportReport: modsetExportReport,
+      importPreview: modsetImportPreview,
+      importReport: modsetImportReport,
+      isExporting,
+      isConfirming: modsetIsBusy,
+      actionError: modsetError,
+      openExport,
+      openImport,
+      confirmPopup: confirmModset,
+      closePopup: closeModset,
+    }),
   }
 })
 
@@ -117,7 +146,7 @@ const mountMods = () =>
   mount(Mods, {
     global: {
       plugins: [createPinia()],
-      stubs: { ModrinthProjectPopup: true },
+      stubs: { ModrinthProjectPopup: true, ModrinthModsetPopup: true },
     },
   })
 
@@ -141,6 +170,15 @@ describe('Mods', () => {
     loadInstalled.mockClear()
     uninstall.mockClear()
     openDetails.mockClear()
+    openExport.mockClear()
+    openImport.mockClear()
+    confirmModset.mockClear()
+    closeModset.mockClear()
+    isExporting.value = false
+    modsetPopupVisible.value = false
+    modsetView.value = null
+    modsetIsBusy.value = false
+    modsetError.value = ''
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
   })
 
@@ -222,6 +260,19 @@ describe('Mods', () => {
     wrapper.unmount()
   })
 
+  it('installs the version chosen in the popup', async () => {
+    const wrapper = mountMods()
+    activeHit.value = makeHit('sodium')
+    await nextTick()
+
+    wrapper.findComponent(ModrinthProjectPopup).vm.$emit('install-version', 'v-9')
+    await nextTick()
+
+    expect(install).toHaveBeenCalledWith('sodium', 'v-9')
+
+    wrapper.unmount()
+  })
+
   it('uninstalls a mod only after the confirmation', async () => {
     const wrapper = mountMods()
     await viewTab(wrapper, 'Установленные')?.trigger('click')
@@ -236,6 +287,39 @@ describe('Mods', () => {
     confirm.mockResolvedValue(true)
     await wrapper.get('.modrinth-row .btn-danger').trigger('click')
     expect(uninstall).toHaveBeenCalledWith('sodium')
+
+    wrapper.unmount()
+  })
+
+  it('starts the modset save and import flows from the installed toolbar', async () => {
+    const wrapper = mountMods()
+    await viewTab(wrapper, 'Установленные')?.trigger('click')
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === 'Сохранить набор')
+    await saveButton?.trigger('click')
+    expect(openExport).toHaveBeenCalledTimes(1)
+
+    const importButton = wrapper.findAll('button').find((button) => button.text() === 'Импортировать набор')
+    await importButton?.trigger('click')
+    expect(openImport).toHaveBeenCalledTimes(1)
+
+    expect(saveButton?.attributes('disabled')).toBeUndefined()
+    expect(importButton?.attributes('disabled')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  it('disables the modset save button while the set is being prepared', async () => {
+    const wrapper = mountMods()
+    await viewTab(wrapper, 'Установленные')?.trigger('click')
+
+    isExporting.value = true
+    await nextTick()
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === 'Сохранить набор')
+    const importButton = wrapper.findAll('button').find((button) => button.text() === 'Импортировать набор')
+    expect(saveButton?.attributes('disabled')).toBeDefined()
+    expect(importButton?.attributes('disabled')).toBeDefined()
 
     wrapper.unmount()
   })

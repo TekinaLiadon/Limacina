@@ -21,6 +21,7 @@ type InstalledProps = {
   isLoading: boolean
   isOpeningFolder: boolean
   isCheckingUpdates: boolean
+  isExporting: boolean
   actionError: string
   installedError: string
 }
@@ -34,6 +35,7 @@ const mountInstalled = (overrides: Partial<InstalledProps> = {}) =>
       isLoading: false,
       isOpeningFolder: false,
       isCheckingUpdates: false,
+      isExporting: false,
       actionError: '',
       installedError: '',
       ...overrides,
@@ -139,6 +141,35 @@ describe('ModrinthInstalled', () => {
     await button(wrapper, 'Проверить обновления')?.trigger('click')
     expect(wrapper.emitted('open-folder')).toHaveLength(1)
     expect(wrapper.emitted('check-updates')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('gates the modset buttons by the installed list and the export run', () => {
+    const empty = mountInstalled()
+    expect(button(empty, 'Сохранить набор')?.attributes('disabled')).toBeDefined()
+    expect(button(empty, 'Импортировать набор')?.attributes('disabled')).toBeUndefined()
+
+    const filled = mountInstalled({ mods: [makeInstalled('sodium')] })
+    expect(button(filled, 'Сохранить набор')?.attributes('disabled')).toBeUndefined()
+    expect(button(filled, 'Импортировать набор')?.attributes('disabled')).toBeUndefined()
+
+    const exporting = mountInstalled({ mods: [makeInstalled('sodium')], isExporting: true })
+    expect(button(exporting, 'Сохранить набор')?.attributes('aria-busy')).toBe('true')
+    expect(button(exporting, 'Импортировать набор')?.attributes('disabled')).toBeDefined()
+
+    empty.unmount()
+    filled.unmount()
+    exporting.unmount()
+  })
+
+  it('hands the modset actions up', async () => {
+    const wrapper = mountInstalled({ mods: [makeInstalled('sodium')] })
+
+    await button(wrapper, 'Сохранить набор')?.trigger('click')
+    await button(wrapper, 'Импортировать набор')?.trigger('click')
+    expect(wrapper.emitted('export-modset')).toHaveLength(1)
+    expect(wrapper.emitted('import-modset')).toHaveLength(1)
 
     wrapper.unmount()
   })

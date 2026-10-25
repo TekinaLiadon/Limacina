@@ -12,16 +12,27 @@ import {
   useAccountsStore,
   useCoreStore,
   useNotificationStore,
+  type CPMAnimation,
   type CPMChild,
   type CPMElement,
   type UserContentItem,
 } from '@/05-entities'
 import { useCpmSettings, type CpmLayerPanelData, type CpmLayerTabItem } from '../useCpmSettings'
+import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { withSetup } from '@/test-support/withSetup'
 import { makeProjectConfig } from '@/test-support/fixtures'
 
 const exporter = vi.hoisted(() => ({
   cpmProjectToLinkBase64: vi.fn(),
+  cpmConfigToLinkBytes: vi.fn(),
+}))
+
+const bbmodel = vi.hoisted(() => ({
+  parseBbmodel: vi.fn(),
+}))
+
+const writer = vi.hoisted(() => ({
+  bytesToBase64: vi.fn(),
 }))
 
 const parser = vi.hoisted(() => ({
@@ -49,6 +60,16 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 vi.mock('@/04-features/cpm-convert/cpmProjectExporter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/04-features/cpm-convert/cpmProjectExporter')>()),
   cpmProjectToLinkBase64: exporter.cpmProjectToLinkBase64,
+  cpmConfigToLinkBytes: exporter.cpmConfigToLinkBytes,
+}))
+
+vi.mock('@/04-features/cpm-convert/bbmodelParser', () => ({
+  parseBbmodel: bbmodel.parseBbmodel,
+}))
+
+vi.mock('@/04-features/cpm-convert/cpmBinaryWriter', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/04-features/cpm-convert/cpmBinaryWriter')>()),
+  bytesToBase64: writer.bytesToBase64,
 }))
 
 vi.mock('@/04-features/cpm-settings/cpmProjectParser', () => ({
@@ -96,6 +117,29 @@ const makeProject = (skinType: 'default' | 'slim' = 'default') => ({
 
 const makeModel = (id: number): UserContentItem => ({ id, url: `https://cdn/${id}.cpm` })
 
+const makeGesture = (): CPMAnimation => ({
+  id: 'wave',
+  name: 'wave',
+  kind: 'gesture',
+  duration: 500,
+  priority: 0,
+  loop: true,
+  additive: true,
+  interpolator: 'linear_loop',
+  hidden: false,
+  frames: [],
+  layerControlled: false,
+})
+
+const makeBbmodelResult = () => ({
+  config: {
+    skinSize: { x: 64, y: 64 },
+    elements: [makeElement([])],
+  },
+  skinPng: new Uint8Array([1, 2, 3]),
+  animations: [makeGesture()],
+})
+
 const panelItems = (data: CpmLayerPanelData, tab: string): CpmLayerTabItem[] =>
   data[tab] as CpmLayerTabItem[]
 
@@ -110,6 +154,9 @@ describe('useCpmSettings', () => {
     vi.mocked(uploadModel).mockReset()
     vi.mocked(listModels).mockResolvedValue([])
     exporter.cpmProjectToLinkBase64.mockReset()
+    exporter.cpmConfigToLinkBytes.mockReset()
+    bbmodel.parseBbmodel.mockReset()
+    writer.bytesToBase64.mockReset()
     parser.parseCpmProjectFile.mockReset()
     reportError.mockClear()
     createObjectURLMock.mockClear()
@@ -137,6 +184,18 @@ describe('useCpmSettings', () => {
     expect(cpm.listError.value).toBe('')
   })
 
+  it('uses the injected user content instance', async () => {
+    const { result: content } = withSetup(() => useModelUserContent())
+    const cpm = withSetup(() => useCpmSettings(content)).result
+
+    await vi.waitFor(() => expect(cpm.uploadedModels.value).toEqual([]))
+
+    expect(cpm.errorMessage).toBe(content.errorMessage)
+    expect(cpm.isOffline).toBe(content.isOffline)
+    expect(cpm.handleDeleteModel).toBeDefined()
+    expect(vi.mocked(listModels)).toHaveBeenCalledTimes(1)
+  })
+
   it('opens the pending project file from the launch args', async () => {
     const bytes = new Uint8Array(8)
     vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
@@ -152,8 +211,122 @@ describe('useCpmSettings', () => {
     expect(URL.createObjectURL).toHaveBeenCalled()
   })
 
+  it('loads a bbmodel with its animations through the converter', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    bbmodel.parseBbmodel.mockReturnValue(makeBbmodelResult())
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.bbmodel'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    expect(bbmodel.parseBbmodel).toHaveBeenCalledWith(bytes)
+    expect(parser.parseCpmProjectFile).not.toHaveBeenCalled()
+    expect(cpm.cpmData.value?.animations).toHaveLength(1)
+    expect(cpm.cpmData.value?.textureUrl).toBe('blob:mock-texture')
+    expect(cpm.cpmSkinPng.value).toEqual(new Uint8Array([1, 2, 3]))
+    expect(cpm.modelName.value).toBe('hero')
+  })
+
+  it('rejects a bbmodel without a texture', async () => {
+    vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(8))
+    bbmodel.parseBbmodel.mockReturnValue({ ...makeBbmodelResult(), skinPng: null })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.bbmodel'
+    await vi.waitFor(() => expect(cpm.errorMessage.value).not.toBe(''))
+
+    expect(cpm.errorMessage.value).toBe('В файле .bbmodel нет текстуры модели')
+    expect(cpm.cpmData.value).toBeNull()
+    expect(cpm.cpmSkinPng.value).toBeNull()
+  })
+
+  it('surfaces the bbmodel conversion error', async () => {
+    vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(8))
+    bbmodel.parseBbmodel.mockImplementation(() => {
+      throw new Error('Файл .bbmodel повреждён: длительность анимации "wave" превышает 65 секунд')
+    })
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/bad.bbmodel'
+    await vi.waitFor(() => expect(cpm.errorMessage.value).not.toBe(''))
+
+    expect(cpm.errorMessage.value).toContain('повреждён')
+    expect(cpm.cpmData.value).toBeNull()
+    expect(cpm.cpmSkinPng.value).toBeNull()
+  })
+
+  it('uploads the bbmodel model through the config exporter', async () => {
+    const result = makeBbmodelResult()
+    vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(8))
+    bbmodel.parseBbmodel.mockReturnValue(result)
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+    exporter.cpmConfigToLinkBytes.mockReturnValue(new Uint8Array([7]))
+    writer.bytesToBase64.mockReturnValue('bb-base64')
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.bbmodel'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(exporter.cpmConfigToLinkBytes).toHaveBeenCalledWith(
+      result.config,
+      result.skinPng,
+      { animations: result.animations },
+    )
+    expect(writer.bytesToBase64).toHaveBeenCalledWith(new Uint8Array([7]))
+    expect(exporter.cpmProjectToLinkBase64).not.toHaveBeenCalled()
+    expect(uploadModel).toHaveBeenCalledWith('bb-base64')
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ name: 'hero' }))
+    expect(cpm.isUploading.value).toBe(false)
+  })
+
+  it('drops the bbmodel skin bytes when a cpmproject is loaded next', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    bbmodel.parseBbmodel.mockReturnValue(makeBbmodelResult())
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    exporter.cpmProjectToLinkBase64.mockResolvedValue('base64-link')
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.bbmodel'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+    expect(cpm.cpmSkinPng.value).not.toBeNull()
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(cpm.cpmSkinPng.value).toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(exporter.cpmConfigToLinkBytes).not.toHaveBeenCalled()
+    expect(exporter.cpmProjectToLinkBase64).toHaveBeenCalledWith(bytes, expect.objectContaining({ animations: [] }))
+  })
+
+  it('revokes the previous texture url when a new model is loaded', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    bbmodel.parseBbmodel.mockReturnValue(makeBbmodelResult())
+    const core = useCoreStore()
+    const cpm = setupCpm()
+
+    core.pendingCpmProjectPath = '/models/hero.bbmodel'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    core.pendingCpmProjectPath = '/models/hero-reload.bbmodel'
+    await vi.waitFor(() => expect(vi.mocked(URL.revokeObjectURL)).toHaveBeenCalledWith('blob:mock-texture'))
+  })
+
   it('rejects an oversized pending project file with the dialog message', async () => {
-    vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(3 * 1024 * 1024))
+    vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(5 * 1024 * 1024))
     const core = useCoreStore()
     const cpm = setupCpm()
 
@@ -161,7 +334,7 @@ describe('useCpmSettings', () => {
     await vi.waitFor(() => expect(cpm.errorMessage.value).not.toBe(''))
 
     expect(core.pendingCpmProjectPath).toBeNull()
-    expect(cpm.errorMessage.value).toBe('Размер файла не должен превышать 2048 КБ (загружено 3072 КБ)')
+    expect(cpm.errorMessage.value).toBe('Размер файла не должен превышать 4096 КБ (загружено 5120 КБ)')
     expect(parser.parseCpmProjectFile).not.toHaveBeenCalled()
     expect(cpm.cpmData.value).toBeNull()
   })

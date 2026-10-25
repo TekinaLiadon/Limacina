@@ -108,8 +108,7 @@ const errorTexts = computed((): string[] => {
   }
 
   &__summary-text {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__list {
@@ -119,8 +118,7 @@ const errorTexts = computed((): string[] => {
   }
 
   &__empty {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__error {
@@ -128,10 +126,7 @@ const errorTexts = computed((): string[] => {
   }
 
   &__versions-hint {
-    @include mixins.caption-hint;
-
-    margin: 0;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 }
 

@@ -4,7 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult } from '../types'
+import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult, ModrinthExportMod, ModrinthExportReport, ModrinthImportPreview, ModrinthImportReport } from '../types'
 
 export interface CommandErrorPayload {
   code: string
@@ -12,6 +12,8 @@ export interface CommandErrorPayload {
 }
 
 const INTERNAL_ERROR_CODE = 'internal'
+
+export const AUTH_NO_SAVED_CREDENTIALS_CODE = 'auth_no_saved_credentials'
 
 export function getCommandError(e: unknown): CommandErrorPayload {
   if (typeof e === 'object' && e !== null && 'code' in e && 'message' in e) {
@@ -457,12 +459,28 @@ export async function modrinthCheckUpdates(): Promise<ModrinthUpdateCheck[]> {
   return invoke('modrinth_check_updates')
 }
 
-export async function modrinthInstall(projectId: string): Promise<ModrinthInstallResult> {
-  return invoke('modrinth_install', { projectId })
+export async function modrinthInstall(projectId: string, versionId?: string): Promise<ModrinthInstallResult> {
+  return invoke('modrinth_install', { projectId, versionId })
 }
 
 export async function modrinthUninstall(projectId: string): Promise<void> {
   return invoke('modrinth_uninstall', { projectId })
+}
+
+export async function modrinthExportPrepare(): Promise<ModrinthExportReport> {
+  return invoke('modrinth_export_prepare')
+}
+
+export async function modrinthExportSave(path: string, mods: ModrinthExportMod[]): Promise<void> {
+  return invoke('modrinth_export_save', { path, mods })
+}
+
+export async function modrinthImportPreview(content: string): Promise<ModrinthImportPreview> {
+  return invoke('modrinth_import_preview', { content })
+}
+
+export async function modrinthImportApply(content: string): Promise<ModrinthImportReport> {
+  return invoke('modrinth_import_apply', { content })
 }
 
 export async function openModsFolder(): Promise<void> {

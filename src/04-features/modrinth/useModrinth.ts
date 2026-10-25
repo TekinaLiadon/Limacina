@@ -226,11 +226,11 @@ export function useModrinth() {
     }) ?? false
   }
 
-  const install = (projectId: string): Promise<boolean> =>
+  const install = (projectId: string, versionId?: string): Promise<boolean> =>
     runInstallAction(
       projectId,
       'Не удалось установить мод',
-      (): Promise<ModrinthInstallResult> => modrinthInstall(projectId),
+      (): Promise<ModrinthInstallResult> => modrinthInstall(projectId, versionId),
       async (): Promise<boolean> => {
         await loadInstalled()
         const { [projectId]: _resolved, ...rest } = updates.value

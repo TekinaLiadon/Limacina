@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { authLogins, authRefresh, getSessionInfo } from '@/06-shared/api'
-import { useAccountsStore, useCoreStore, useLaunchStore, type SessionInfo } from '@/05-entities'
+import { AUTH_LOGIN_TAB, useAccountsStore, useCoreStore, useLaunchStore, type SessionInfo } from '@/05-entities'
 import { useAccounts } from '../useAccounts'
 import { withSetup } from '@/test-support/withSetup'
 
@@ -132,6 +132,35 @@ describe('useAccounts', () => {
     expect(accounts.selectedUsername.value).toBe('')
     expect(accounts.errorMessage.value).toBe('no credentials')
     expect(useAccountsStore().isLoggedIn).toBe(false)
+  })
+
+  it('opens the password form when the account has no saved credentials', async () => {
+    const accountsStore = useAccountsStore()
+    const accounts = setupAccounts()
+    vi.mocked(authRefresh).mockRejectedValue({
+      code: 'auth_no_saved_credentials',
+      message: 'Нет сохранённых учётных данных для "bob", войдите с паролем',
+    })
+
+    await accounts.handleSelect('bob')
+
+    expect(accountsStore.showAuthForm).toBe(true)
+    expect(accountsStore.activeSubTab).toBe(AUTH_LOGIN_TAB)
+    expect(accountsStore.loginFormData.username).toBe('bob')
+    expect(accountsStore.authError).toBe('Нет сохранённых учётных данных для "bob", войдите с паролем')
+    expect(accounts.selectedUsername.value).toBe('')
+  })
+
+  it('keeps the account list error for other select failures', async () => {
+    const accountsStore = useAccountsStore()
+    const accounts = setupAccounts()
+    vi.mocked(authRefresh).mockRejectedValue({ code: 'auth_server', message: 'Сервер недоступен' })
+
+    await accounts.handleSelect('bob')
+
+    expect(accountsStore.showAuthForm).toBe(false)
+    expect(accountsStore.authError).toBe('')
+    expect(accounts.errorMessage.value).toBe('Сервер недоступен')
   })
 
   it('ignores a select while another select is running', async () => {

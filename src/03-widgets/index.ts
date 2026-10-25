@@ -32,7 +32,7 @@ export { default as ModrinthCatalogList } from './tabs/modrinth/ModrinthCatalogL
 export { default as ModrinthPagination } from './tabs/modrinth/ModrinthPagination.vue'
 export { default as ModrinthInstalled } from './tabs/modrinth/ModrinthInstalled.vue'
 export { default as ModrinthProjectPopup } from './tabs/modrinth/ModrinthProjectPopup.vue'
-export { default as CpmSettings } from './tabs/settings/CpmSettings.vue'
+export { default as ModrinthModsetPopup } from './tabs/modrinth/ModrinthModsetPopup.vue'
 export { default as AccountSettings } from './tabs/settings/AccountSettings.vue'
 export { default as GameSettings } from './tabs/settings/GameSettings.vue'
 export { default as SettingsSection } from './tabs/settings/SettingsSection.vue'

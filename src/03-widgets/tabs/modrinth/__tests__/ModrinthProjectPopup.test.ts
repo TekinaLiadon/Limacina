@@ -61,11 +61,28 @@ const makeDetails = (): ModrinthProjectDetails => ({
       featured: false,
       files: [],
     },
+    {
+      id: 'v-2',
+      project_id: 'p-1',
+      name: 'Sodium 0.9',
+      version_number: '0.9',
+      changelog: null,
+      dependencies: [],
+      game_versions: ['1.20.1'],
+      loaders: ['fabric'],
+      version_type: 'beta',
+      date_published: null,
+      downloads: 5,
+      featured: false,
+      files: [],
+    },
   ],
   versions_failed: false,
 })
 
-const mountPopup = (visible: boolean) =>
+type PopupOverrides = Partial<{ isBusyAny: boolean; actionError: string }>
+
+const mountPopup = (visible: boolean, overrides: PopupOverrides = {}) =>
   mount(ModrinthProjectPopup, {
     props: {
       visible,
@@ -77,6 +94,8 @@ const mountPopup = (visible: boolean) =>
       updateVersion: '',
       isBusy: false,
       isBusyAny: false,
+      actionError: '',
+      ...overrides,
     },
     global: { stubs: { teleport: true } },
   })
@@ -103,6 +122,34 @@ describe('ModrinthProjectPopup', () => {
 
     expect(wrapper.findAll('button').some((button) => button.text() === 'Изменения')).toBe(true)
     expect(wrapper.text()).not.toContain('Скрыть изменения')
+
+    wrapper.unmount()
+  })
+
+  it('offers an install action per version and emits its id', async () => {
+    const wrapper = mountPopup(true)
+    const installButtons = wrapper.findAll('button').filter((button) => button.text() === 'Установить')
+    expect(installButtons).toHaveLength(2)
+
+    await installButtons[1]?.trigger('click')
+
+    expect(wrapper.emitted('install-version')).toEqual([['v-2']])
+
+    wrapper.unmount()
+  })
+
+  it('disables version installs while any install runs and shows the action error', async () => {
+    const wrapper = mountPopup(true, { isBusyAny: true })
+
+    const installButtons = wrapper.findAll('button').filter((button) => button.text() === 'Установить')
+    expect(installButtons).toHaveLength(2)
+    for (const button of installButtons) {
+      expect(button.attributes('disabled')).toBeDefined()
+    }
+
+    await wrapper.setProps({ isBusyAny: false, actionError: 'Версия несовместима с профилем' })
+    expect(wrapper.text()).toContain('Версия несовместима с профилем')
+    expect(wrapper.find('.modrinth-popup__action-error').exists()).toBe(true)
 
     wrapper.unmount()
   })

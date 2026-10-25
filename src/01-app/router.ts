@@ -50,7 +50,7 @@ const router = createRouter({
         {
           path: 'model',
           name: 'SettingsModel',
-          component: () => import('@/03-widgets/tabs/settings/CpmSettings.vue'),
+          component: () => import('@/03-widgets/tabs/settings/ModelTab.vue'),
         },
       ],
     },

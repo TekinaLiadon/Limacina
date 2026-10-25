@@ -1,6 +1,6 @@
 import { onMounted } from 'vue'
-import { useCoreStore, useAccountsStore, useLaunchStore } from '@/05-entities'
-import { authRefresh, getErrorMessage, getSessionInfo } from '@/06-shared/api'
+import { useCoreStore, useAccountsStore, useLaunchStore, AUTH_LOGIN_TAB } from '@/05-entities'
+import { authRefresh, getCommandError, getErrorMessage, getSessionInfo, AUTH_NO_SAVED_CREDENTIALS_CODE } from '@/06-shared/api'
 import { captureProjectScope, refreshSession, reportError, storeBinding } from '@/06-shared'
 import { useAccountsList } from './useAccountsList'
 
@@ -41,6 +41,12 @@ export function useAccounts() {
       reportError('Не удалось выбрать аккаунт', e)
       selectedUsername.value = previousUsername
       errorMessage.value = getErrorMessage(e)
+      if (getCommandError(e).code === AUTH_NO_SAVED_CREDENTIALS_CODE) {
+        store.showAuthForm = true
+        store.activeSubTab = AUTH_LOGIN_TAB
+        store.loginFormData.username = username
+        store.authError = errorMessage.value
+      }
     } finally {
       if (scope.isCurrent()) isLoading.value = false
     }

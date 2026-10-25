@@ -201,7 +201,7 @@ pub async fn get_profile_skin(
 }
 
 const SKIN_EXT: &str = "png";
-const SKIN_MAX_BYTES: u64 = 256 * 1024;
+const SKIN_MAX_BYTES: u64 = 512 * 1024;
 const SKIN_FILE_READ: AllowlistedRead =
     AllowlistedRead::new(SKIN_EXT, SKIN_MAX_BYTES, 1024, "КБ", "скина");
 
@@ -268,6 +268,7 @@ async fn save_offline_skin_inner(
             "Некорректная модель скина".to_string()
         ));
     }
+    ensure_skin_size(file_data.len() as u64)?;
 
     let (png_path, meta_path) = offline_skin_paths(project_name)?;
     let png_parent = png_path.parent().map(|p| p.to_path_buf());
@@ -484,7 +485,7 @@ mod skin_origin_tests {
 
 #[cfg(test)]
 mod offline_skin_tests {
-    use super::save_offline_skin_inner;
+    use super::{save_offline_skin_inner, SKIN_MAX_BYTES};
     use crate::test_support::LauncherDirGuard;
     use crate::utils::errors::LauncherError;
 
@@ -532,6 +533,28 @@ mod offline_skin_tests {
         let error = save_offline_skin_inner("Alpha", "hd", vec![1])
             .await
             .expect_err("неизвестная модель должна отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::InvalidInput(_))
+            ),
+            "ожидается InvalidInput: {error:#}"
+        );
+        assert!(
+            !guard.project_dir("Alpha").exists(),
+            "файлов быть не должно"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_offline_skin_rejects_oversized_file() {
+        let guard = LauncherDirGuard::acquire("offline_skin_oversize").await;
+
+        let error =
+            save_offline_skin_inner("Alpha", "slim", vec![0u8; SKIN_MAX_BYTES as usize + 1])
+                .await
+                .expect_err("превышение лимита должно отклоняться");
 
         assert!(
             matches!(

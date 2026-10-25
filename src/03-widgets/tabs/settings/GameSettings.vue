@@ -118,9 +118,7 @@ const {
   }
 
   &__hint {
-    @include mixins.caption-hint;
-
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 }
 </style>

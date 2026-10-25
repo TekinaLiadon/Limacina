@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ModrinthCatalogList, ModrinthInstalled, ModrinthPagination, ModrinthProjectPopup, ModrinthSearch, ModrinthViews } from '@/03-widgets'
-import { useModrinth } from '@/04-features'
+import { ModrinthCatalogList, ModrinthInstalled, ModrinthModsetPopup, ModrinthPagination, ModrinthProjectPopup, ModrinthSearch, ModrinthViews } from '@/03-widgets'
+import { useModrinth, useModrinthModset } from '@/04-features'
 import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05-entities'
 import type { ModsView } from '@/03-widgets/types'
 
@@ -44,6 +44,21 @@ const {
   openDetails,
   closeDetails,
 } = useModrinth()
+
+const {
+  isPopupVisible: isModsetPopupVisible,
+  view: modsetView,
+  exportReport: modsetExportReport,
+  importPreview: modsetImportPreview,
+  importReport: modsetImportReport,
+  isExporting,
+  isConfirming: isModsetBusy,
+  actionError: modsetError,
+  openExport,
+  openImport,
+  confirmPopup: confirmModset,
+  closePopup: closeModset,
+} = useModrinthModset((): Promise<void> => loadInstalled())
 
 const activeView = ref<ModsView>('catalog')
 
@@ -92,6 +107,12 @@ const handlePopupUpdate = async (): Promise<void> => {
   const hit = activeHit.value
   if (hit === null) return
   await handleUpdate(hit.project_id)
+}
+
+const handlePopupInstallVersion = async (versionId: string): Promise<void> => {
+  const hit = activeHit.value
+  if (hit === null) return
+  await install(hit.project_id, versionId)
 }
 
 watch([sort, categories], () => {
@@ -169,14 +190,30 @@ onMounted(() => {
         :is-loading="isLoadingInstalled"
         :is-opening-folder="isOpeningFolder"
         :is-checking-updates="isCheckingUpdates"
+        :is-exporting="isExporting"
         :action-error="actionError"
         :installed-error="installedError"
         @open-folder="openFolder"
         @check-updates="checkForUpdates"
+        @export-modset="openExport"
+        @import-modset="openImport"
         @update="handleUpdate"
         @uninstall="handleUninstall"
       />
     </section>
+
+    <ModrinthModsetPopup
+      :visible="isModsetPopupVisible"
+      :view="modsetView"
+      :export-report="modsetExportReport"
+      :import-preview="modsetImportPreview"
+      :import-report="modsetImportReport"
+      :installed-ids="installedIds"
+      :is-busy="isModsetBusy"
+      :action-error="modsetError"
+      @confirm="confirmModset"
+      @close="closeModset"
+    />
 
     <ModrinthProjectPopup
       :visible="isPopupVisible"
@@ -188,8 +225,10 @@ onMounted(() => {
       :update-version="popupUpdateVersion"
       :is-busy="popupIsBusy"
       :is-busy-any="popupIsBusyAny"
+      :action-error="actionError"
       @install="handlePopupInstall"
       @update="handlePopupUpdate"
+      @install-version="handlePopupInstallVersion"
       @close="closeDetails"
     />
   </div>
@@ -206,8 +245,7 @@ onMounted(() => {
   text-align: left;
 
   &__hint {
-    @include mixins.caption-hint;
-    text-align: left;
+    @include mixins.caption-hint(left);
   }
 
   &__section {

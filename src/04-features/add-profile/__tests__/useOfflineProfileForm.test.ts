@@ -8,6 +8,7 @@ import {
   getMinecraftVersions,
 } from '@/06-shared/api'
 import {
+  useLaunchStore,
   useNotificationStore,
   type ProjectConfig,
 } from '@/05-entities'
@@ -260,6 +261,21 @@ describe('useOfflineProfileForm', () => {
     await offline.submitOffline()
 
     expect(createOfflineProfile).toHaveBeenCalledWith('fabricated', '1.20.1', 'fabric', '0.14.21')
+  })
+
+  it('blocks the offline submit while a game is running', async () => {
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['Steve']
+    const { offline } = setupForms()
+    offline.offlineForm.value.name = 'My profile'
+    offline.offlineForm.value.mcVersion = '1.20.1'
+
+    const created = await offline.submitOffline()
+
+    expect(created).toBeNull()
+    expect(createOfflineProfile).not.toHaveBeenCalled()
+    expect(launch.gameUsernames).toEqual(['Steve'])
+    expect(useNotificationStore().message).toBe('Нельзя добавить профиль, пока запущена игра')
   })
 
   it('does not submit an invalid offline form', async () => {

@@ -114,6 +114,7 @@ export function useAccountsPage() {
     resetLaunchSteps()
     launch.cancelLaunch()
     store.closeAuthForm()
+    store.selectedUsername = ''
     await finalizeSession()
   }
 

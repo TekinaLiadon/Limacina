@@ -9,6 +9,7 @@ import { withSetup } from '@/test-support/withSetup'
 
 const exporter = vi.hoisted(() => ({
   cpmProjectToBytes: vi.fn(),
+  cpmConfigToBytes: vi.fn(),
 }))
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -19,6 +20,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 vi.mock('@/04-features/cpm-convert/cpmProjectExporter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/04-features/cpm-convert/cpmProjectExporter')>()),
   cpmProjectToBytes: exporter.cpmProjectToBytes,
+  cpmConfigToBytes: exporter.cpmConfigToBytes,
 }))
 
 const makeCpmData = (skinType: 'default' | 'slim'): CPMData => ({
@@ -38,6 +40,7 @@ describe('useOfflineCpmModel', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(savePlayerModel).mockReset()
     exporter.cpmProjectToBytes.mockReset()
+    exporter.cpmConfigToBytes.mockReset()
   })
 
   afterEach(() => {
@@ -47,12 +50,14 @@ describe('useOfflineCpmModel', () => {
   const setupOffline = (
     bytes: Uint8Array | null,
     cpmData: CPMData | null,
+    skinPng: Uint8Array | null = null,
   ): { offline: ReturnType<typeof useOfflineCpmModel>; errorMessage: Ref<string> } => {
     const { result } = withSetup(() => {
       const errorMessage = ref('')
       const offline = useOfflineCpmModel({
         cpmFileBytes: ref(bytes),
         cpmData: shallowRef(cpmData),
+        cpmSkinPng: ref(skinPng),
         modelName: computed((): string => 'hero'),
         errorMessage,
       })
@@ -70,6 +75,7 @@ describe('useOfflineCpmModel', () => {
     await offline.handleSaveModelOffline()
 
     expect(exporter.cpmProjectToBytes).toHaveBeenCalledWith(new Uint8Array(8), makeCpmData('default'))
+    expect(exporter.cpmConfigToBytes).not.toHaveBeenCalled()
     expect(savePlayerModel).toHaveBeenCalledWith('proj', {
       name: 'hero',
       url: null,
@@ -77,6 +83,26 @@ describe('useOfflineCpmModel', () => {
       slim: false,
       data: [1, 2, 3],
     })
+    expect(useNotificationStore().message).toBe('Модель сохранена в игру')
+    expect(offline.isSaving.value).toBe(false)
+  })
+
+  it('saves a bbmodel model through the config exporter', async () => {
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+    exporter.cpmConfigToBytes.mockReturnValue(new Uint8Array([5, 6]))
+    useCoreStore().currentProject = 'proj'
+    const data = makeCpmData('default')
+    const { offline } = setupOffline(new Uint8Array(8), data, new Uint8Array([1, 2, 3]))
+
+    await offline.handleSaveModelOffline()
+
+    expect(exporter.cpmConfigToBytes).toHaveBeenCalledWith(
+      data.config,
+      new Uint8Array([1, 2, 3]),
+      { animations: [] },
+    )
+    expect(exporter.cpmProjectToBytes).not.toHaveBeenCalled()
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ data: [5, 6] }))
     expect(useNotificationStore().message).toBe('Модель сохранена в игру')
     expect(offline.isSaving.value).toBe(false)
   })

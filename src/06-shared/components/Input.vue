@@ -158,7 +158,7 @@ const handleInputKeydown = (event: KeyboardEvent): void => {
 <template>
   <div class="input__core" :class="rootClass">
     <div class="input__field">
-      <label v-if="options?.label" class="label" :for="id">
+      <label v-if="options?.label" class="input__label" :for="id">
         {{options?.label}}
       </label>
       <div class="input__wrapper" ref="inputRef">
@@ -263,7 +263,7 @@ $input-row-container: 420px;
     flex-direction: column;
     gap: var(--space-8);
 
-    .label {
+    .input__label {
       @include mixins.eyebrow;
 
       margin-bottom: var(--space-4);
@@ -278,7 +278,7 @@ $input-row-container: 420px;
       align-items: center;
       gap: var(--space-12);
 
-      .label {
+      .input__label {
         margin-bottom: 0;
         flex: 0 0 auto;
         max-width: 40%;
