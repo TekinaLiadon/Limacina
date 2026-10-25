@@ -229,9 +229,59 @@ describe('useModrinth', () => {
     const installed = await mods.install('a')
 
     expect(installed).toBe(true)
-    expect(modrinthInstall).toHaveBeenCalledWith('a')
+    expect(modrinthInstall).toHaveBeenCalledWith('a', undefined)
     expect(mods.installed.value).toHaveLength(1)
     expect(mods.updates.value).toEqual({ b: '3.0' })
+    expect(mods.installingId.value).toBeNull()
+  })
+
+  it('installs a pinned version passing its id to the api', async () => {
+    vi.mocked(modrinthInstall).mockResolvedValue({ installed: ['a'], skipped: [] })
+    vi.mocked(modrinthInstalled).mockResolvedValue([makeInstalled('a')])
+    const mods = useModrinth()
+    mods.updates.value = { a: '2.0' }
+
+    const installed = await mods.install('a', 'v-old')
+
+    expect(installed).toBe(true)
+    expect(modrinthInstall).toHaveBeenCalledWith('a', 'v-old')
+    expect(mods.installed.value).toHaveLength(1)
+    expect(mods.updates.value).toEqual({})
+    expect(mods.installingId.value).toBeNull()
+  })
+
+  it('keeps the action error when a pinned version install fails', async () => {
+    vi.mocked(modrinthInstall).mockRejectedValue(new Error('версия несовместима с профилем'))
+    const mods = useModrinth()
+
+    const installed = await mods.install('a', 'v-old')
+
+    expect(installed).toBe(false)
+    expect(modrinthInstall).toHaveBeenCalledWith('a', 'v-old')
+    expect(mods.actionError.value).toBe('версия несовместима с профилем')
+    expect(mods.installingId.value).toBeNull()
+  })
+
+  it('rejects a version install while another install is running', async () => {
+    let releaseInstall: (result: ModrinthInstallResult) => void = () => {}
+    vi.mocked(modrinthInstall).mockImplementation(
+      () =>
+        new Promise<ModrinthInstallResult>((resolve) => {
+          releaseInstall = resolve
+        }),
+    )
+    vi.mocked(modrinthInstalled).mockResolvedValue([makeInstalled('a')])
+    const mods = useModrinth()
+
+    const first = mods.install('a')
+    const pinned = await mods.install('b', 'v-1')
+
+    expect(pinned).toBe(false)
+    expect(modrinthInstall).toHaveBeenCalledTimes(1)
+    expect(mods.installingId.value).toBe('a')
+
+    releaseInstall({ installed: ['a'], skipped: [] })
+    await first
     expect(mods.installingId.value).toBeNull()
   })
 

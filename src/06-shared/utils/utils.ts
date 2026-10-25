@@ -20,6 +20,9 @@ export function getPathBaseName(path: string): string {
 }
 
 export function matchesExtension(name: string, accept: readonly string[]): boolean {
-  const extension = name.split('.').pop()?.toLowerCase() ?? ''
-  return accept.some((token) => token.trim().replace(/^\./, '').toLowerCase() === extension)
+  const lowerName = name.toLowerCase()
+  return accept.some((token) => {
+    const extension = token.trim().replace(/^\./, '').toLowerCase()
+    return lowerName.endsWith(`.${extension}`) || lowerName === extension
+  })
 }

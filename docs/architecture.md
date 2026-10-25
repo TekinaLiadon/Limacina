@@ -149,7 +149,7 @@ Vue 3, TypeScript, Pinia, Feature-Sliced Design. Слои сверху вниз:
 | Запуск | `start_minecraft`, `get_game_state`, `get_launch_state`, `kill_game_process`, `exit_launcher` |
 | Настройки проекта и игры | `load_settings_project`, `save_settings_project`, `probe_java_version`, `clear_minecraft_config`, `get_game_options`, `save_game_options`, `save_global_game_options`, `import_global_game_options` |
 | Скины и модели | `upload_skin`, `list_skins`, `delete_skin`, `set_active_skin`, `get_profile_skin`, `read_skin_file`, `save_offline_skin`, `get_offline_skin`, `get_offline_skin_model`, `delete_offline_skin`, `upload_model`, `list_models`, `delete_model`, `save_player_model`, `read_cpm_project_file`, `take_cpm_project_path` |
-| Modrinth | `modrinth_search`, `modrinth_project`, `modrinth_installed`, `modrinth_check_updates`, `modrinth_install`, `modrinth_uninstall` |
+| Modrinth | `modrinth_search`, `modrinth_project`, `modrinth_installed`, `modrinth_check_updates`, `modrinth_install`, `modrinth_uninstall`, `modrinth_export_prepare`, `modrinth_export_save`, `modrinth_import_preview`, `modrinth_import_apply` |
 | Обновление лаунчера | `check_update`, `apply_update_cmd`, `get_launcher_versions`, `get_server_status`, `ping_launcher_server` |
 | Прочее | `get_notification_icon`, `send_frontend_log` (лог фронта в дебаг-консоль) |
 
@@ -197,8 +197,30 @@ Vue 3, TypeScript, Pinia, Feature-Sliced Design. Слои сверху вниз:
 | `~/{LAUNCHER_NAME}/credentials.json` | Фолбэк-хранилище креденшелов, только если keyring недоступен |
 | `{игровая_дир}/player_models/`, `{игровая_дир}/config/cpm.json` | Установленные модели и выбор активной |
 | `{игровая_дир}/profile_skins/` | Кэш скина профиля, офлайн-скин со sidecar-файлом модели |
+| `~/{LAUNCHER_NAME}/project/{имя}/modrinth.json` | Bookkeeping-манифест Modrinth-модов: `ModrinthManifest { mods: HashMap<project_id, ManifestEntry>, known_hashes }` — соответствие «файл мода → источник, проект, версия», пополняется при каждой загрузке с Modrinth и при привязке ручных файлов |
 
 Конфиги пишутся атомарно (`.part` + rename). Битые переименовываются в `.bak` и пересоздаются.
+
+Файл-набор модов `.limmods.json` — транспортный формат для переноса набора между игроками (запись через `modrinth_export_save`, чтение через `modrinth_import_preview`/`modrinth_import_apply`). UTF-8 JSON, `format_version` = 1, поля — snake_case, неизвестные поля игнорируются. Лимиты: 1 МБ и 500 записей (жёсткая ошибка), записи дедуплицируются по `project_id` (нет — по `slug` без регистра), побеждает последняя.
+
+```json
+{
+  "format_version": 1,
+  "mods": [
+    {
+      "source": "modrinth",
+      "project_id": "AABBCCDD",
+      "slug": "sodium",
+      "version_id": "XYZZYWWW",
+      "version_number": "5.1.2",
+      "title": "Sodium",
+      "filename": "sodium-fabric-5.1.2.jar"
+    }
+  ]
+}
+```
+
+`source` обязателен (сейчас единственное значение `modrinth`, неизвестные источники пропускаются с сообщением); обязателен хотя бы один из `project_id`/`slug`; `version_id` — пин версии (нет — ставится последняя совместимая); `version_number`, `title`, `filename` — только отображение. `sha1`/`icon_url` в файл не пишутся: импорт резолвит всё через Modrinth API и сверяет SHA-1 при скачивании. Сохранение дополняет имя суффиксом `.limmods.json`, если его нет, и отклоняет имя `modrinth.json` (охрана bookkeeping-манифеста).
 
 ## 9. Платформы
 

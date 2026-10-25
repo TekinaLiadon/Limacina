@@ -3,12 +3,13 @@ import { shallowRef } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import JSZip from 'jszip'
-import { deleteModel, readSkinFile, savePlayerModel, uploadModel } from '@/06-shared/api'
-import { useCoreStore, useNotificationStore, type CPMConfig, type UserContentItem } from '@/05-entities'
+import { deleteModel, listModels, readSkinFile, savePlayerModel, uploadModel } from '@/06-shared/api'
+import { useAccountsStore, useCoreStore, useNotificationStore, type CPMConfig, type UserContentItem } from '@/05-entities'
 import { makeProjectConfig } from '@/test-support/fixtures'
 import { parsePresetProject, type ParsedPreset } from '../presetLoader'
 import { decodePngSkin, encodePngSkin } from '../skinPng'
 import { usePresetSkinApply } from '../usePresetSkinApply'
+import { useModelUserContent } from '@/04-features/user-content/useUserContent'
 import { withSetup } from '@/test-support/withSetup'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -16,6 +17,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   savePlayerModel: vi.fn(),
   uploadModel: vi.fn(),
   deleteModel: vi.fn(),
+  listModels: vi.fn(),
   readSkinFile: vi.fn(),
 }))
 
@@ -140,6 +142,7 @@ describe('usePresetSkinApply', () => {
     vi.mocked(savePlayerModel).mockReset()
     vi.mocked(uploadModel).mockReset()
     vi.mocked(deleteModel).mockReset()
+    vi.mocked(listModels).mockReset()
     vi.mocked(readSkinFile).mockReset()
   })
 
@@ -266,6 +269,32 @@ describe('usePresetSkinApply', () => {
     })
     expect(useNotificationStore().message).toBe('Модель добавлена в игру')
     expect(flow.isApplying.value).toBe(false)
+  })
+
+  it('reloads the injected user content list after the upload', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'proj'
+    core.projectConfig = makeProjectConfig({ online: true })
+    useAccountsStore().session = { uuid: 'u-1', username: 'alice' }
+    vi.mocked(uploadModel).mockResolvedValue(uploadedItem(9))
+    vi.mocked(listModels).mockResolvedValue([uploadedItem(9)])
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+
+    const preset = shallowRef<ParsedPreset | null>(null)
+    const previewSkinBytes = shallowRef<Uint8Array | null>(null)
+    const { result: content } = withSetup(() => useModelUserContent())
+    const { result: flow } = withSetup(() => usePresetSkinApply({ preset, previewSkinBytes, content }))
+
+    preset.value = await makePreset(BASE_CONFIG, 'both')
+    await flow.setSkin(await makeSkinBytes(64, 200))
+    await waitForDressed(flow)
+
+    await flow.applyPreset()
+    await flushPromises()
+
+    expect(vi.mocked(uploadModel)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(listModels)).toHaveBeenCalledTimes(1)
+    expect(content.items.value).toEqual([uploadedItem(9)])
   })
 
   it('passes the slim flag of the selected mode', async () => {

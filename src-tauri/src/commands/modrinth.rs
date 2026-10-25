@@ -1,10 +1,13 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use tokio::sync::Mutex;
 
 use crate::modrinth::client;
 use crate::modrinth::install::{
     check_updates, install_project, sync_installed_from_scan, uninstall_project, InstallContext,
+};
+use crate::modrinth::modset::{
+    self, ensure_modrinth_id, ModsetEntry, ModsetRecord, ModsetUnresolved,
 };
 use crate::modrinth::structs::{ModrinthManifest, ModrinthProject, ModrinthVersion, SearchHit};
 use crate::state::config::current_project_config;
@@ -15,21 +18,6 @@ use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 
 const SEARCH_PAGE_LIMIT: u32 = 20;
-const MODRINTH_ID_MAX_LEN: usize = 128;
-
-fn ensure_modrinth_id(id: &str) -> Result<()> {
-    let valid = !id.is_empty()
-        && id.len() <= MODRINTH_ID_MAX_LEN
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-    if valid {
-        return Ok(());
-    }
-    bail!(LauncherError::InvalidInput(format!(
-        "Некорректный идентификатор мода: {id}"
-    )))
-}
 
 #[derive(Serialize)]
 pub struct SearchDto {
@@ -199,7 +187,7 @@ pub async fn modrinth_project(
     id: String,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ProjectDetails> {
-    ensure_modrinth_id(&id)?;
+    ensure_modrinth_id(&id, "мода")?;
     profile_context(&state).await?;
     let project = LauncherError::classify(
         client::get_project(&id)
@@ -269,12 +257,16 @@ pub async fn modrinth_check_updates(
 #[tauri::command]
 pub async fn modrinth_install(
     project_id: String,
+    version_id: Option<String>,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<InstallResult> {
-    ensure_modrinth_id(&project_id)?;
+    ensure_modrinth_id(&project_id, "мода")?;
+    if let Some(version_id) = &version_id {
+        ensure_modrinth_id(version_id, "версии")?;
+    }
     let ctx = install_context(&state).await?;
     let report = LauncherError::classify(
-        install_project(&ctx, &project_id).await,
+        install_project(&ctx, &project_id, version_id.as_deref()).await,
         LauncherError::Modrinth,
     )?;
     log_info!(
@@ -293,7 +285,7 @@ pub async fn modrinth_uninstall(
     project_id: String,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    ensure_modrinth_id(&project_id)?;
+    ensure_modrinth_id(&project_id, "мода")?;
     let ctx = install_context(&state).await?;
     LauncherError::classify(
         uninstall_project(&ctx, &project_id).await,
@@ -302,9 +294,72 @@ pub async fn modrinth_uninstall(
     Ok(())
 }
 
+#[derive(Serialize)]
+pub struct ModrinthExportReport {
+    pub mods: Vec<ModsetRecord>,
+    pub unresolved: Vec<ModsetUnresolved>,
+}
+
+#[derive(Serialize)]
+pub struct ModrinthImportPreview {
+    #[serde(rename = "formatVersion")]
+    pub format_version: u32,
+    pub entries: Vec<ModsetEntry>,
+}
+
+#[derive(Serialize)]
+pub struct ModrinthImportReport {
+    pub entries: Vec<ModsetEntry>,
+}
+
+#[tauri::command]
+pub async fn modrinth_export_prepare(
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> CommandResult<ModrinthExportReport> {
+    let ctx = install_context(&state).await?;
+    let (mods, unresolved) =
+        LauncherError::classify(modset::export_prepare(&ctx).await, LauncherError::Modrinth)?;
+    Ok(ModrinthExportReport { mods, unresolved })
+}
+
+#[tauri::command]
+pub async fn modrinth_export_save(path: String, mods: Vec<ModsetRecord>) -> CommandResult<()> {
+    LauncherError::classify(
+        modset::export_save(&path, &mods).await,
+        LauncherError::Modrinth,
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn modrinth_import_preview(content: String) -> CommandResult<ModrinthImportPreview> {
+    let parsed = LauncherError::classify(modset::parse_modset(&content), LauncherError::Modrinth)?;
+    Ok(ModrinthImportPreview {
+        format_version: parsed.format_version,
+        entries: parsed.entries,
+    })
+}
+
+#[tauri::command]
+pub async fn modrinth_import_apply(
+    content: String,
+    state: tauri::State<'_, Mutex<GlobalState>>,
+) -> CommandResult<ModrinthImportReport> {
+    let ctx = install_context(&state).await?;
+    let entries = LauncherError::classify(
+        modset::import_apply(&ctx, &content).await,
+        LauncherError::Modrinth,
+    )?;
+    log_info!(
+        "[modrinth] Импорт набора завершён: {} записей в отчёте",
+        entries.len()
+    );
+    Ok(ModrinthImportReport { entries })
+}
+
 #[cfg(test)]
 mod modrinth_id_tests {
-    use super::ensure_modrinth_id;
+    use crate::modrinth::modset::ensure_modrinth_id;
     use crate::utils::errors::LauncherError;
 
     #[test]
@@ -316,7 +371,7 @@ mod modrinth_id_tests {
             "create-1-20-1",
             "0123456789",
         ] {
-            ensure_modrinth_id(id)
+            ensure_modrinth_id(id, "мода")
                 .unwrap_or_else(|e| panic!("корректный идентификатор {id} отклонён: {e:#}"));
         }
     }
@@ -334,7 +389,7 @@ mod modrinth_id_tests {
             "id:colon",
             "id%20encoded",
         ] {
-            let error = ensure_modrinth_id(id)
+            let error = ensure_modrinth_id(id, "мода")
                 .err()
                 .unwrap_or_else(|| panic!("некорректный идентификатор {id:?} прошёл проверку"));
             assert!(
@@ -354,9 +409,9 @@ mod modrinth_id_tests {
     #[test]
     fn oversized_id_is_rejected() {
         let long = "a".repeat(129);
-        assert!(ensure_modrinth_id(&long).is_err());
+        assert!(ensure_modrinth_id(&long, "мода").is_err());
         let boundary = "a".repeat(128);
-        ensure_modrinth_id(&boundary).expect("граничная длина допустима");
+        ensure_modrinth_id(&boundary, "мода").expect("граничная длина допустима");
     }
 }
 
@@ -405,5 +460,162 @@ mod profile_context_tests {
                 loader
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod modset_command_tests {
+    use super::{install_context, modrinth_export_save, modrinth_import_preview};
+    use crate::modrinth::modset::{parse_modset, ModsetRecord, MODSET_SOURCE};
+    use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+    use crate::test_support::{part_files_in, LauncherDirGuard, TempDir};
+    use tokio::sync::Mutex;
+
+    fn record(project_id: Option<&str>) -> ModsetRecord {
+        ModsetRecord {
+            source: MODSET_SOURCE.to_string(),
+            project_id: project_id.map(str::to_string),
+            slug: None,
+            version_id: Some("ver1".to_string()),
+            version_number: Some("1.0.0".to_string()),
+            title: Some("Test Mod".to_string()),
+            filename: Some("test-mod.jar".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn export_save_appends_extension_and_writes_atomically() {
+        let dir = TempDir::new("modset_cmd_append");
+        let path = dir.0.join("my-mods");
+
+        modrinth_export_save(
+            path.to_string_lossy().as_ref().to_string(),
+            vec![record(Some("AAA"))],
+        )
+        .await
+        .expect("сохранение набора");
+
+        let target = dir.0.join("my-mods.limmods.json");
+        assert!(target.exists(), "расширение должно добавляться");
+        let content = std::fs::read_to_string(&target).expect("чтение файла набора");
+        let parsed = parse_modset(&content).expect("записанный файл читается парсером");
+        assert_eq!(parsed.format_version, 1);
+        assert_eq!(parsed.entries[0].project_id.as_deref(), Some("AAA"));
+        assert!(
+            part_files_in(&dir.0).is_empty(),
+            "атомарная запись не оставляет .part"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_save_keeps_existing_extension() {
+        let dir = TempDir::new("modset_cmd_keep");
+        let path = dir.0.join("pack.limmods.json");
+
+        modrinth_export_save(
+            path.to_string_lossy().as_ref().to_string(),
+            vec![record(Some("AAA"))],
+        )
+        .await
+        .expect("сохранение набора");
+
+        assert!(path.exists());
+        assert!(!dir.0.join("pack.limmods.json.limmods.json").exists());
+    }
+
+    #[tokio::test]
+    async fn export_save_rejects_relative_path() {
+        let error =
+            modrinth_export_save("relative/dir/mods".to_string(), vec![record(Some("AAA"))])
+                .await
+                .expect_err("относительный путь отклоняется");
+        assert!(error.message.contains("абсолютным"), "{}", error.message);
+    }
+
+    #[tokio::test]
+    async fn export_save_rejects_reserved_manifest_name() {
+        let dir = TempDir::new("modset_cmd_reserved");
+        let path = dir.0.join("modrinth.json");
+
+        let error = modrinth_export_save(
+            path.to_string_lossy().as_ref().to_string(),
+            vec![record(Some("AAA"))],
+        )
+        .await
+        .expect_err("имя внутреннего манифеста запрещено");
+
+        assert!(
+            error.message.contains("зарезервировано"),
+            "{}",
+            error.message
+        );
+        assert!(!path.exists(), "манифест bookkeeping не перезаписывается");
+    }
+
+    #[tokio::test]
+    async fn export_save_rejects_bad_records_before_write() {
+        let dir = TempDir::new("modset_cmd_bad_records");
+        let mut url_shaped = record(Some("AAA"));
+        url_shaped.project_id = Some("sodium?facet=x".to_string());
+        let foreign = ModsetRecord {
+            source: "curseforge".to_string(),
+            ..record(Some("AAA"))
+        };
+        for bad in [url_shaped, foreign] {
+            let path = dir.0.join("out.limmods.json");
+            let error =
+                modrinth_export_save(path.to_string_lossy().as_ref().to_string(), vec![bad])
+                    .await
+                    .expect_err("некорректная запись отклоняется до записи файла");
+            assert_eq!(error.code, "invalid_input", "{}", error.message);
+            assert!(
+                !path.exists(),
+                "файл не должен создаваться: {}",
+                error.message
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn import_preview_parses_without_profile_or_state() {
+        let error = modrinth_import_preview("{ не json".to_string())
+            .await
+            .err()
+            .expect("битый файл даёт понятную ошибку");
+        assert!(error.message.contains("JSON"), "{}", error.message);
+
+        let preview = modrinth_import_preview(
+            r#"{"format_version": 1, "mods": [{"source": "modrinth", "project_id": "AAA", "title": "Mod A"}]}"#
+                .to_string(),
+        )
+        .await
+        .expect("превью без профиля и сети");
+        assert_eq!(preview.format_version, 1);
+        assert_eq!(preview.entries.len(), 1);
+        assert_eq!(preview.entries[0].title.as_deref(), Some("Mod A"));
+    }
+
+    #[tokio::test]
+    async fn import_apply_is_gated_for_vanilla_profile() {
+        let _dir = LauncherDirGuard::acquire("modset_cmd_gate").await;
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "VanillaCheck".to_string(),
+                mc_version: "1.21.1".to_string(),
+                mod_loader: ModLoader::Vanilla,
+                online: false,
+                ..ProjectConfig::default()
+            },
+            ..GlobalState::default()
+        });
+
+        let error = install_context(&state)
+            .await
+            .err()
+            .expect("Vanilla-профиль не должен импортировать наборы модов");
+        assert!(
+            error.to_string().contains("загрузчик модов"),
+            "ошибка должна объяснять причину: {error:#}"
+        );
     }
 }

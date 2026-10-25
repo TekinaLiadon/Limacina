@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseBbmodel } from '../bbmodelParser'
 import { cpmConfigToBytes } from '../cpmProjectExporter'
+
+const reportError = vi.hoisted(() => vi.fn())
+
+vi.mock('@/06-shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/06-shared')>()),
+  reportError,
+}))
 
 const TINY_PNG_BYTES = [
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -265,6 +272,16 @@ describe('parseBbmodel', () => {
     expect(() => parseBbmodel(encode(model))).toThrow(/PNG/)
   })
 
+  it('сообщает понятную ошибку для текстуры с невалидным base64', () => {
+    const model = makeModel({
+      elements: [makeCube('Head', [-4, 24, -4], [4, 32, 4])],
+      outliner: [makeGroup('head', [0, 24, 0], ['uuid-Head'])],
+      textures: [{ name: 'broken.png', source: 'data:image/png;base64,@@' }],
+    })
+
+    expect(() => parseBbmodel(encode(model))).toThrow(/Текстура "broken\.png" повреждена/)
+  })
+
   it('учитывает inflate в размере и offset куба', () => {
     const model = makeModel({
       elements: [makeCube('Puff', [0, 12, -2], [8, 24, 2], { inflate: 0.5 })],
@@ -416,5 +433,192 @@ describe('parseBbmodel', () => {
 
     expect(skinPng).toEqual(new Uint8Array(TINY_PNG_BYTES))
     expect(JSON.parse(JSON.stringify(config))).toMatchSnapshot()
+  })
+})
+
+describe('parseBbmodel: формат 5.0 и анимации', () => {
+  beforeEach(() => {
+    reportError.mockClear()
+  })
+
+  const groupEntry = (name: string, origin: number[]): Record<string, unknown> => ({
+    name,
+    uuid: `group-${name}`,
+    origin,
+    export: true,
+    mirror_uv: false,
+    rotation: [0, 0, 0],
+  })
+
+  const bbKeyframe = (channel: string, x: string, time: number): Record<string, unknown> => ({
+    channel,
+    time,
+    data_points: [{ x, y: '0', z: '0' }],
+  })
+
+  it('читает формат 5.0 (groups + ссылки outliner) идентично инлайн-формату 4.x', () => {
+    const animation = {
+      uuid: 'anim-pulse',
+      name: 'Pulse',
+      loop: 'loop',
+      length: 0.2,
+      animators: {
+        'group-belt': {
+          channels: ['scale'],
+          keyframes: [
+            bbKeyframe('scale', '1', 0),
+            { channel: 'scale', time: 0.2, data_points: [{ x: '1.5', y: '1.5', z: '1.5' }] },
+          ],
+        },
+      },
+    }
+    const legacy = makeModel({
+      meta: { format_version: '4.10', model_format: 'free', box_uv: false },
+      elements: [makeCube('Chest', [-4, 12, -2], [4, 24, 2]), makeCube('Buckle', [-1, 11, -1], [1, 13, 1])],
+      outliner: [makeGroup('body', [0, 24, 0], ['uuid-Chest', makeGroup('belt', [0, 12, 0], ['uuid-Buckle'])])],
+      animations: [animation],
+    })
+    const modern = makeModel({
+      meta: { format_version: '5.0', model_format: 'free', box_uv: false },
+      elements: [makeCube('Chest', [-4, 12, -2], [4, 24, 2]), makeCube('Buckle', [-1, 11, -1], [1, 13, 1])],
+      groups: [groupEntry('body', [0, 24, 0]), groupEntry('belt', [0, 12, 0])],
+      outliner: [{
+        uuid: 'group-body',
+        isOpen: true,
+        children: ['uuid-Chest', { uuid: 'group-belt', isOpen: false, children: ['uuid-Buckle'] }],
+      }],
+      animations: [animation],
+    })
+
+    const legacyResult = parseBbmodel(encode(legacy))
+    const modernResult = parseBbmodel(encode(modern))
+
+    expect(modernResult.config).toEqual(legacyResult.config)
+    expect(modernResult.animations).toEqual(legacyResult.animations)
+    expect(modernResult.animations).toHaveLength(1)
+    expect(modernResult.animations[0]?.name).toBe('Pulse')
+    expect(modernResult.animations[0]?.frames).toHaveLength(4)
+  })
+
+  it('назначает storeID от 100 без конфликтов с ординалами и мапит аниматоров на узлы', () => {
+    const track = (keyframes: Array<Record<string, unknown>>): Record<string, unknown> => ({ channels: ['rotation'], keyframes })
+    const animation = {
+      uuid: 'anim-all',
+      name: 'All',
+      loop: 'loop',
+      length: 0.25,
+      animators: {
+        'group-head': track([bbKeyframe('rotation', '0', 0), bbKeyframe('rotation', '30', 0.25)]),
+        'group-belt': track([bbKeyframe('rotation', '10', 0)]),
+        'uuid-Chest': { channels: ['scale'], keyframes: [{ channel: 'scale', time: 0, data_points: [{ x: '1.5', y: '1.5', z: '1.5' }] }] },
+        'uuid-Buckle': track([bbKeyframe('rotation', '20', 0)]),
+        'uuid-Wing': { channels: ['position'], keyframes: [{ channel: 'position', time: 0, data_points: [{ x: '0', y: '1', z: '0' }] }] },
+        'uuid-Loose': track([bbKeyframe('rotation', '25', 0)]),
+        'uuid-ghost': track([bbKeyframe('rotation', '90', 0)]),
+      },
+    }
+    const model = makeModel({
+      meta: { format_version: '5.0', model_format: 'free', box_uv: false },
+      elements: [
+        makeCube('Head', [-4, 24, -4], [4, 32, 4]),
+        makeCube('Chest', [-4, 12, -2], [4, 24, 2]),
+        makeCube('Buckle', [-1, 11, -1], [1, 13, 1], { visibility: false }),
+        makeCube('Wing', [1, 16, 3], [3, 20, 7]),
+        makeCube('Loose', [2, 10, 1], [5, 14, 4], { origin: [3, 12, 2] }),
+      ],
+      outliner: [
+        makeGroup('head', [0, 24, 0], ['uuid-Head']),
+        makeGroup('body', [0, 24, 0], ['uuid-Chest', makeGroup('belt', [0, 12, 0], ['uuid-Buckle'])]),
+        makeGroup('Wings', [0, 18, 4], ['uuid-Wing']),
+        'uuid-Loose',
+      ],
+      animations: [animation],
+    })
+
+    const { config, animations } = parseBbmodel(encode(model))
+
+    const head = config.elements.find((element) => element.id === 'head')
+    const body = config.elements.find((element) => element.id === 'body')
+    const wings = config.elements.find((element) => element.name === 'Wings')
+    const loose = config.elements.find((element) => element.name === 'Loose')
+
+    expect(head?.storeID).toBeUndefined()
+    expect(body?.storeID).toBeUndefined()
+    expect(wings?.customPart).toBe(true)
+    expect(wings?.storeID).toBeGreaterThanOrEqual(100)
+    expect(loose?.storeID).toBeUndefined()
+
+    const storeIds: number[] = []
+    const walkStoreIds = (nodes: Array<{ storeID?: number, children?: unknown[] }>): void => {
+      for (const node of nodes) {
+        if (typeof node.storeID === 'number') storeIds.push(node.storeID)
+        walkStoreIds((node.children ?? []) as Array<{ storeID?: number, children?: unknown[] }>)
+      }
+    }
+    walkStoreIds(config.elements as unknown as Array<{ storeID?: number, children?: unknown[] }>)
+    expect(storeIds.length).toBe(new Set(storeIds).size)
+    for (const storeId of storeIds) {
+      expect(storeId).toBeGreaterThanOrEqual(100)
+    }
+
+    const idOf = (node: { storeID?: number } | undefined): number => node?.storeID ?? -1
+    const belt = body?.children?.[1]
+    const [anim] = animations
+    expect(anim?.frames).toHaveLength(5)
+    expect(anim?.duration).toBe(250)
+    const components = anim?.frames[0]?.components ?? []
+    expect(components).toHaveLength(6)
+    const byId = new Map(components.map((component) => [component.storeID, component]))
+    expect(byId.get(0)?.show).toBe(true)
+    expect(byId.get(idOf(belt))?.rotation.x).toBeCloseTo(10, 5)
+    expect(byId.get(idOf(body?.children?.[0]))?.scale).toEqual({ x: 1.5, y: 1.5, z: 1.5 })
+    expect(byId.get(idOf(belt?.children?.[0]))?.show).toBe(false)
+    expect(byId.get(idOf(belt?.children?.[0]))?.rotation.x).toBeCloseTo(20, 5)
+    expect(byId.get(idOf(wings?.children?.[0]))?.pos).toEqual({ x: 0, y: -1, z: 0 })
+    expect(byId.get(idOf(loose?.children?.[0]))?.rotation.x).toBeCloseTo(25, 5)
+    const lastFrame = anim?.frames[4]?.components ?? []
+    const headLast = lastFrame.find((component) => component.storeID === 0)
+    expect(headLast?.rotation.x).toBeCloseTo(24, 5)
+    for (const component of components) {
+      expect(component.storeID === 0 || component.storeID >= 100).toBe(true)
+    }
+  })
+
+  it('сквозная конвертация в cpmConfigToBytes пишет анимации без reportError', () => {
+    const model = makeModel({
+      elements: [makeCube('Head', [-4, 24, -4], [4, 32, 4])],
+      outliner: [makeGroup('head', [0, 24, 0], ['uuid-Head'])],
+      textures: [{ name: 'skin.png', source: `data:image/png;base64,${TINY_PNG_BASE64}` }],
+      animations: [{
+        uuid: 'anim-nod',
+        name: 'Nod',
+        loop: 'once',
+        length: 0.5,
+        animators: {
+          'group-head': {
+            channels: ['rotation'],
+            keyframes: [bbKeyframe('rotation', '0', 0), bbKeyframe('rotation', '25', 0.5)],
+          },
+        },
+      }],
+    })
+
+    const { config, skinPng, animations } = parseBbmodel(encode(model))
+    const plain = cpmConfigToBytes(config, skinPng ?? undefined)
+    const withAnimations = cpmConfigToBytes(config, skinPng ?? undefined, { animations })
+
+    expect(reportError).not.toHaveBeenCalled()
+    expect(withAnimations.length).toBeGreaterThan(plain.length)
+  })
+
+  it('модель без анимаций возвращает пустой список', () => {
+    const model = makeModel({
+      elements: [makeCube('Head', [-4, 24, -4], [4, 32, 4])],
+      outliner: [makeGroup('head', [0, 24, 0], ['uuid-Head'])],
+    })
+
+    const { animations } = parseBbmodel(encode(model))
+
+    expect(animations).toEqual([])
   })
 })

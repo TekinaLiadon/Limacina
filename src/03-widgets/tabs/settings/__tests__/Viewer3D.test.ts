@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h, type Ref } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import Viewer3D from '../Viewer3D.vue'
+import { useViewerControls } from '../viewerControls'
 
 const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')
 
@@ -106,5 +108,24 @@ describe('Viewer3D', () => {
     expect(isOverlayHidden()).toBe(true)
 
     wrapper.unmount()
+  })
+
+  it('hands the default yaw to the injected controls', () => {
+    const holder: { rotationY: Ref<number> | null } = { rotationY: null }
+    const probe = defineComponent({
+      setup(): void {
+        const { rotationY } = useViewerControls()
+        holder.rotationY = rotationY
+      },
+      render: () => h('div'),
+    })
+
+    mount(Viewer3D, {
+      props: { defaultYaw: 180 },
+      slots: { default: () => h(probe) },
+      attachTo: document.body,
+    })
+
+    expect(holder.rotationY?.value).toBe(180)
   })
 })

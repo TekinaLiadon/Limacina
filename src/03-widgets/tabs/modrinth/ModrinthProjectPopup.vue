@@ -16,12 +16,14 @@ const props = defineProps<{
   updateVersion: string
   isBusy: boolean
   isBusyAny: boolean
+  actionError: string
 }>()
 
 const emit = defineEmits<{
   close: []
   install: []
   update: []
+  'install-version': [versionId: string]
 }>()
 
 const notification = useNotificationStore()
@@ -127,6 +129,8 @@ async function handleLink(url: string): Promise<void> {
       </Button>
     </div>
 
+    <div v-if="actionError" class="modrinth-popup__action-error">{{ actionError }}</div>
+
     <div v-if="isLoading" class="modrinth-popup__loading">
       <Preloader local text="Загрузка информации..." />
     </div>
@@ -163,7 +167,16 @@ async function handleLink(url: string): Promise<void> {
       </p>
       <div v-if="details.versions.length > 0" class="modrinth-popup__versions">
         <div v-for="version in details.versions" :key="version.id" class="modrinth-popup__version">
-          <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
+          <div class="modrinth-popup__version-head">
+            <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
+            <Button
+              class="btn-secondary modrinth-popup__version-install"
+              :is-disabled="isBusyAny"
+              @click="emit('install-version', version.id)"
+            >
+              Установить
+            </Button>
+          </div>
           <span class="modrinth-popup__version-meta">
             {{ versionTypeLabels[version.version_type] }} ·
             {{ version.loaders.join(', ') }} ·
@@ -338,6 +351,26 @@ async function handleLink(url: string): Promise<void> {
     align-items: flex-start;
     gap: var(--space-4);
     text-align: left;
+  }
+
+  &__version-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+    width: 100%;
+  }
+
+  &__version-install {
+    flex-shrink: 0;
+    min-height: var(--control-height-sm);
+    padding: var(--space-4) var(--space-12);
+  }
+
+  &__action-error {
+    @include mixins.error-box;
+
+    flex-shrink: 0;
   }
 
   &__version-number {

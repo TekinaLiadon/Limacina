@@ -1,11 +1,13 @@
 import { isRecord } from './cpmProjectZip'
-import { ROOT_PIVOTS } from '@/04-features/cpm-viewer/playerParts'
+import { convertBbmodelAnimations, isLegacyBbmodel, type BbmodelAnimatorTarget } from './bbmodelAnimations'
+import { PLAYER_PART_ORDINALS, ROOT_PIVOTS } from '@/04-features/cpm-viewer/playerParts'
 import { hasPngSignature } from '@/06-shared'
-import type { CPMChild, CPMConfig, CPMElement, CPMFaceUV, CPMVec3 } from '@/05-entities'
+import type { CPMAnimation, CPMChild, CPMConfig, CPMElement, CPMFaceUV, CPMVec3 } from '@/05-entities'
 
 export interface BbmodelParseResult {
   config: CPMConfig
   skinPng: Uint8Array | null
+  animations: CPMAnimation[]
 }
 
 const VANILLA_PART_IDS = ['head', 'body', 'left_arm', 'right_arm', 'left_leg', 'right_leg']
@@ -22,11 +24,29 @@ const ROT_BY_DEG: Record<number, string> = { 0: '0', 90: '90', 180: '180', 270: 
 
 const INVALID_JSON_MESSAGE = 'Файл .bbmodel не является корректным JSON'
 const NO_ELEMENTS_MESSAGE = 'Файл .bbmodel не содержит поддерживаемых элементов модели'
+const FIRST_STORE_ID = 100
 
 const ZERO: CPMVec3 = { x: 0, y: 0, z: 0 }
 const ONE: CPMVec3 = { x: 1, y: 1, z: 1 }
 
 type CubeNode = Record<string, unknown>
+
+interface BbmodelParserState {
+  byUuid: Map<string, CubeNode>
+  groupsByUuid: Map<string, CubeNode>
+  animators: Map<string, BbmodelAnimatorTarget>
+  nextStoreId: number
+}
+
+function registerAnimator(state: BbmodelParserState, uuid: unknown, id: number, hidden: boolean): void {
+  if (typeof uuid !== 'string') return
+  state.animators.set(uuid, { id, hidden })
+}
+
+function groupDataOf(node: CubeNode, state: BbmodelParserState): CubeNode {
+  if (state.groupsByUuid.size === 0 || typeof node.uuid !== 'string') return node
+  return state.groupsByUuid.get(node.uuid) ?? node
+}
 
 function num(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -90,7 +110,12 @@ function extractSkinPng(textures: unknown): Uint8Array | null {
     if (!isRecord(texture) || typeof texture.source !== 'string' || texture.source === '') continue
     const comma = texture.source.indexOf(',')
     const base64 = comma >= 0 ? texture.source.slice(comma + 1) : texture.source
-    const binary = atob(base64)
+    let binary: string
+    try {
+      binary = atob(base64)
+    } catch {
+      throw new Error(`Текстура "${nameOf(texture, 'texture')}" повреждена`)
+    }
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
     if (!hasPngSignature(bytes)) {
@@ -141,7 +166,7 @@ function applyUv(cube: CubeNode, child: CPMChild): void {
   if (faceUV) child.faceUV = faceUV
 }
 
-function parseCube(cube: CubeNode, refOrigin: CPMVec3): CPMChild {
+function parseCube(cube: CubeNode, refOrigin: CPMVec3, state: BbmodelParserState): CPMChild {
   const name = nameOf(cube, 'cube')
   const from = vec3Of(cube.from, `from куба "${name}"`)
   const to = vec3Of(cube.to, `to куба "${name}"`)
@@ -167,29 +192,33 @@ function parseCube(cube: CubeNode, refOrigin: CPMVec3): CPMChild {
     scale: { ...ONE },
   }
   if (cube.visibility === false) child.hidden = true
+  child.storeID = state.nextStoreId++
+  registerAnimator(state, cube.uuid, child.storeID, child.hidden === true)
   applyUv(cube, child)
   return child
 }
 
-function childrenOf(nodes: unknown[], byUuid: Map<string, CubeNode>, parentOrigin: CPMVec3): CPMChild[] {
+function childrenOf(nodes: unknown[], state: BbmodelParserState, parentOrigin: CPMVec3): CPMChild[] {
   const children: CPMChild[] = []
   for (const node of nodes) {
     if (typeof node === 'string') {
-      const cube = byUuid.get(node)
-      if (cube) children.push(parseCube(cube, parentOrigin))
+      const cube = state.byUuid.get(node)
+      if (cube) children.push(parseCube(cube, parentOrigin, state))
       continue
     }
     if (isRecord(node) && Array.isArray(node.children)) {
-      children.push(parseGroup(node, byUuid, parentOrigin))
+      children.push(parseGroup(node, state, parentOrigin))
     }
   }
   return children
 }
 
-function parseGroup(node: CubeNode, byUuid: Map<string, CubeNode>, parentOrigin: CPMVec3): CPMChild {
-  const name = nameOf(node, 'group')
-  const origin = vec3Of(node.origin, `origin группы "${name}"`)
-  return {
+function parseGroup(node: CubeNode, state: BbmodelParserState, parentOrigin: CPMVec3): CPMChild {
+  const data = groupDataOf(node, state)
+  const name = nameOf(data, 'group')
+  const origin = vec3Of(data.origin, `origin группы "${name}"`)
+  const storeId = state.nextStoreId++
+  const child: CPMChild = {
     name,
     size: { ...ZERO },
     offset: { ...ZERO },
@@ -198,26 +227,32 @@ function parseGroup(node: CubeNode, byUuid: Map<string, CubeNode>, parentOrigin:
       y: parentOrigin.y - origin.y,
       z: parentOrigin.z - origin.z,
     },
-    rotation: rotationOf(node.rotation),
+    rotation: rotationOf(data.rotation),
     scale: { ...ONE },
-    children: childrenOf(node.children as unknown[], byUuid, origin),
+    storeID: storeId,
+    children: childrenOf(node.children as unknown[], state, origin),
   }
+  registerAnimator(state, node.uuid, storeId, false)
+  return child
 }
 
 function parseRootGroup(
   node: CubeNode,
-  byUuid: Map<string, CubeNode>,
+  state: BbmodelParserState,
   claimedParts: Set<string>,
 ): CPMElement | null {
-  const name = nameOf(node, 'group')
-  const origin = vec3Of(node.origin, `origin группы "${name}"`)
-  const children = childrenOf(node.children as unknown[], byUuid, origin)
+  const data = groupDataOf(node, state)
+  const name = nameOf(data, 'group')
+  const origin = vec3Of(data.origin, `origin группы "${name}"`)
+  const children = childrenOf(node.children as unknown[], state, origin)
   if (children.length === 0) return null
 
   const partId = matchVanillaPart(name)
   if (partId !== null && !claimedParts.has(partId)) {
     claimedParts.add(partId)
     const pivot = ROOT_PIVOTS[partId] ?? ZERO
+    const ordinal = PLAYER_PART_ORDINALS[partId] ?? 0
+    registerAnimator(state, node.uuid, ordinal, false)
     return {
       id: partId,
       name,
@@ -226,21 +261,24 @@ function parseRootGroup(
         y: pivot.y - origin.y,
         z: pivot.z - origin.z,
       },
-      rotation: rotationOf(node.rotation),
+      rotation: rotationOf(data.rotation),
       children,
     }
   }
+  const storeId = state.nextStoreId++
+  registerAnimator(state, node.uuid, storeId, false)
   return {
     id: customRootId(name),
     name,
     customPart: true,
     pos: { x: origin.x, y: -origin.y, z: -origin.z },
-    rotation: rotationOf(node.rotation),
+    rotation: rotationOf(data.rotation),
+    storeID: storeId,
     children,
   }
 }
 
-function parseLooseCubeRoot(cube: CubeNode): CPMElement {
+function parseLooseCubeRoot(cube: CubeNode, state: BbmodelParserState): CPMElement {
   const name = nameOf(cube, 'cube')
   const origin = vec3Of(cube.origin, `origin куба "${name}"`)
   return {
@@ -249,7 +287,7 @@ function parseLooseCubeRoot(cube: CubeNode): CPMElement {
     customPart: true,
     pos: { x: origin.x, y: -origin.y, z: -origin.z },
     rotation: { ...ZERO },
-    children: [parseCube(cube, origin)],
+    children: [parseCube(cube, origin, state)],
   }
 }
 
@@ -283,6 +321,19 @@ export function parseBbmodel(data: Uint8Array): BbmodelParseResult {
   const { outliner } = parsed
   if (!Array.isArray(outliner) || byUuid.size === 0) throw new Error(NO_ELEMENTS_MESSAGE)
 
+  const groupsByUuid = new Map<string, CubeNode>()
+  if (Array.isArray(parsed.groups)) {
+    for (const group of parsed.groups) {
+      if (isRecord(group) && typeof group.uuid === 'string') groupsByUuid.set(group.uuid, group)
+    }
+  }
+  const state: BbmodelParserState = {
+    byUuid,
+    groupsByUuid,
+    animators: new Map(),
+    nextStoreId: FIRST_STORE_ID,
+  }
+
   const skinPng = extractSkinPng(parsed.textures)
   const { resolution } = parsed
   const width = num(isRecord(resolution) ? resolution.width : undefined, 'resolution.width')
@@ -293,14 +344,16 @@ export function parseBbmodel(data: Uint8Array): BbmodelParseResult {
   for (const node of outliner) {
     if (typeof node === 'string') {
       const cube = byUuid.get(node)
-      if (cube) roots.push(parseLooseCubeRoot(cube))
+      if (cube) roots.push(parseLooseCubeRoot(cube, state))
       continue
     }
     if (!isRecord(node) || !Array.isArray(node.children)) continue
-    const root = parseRootGroup(node, byUuid, claimedParts)
+    const root = parseRootGroup(node, state, claimedParts)
     if (root) roots.push(root)
   }
   if (roots.length === 0) throw new Error(NO_ELEMENTS_MESSAGE)
+
+  const animations = convertBbmodelAnimations(parsed.animations, state.animators, isLegacyBbmodel(parsed.meta))
 
   return {
     config: {
@@ -308,5 +361,6 @@ export function parseBbmodel(data: Uint8Array): BbmodelParseResult {
       elements: roots,
     },
     skinPng,
+    animations,
   }
 }

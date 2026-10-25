@@ -4,7 +4,7 @@ import { captureProjectScope, reportError, selectFile, useAsyncRaceGuard, useFil
 import { getErrorMessage, readSkinFile, savePlayerModel } from '@/06-shared/api'
 import { bytesToBase64 } from '@/04-features/cpm-convert/cpmBinaryWriter'
 import { cpmConfigToBytes, cpmConfigToLinkBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
-import { useModelUserContent } from '@/04-features/user-content/useUserContent'
+import { useModelUserContent, type ModelUserContent } from '@/04-features/user-content/useUserContent'
 import { compose, presetSkinTypeWarning, type DressedModel } from './dress'
 import type { ParsedPreset } from './presetLoader'
 import { LOGICAL_ATLAS_SIZE } from './presetTypes'
@@ -19,6 +19,7 @@ import type { SkinImage } from './skinPng'
 export interface PresetSkinApplySource {
   preset: ShallowRef<ParsedPreset | null>
   previewSkinBytes: ShallowRef<Uint8Array | null>
+  content?: ModelUserContent
 }
 
 export interface PresetApplyPreview {
@@ -54,7 +55,7 @@ export function usePresetSkinApply(source: PresetSkinApplySource): {
 } {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
-  const content = useModelUserContent()
+  const content = source.content ?? useModelUserContent()
   const { errorMessage } = content
   const skinImage = shallowRef<SkinImage | null>(null)
   const skinMode = ref<SkinModelMode>('classic')

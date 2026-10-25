@@ -55,7 +55,17 @@ export type { PresetManifest, PresetManifestEntry } from './cpm-presets/presetMa
 export { usePresetModels } from './cpm-presets/usePresetModels'
 export { usePresetSkinApply } from './cpm-presets/usePresetSkinApply'
 export type { PresetSkinApplySource, PresetApplyPreview } from './cpm-presets/usePresetSkinApply'
+export { useModelUserContent } from './user-content/useUserContent'
+export type { ModelUserContent } from './user-content/useUserContent'
 export { useModrinth, MODRINTH_BASE_URL, MODRINTH_SORTS, MODRINTH_CATEGORIES, MODRINTH_CATEGORY_LABELS, MODRINTH_DOWNLOAD_FORMS, MODRINTH_FOLLOW_FORMS } from './modrinth/useModrinth'
+export {
+  useModrinthModset,
+  MODSET_FILE_NAME,
+  MODSET_ACCEPT,
+  MODSET_FILTER,
+  MODSET_MAX_BYTES,
+} from './modrinth/useModrinthModset'
+export type { ModrinthModsetView } from './modrinth/useModrinthModset'
 export { useAlternativeJava } from './alternative-java/useAlternativeJava'
 export type { AlternativeJavaDownloadResult } from './alternative-java/useAlternativeJava'
 export { useSystemNotifications } from './system-notifications/useSystemNotifications'

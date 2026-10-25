@@ -6,13 +6,15 @@ import ViewerToolbar from './ViewerToolbar.vue'
 
 const props = withDefaults(defineProps<{
   minZoom?: number
+  defaultYaw?: number
   fullscreenLabel?: string
 }>(), {
   minZoom: DEFAULT_VIEWER_MIN_ZOOM,
+  defaultYaw: 0,
   fullscreenLabel: 'Просмотр 3D-модели',
 })
 
-provideViewerControls((): number => props.minZoom)
+provideViewerControls((): number => props.minZoom, props.defaultYaw)
 
 const isFullscreen = defineModel<boolean>('fullscreen', { default: false })
 

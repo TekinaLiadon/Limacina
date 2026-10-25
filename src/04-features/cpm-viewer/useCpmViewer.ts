@@ -89,12 +89,12 @@ function applyBoxUVs(
     const y1 = tv + dz
     const y2 = tv + dz + dy
     faces = [
-      [x2, y1, x4, y2],
       [tu, y1, x1, y2],
+      [x2, y1, x4, y2],
       [x1, tv, x2, y1],
       [x2, y1, x3, tv],
-      [x1, y1, x2, y2],
       [x4, y1, x5, y2],
+      [x1, y1, x2, y2],
     ]
   }
 

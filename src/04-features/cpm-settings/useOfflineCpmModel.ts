@@ -2,11 +2,12 @@ import { ref, type ComputedRef, type Ref, type ShallowRef } from 'vue'
 import { useCoreStore, useNotificationStore, type CPMData } from '@/05-entities'
 import { captureProjectScope, reportError } from '@/06-shared'
 import { getErrorMessage, savePlayerModel } from '@/06-shared/api'
-import { cpmProjectToBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
+import { cpmConfigToBytes, cpmProjectToBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
 
 export interface OfflineCpmModelSource {
   cpmFileBytes: Ref<Uint8Array | null>
   cpmData: ShallowRef<CPMData | null>
+  cpmSkinPng: Ref<Uint8Array | null>
   modelName: ComputedRef<string>
   errorMessage: Ref<string>
 }
@@ -26,7 +27,10 @@ export function useOfflineCpmModel(source: OfflineCpmModelSource): {
     isSaving.value = true
     source.errorMessage.value = ''
     try {
-      const bytes = await cpmProjectToBytes(source.cpmFileBytes.value, source.cpmData.value)
+      const skinPng = source.cpmSkinPng.value
+      const bytes = skinPng !== null
+        ? cpmConfigToBytes(source.cpmData.value.config, skinPng, { animations: source.cpmData.value.animations ?? [] })
+        : await cpmProjectToBytes(source.cpmFileBytes.value, source.cpmData.value)
       await savePlayerModel(scope.project, {
         name: source.modelName.value,
         url: null,

@@ -32,6 +32,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
             "y": 8,
             "z": 8,
           },
+          "storeID": 100,
           "textureSize": 1,
           "u": 0,
           "v": 0,
@@ -63,6 +64,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
             "y": 10,
             "z": 10,
           },
+          "storeID": 101,
           "textureSize": 1,
           "u": 32,
           "v": 0,
@@ -160,6 +162,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
             "y": 12,
             "z": 4,
           },
+          "storeID": 102,
         },
         {
           "children": [
@@ -190,6 +193,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
                 "y": 2,
                 "z": 2,
               },
+              "storeID": 104,
             },
             {
               "children": [
@@ -220,6 +224,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
                     "y": 8,
                     "z": 4,
                   },
+                  "storeID": 106,
                   "textureSize": 1,
                   "u": 16,
                   "v": 48,
@@ -251,6 +256,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
                 "y": 0,
                 "z": 0,
               },
+              "storeID": 105,
             },
           ],
           "name": "Body",
@@ -279,6 +285,7 @@ exports[`parseBbmodel > golden-снапшот мини-модели со все�
             "y": 0,
             "z": 0,
           },
+          "storeID": 103,
         },
       ],
       "id": "body",

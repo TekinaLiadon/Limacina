@@ -12,9 +12,9 @@ const ZOOM_STEP_FACTOR = 1.25
 export const MIN_ZOOM_PERCENT = 10
 export const DEFAULT_VIEWER_MIN_ZOOM = 5
 
-function createViewerControls(getMinZoom: () => number): ViewerControls {
+function createViewerControls(getMinZoom: () => number, defaultYaw: number = 0): ViewerControls {
   const zoomLevel = ref<number>(22)
-  const rotationY = ref<number>(0)
+  const rotationY = ref<number>(defaultYaw)
   const rotationX = ref<number>(DEFAULT_ELEVATION)
   const autoRotate = ref<boolean>(false)
   const fitDistance = ref<number>(22)
@@ -52,14 +52,14 @@ function createViewerControls(getMinZoom: () => number): ViewerControls {
     },
     resetView: (): void => {
       zoomLevel.value = fitDistance.value
-      rotationY.value = 0
+      rotationY.value = defaultYaw
       rotationX.value = DEFAULT_ELEVATION
     },
   }
 }
 
-export function provideViewerControls(getMinZoom: () => number): ViewerControls {
-  const controls = createViewerControls(getMinZoom)
+export function provideViewerControls(getMinZoom: () => number, defaultYaw: number = 0): ViewerControls {
+  const controls = createViewerControls(getMinZoom, defaultYaw)
   provide(VIEWER_CONTROLS_KEY, controls)
   return controls
 }

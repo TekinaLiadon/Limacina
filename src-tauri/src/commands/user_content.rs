@@ -551,9 +551,10 @@ mod offline_skin_tests {
     async fn save_offline_skin_rejects_oversized_file() {
         let guard = LauncherDirGuard::acquire("offline_skin_oversize").await;
 
-        let error = save_offline_skin_inner("Alpha", "slim", vec![0u8; SKIN_MAX_BYTES as usize + 1])
-            .await
-            .expect_err("превышение лимита должно отклоняться");
+        let error =
+            save_offline_skin_inner("Alpha", "slim", vec![0u8; SKIN_MAX_BYTES as usize + 1])
+                .await
+                .expect_err("превышение лимита должно отклоняться");
 
         assert!(
             matches!(

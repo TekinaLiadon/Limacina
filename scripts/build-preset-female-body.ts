@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseBbmodel } from '../src/04-features/cpm-convert/bbmodelParser'
+import { serializeCpmAnimationFile } from '../src/04-features/cpm-convert/cpmAnimationJsonWriter'
 import {
   validatePresetConfig,
   validatePresetPair,
@@ -13,6 +14,7 @@ import type { CPMChild, CPMElement, CPMFaceUV } from '../src/05-entities/core/ty
 const ASSETS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../src/04-features/cpm-presets/assets')
 const SOURCE_PATH = join(ASSETS_DIR, 'female-body.bbmodel')
 const CONFIG_PATH = join(ASSETS_DIR, 'female-body.config.json')
+const ANIMATIONS_PATH = join(ASSETS_DIR, 'female-body.animations.json')
 const PREVIEW_PATH = join(ASSETS_DIR, 'female-body.preview.png.b64')
 
 const LOGICAL_ATLAS_SIZE = 64
@@ -32,7 +34,10 @@ const META: PresetMeta = {
   name: 'Женское тело',
   slug: 'female-body',
   skinType: 'both',
-  auxRegions: [{ name: 'body-aux', sx: 58, sy: 0, ex: 64, ey: 4 }],
+  auxRegions: [
+    { name: 'body-aux', sx: 58, sy: 0, ex: 64, ey: 4 },
+    { name: 'body-jacket', sx: 16, sy: 32, ex: 40, ey: 48 },
+  ],
 }
 
 interface RawFace {
@@ -194,7 +199,7 @@ function extractPreviewBase64(parsed: Record<string, unknown>): string {
 
 const sourceBytes = new Uint8Array(readFileSync(SOURCE_PATH))
 const rawParsed = JSON.parse(new TextDecoder().decode(sourceBytes)) as Record<string, unknown>
-const { config } = parseBbmodel(sourceBytes)
+const { config, animations } = parseBbmodel(sourceBytes)
 
 const rawElements = Array.isArray(rawParsed.elements) ? (rawParsed.elements as unknown[]) : []
 const byUuid = new Map<string, Record<string, unknown>>()
@@ -241,10 +246,12 @@ if (errors.length > 0) {
 }
 
 writeFileSync(CONFIG_PATH, JSON.stringify(config))
+const animationFiles = animations.map((animation) => serializeCpmAnimationFile(animation))
+writeFileSync(ANIMATIONS_PATH, JSON.stringify(animationFiles))
 const previewBase64 = extractPreviewBase64(rawParsed)
 if (previewBase64 === '') throw new Error('В .bbmodel нет PNG-текстуры для превью')
 writeFileSync(PREVIEW_PATH, previewBase64)
 
-console.log(`кубов: ${configCubeCount}, корней: ${config.elements.length}`)
+console.log(`кубов: ${configCubeCount}, корней: ${config.elements.length}, анимаций: ${animationFiles.length}`)
 console.log(`зеркальные грани (примерно): ${approximatedFaces.length} — ${approximatedFaces.join(', ')}`)
-console.log(`записано: ${CONFIG_PATH}, ${PREVIEW_PATH}`)
+console.log(`записано: ${CONFIG_PATH}, ${ANIMATIONS_PATH}, ${PREVIEW_PATH}`)

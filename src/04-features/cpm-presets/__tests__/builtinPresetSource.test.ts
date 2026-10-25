@@ -35,7 +35,17 @@ describe('builtinPresetSource', () => {
     const pkg = await builtinPresetSource.fetch('female-body')
     const parsed = await parsePresetProject(pkg.projectData, pkg.metaData)
 
-    expect(parsed.meta.auxRegions).toEqual([{ name: 'body-aux', sx: 58, sy: 0, ex: 64, ey: 4 }])
+    expect(parsed.meta.auxRegions).toEqual([
+      { name: 'body-aux', sx: 58, sy: 0, ex: 64, ey: 4 },
+      { name: 'body-jacket', sx: 16, sy: 32, ex: 40, ey: 48 },
+    ])
+  })
+
+  it('отдаёт пресет без анимаций, пока исходная модель их не содержит', async () => {
+    const pkg = await builtinPresetSource.fetch('female-body')
+
+    const parsed = await parsePresetProject(pkg.projectData, pkg.metaData)
+    expect(parsed.animations).toEqual([])
   })
 
   it('содержит PNG-превью для показа до загрузки своего скина', async () => {
