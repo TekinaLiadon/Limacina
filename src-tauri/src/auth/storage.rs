@@ -95,6 +95,18 @@ static TEST_TRANSIENT_READ_FAILURE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(test)]
+fn stub_key(key_name: &str) -> String {
+    #[cfg(windows)]
+    {
+        key_name.to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        key_name.to_string()
+    }
+}
+
+#[cfg(test)]
 fn test_keyring() -> &'static Mutex<std::collections::HashMap<String, String>> {
     static TEST_KEYRING: OnceLock<Mutex<std::collections::HashMap<String, String>>> =
         OnceLock::new();
@@ -114,7 +126,7 @@ pub(crate) fn test_keyring_contains(key_name: &str) -> bool {
     test_keyring()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .contains_key(key_name)
+        .contains_key(&stub_key(key_name))
 }
 
 #[cfg(test)]
@@ -402,7 +414,7 @@ fn keyring_save(key_name: &str, _key_suffix: &str, value: &str) -> Result<()> {
     test_keyring()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(key_name.to_string(), value.to_string());
+        .insert(stub_key(key_name), value.to_string());
     Ok(())
 }
 
@@ -418,7 +430,7 @@ fn keyring_load(key_name: &str, _key_suffix: &str) -> Result<Option<String>> {
     Ok(test_keyring()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(key_name)
+        .get(&stub_key(key_name))
         .cloned())
 }
 
@@ -439,7 +451,7 @@ fn keyring_delete(key_name: &str, _key_suffix: &str) -> Result<()> {
     test_keyring()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .remove(key_name);
+        .remove(&stub_key(key_name));
     Ok(())
 }
 
@@ -505,14 +517,27 @@ fn save_credential_sync(
         save_fallback_key(canonical_key, value)?;
     }
 
-    remove_legacy_credentials(&key_names[1..], key_suffix);
+    remove_legacy_credentials(canonical_key, &key_names[1..], key_suffix);
     Ok(())
 }
 
-fn remove_legacy_credentials(key_names: &[String], key_suffix: &str) {
+fn is_same_keyring_target(a: &str, b: &str) -> bool {
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
+}
+
+fn remove_legacy_credentials(canonical_key: &str, key_names: &[String], key_suffix: &str) {
     for key_name in key_names {
-        if let Err(e) = keyring_delete(key_name, key_suffix) {
-            log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+        if !is_same_keyring_target(key_name, canonical_key) {
+            if let Err(e) = keyring_delete(key_name, key_suffix) {
+                log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+            }
         }
         if let Err(e) = delete_fallback_key(key_name) {
             log_err!("Fallback delete {}: ошибка {}", key_suffix, e);
@@ -526,8 +551,10 @@ fn migrate_legacy_credential(canonical_key: &str, found_key: &str, value: &str, 
     }
     match keyring_save(canonical_key, key_suffix, value) {
         Ok(()) => {
-            if let Err(e) = keyring_delete(found_key, key_suffix) {
-                log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+            if !is_same_keyring_target(found_key, canonical_key) {
+                if let Err(e) = keyring_delete(found_key, key_suffix) {
+                    log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+                }
             }
             if let Err(e) = delete_fallback_key(found_key) {
                 log_err!("Fallback delete {}: ошибка {}", key_suffix, e);
@@ -706,6 +733,24 @@ mod tests {
                 "ник \"{username}\" должен находить запись"
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn save_credential_survives_legacy_case_cleanup() {
+        let _dir = LauncherDirGuard::acquire("credentials_case_cleanup").await;
+
+        save_credential("Cordelia", "Tereya", "refresh_token", "tok-case")
+            .await
+            .expect("сохранение credentials");
+
+        assert_eq!(
+            find_credential("Cordelia", "Tereya", "refresh_token")
+                .await
+                .expect("чтение credentials"),
+            Some("tok-case".to_string()),
+            "таргеты keyring на Windows регистронезависимы: legacy-очистка не должна удалять свежую запись"
+        );
     }
 
     #[tokio::test]

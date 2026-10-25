@@ -271,9 +271,11 @@ async fn register_account(
     validate_username(username)?;
     validate_password(password)?;
 
-    auth::register(&server_url, username, password).await?;
+    let data = auth::register(&server_url, username, password).await?;
 
+    persist_session_credentials(project_name, username, &data).await?;
     remember_login(state, project_name, username, true).await?;
+    store_session(state, &data, username, project_name).await;
 
     Ok(())
 }
@@ -1052,6 +1054,57 @@ mod account_flow_tests {
             vec!["Steve".to_string()],
             "логин должен сохраняться тримнутым"
         );
+    }
+
+    #[tokio::test]
+    async fn register_stores_session_and_persists_credentials() {
+        let dir = LauncherDirGuard::acquire("auth_register_persist").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        let mut server = Server::new_async().await;
+        let registration = server
+            .mock("POST", "/v1/common/auth/registration")
+            .match_body(Matcher::PartialJsonString(
+                json!({"username": "Newbie", "password": "secret1"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-reg", "refresh-reg"))
+            .create_async()
+            .await;
+        seed_online_project("TestProj", &server.url()).await;
+        let state = state_with_session("Steve", "TestProj");
+
+        register_account(&state, "TestProj", "  Newbie  ", "secret1")
+            .await
+            .expect("регистрация должна логинить и сохранять токен");
+
+        registration.assert_async().await;
+        {
+            let guard = state.lock().await;
+            let session = guard.session.as_ref().expect("сессия после регистрации");
+            assert_eq!(session.access_token, "access-reg");
+            assert_eq!(session.project_name, "TestProj");
+        }
+        assert_eq!(
+            storage::get_credential("TestProj", "Newbie", "refresh_token")
+                .await
+                .expect("refresh-токен должен сохраняться при регистрации"),
+            "refresh-reg"
+        );
+        assert_eq!(
+            state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .get_logins("TestProj"),
+            vec!["Newbie".to_string()],
+            "логин должен сохраняться тримнутым"
+        );
+
+        wipe_project_credentials("TestProj", &["Newbie".to_string()])
+            .await
+            .expect("очистка хранилища после теста");
     }
 
     #[tokio::test]
