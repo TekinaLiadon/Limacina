@@ -325,6 +325,34 @@ describe('useCpmSettings', () => {
     await vi.waitFor(() => expect(vi.mocked(URL.revokeObjectURL)).toHaveBeenCalledWith('blob:mock-texture'))
   })
 
+  it('does not create the texture blob url when the load finishes after disposal', async () => {
+    let releaseRead: (bytes: Uint8Array) => void = () => {}
+    vi.mocked(readCpmProjectFile).mockImplementation(
+      () =>
+        new Promise<Uint8Array>((resolve) => {
+          releaseRead = resolve
+        }),
+    )
+    parser.parseCpmProjectFile.mockResolvedValue(makeProject())
+    const core = useCoreStore()
+    const { result, unmount } = withSetup(() => useCpmSettings())
+
+    core.pendingCpmProjectPath = '/models/hero.cpmproject'
+    await vi.waitFor(() => expect(readCpmProjectFile).toHaveBeenCalledTimes(1))
+
+    unmount()
+    expect(result.cpmData.value).toBeNull()
+
+    releaseRead(new Uint8Array(8))
+    await vi.waitFor(() => expect(parser.parseCpmProjectFile).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(result.errorMessage.value).toBe(''))
+
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    expect(result.cpmData.value).toBeNull()
+    expect(result.cpmFileBytes.value).toBeNull()
+    expect(result.modelName.value).toBe('Модель')
+  })
+
   it('rejects an oversized pending project file with the dialog message', async () => {
     vi.mocked(readCpmProjectFile).mockResolvedValue(new Uint8Array(5 * 1024 * 1024))
     const core = useCoreStore()

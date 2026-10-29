@@ -30,8 +30,12 @@ fn arch_matches(server_arch: &str, local_arch: &str) -> bool {
 }
 
 pub fn platform_key_matches(key: &str, os: &str, arch: &str) -> bool {
-    let Some((key_os, key_arch)) = key.split_once('-') else {
+    let Some((key_os, key_rest)) = key.split_once('-') else {
         return false;
+    };
+    let key_arch = match key_rest.split_once('-') {
+        Some((arch, _installer)) => arch,
+        None => key_rest,
     };
     let os_matches = match (key_os, os) {
         ("darwin", "osx") => true,
@@ -117,6 +121,41 @@ mod tests {
         assert!(!platform_key_matches("windows-x86_64", "linux", "x86_64"));
         assert!(!platform_key_matches("linux-aarch64", "linux", "x86_64"));
         assert!(!platform_key_matches("nodash", "linux", "x86_64"));
+    }
+
+    #[test]
+    fn platform_key_matches_installer_suffix_keys() {
+        assert!(platform_key_matches(
+            "windows-x86_64-nsis",
+            "windows",
+            "x64"
+        ));
+        assert!(platform_key_matches(
+            "windows-x86_64-nsis",
+            "windows",
+            "x86_64"
+        ));
+        assert!(platform_key_matches(
+            "linux-x86_64-appimage",
+            "linux",
+            "x86_64"
+        ));
+        assert!(platform_key_matches("darwin-aarch64-app", "osx", "aarch64"));
+        assert!(!platform_key_matches(
+            "windows-x86_64-nsis",
+            "linux",
+            "x86_64"
+        ));
+        assert!(!platform_key_matches(
+            "windows-aarch64-nsis",
+            "windows",
+            "x64"
+        ));
+        assert!(!platform_key_matches(
+            "linux-aarch64-nsis",
+            "linux",
+            "x86_64"
+        ));
     }
 
     #[tokio::test]
@@ -206,6 +245,7 @@ mod tests {
             "windows-x86_64",
             "darwin-aarch64",
             "linux-aarch64",
+            "windows-x86_64-nsis",
         ];
         let non_matching_key = all_platform_keys
             .iter()

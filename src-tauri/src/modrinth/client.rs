@@ -5,17 +5,14 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
+use tokio::time::sleep;
 
 use super::structs::{ModrinthProject, ModrinthVersion, SearchResponse};
 use crate::log_err;
 use crate::utils::errors::LauncherError;
-use crate::utils::http::request_json;
+use crate::utils::http::require_success;
+use crate::utils::semaphore::{is_retryable_failure, retry_delay, MAX_RETRIES};
 
-pub const USER_AGENT: &str = concat!(
-    "TekinaLiadon/Limacina/",
-    env!("CARGO_PKG_VERSION"),
-    " (https://github.com/TekinaLiadon/Limacina)"
-);
 const API_BASE_PROD: &str = "https://api.modrinth.com/v2";
 
 static API_BASE_OVERRIDE: OnceLock<std::sync::RwLock<Option<String>>> = OnceLock::new();
@@ -50,7 +47,6 @@ pub fn modrinth_client() -> Result<&'static Client> {
     MODRINTH_CLIENT
         .get_or_init(|| {
             crate::utils::http::base_client_builder()
-                .user_agent(USER_AGENT)
                 .build()
                 .map_err(|e| format!("Не удалось создать HTTP-клиент Modrinth: {e:#}"))
         })
@@ -147,7 +143,7 @@ async fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> 
     }
 
     let client = modrinth_client()?;
-    let value: serde_json::Value = request_json(
+    let value: serde_json::Value = metadata_request_json(
         client.get(&url).query(query),
         &format!("Не удалось отправить запрос на {url}"),
         &format!("Не удалось прочитать ответ от {url}"),
@@ -193,7 +189,9 @@ pub async fn get_project(id_or_slug: &str) -> Result<ModrinthProject> {
 }
 
 pub async fn get_projects(ids: &[String]) -> Result<Vec<ModrinthProject>> {
-    get_json("/projects", &[("ids", json_param(ids))]).await
+    let mut sorted = ids.to_vec();
+    sorted.sort();
+    get_json("/projects", &[("ids", json_param(&sorted))]).await
 }
 
 fn loaders_game_versions_query(
@@ -227,6 +225,81 @@ pub async fn get_versions(version_ids: &[String]) -> Result<Vec<ModrinthVersion>
     get_json("/versions", &[("ids", json_param(version_ids))]).await
 }
 
+const RETRY_AFTER_MAX_SECS: u64 = 30;
+
+fn retry_after_header(response: &reqwest::Response) -> Option<Duration> {
+    if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return None;
+    }
+    let seconds = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(Duration::from_secs(seconds.min(RETRY_AFTER_MAX_SECS)))
+}
+
+async fn send_json_attempt<T: DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    connect_context: &str,
+    parse_context: &str,
+) -> (Result<T>, Option<Duration>) {
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(e) => {
+            return (
+                Err(anyhow::Error::from(e).context(connect_context.to_string())),
+                None,
+            );
+        }
+    };
+    let retry_after = retry_after_header(&response);
+    let response = match require_success(response).await {
+        Ok(response) => response,
+        Err(error) => return (Err(error), retry_after),
+    };
+    match response.json().await {
+        Ok(parsed) => (Ok(parsed), retry_after),
+        Err(e) => (
+            Err(LauncherError::Http(format!("{parse_context}: {e:#}")).into()),
+            retry_after,
+        ),
+    }
+}
+
+async fn metadata_request_json<T: DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    connect_context: &str,
+    parse_context: &str,
+) -> Result<T> {
+    let mut attempt: usize = 1;
+    loop {
+        let attempt_request = request.try_clone().ok_or_else(|| {
+            anyhow!("Не удалось подготовить повтор запроса Modrinth: {connect_context}")
+        })?;
+        let (result, retry_after) =
+            send_json_attempt::<T>(attempt_request, connect_context, parse_context).await;
+        match result {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                if attempt >= MAX_RETRIES || !is_retryable_failure(&error) {
+                    return Err(error);
+                }
+                let delay = retry_after.unwrap_or_else(|| retry_delay(attempt, connect_context));
+                log_err!(
+                    "[modrinth] Запрос не удался (попытка {attempt}/{MAX_RETRIES}), повтор через {} мс: {connect_context}: {error:#}",
+                    delay.as_millis()
+                );
+                sleep(delay).await;
+                attempt += 1;
+            }
+        }
+    }
+}
+
 async fn post_version_files(
     path: &str,
     hashes: &[String],
@@ -241,6 +314,7 @@ async fn post_version_files(
         loaders: Vec<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         game_versions: Vec<String>,
+        version_types: Vec<String>,
     }
 
     let body = HashesQuery {
@@ -248,10 +322,11 @@ async fn post_version_files(
         algorithm: "sha1",
         loaders: loaders.to_vec(),
         game_versions: game_versions.to_vec(),
+        version_types: vec!["release".to_string()],
     };
     let url = format!("{}{}", api_base(), path);
     let client = modrinth_client()?;
-    request_json(
+    metadata_request_json(
         client.post(&url).json(&body),
         &format!("Не удалось отправить запрос на {url}"),
         &format!("Не удалось прочитать ответ от {url}"),
@@ -281,6 +356,7 @@ mod tests {
     use crate::modrinth::client::clear_response_cache_for_tests as clear_cache;
     use crate::modrinth::structs::ModrinthProject;
     use crate::test_support::LauncherDirGuard;
+    use crate::utils::http::USER_AGENT;
     use mockito::Server;
     use serde_json::json;
 
@@ -374,6 +450,144 @@ mod tests {
     #[test]
     fn user_agent_contains_package_version() {
         assert!(USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[tokio::test]
+    async fn metadata_retries_rate_limit_with_retry_after() {
+        let _dir = LauncherDirGuard::acquire("modrinth_retry_after").await;
+        let mut server = Server::new_async().await;
+        override_api_base_for_tests(format!("{}/v2", server.url()));
+        clear_cache();
+
+        let limited = server
+            .mock("GET", "/v2/project/Rate")
+            .match_query(mockito::Matcher::Any)
+            .with_status(429)
+            .with_header("Retry-After", "1")
+            .expect(1)
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/v2/project/Rate")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_body(json!({"id": "Rate", "project_type": "mod", "title": "R"}).to_string())
+            .create_async()
+            .await;
+
+        let started = std::time::Instant::now();
+        let project: ModrinthProject = get_project("Rate").await.expect("ретрай после 429");
+        let elapsed = started.elapsed();
+
+        limited.assert_async().await;
+        assert_eq!(project.title, "R");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(900),
+            "повтор после 429 должен ждать Retry-After с сервера: {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_retries_transient_without_header_by_backoff() {
+        let _dir = LauncherDirGuard::acquire("modrinth_retry_backoff").await;
+        let mut server = Server::new_async().await;
+        override_api_base_for_tests(format!("{}/v2", server.url()));
+        clear_cache();
+
+        let limited = server
+            .mock("GET", "/v2/project/RateQuiet")
+            .match_query(mockito::Matcher::Any)
+            .with_status(429)
+            .expect(1)
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/v2/project/RateQuiet")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_body(json!({"id": "RateQuiet", "project_type": "mod", "title": "Q"}).to_string())
+            .create_async()
+            .await;
+
+        let started = std::time::Instant::now();
+        let project: ModrinthProject = get_project("RateQuiet")
+            .await
+            .expect("ретрай после 429 без заголовка");
+        let elapsed = started.elapsed();
+
+        limited.assert_async().await;
+        assert_eq!(project.title, "Q");
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "без Retry-After используется штатный бэкофф, а не длинное ожидание: {elapsed:?}"
+        );
+        assert!(
+            elapsed >= std::time::Duration::from_millis(300),
+            "бэкофф первой попытки не должен быть нулевым: {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_does_not_retry_permanent_errors() {
+        let _dir = LauncherDirGuard::acquire("modrinth_retry_permanent").await;
+        let mut server = Server::new_async().await;
+        override_api_base_for_tests(format!("{}/v2", server.url()));
+        clear_cache();
+
+        let missing = server
+            .mock("GET", "/v2/project/Missing")
+            .match_query(mockito::Matcher::Any)
+            .with_status(404)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let error = get_project("Missing")
+            .await
+            .expect_err("404 должен возвращать ошибку без ретраев");
+
+        missing.assert_async().await;
+        let typed = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<LauncherError>());
+        assert!(
+            matches!(typed, Some(LauncherError::HttpStatus { status: 404, .. })),
+            "404 должен возвращаться как постоянная ошибка HttpStatus без ретраев: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_projects_cache_key_ignores_id_order() {
+        let _dir = LauncherDirGuard::acquire("modrinth_projects_cache_key").await;
+        let mut server = Server::new_async().await;
+        override_api_base_for_tests(format!("{}/v2", server.url()));
+        clear_cache();
+
+        let mock = server
+            .mock("GET", "/v2/projects")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_body(
+                json!([
+                    {"id": "A", "project_type": "mod", "title": "Mod A"},
+                    {"id": "B", "project_type": "mod", "title": "Mod B"}
+                ])
+                .to_string(),
+            )
+            .expect(1)
+            .create_async()
+            .await;
+
+        let first = get_projects(&["A".to_string(), "B".to_string()])
+            .await
+            .expect("первый запрос");
+        let second = get_projects(&["B".to_string(), "A".to_string()])
+            .await
+            .expect("повтор с другим порядком id должен попасть в кеш");
+
+        mock.assert_async().await;
+        assert_eq!(first.len(), 2);
+        assert_eq!(second.len(), 2);
     }
 
     #[test]

@@ -81,7 +81,7 @@ const displayName = computed((): string => props.hasSession ? props.username : '
         </div>
       </div>
 
-      <div v-if="selectError || (!isLaunching && loginError)" class="launch-scene__error">
+      <div v-if="!isLaunching && (selectError || loginError)" class="launch-scene__error">
         {{ selectError || loginError }}
       </div>
 

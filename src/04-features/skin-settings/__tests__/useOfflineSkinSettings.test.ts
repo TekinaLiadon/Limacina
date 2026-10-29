@@ -344,4 +344,87 @@ describe('useOfflineSkinSettings', () => {
     expect(getOfflineSkin).toHaveBeenCalledWith('offline-proj')
     expect(getProfileSkin).not.toHaveBeenCalled()
   })
+
+  it('drops the stale offline preview when a newer load finishes first', async () => {
+    goOffline()
+    let releaseFirst: (bytes: Uint8Array) => void = () => {}
+    vi.mocked(getOfflineSkin).mockImplementationOnce(
+      () =>
+        new Promise<Uint8Array>((resolve) => {
+          releaseFirst = resolve
+        }),
+    )
+    vi.mocked(getOfflineSkin).mockResolvedValueOnce(new Uint8Array([9, 9]))
+    createObjectURLMock.mockReturnValueOnce('blob:second')
+    const core = useCoreStore()
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(getOfflineSkin).toHaveBeenCalledTimes(1))
+
+    core.currentProject = 'other'
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:second'))
+
+    releaseFirst(new Uint8Array([1, 2, 3]))
+    await flushPromises()
+
+    expect(getOfflineSkin).toHaveBeenNthCalledWith(2, 'other')
+    expect(skins.skinUrl.value).toBe('blob:second')
+    expect(skins.hasSkin.value).toBe(true)
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURLMock).not.toHaveBeenCalledWith('blob:second')
+  })
+
+  it('stays silent when a stale offline load fails', async () => {
+    goOffline()
+    let rejectFirst: (error: Error) => void = () => {}
+    vi.mocked(getOfflineSkin).mockImplementationOnce(
+      () =>
+        new Promise<Uint8Array>((_resolve, reject) => {
+          rejectFirst = reject
+        }),
+    )
+    vi.mocked(getOfflineSkin).mockResolvedValueOnce(new Uint8Array([9, 9]))
+    createObjectURLMock.mockReturnValueOnce('blob:second')
+    const core = useCoreStore()
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(getOfflineSkin).toHaveBeenCalledTimes(1))
+
+    core.currentProject = 'other'
+    await vi.waitFor(() => expect(skins.skinUrl.value).toBe('blob:second'))
+
+    rejectFirst(new Error('disk gone'))
+    await flushPromises()
+
+    expect(skins.errorMessage.value).toBe('')
+    expect(skins.skinUrl.value).toBe('blob:second')
+  })
+
+  it('discards the offline preview when the project switches during the model restore', async () => {
+    goOffline()
+    let releaseModel: (model: SkinModelMode) => void = () => {}
+    vi.mocked(getOfflineSkin)
+      .mockResolvedValueOnce(new Uint8Array([9, 9]))
+      .mockImplementationOnce(() => new Promise<Uint8Array>(() => {}))
+    vi.mocked(getOfflineSkinModel).mockImplementationOnce(
+      () =>
+        new Promise<SkinModelMode>((resolve) => {
+          releaseModel = resolve
+        }),
+    )
+    createObjectURLMock.mockReturnValueOnce('blob:first')
+    const core = useCoreStore()
+    const skins = setupSkins()
+
+    await vi.waitFor(() => expect(getOfflineSkinModel).toHaveBeenCalled())
+
+    releaseModel('classic')
+    core.currentProject = 'other'
+    await flushPromises()
+
+    expect(skins.skinUrl.value).toBe('')
+    expect(skins.modelMode.value).toBe('classic')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:first')
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1)
+  })
 })

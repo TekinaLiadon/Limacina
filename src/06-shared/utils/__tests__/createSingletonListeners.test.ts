@@ -134,4 +134,81 @@ describe('createSingletonListeners', () => {
     await nextTick()
     expect(seen).toEqual([1, 2])
   })
+
+  it('releases tracked listeners immediately when stop lands during an in-flight start', async () => {
+    const earlyStop = vi.fn()
+    const lateStop = vi.fn()
+    let releaseRegistration: () => void = () => {}
+    const listeners = createSingletonListeners()
+
+    const pending = listeners.start(async (track: (stop: () => void) => void): Promise<void> => {
+      track(earlyStop)
+      await new Promise<void>((resolve): void => {
+        releaseRegistration = resolve
+      })
+      track(lateStop)
+    })
+
+    listeners.stop()
+
+    expect(earlyStop).toHaveBeenCalledTimes(1)
+    expect(listeners.isStarted()).toBe(false)
+
+    releaseRegistration()
+    await pending
+
+    expect(lateStop).toHaveBeenCalledTimes(1)
+    expect(earlyStop).toHaveBeenCalledTimes(1)
+    expect(listeners.isStarted()).toBe(false)
+  })
+
+  it('stops watches created before an in-flight start is interrupted', async () => {
+    const listeners = createSingletonListeners()
+    const source = ref(0)
+    const seen: number[] = []
+    let releaseRegistration: () => void = () => {}
+
+    const pending = listeners.start(async (track: (stop: () => void) => void): Promise<void> => {
+      track(watch(source, (value: number): void => {
+        seen.push(value)
+      }))
+      await new Promise<void>((resolve): void => {
+        releaseRegistration = resolve
+      })
+    })
+
+    listeners.stop()
+    releaseRegistration()
+    await pending
+
+    source.value = 1
+    await nextTick()
+    expect(seen).toEqual([])
+  })
+
+  it('registers fresh listeners on a start after an interrupted in-flight start', async () => {
+    let releaseRegistration: () => void = () => {}
+    const listeners = createSingletonListeners()
+
+    const interrupted = listeners.start(async (): Promise<void> => {
+      await new Promise<void>((resolve): void => {
+        releaseRegistration = resolve
+      })
+    })
+    listeners.stop()
+    releaseRegistration()
+    await interrupted
+
+    const stop = vi.fn()
+    const register = vi.fn(async (track: (stop: () => void) => void): Promise<void> => {
+      track(stop)
+    })
+    await listeners.start(register)
+
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(listeners.isStarted()).toBe(true)
+
+    listeners.stop()
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
 })

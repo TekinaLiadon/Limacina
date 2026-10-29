@@ -64,19 +64,17 @@ fn read_fallback_store(path: &std::path::Path, content: &str) -> CredentialStore
                 e
             );
             let _ = fs::rename(path, &backup_path);
+            ensure_private_mode(&backup_path);
             CredentialStore::default()
         }
     }
 }
 
-fn secret_entry_key(secret: &[u8], key_name: &str) -> [u8; 8] {
+fn secret_entry_key(secret: &[u8], key_name: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(secret);
     hasher.update(key_name.as_bytes());
-    let digest = hasher.finalize();
-    let mut key = [0u8; 8];
-    key.copy_from_slice(&digest[..8]);
-    key
+    hasher.finalize().into()
 }
 
 fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
@@ -1169,6 +1167,70 @@ mod tests {
             .scheme,
             EntryScheme::XorSecret,
             "отсутствие поля схемы должно читаться как xor_secret"
+        );
+    }
+
+    #[test]
+    fn secret_entry_key_uses_full_sha256_digest() {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(b"test-obfuscation-secret");
+        hasher.update(b"Cordelia_Steve_refresh_token");
+        let expected: [u8; 32] = hasher.finalize().into();
+
+        let key =
+            super::secret_entry_key(b"test-obfuscation-secret", "Cordelia_Steve_refresh_token");
+
+        assert_eq!(key, expected, "ключ должен быть полным дайджестом SHA-256");
+    }
+
+    #[test]
+    fn xor_keystream_period_exceeds_eight_bytes() {
+        let key =
+            super::secret_entry_key(b"test-obfuscation-secret", "Cordelia_Steve_refresh_token");
+        let zeros = [0u8; 32];
+
+        let encrypted = xor_crypt(&zeros, &key);
+
+        assert_ne!(
+            &encrypted[0..8],
+            &encrypted[8..16],
+            "период гаммы не должен сводиться к 8 байтам"
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_roundtrip_long_token() {
+        let _dir = LauncherDirGuard::acquire("credentials_long_token").await;
+        let long_token: String = (0..300)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect();
+
+        save_fallback("Cordelia", "Steve", "refresh_token", &long_token)
+            .expect("сохранение длинного токена");
+
+        assert_eq!(
+            load_fallback("Cordelia", "Steve", "refresh_token").expect("чтение"),
+            long_token,
+            "токен длиннее периода ключа должен проходить полный цикл"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn corrupt_store_backup_gets_private_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = LauncherDirGuard::acquire("credentials_bak_permissions").await;
+        write_store(&dir, "{ broken");
+        std::fs::set_permissions(store_path(&dir), std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        save_fallback("Cordelia", "Steve", "refresh_token", "token")
+            .expect("сохранение после битого хранилища");
+
+        assert_eq!(
+            file_mode(&dir.root().join("credentials.json.bak")) & 0o777,
+            0o600,
+            "бэкап битого хранилища не должен наследовать широкие права исходного файла"
         );
     }
 }

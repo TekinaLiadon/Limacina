@@ -14,10 +14,13 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 
+use crate::utils::env_info::available_cpu_cores;
 use crate::utils::errors::LauncherError;
 use crate::utils::get_classpath_separator;
+use crate::utils::hex;
 use crate::utils::logger_utils::send_game_output;
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
+use sha1::{Digest, Sha1};
 
 const WINDOW_OPEN_MARKERS: &[&str] = &[
     "Reloading ResourceManager",
@@ -38,6 +41,15 @@ const OUT_OF_MEMORY_REASON: &str =
     "Недостаточно выделенной памяти (OutOfMemoryError). Увеличьте максимум памяти в настройках игры";
 
 const DISABLE_ATTACH_FLAG: &str = "-XX:+DisableAttachMechanism";
+
+const CDS_MIN_JAVA_MAJOR: u32 = 19;
+const ACTIVE_PROCESSOR_COUNT_MIN_JAVA_MAJOR: u32 = 10;
+const CDS_CACHE_DIR: &str = "cache";
+const CDS_ARCHIVE_PREFIX: &str = "app-";
+const CDS_ARCHIVE_SUFFIX: &str = ".jsa";
+const AUTO_CREATE_SHARED_ARCHIVE_FLAG: &str = "-XX:+AutoCreateSharedArchive";
+const UNLOCK_DIAGNOSTIC_VM_OPTIONS_FLAG: &str = "-XX:+UnlockDiagnosticVMOptions";
+const ALLOW_ARCHIVING_WITH_JAVA_AGENT_FLAG: &str = "-XX:+AllowArchivingWithJavaAgent";
 
 const SIZE_JVM_FLAGS: &[&str] = &["-Xms", "-Xmx", "-Xmn", "-Xss"];
 
@@ -205,15 +217,136 @@ pub(crate) fn validate_jvm_args(jvm_args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn cds_archive_path(
+    java_major: Option<u32>,
+    game_dir: &Path,
+    classpath: &[String],
+    username: &str,
+) -> Option<PathBuf> {
+    let major = java_major?;
+    if major < CDS_MIN_JAVA_MAJOR {
+        return None;
+    }
+    let cache_dir = game_dir.join(CDS_CACHE_DIR);
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        log_err!(
+            "Не удалось создать каталог кэша {:?} для CDS-архива: {}",
+            cache_dir,
+            e
+        );
+        return None;
+    }
+    let generation_dir = cache_dir.join(cds_classpath_tag(classpath));
+    if let Err(e) = std::fs::create_dir_all(&generation_dir) {
+        log_err!(
+            "Не удалось создать каталог поколения CDS-кэша {:?}: {}",
+            generation_dir,
+            e
+        );
+        return None;
+    }
+    cds_remove_stale_generations(&cache_dir, &generation_dir);
+    Some(generation_dir.join(format!(
+        "{CDS_ARCHIVE_PREFIX}{}{CDS_ARCHIVE_SUFFIX}",
+        cds_account_tag(username)
+    )))
+}
+
+fn cds_classpath_tag(classpath: &[String]) -> String {
+    let mut hasher = Sha1::new();
+    for entry in classpath {
+        let attrs = match std::fs::metadata(entry) {
+            Ok(meta) => {
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs())
+                    .unwrap_or(0);
+                format!("{entry}|{}|{mtime}\n", meta.len())
+            }
+            Err(_) => format!("{entry}|missing\n"),
+        };
+        hasher.update(attrs.as_bytes());
+    }
+    hex::to_hex(&hasher.finalize()[..4])
+}
+
+fn cds_account_tag(username: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(username.as_bytes());
+    hex::to_hex(&hasher.finalize()[..4])
+}
+
+fn cds_remove_stale_generations(cache_dir: &Path, current: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == current || !path.is_dir() {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_dir_all(&path) {
+            log_err!(
+                "Не удалось удалить устаревшее поколение CDS-кэша {:?}: {}",
+                path,
+                e
+            );
+        }
+    }
+}
+
+fn active_processor_count_flag(cpu_cores: Option<u16>, java_major: Option<u32>) -> Option<String> {
+    let cores = cpu_cores?;
+    if cores == 0 {
+        log_info!("Ядра CPU: некорректное значение 0 в конфиге, флаг -XX:ActiveProcessorCount не ставится");
+        return None;
+    }
+    let Some(major) = java_major else {
+        log_info!("Ядра CPU: версия Java неизвестна, флаг -XX:ActiveProcessorCount не ставится");
+        return None;
+    };
+    if major < ACTIVE_PROCESSOR_COUNT_MIN_JAVA_MAJOR {
+        log_info!(
+            "Ядра CPU: Java {major} не поддерживает -XX:ActiveProcessorCount (нужна Java 10+), флаг не ставится"
+        );
+        return None;
+    }
+    let available = available_cpu_cores().ok()?;
+    let clamped = cores.min(available);
+    if clamped != cores {
+        log_info!("Ядра CPU: запрошено {cores}, доступно {available}, флаг ограничен до {clamped}");
+    }
+    Some(format!("-XX:ActiveProcessorCount={clamped}"))
+}
+
 fn finalize_jvm_args(
     jvm_args: Vec<String>,
     authlib_agent: Option<String>,
     disable_attach: bool,
+    cds_archive: Option<&Path>,
+    cpu_flag: Option<String>,
 ) -> Result<Vec<String>> {
     validate_jvm_args(&jvm_args)?;
     let mut args = jvm_args;
+    let has_agent = authlib_agent.is_some();
+    if let Some(flag) = cpu_flag {
+        args.insert(0, flag);
+    }
     if let Some(agent) = authlib_agent {
         args.insert(0, agent);
+    }
+    if let Some(archive) = cds_archive {
+        args.push(format!(
+            "-XX:SharedArchiveFile={}",
+            archive.to_string_lossy()
+        ));
+        args.push(AUTO_CREATE_SHARED_ARCHIVE_FLAG.to_string());
+        if has_agent {
+            args.push(UNLOCK_DIAGNOSTIC_VM_OPTIONS_FLAG.to_string());
+            args.push(ALLOW_ARCHIVING_WITH_JAVA_AGENT_FLAG.to_string());
+        }
     }
     if disable_attach {
         args.push(DISABLE_ATTACH_FLAG.to_string());
@@ -255,6 +388,7 @@ type LauncherTerminated = Arc<AtomicBool>;
 struct RegisteredGame {
     child: SharedGameChild,
     username: String,
+    project: String,
     launcher_terminated: LauncherTerminated,
 }
 
@@ -276,6 +410,15 @@ pub fn game_usernames() -> Vec<String> {
         .collect()
 }
 
+pub fn project_game_username(project: &str) -> Option<String> {
+    GAME_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|game| game.project == project)
+        .map(|game| game.username.clone())
+}
+
 pub fn ensure_session_free(username: &str) -> Result<()> {
     let taken = GAME_SESSIONS
         .lock()
@@ -294,6 +437,7 @@ pub fn ensure_session_free(username: &str) -> Result<()> {
 fn register_game_session(
     child: std::process::Child,
     username: &str,
+    project: &str,
 ) -> std::result::Result<(SharedGameChild, LauncherTerminated), std::process::Child> {
     let mut registry = GAME_SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
     if registry.iter().any(|game| game.username == username) {
@@ -304,6 +448,7 @@ fn register_game_session(
     registry.push(RegisteredGame {
         child: Arc::clone(&shared),
         username: username.to_string(),
+        project: project.to_string(),
         launcher_terminated: Arc::clone(&launcher_terminated),
     });
     Ok((shared, launcher_terminated))
@@ -322,6 +467,63 @@ fn mark_game_finalized(exited: &AtomicBool, child: &SharedGameChild) {
 fn kill_and_reap(child: &mut std::process::Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(test)]
+fn spawn_dummy_process() -> std::process::Child {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "ping", "-n", "120", "127.0.0.1"]);
+        command
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut command = {
+        let mut command = Command::new("sleep");
+        command.arg("120");
+        command
+    };
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("запуск тестового процесса-заглушки")
+}
+
+#[cfg(test)]
+pub(crate) struct TestGameSessionGuard {
+    child: SharedGameChild,
+}
+
+#[cfg(test)]
+impl TestGameSessionGuard {
+    pub(crate) fn acquire(project: &str, username: &str) -> Self {
+        let child = spawn_dummy_process();
+        let (shared, _) = match register_game_session(child, username, project) {
+            Ok(session) => session,
+            Err(mut orphan) => {
+                kill_and_reap(&mut orphan);
+                panic!("регистрация тестовой сессии {username} не удалась");
+            }
+        };
+        Self { child: shared }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn lock_game_registry_tests() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
+impl Drop for TestGameSessionGuard {
+    fn drop(&mut self) {
+        let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        kill_and_reap(&mut child);
+        remove_game_session(&self.child);
+    }
 }
 
 fn terminate_session_child(
@@ -513,6 +715,9 @@ pub fn spawn_game_process(
     config: GameConfig,
     server_url: Option<&str>,
     username: String,
+    project: String,
+    java_major: Option<u32>,
+    cpu_cores: Option<u16>,
 ) -> Result<GameProcess> {
     log_info!("\nЗапуск Minecraft...");
     log_info!("Main class: {}", &config.main_class);
@@ -548,7 +753,13 @@ pub fn spawn_game_process(
         }
         _ => None,
     };
-    let jvm_args = finalize_jvm_args(jvm_args, authlib_agent, !cfg!(debug_assertions))?;
+    let jvm_args = finalize_jvm_args(
+        jvm_args,
+        authlib_agent,
+        !cfg!(debug_assertions),
+        cds_archive_path(java_major, &config.game_dir, &config.classpath, &username).as_deref(),
+        active_processor_count_flag(cpu_cores, java_major),
+    )?;
 
     let classpath_preview = config
         .classpath
@@ -592,16 +803,17 @@ pub fn spawn_game_process(
             LauncherError::GameProcess("Не удалось получить stderr процесса".to_string()).into(),
         );
     };
-    let (shared_child, launcher_terminated) = match register_game_session(child, &username) {
-        Ok(session) => session,
-        Err(mut orphan) => {
-            kill_and_reap(&mut orphan);
-            return Err(LauncherError::GameProcess(format!(
-                "Игра уже запущена с аккаунта {username}, повторный запуск невозможен"
-            ))
-            .into());
-        }
-    };
+    let (shared_child, launcher_terminated) =
+        match register_game_session(child, &username, &project) {
+            Ok(session) => session,
+            Err(mut orphan) => {
+                kill_and_reap(&mut orphan);
+                return Err(LauncherError::GameProcess(format!(
+                    "Игра уже запущена с аккаунта {username}, повторный запуск невозможен"
+                ))
+                .into());
+            }
+        };
 
     let process = GameProcess {
         window_opened: Arc::new(AtomicBool::new(false)),
@@ -997,7 +1209,7 @@ mod jvm_args_guard_tests {
         .map(|arg| arg.to_string())
         .collect();
 
-        let error = finalize_jvm_args(server_args, None, true)
+        let error = finalize_jvm_args(server_args, None, true, None, None)
             .expect_err("опасный аргумент из серверного конфига должен отклонять запуск");
 
         assert!(
@@ -1016,15 +1228,22 @@ mod jvm_args_guard_tests {
         .iter()
         .map(|arg| arg.to_string())
         .collect();
-        finalize_jvm_args(safe_args, None, true).expect("безопасный серверный конфиг запускается");
+        finalize_jvm_args(safe_args, None, true, None, None)
+            .expect("безопасный серверный конфиг запускается");
     }
 
     #[test]
     fn launcher_authlib_agent_passes_after_validation() {
         let agent = "-javaagent:/game/authlib-injector.jar=https://server.example".to_string();
 
-        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], Some(agent.clone()), false)
-            .expect("агент лаунчера не должен блокироваться");
+        let args = finalize_jvm_args(
+            vec!["-Xmx4G".to_string()],
+            Some(agent.clone()),
+            false,
+            None,
+            None,
+        )
+        .expect("агент лаунчера не должен блокироваться");
 
         assert_eq!(args[0], agent);
         assert_eq!(args[1], "-Xmx4G");
@@ -1034,7 +1253,7 @@ mod jvm_args_guard_tests {
     fn forbidden_user_arg_aborts_even_with_authlib() {
         let agent = "-javaagent:/game/authlib-injector.jar=https://server.example".to_string();
 
-        let error = finalize_jvm_args(vec!["-Xdebug".to_string()], Some(agent), true)
+        let error = finalize_jvm_args(vec!["-Xdebug".to_string()], Some(agent), true, None, None)
             .expect_err("запрещённый аргумент должен прервать запуск до вставки агента");
 
         assert!(
@@ -1052,6 +1271,8 @@ mod jvm_args_guard_tests {
             ],
             None,
             true,
+            None,
+            None,
         )
         .expect("аргументы должны собраться без ошибок");
 
@@ -1076,8 +1297,387 @@ mod jvm_args_guard_tests {
 
     #[test]
     fn disable_attach_flag_is_not_added_when_disabled() {
-        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], None, false)
+        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], None, false, None, None)
             .expect("аргументы должны собраться без ошибок");
+
+        assert_eq!(args, vec!["-Xmx4G".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod cds_args_tests {
+    use super::{cds_archive_path, finalize_jvm_args, DISABLE_ATTACH_FLAG};
+    use crate::test_support::TempDir;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, SystemTime};
+
+    fn authlib_agent() -> String {
+        "-javaagent:/game/authlib-injector.jar=https://server.example".to_string()
+    }
+
+    fn jar_entry(dir: &Path, name: &str, content: &str) -> String {
+        let path = dir.join(name);
+        std::fs::write(&path, content).expect("запись jar-заглушки");
+        path.to_string_lossy().into_owned()
+    }
+
+    fn cds_archive_fixture(label: &str) -> (TempDir, PathBuf) {
+        let dir = TempDir::new(label);
+        let classpath = vec![jar_entry(&dir.0, "a.jar", "one")];
+        let archive = cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("путь архива");
+        (dir, archive)
+    }
+
+    fn touch_mtime(jar: &str) {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(jar)
+            .expect("открытие jar-заглушки");
+        file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_234_567_890))
+            .expect("смена mtime jar-заглушки");
+    }
+
+    #[test]
+    fn cds_archive_path_requires_java_major_19_or_newer() {
+        let dir = TempDir::new("cds_old_java");
+        let classpath = vec![jar_entry(&dir.0, "a.jar", "one")];
+
+        assert_eq!(cds_archive_path(Some(8), &dir.0, &classpath, "Steve"), None);
+        assert_eq!(
+            cds_archive_path(Some(18), &dir.0, &classpath, "Steve"),
+            None
+        );
+        assert_eq!(
+            cds_archive_path(None, &dir.0, &classpath, "Steve"),
+            None,
+            "неизвестная мажорная версия Java — CDS-флаги не добавляются"
+        );
+    }
+
+    #[test]
+    fn cds_archive_path_points_to_project_cache_and_creates_it() {
+        let dir = TempDir::new("cds_archive_path");
+        let classpath = vec![jar_entry(&dir.0, "a.jar", "one")];
+
+        let archive = cds_archive_path(Some(19), &dir.0, &classpath, "Steve")
+            .expect("для Java 19+ путь архива задаётся");
+
+        let name = archive
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("имя файла архива");
+        assert!(
+            name.starts_with("app-") && name.ends_with(".jsa"),
+            "имя архива строится из сигнатуры classpath и аккаунта: {name}"
+        );
+        assert!(
+            dir.0.join("cache").is_dir(),
+            "каталог cache создаётся до дампа архива"
+        );
+
+        let again =
+            cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("повторный запуск");
+        assert_eq!(again, archive, "путь стабилен между запусками");
+    }
+
+    #[test]
+    fn cds_archive_name_follows_classpath_content_and_mtime() {
+        let dir = TempDir::new("cds_classpath_sig");
+        let jar = jar_entry(&dir.0, "a.jar", "one");
+        let classpath = vec![jar.clone()];
+
+        let first = cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("путь архива");
+
+        std::fs::write(&jar, "replaced content").expect("обновление jar-заглушки");
+        let second = cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("путь архива");
+        assert_ne!(
+            second, first,
+            "обновлённое содержимое jar должно менять имя архива: JVM не перегенерирует несовпадающий архив сама"
+        );
+
+        touch_mtime(&jar);
+        let third = cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("путь архива");
+        assert_ne!(third, second, "смена mtime jar должна менять имя архива");
+    }
+
+    #[test]
+    fn cds_archive_name_differs_per_account_without_deleting_others() {
+        let dir = TempDir::new("cds_accounts");
+        let classpath = vec![jar_entry(&dir.0, "a.jar", "one")];
+
+        let steve = cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("путь архива");
+        std::fs::write(&steve, b"steve").expect("запись архива Steve");
+        let alex = cds_archive_path(Some(21), &dir.0, &classpath, "Alex").expect("путь архива");
+
+        assert_ne!(
+            steve, alex,
+            "параллельные сессии разных аккаунтов должны дамить в разные файлы"
+        );
+        assert!(
+            steve.exists(),
+            "архив другого аккаунта с той же сигнатурой classpath сохраняется"
+        );
+
+        let nick = cds_archive_path(Some(21), &dir.0, &classpath, "И вaн/../..\\x")
+            .expect("ник превращается в хеш, безопасный для имени файла");
+        assert_ne!(nick, steve);
+    }
+
+    #[test]
+    fn cds_archive_path_removes_stale_generations() {
+        let dir = TempDir::new("cds_stale_cleanup");
+        let classpath = vec![jar_entry(&dir.0, "a.jar", "one")];
+        let cache = dir.0.join("cache");
+        let stale_classpath = cache.join("00000000");
+        let stale_old_classpath = cache.join("ffffffff");
+        std::fs::create_dir_all(&stale_classpath).expect("создание устаревшего поколения");
+        std::fs::write(stale_classpath.join("app-12345678.jsa"), b"stale").expect("запись архива");
+        std::fs::create_dir_all(&stale_old_classpath).expect("создание второго поколения");
+        std::fs::write(cache.join("keep.txt"), b"not-a-generation").expect("посторонний файл");
+
+        let current = cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("путь архива");
+        std::fs::write(&current, b"current").expect("запись текущего архива");
+
+        cds_archive_path(Some(21), &dir.0, &classpath, "Steve").expect("повторный запуск");
+
+        assert!(
+            !stale_classpath.exists(),
+            "поколение прежней сигнатуры classpath удаляется: JVM не перегенерирует несовпадающий архив сама"
+        );
+        assert!(
+            !stale_old_classpath.exists(),
+            "второе устаревшее поколение также удаляется"
+        );
+        assert!(
+            cache.join("keep.txt").exists(),
+            "файлы в корне кэша не трогаются"
+        );
+        assert!(current.exists(), "актуальный архив не удаляется");
+    }
+
+    #[test]
+    fn cds_flags_name_archive_and_autocreate_without_agent() {
+        let (_dir, archive) = cds_archive_fixture("cds_flags_no_agent");
+
+        let args = finalize_jvm_args(
+            vec!["-Xmx4G".to_string()],
+            None,
+            false,
+            Some(archive.as_path()),
+            None,
+        )
+        .expect("аргументы собираются");
+
+        assert_eq!(
+            args,
+            vec![
+                "-Xmx4G".to_string(),
+                format!("-XX:SharedArchiveFile={}", archive.to_string_lossy()),
+                "-XX:+AutoCreateSharedArchive".to_string(),
+            ],
+            "без агента диагностические флаги не добавляются"
+        );
+    }
+
+    #[test]
+    fn cds_flags_with_agent_unlock_diagnostic_and_allow_archiving() {
+        let (_dir, archive) = cds_archive_fixture("cds_flags_agent");
+        let agent = authlib_agent();
+
+        let args = finalize_jvm_args(
+            vec!["-Xmx4G".to_string()],
+            Some(agent.clone()),
+            false,
+            Some(archive.as_path()),
+            None,
+        )
+        .expect("аргументы собираются");
+
+        assert_eq!(args[0], agent, "агент остаётся первым jvm-аргументом");
+        let shared = args
+            .iter()
+            .position(|arg| arg.starts_with("-XX:SharedArchiveFile="))
+            .expect("SharedArchiveFile добавлен");
+        let auto = args
+            .iter()
+            .position(|arg| arg == "-XX:+AutoCreateSharedArchive")
+            .expect("AutoCreateSharedArchive добавлен");
+        let unlock = args
+            .iter()
+            .position(|arg| arg == "-XX:+UnlockDiagnosticVMOptions")
+            .expect("UnlockDiagnosticVMOptions добавлен");
+        let allow = args
+            .iter()
+            .position(|arg| arg == "-XX:+AllowArchivingWithJavaAgent")
+            .expect("AllowArchivingWithJavaAgent добавлен");
+        assert!(
+            shared < auto && auto < unlock && unlock < allow,
+            "unlock должен предшествовать диагностическому флагу, иначе JVM не стартует: {args:?}"
+        );
+    }
+
+    #[test]
+    fn cds_flags_absent_without_archive() {
+        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], None, false, None, None)
+            .expect("аргументы собираются");
+
+        assert_eq!(args, vec!["-Xmx4G".to_string()]);
+    }
+
+    #[test]
+    fn disable_attach_stays_last_with_cds_flags() {
+        let (_dir, archive) = cds_archive_fixture("cds_flags_attach");
+
+        let args = finalize_jvm_args(
+            vec!["-Xmx4G".to_string()],
+            Some(authlib_agent()),
+            true,
+            Some(archive.as_path()),
+            None,
+        )
+        .expect("аргументы собираются");
+
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some(DISABLE_ATTACH_FLAG),
+            "disable-attach остаётся последним jvm-аргументом: {args:?}"
+        );
+    }
+
+    #[test]
+    fn forbidden_user_arg_still_aborts_with_cds_flags() {
+        let (_dir, archive) = cds_archive_fixture("cds_flags_guard");
+
+        let error = finalize_jvm_args(
+            vec!["-Xmx4G".to_string(), "-javaagent:evil.jar".to_string()],
+            None,
+            false,
+            Some(archive.as_path()),
+            None,
+        )
+        .expect_err("запрещённый пользовательский аргумент отклоняется и с CDS-флагами");
+
+        assert!(
+            error.to_string().contains("-javaagent:evil.jar"),
+            "ошибка должна называть аргумент пользователя: {error}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cpu_cores_flag_tests {
+    use super::{
+        active_processor_count_flag, finalize_jvm_args, ACTIVE_PROCESSOR_COUNT_MIN_JAVA_MAJOR,
+    };
+    use crate::utils::env_info::available_cpu_cores;
+
+    #[test]
+    fn auto_cores_and_unknown_java_add_no_flag() {
+        assert_eq!(active_processor_count_flag(None, Some(21)), None);
+        assert_eq!(
+            active_processor_count_flag(None, None),
+            None,
+            "«Авто» — флаг не ставится при любой версии Java"
+        );
+        assert_eq!(
+            active_processor_count_flag(Some(4), None),
+            None,
+            "неизвестная мажорная версия Java — флаг не ставится"
+        );
+    }
+
+    #[test]
+    fn java_before_10_does_not_get_the_flag() {
+        assert_eq!(
+            active_processor_count_flag(Some(4), Some(8)),
+            None,
+            "Java 8 может быть старше 8u191 — флаг не ставится"
+        );
+        assert_eq!(active_processor_count_flag(Some(4), Some(9)), None);
+        assert_eq!(
+            active_processor_count_flag(Some(4), Some(ACTIVE_PROCESSOR_COUNT_MIN_JAVA_MAJOR)),
+            Some("-XX:ActiveProcessorCount=4".to_string())
+        );
+    }
+
+    #[test]
+    fn zero_cores_falls_back_to_auto() {
+        assert_eq!(
+            active_processor_count_flag(Some(0), Some(21)),
+            None,
+            "некорректный 0 не превращается в -XX:ActiveProcessorCount=1"
+        );
+    }
+
+    #[test]
+    fn cores_above_available_are_clamped() {
+        let available = available_cpu_cores().expect("число ядер хоста");
+        let requested = available.saturating_add(1);
+
+        let flag = active_processor_count_flag(Some(requested), Some(21))
+            .expect("значение выше доступного клампится, а не отбрасывается");
+
+        assert_eq!(flag, format!("-XX:ActiveProcessorCount={available}"));
+    }
+
+    #[test]
+    fn cpu_flag_is_added_exactly_once_before_user_args() {
+        let args = finalize_jvm_args(
+            vec![
+                "-Xmx4G".to_string(),
+                "-XX:ActiveProcessorCount=2".to_string(),
+            ],
+            None,
+            false,
+            None,
+            Some("-XX:ActiveProcessorCount=4".to_string()),
+        )
+        .expect("аргументы собираются");
+
+        let count = args
+            .iter()
+            .filter(|arg| *arg == "-XX:ActiveProcessorCount=4")
+            .count();
+        assert_eq!(
+            count, 1,
+            "лаунчерский флаг добавляется ровно один раз: {args:?}"
+        );
+        let launcher_flag = args
+            .iter()
+            .position(|arg| arg == "-XX:ActiveProcessorCount=4")
+            .expect("лаунчерский флаг добавлен");
+        let user_flag = args
+            .iter()
+            .position(|arg| arg == "-XX:ActiveProcessorCount=2")
+            .expect("пользовательский аргумент сохранён");
+        assert!(
+            launcher_flag < user_flag,
+            "лаунчерский флаг стоит до пользовательского, последний побеждает в JVM: {args:?}"
+        );
+    }
+
+    #[test]
+    fn cpu_flag_stays_after_authlib_agent() {
+        let agent = "-javaagent:/game/authlib-injector.jar=https://server.example".to_string();
+
+        let args = finalize_jvm_args(
+            vec!["-Xmx4G".to_string()],
+            Some(agent.clone()),
+            false,
+            None,
+            Some("-XX:ActiveProcessorCount=4".to_string()),
+        )
+        .expect("аргументы собираются");
+
+        assert_eq!(args[0], agent, "агент остаётся первым jvm-аргументом");
+        assert_eq!(args[1], "-XX:ActiveProcessorCount=4");
+        assert_eq!(args[2], "-Xmx4G");
+    }
+
+    #[test]
+    fn cpu_flag_absent_when_none() {
+        let args = finalize_jvm_args(vec!["-Xmx4G".to_string()], None, false, None, None)
+            .expect("аргументы собираются");
 
         assert_eq!(args, vec!["-Xmx4G".to_string()]);
     }
@@ -1263,6 +1863,8 @@ mod process_helpers_tests {
             vec!["-Xmx1G".to_string()],
             Some("-javaagent:authlib-injector.jar=https://server".to_string()),
             false,
+            None,
+            None,
         )
         .expect("валидные аргументы");
         assert_eq!(
@@ -1273,8 +1875,8 @@ mod process_helpers_tests {
             ]
         );
 
-        let args =
-            finalize_jvm_args(vec!["-Xmx1G".to_string()], None, true).expect("валидные аргументы");
+        let args = finalize_jvm_args(vec!["-Xmx1G".to_string()], None, true, None, None)
+            .expect("валидные аргументы");
         assert_eq!(
             args,
             vec![
@@ -1291,6 +1893,8 @@ mod process_helpers_tests {
             vec!["-Xmx1G".to_string(), "-javaagent:evil.jar".to_string()],
             None,
             true,
+            None,
+            None,
         )
         .expect_err("пользовательский агент должен отклоняться");
         assert!(
@@ -1427,15 +2031,13 @@ mod process_helpers_tests {
 mod kill_process_tests {
     use super::{
         aggregated_kill_error, ensure_session_free, game_running, game_usernames, kill_and_reap,
-        kill_game_process, mark_game_finalized, register_game_session, remove_game_session,
-        GameExitPayload, GAME_SESSIONS,
+        kill_game_process, lock_game_registry_tests, mark_game_finalized, register_game_session,
+        remove_game_session, GameExitPayload, GAME_SESSIONS,
     };
     use crate::utils::errors::LauncherError;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
-
-    static KILL_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     fn reset_registry() {
         GAME_SESSIONS
@@ -1544,7 +2146,7 @@ mod kill_process_tests {
 
     #[test]
     fn kill_reports_missing_game() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         let error =
@@ -1559,12 +2161,13 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn session_free_guard_is_per_account() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         ensure_session_free("Steve").expect("без сессий запуск разрешён любому аккаунту");
 
-        let (first, _) = register_game_session(spawn_helper(), "Steve").expect("регистрация");
+        let (first, _) =
+            register_game_session(spawn_helper(), "Steve", "KillProj").expect("регистрация");
         assert!(game_running());
 
         let error = ensure_session_free("Steve")
@@ -1595,11 +2198,13 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn usernames_list_all_registered_sessions() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
-        let (first, _) = register_game_session(spawn_helper(), "Steve").expect("регистрация Steve");
-        let (second, _) = register_game_session(spawn_helper(), "Alex").expect("регистрация Alex");
+        let (first, _) =
+            register_game_session(spawn_helper(), "Steve", "KillProj").expect("регистрация Steve");
+        let (second, _) =
+            register_game_session(spawn_helper(), "Alex", "KillProj").expect("регистрация Alex");
 
         assert_eq!(
             game_usernames(),
@@ -1625,11 +2230,11 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn registry_removal_only_accepts_own_handle() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         let (registered, _) =
-            register_game_session(spawn_helper(), "Steve").expect("первая регистрация");
+            register_game_session(spawn_helper(), "Steve", "KillProj").expect("первая регистрация");
         let foreign = Arc::new(StdMutex::new(spawn_helper()));
 
         remove_game_session(&foreign);
@@ -1645,19 +2250,19 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn same_username_registration_returns_orphan_for_cleanup() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         let (first, _) =
-            register_game_session(spawn_helper(), "Steve").expect("первая регистрация");
+            register_game_session(spawn_helper(), "Steve", "KillProj").expect("первая регистрация");
 
-        let mut orphan = register_game_session(spawn_helper(), "Steve")
+        let mut orphan = register_game_session(spawn_helper(), "Steve", "KillProj")
             .expect_err("второй процесс того же аккаунта должен отклоняться");
         let _ = orphan.kill();
         let _ = orphan.wait();
 
-        let (second, _) =
-            register_game_session(spawn_helper(), "Alex").expect("другой аккаунт регистрируется");
+        let (second, _) = register_game_session(spawn_helper(), "Alex", "KillProj")
+            .expect("другой аккаунт регистрируется");
 
         assert_eq!(game_usernames().len(), 2, "реестр держит обе сессии");
 
@@ -1668,7 +2273,7 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn kill_terminates_all_registered_processes() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         let first = Arc::new(StdMutex::new(spawn_helper()));
@@ -1680,11 +2285,13 @@ mod kill_process_tests {
             registry.push(super::RegisteredGame {
                 child: Arc::clone(&first),
                 username: "Steve".to_string(),
+                project: "KillProj".to_string(),
                 launcher_terminated: Arc::clone(&first_terminated),
             });
             registry.push(super::RegisteredGame {
                 child: Arc::clone(&second),
                 username: "Alex".to_string(),
+                project: "KillProj".to_string(),
                 launcher_terminated: Arc::clone(&second_terminated),
             });
         }
@@ -1717,7 +2324,7 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn kill_continues_past_already_exited_session() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         let (exited, exited_terminated) = register_game_session(
@@ -1726,6 +2333,7 @@ mod kill_process_tests {
                 .spawn()
                 .expect("запуск короткоживущего процесса"),
             "Steve",
+            "KillProj",
         )
         .expect("регистрация завершившейся сессии");
         lock_child(&exited)
@@ -1739,6 +2347,7 @@ mod kill_process_tests {
             registry.push(super::RegisteredGame {
                 child: Arc::clone(&live),
                 username: "Alex".to_string(),
+                project: "KillProj".to_string(),
                 launcher_terminated: Arc::clone(&live_terminated),
             });
         }
@@ -1778,7 +2387,7 @@ mod kill_process_tests {
     #[cfg(unix)]
     #[test]
     fn kill_after_natural_exit_is_not_an_error() {
-        let _guard = KILL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_game_registry_tests();
         reset_registry();
 
         let (shared, launcher_terminated) = register_game_session(
@@ -1787,6 +2396,7 @@ mod kill_process_tests {
                 .spawn()
                 .expect("запуск короткоживущего процесса"),
             "Steve",
+            "KillProj",
         )
         .expect("регистрация");
 
@@ -1804,5 +2414,57 @@ mod kill_process_tests {
         );
 
         remove_game_session(&shared);
+    }
+}
+
+#[cfg(test)]
+mod project_game_username_tests {
+    use super::{lock_game_registry_tests, project_game_username, TestGameSessionGuard};
+
+    #[test]
+    fn project_game_username_matches_only_own_project_and_clears_on_exit() {
+        let _guard = lock_game_registry_tests();
+
+        assert_eq!(
+            project_game_username("RegistryProj"),
+            None,
+            "без сессий у проекта нет запущенной игры"
+        );
+
+        let session = TestGameSessionGuard::acquire("RegistryProj", "RegistryPlayer");
+        assert_eq!(
+            project_game_username("RegistryProj").as_deref(),
+            Some("RegistryPlayer")
+        );
+        assert_eq!(
+            project_game_username("OtherProj"),
+            None,
+            "игра другого проекта не матчится"
+        );
+
+        drop(session);
+        assert_eq!(
+            project_game_username("RegistryProj"),
+            None,
+            "завершённая сессия снимается с реестра"
+        );
+    }
+
+    #[test]
+    fn project_game_username_reports_first_session_of_many() {
+        let _guard = lock_game_registry_tests();
+
+        let first = TestGameSessionGuard::acquire("CrowdProj", "FirstPlayer");
+        let second = TestGameSessionGuard::acquire("CrowdProj", "SecondPlayer");
+
+        let reported = project_game_username("CrowdProj").expect("сессия проекта найдена");
+        assert!(
+            reported == "FirstPlayer" || reported == "SecondPlayer",
+            "сообщается одна из запущенных сессий проекта: {reported}"
+        );
+
+        drop(second);
+        drop(first);
+        assert_eq!(project_game_username("CrowdProj"), None);
     }
 }

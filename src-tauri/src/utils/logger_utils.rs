@@ -42,6 +42,10 @@ pub fn set_game_output_enabled(enabled: bool) {
 }
 
 fn send_log_payload(payload: ConsolePayload) {
+    let payload = ConsolePayload {
+        line: crate::utils::tauri_err::redact_known_server_urls(payload.line),
+        ..payload
+    };
     if payload.is_error {
         let _ = writeln!(std::io::stderr(), "[ERR] {}", payload.line);
         crate::utils::file_logger::write_error(&payload.line);
@@ -185,6 +189,37 @@ mod session_payload_tests {
         assert!(
             payload_with(&drained, "early-before-init-marker").is_some(),
             "логи до init_logger не теряются"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_log_masks_registered_server_url_in_file_log() {
+        let dir = crate::test_support::LauncherDirGuard::acquire("log_redaction").await;
+        let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::utils::file_logger::reset_for_tests();
+        crate::utils::tauri_err::remember_server_url("http://10.6.6.6:8080");
+
+        send_log(
+            "лог-redaction-marker http://10.6.6.6:8080/v1/launcher/files/list".to_string(),
+            true,
+        );
+
+        let logs_dir = dir.root().join("logs");
+        let mut written = String::new();
+        for entry in std::fs::read_dir(&logs_dir).expect("каталог логов") {
+            let path = entry.expect("запись логов").path();
+            if path.extension().is_some_and(|ext| ext == "log") {
+                written.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+            }
+        }
+
+        assert!(
+            written.contains("лог-redaction-marker <адрес сервера>/v1/launcher/files/list"),
+            "адрес проекта должен маскироваться в файловом логе: {written}"
+        );
+        assert!(
+            !written.contains("10.6.6.6"),
+            "адрес проекта не должен попадать в файловый лог: {written}"
         );
     }
 

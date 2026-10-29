@@ -23,6 +23,8 @@ pub struct ProjectConfig {
     #[serde(default)]
     pub java_version: Option<u32>,
     pub jvm_args: Vec<String>,
+    #[serde(default)]
+    pub cpu_cores: Option<u16>,
     pub min_memory: String,
     pub max_memory: String,
     #[serde(default = "default_true")]
@@ -51,6 +53,7 @@ impl Default for ProjectConfig {
             java_path: None,
             java_version: None,
             jvm_args: Vec::new(),
+            cpu_cores: None,
             min_memory: "-Xms512M".to_string(),
             max_memory: "-Xmx4G".to_string(),
             online: true,
@@ -64,7 +67,11 @@ impl Default for ProjectConfig {
 impl ProjectConfig {
     pub fn resolved_server_url(&self) -> Option<String> {
         match self.server_url.as_deref() {
-            Some(url) if !url.trim().is_empty() => Some(normalize_server_url(url)),
+            Some(url) if !url.trim().is_empty() => {
+                let resolved = normalize_server_url(url);
+                crate::utils::tauri_err::remember_server_url(&resolved);
+                Some(resolved)
+            }
             _ => default_server_url(),
         }
     }
@@ -200,6 +207,26 @@ maxMemory = "-Xmx4G"
         assert!(!parsed.initialized);
         assert_eq!(parsed.java_version, None);
         assert_eq!(parsed.server_url, None);
+        assert_eq!(
+            parsed.cpu_cores, None,
+            "старый конфиг без cpuCores читается как «Авто»"
+        );
+    }
+
+    #[test]
+    fn project_config_toml_round_trip_with_cpu_cores() {
+        let config = ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            mc_version: "1.21.1".to_string(),
+            cpu_cores: Some(4),
+            ..ProjectConfig::default()
+        };
+
+        let toml_string = toml::to_string_pretty(&config).expect("сериализация в TOML");
+        assert!(toml_string.contains("cpuCores = 4"));
+        let parsed: ProjectConfig = toml::from_str(&toml_string).expect("разбор TOML");
+
+        assert_eq!(parsed.cpu_cores, Some(4));
     }
 
     #[test]
@@ -221,6 +248,30 @@ maxMemory = "-Xmx4G"
         assert_eq!(
             ProjectConfig::default().resolved_server_url(),
             default_server_url()
+        );
+    }
+
+    #[test]
+    fn resolved_server_url_registers_project_url_for_redaction() {
+        let config = ProjectConfig {
+            server_url: Some("http://10.7.7.7:9000/".to_string()),
+            ..ProjectConfig::default()
+        };
+        assert_eq!(
+            config.resolved_server_url().as_deref(),
+            Some("http://10.7.7.7:9000")
+        );
+
+        let redacted = crate::utils::tauri_err::redact_known_server_urls(
+            "Сервер http://10.7.7.7:9000 вернул 500".to_string(),
+        );
+        assert!(
+            !redacted.contains("10.7.7.7"),
+            "адрес проекта должен маскироваться после resolved_server_url: {redacted}"
+        );
+        assert_eq!(
+            redacted, "Сервер <адрес сервера> вернул 500",
+            "адрес заменяется той же заглушкой, что и адрес сборки"
         );
     }
 }

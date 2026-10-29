@@ -89,10 +89,22 @@ fn override_client_factory_for_tests(factory: Option<ClientFactory>) {
         .unwrap_or_else(|e| e.into_inner()) = factory;
 }
 
+#[cfg(test)]
 static IPC_TIMEOUT_OVERRIDE: OnceLock<Duration> = OnceLock::new();
 
 fn ipc_timeout() -> Duration {
-    IPC_TIMEOUT_OVERRIDE.get().copied().unwrap_or(IPC_TIMEOUT)
+    #[cfg(test)]
+    {
+        if let Some(overridden) = IPC_TIMEOUT_OVERRIDE.get() {
+            return *overridden;
+        }
+    }
+    IPC_TIMEOUT
+}
+
+#[cfg(test)]
+fn set_ipc_timeout_for_tests(timeout: Duration) {
+    let _ = IPC_TIMEOUT_OVERRIDE.set(timeout);
 }
 
 struct DiscordState {
@@ -247,7 +259,6 @@ pub async fn init(enabled: bool) {
 }
 
 pub async fn set_game_activity(
-    enabled: bool,
     mc_version: &str,
     project_name: &str,
     exited: Option<Arc<AtomicBool>>,
@@ -260,7 +271,6 @@ pub async fn set_game_activity(
         {
             return;
         }
-        state.enabled = enabled;
         state.game = Some(GameActivity {
             details: format!("Minecraft {}", mc_version),
             state: project_name.to_string(),
@@ -380,7 +390,7 @@ mod tests {
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
 
-        set_game_activity(false, "1.20.1", "Avelmor", None).await;
+        set_game_activity("1.20.1", "Avelmor", None).await;
         assert!(
             calls(&handles.log).is_empty(),
             "выключенный presence не должен подключаться к IPC"
@@ -406,7 +416,7 @@ mod tests {
         reset(Some(factory)).await;
 
         init(true).await;
-        set_game_activity(true, "1.21.1", "Proj", None).await;
+        set_game_activity("1.21.1", "Proj", None).await;
         on_game_exit().await;
 
         assert_eq!(
@@ -482,7 +492,7 @@ mod tests {
 
         init(true).await;
         let exited = Arc::new(AtomicBool::new(true));
-        set_game_activity(true, "1.21.1", "Proj", Some(Arc::clone(&exited))).await;
+        set_game_activity("1.21.1", "Proj", Some(Arc::clone(&exited))).await;
 
         assert_eq!(
             calls(&handles.log),
@@ -494,11 +504,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn settings_change_between_launch_and_game_window_wins_over_stale_flag() {
+        let _guard = TEST_LOCK.lock().await;
+
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
+        init(true).await;
+        on_settings_saved(false).await;
+        set_game_activity("1.21.1", "Proj", None).await;
+
+        assert_eq!(
+            calls(&handles.log),
+            vec![
+                "connect".to_string(),
+                "set:В лаунчере|Limacina".to_string(),
+                "close".to_string()
+            ],
+            "открытие окна игры не должно переподключать presence по устаревшему значению из контекста запуска"
+        );
+
+        override_client_factory_for_tests(None);
+
+        let (factory, handles) = mock_factory();
+        reset(Some(factory)).await;
+        init(false).await;
+        on_settings_saved(true).await;
+        set_game_activity("1.21.1", "Proj", None).await;
+
+        assert_eq!(
+            calls(&handles.log),
+            vec![
+                "connect".to_string(),
+                "set:В лаунчере|Limacina".to_string(),
+                "set:Minecraft 1.21.1|Proj".to_string()
+            ],
+            "включение presence во время загрузки игры должно пережить открытие окна"
+        );
+
+        override_client_factory_for_tests(None);
+    }
+
+    #[tokio::test]
     async fn slow_ipc_times_out_client_is_not_restored_and_next_apply_recovers() {
         let _guard = TEST_LOCK.lock().await;
         let (factory, handles) = mock_factory();
         reset(Some(factory)).await;
-        let _ = IPC_TIMEOUT_OVERRIDE.set(Duration::from_millis(50));
+        set_ipc_timeout_for_tests(Duration::from_millis(50));
 
         handles.hang_millis.store(250, Ordering::SeqCst);
         handles.hang_once.store(true, Ordering::SeqCst);

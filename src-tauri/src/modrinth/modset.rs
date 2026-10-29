@@ -1180,7 +1180,8 @@ mod tests {
         env.server
             .mock("POST", "/v2/version_files")
             .match_query(Matcher::Any)
-            .with_status(500)
+            .with_status(429)
+            .with_header("Retry-After", "0")
             .create_async()
             .await;
 

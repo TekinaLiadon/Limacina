@@ -1,3 +1,4 @@
+use crate::log_err;
 use crate::state::dto::GlobalState;
 use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic;
@@ -125,7 +126,7 @@ fn config_file_path(project_name: &str) -> Result<std::path::PathBuf> {
     Ok(launcher_path(Some("config"))?.join(format!("{}.toml", project_name)))
 }
 
-fn is_missing_config(e: &anyhow::Error) -> bool {
+pub(crate) fn is_missing_config(e: &anyhow::Error) -> bool {
     e.chain().any(|cause| {
         cause
             .downcast_ref::<std::io::Error>()
@@ -135,6 +136,31 @@ fn is_missing_config(e: &anyhow::Error) -> bool {
 
 pub(crate) fn is_corrupt_config(e: &anyhow::Error) -> bool {
     e.chain().any(|cause| cause.is::<toml::de::Error>())
+}
+
+pub(crate) async fn in_memory_project_config(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+) -> Option<ProjectConfig> {
+    let guard = state.lock().await;
+    (guard.project_config.project_name == project_name).then(|| guard.project_config.clone())
+}
+
+pub(crate) async fn recover_project_config(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+    error: anyhow::Error,
+) -> Result<ProjectConfig> {
+    if is_corrupt_config(&error) {
+        backup_corrupt_config(project_name, &error)?;
+    }
+    log_err!(
+        "[config] Конфиг проекта {project_name} недоступен: {error:#}. Восстанавливаем последний известный конфиг"
+    );
+    Ok(match in_memory_project_config(state, project_name).await {
+        Some(config) => config,
+        None => default_project_config(project_name),
+    })
 }
 
 pub(crate) fn backup_corrupt_config(project_name: &str, error: &anyhow::Error) -> Result<()> {

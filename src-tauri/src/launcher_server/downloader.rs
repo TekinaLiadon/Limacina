@@ -11,11 +11,13 @@ use crate::launcher_server::{api_context, with_session_retry};
 use crate::state::dto::GlobalState;
 use crate::utils::download_file::{file_sha1, write_stream_to_atomic};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
+use crate::utils::http::{read_body_capped, read_error_body_text};
 use crate::utils::semaphore::{semaphore_core, SemaphoreInfo, MAX_CONCURRENT_DOWNLOADS};
 use crate::utils::step_events::StepHandle;
 use tokio::sync::Mutex;
 
 const MAX_AUTH_CLIENT_CACHE: usize = 16;
+const MAX_LIST_BODY_BYTES: u64 = 16 * 1024 * 1024;
 
 struct AuthClientCache {
     clients: HashMap<String, Client>,
@@ -154,7 +156,7 @@ async fn download_file(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        let body = read_error_body_text(response, url).await;
         log_err!(
             "[download] Ошибка сервера {} при скачивании {}: {}",
             status,
@@ -254,7 +256,7 @@ async fn fetch_hash_map(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        let body = read_error_body_text(response, &url).await;
         log_err!("{} Сервер вернул {}: {}", source.log_prefix, status, body);
         list_step.fail(format!("Сервер {} вернул {}", source.noun, status));
         return Err(LauncherError::HttpStatus {
@@ -267,12 +269,11 @@ async fn fetch_hash_map(
         .into());
     }
 
-    let response_text = step_try!(
+    let response_bytes = step_try!(
         list_step,
-        response.text().await.map_err(|e| {
-            LauncherError::LauncherServer(format!("Не удалось прочитать ответ от {url}: {e:#}"))
-        })
+        read_body_capped(response, &url, MAX_LIST_BODY_BYTES).await
     );
+    let response_text = String::from_utf8_lossy(&response_bytes).into_owned();
 
     let list: HashMap<String, String> = step_try!(
         list_step,
@@ -587,6 +588,14 @@ pub async fn download_mods(
 }
 
 async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Result<()> {
+    if server_mods.is_empty() {
+        log_info!(
+            "[mods] Сервер передал пустой список модов — очистка лишних файлов пропущена, \
+             локальные моды не тронуты"
+        );
+        return Ok(());
+    }
+
     let mut entries = tokio::fs::read_dir(mods_dir).await.map_err(|e| {
         log_err!(
             "[mods] Не удалось открыть папку модов {:?}: {}",
@@ -646,6 +655,23 @@ mod mock_server_tests {
             client: build_auth_client("test-token").expect("клиент"),
             server_url: server.url(),
         }
+    }
+
+    fn state_with_server(server_url: &str, access_token: &str) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server_url.to_string()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: access_token.to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        })
     }
 
     #[tokio::test]
@@ -794,20 +820,7 @@ mod mock_server_tests {
         std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o500))
             .expect("каталог без права на запись");
 
-        let state = Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: "Cordelia".to_string(),
-                server_url: Some(server.url()),
-                ..ProjectConfig::default()
-            },
-            session: Some(SessionTokens {
-                access_token: "test-token".to_string(),
-                uuid: String::new(),
-                username: "tester".to_string(),
-                project_name: "Cordelia".to_string(),
-            }),
-            ..GlobalState::default()
-        });
+        let state = state_with_server(&server.url(), "test-token");
 
         let result = download_mods("Cordelia".to_string(), &state).await;
         std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o755))
@@ -850,6 +863,141 @@ mod mock_server_tests {
             | StepEvent::Finished { id, .. }
             | StepEvent::Failed { id, .. } => id,
         }
+    }
+
+    #[tokio::test]
+    async fn cleanup_extra_mods_keeps_local_mods_when_server_list_empty() {
+        let dir = LauncherDirGuard::acquire("mods_clean_empty_list").await;
+        let mods_dir = dir.project_dir("Cordelia").join("mods");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
+        std::fs::write(mods_dir.join("b.jar"), b"beta").unwrap();
+
+        cleanup_extra_mods(&mods_dir, &HashSet::new())
+            .await
+            .expect("очистка с пустым списком сервера");
+
+        assert!(
+            mods_dir.join("a.jar").exists() && mods_dir.join("b.jar").exists(),
+            "пустой список от сервера не должен удалять ни одного локального мода"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_extra_mods_removes_only_files_missing_from_nonempty_list() {
+        let dir = LauncherDirGuard::acquire("mods_clean_nonempty_list").await;
+        let mods_dir = dir.project_dir("Cordelia").join("mods");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
+        std::fs::write(mods_dir.join("extra.jar"), b"stale").unwrap();
+
+        cleanup_extra_mods(&mods_dir, &HashSet::from(["a.jar"]))
+            .await
+            .expect("очистка с непустым списком сервера");
+
+        assert!(
+            mods_dir.join("a.jar").exists(),
+            "мод, присутствующий на сервере, должен остаться"
+        );
+        assert!(
+            !mods_dir.join("extra.jar").exists(),
+            "мод, отсутствующий на сервере, должен удаляться"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_mods_empty_server_list_keeps_local_mods() {
+        let dir = LauncherDirGuard::acquire("mods_sync_empty_list").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/files/mods")
+            .with_status(200)
+            .with_body(json!({}).to_string())
+            .create_async()
+            .await;
+
+        let mods_dir = dir.project_dir("Cordelia").join("mods");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
+        std::fs::write(mods_dir.join("b.jar"), b"beta").unwrap();
+
+        let state = state_with_server(&server.url(), "test-token");
+
+        let report = download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синхронизация с пустым списком модов");
+
+        assert_eq!(report.total, 0);
+        assert_eq!(report.downloaded, 0);
+        assert!(
+            mods_dir.join("a.jar").exists() && mods_dir.join("b.jar").exists(),
+            "пустой список модов от сервера не должен вычищать локальную папку mods"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_mods_offline_profile_skips_sync_and_keeps_local_mods() {
+        let dir = LauncherDirGuard::acquire("mods_sync_offline").await;
+
+        let mods_dir = dir.project_dir("Cordelia").join("mods");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
+
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                online: false,
+                ..ProjectConfig::default()
+            },
+            ..GlobalState::default()
+        });
+
+        let report = download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синхронизация одиночного профиля");
+
+        assert_eq!(report.total, 0);
+        assert_eq!(report.downloaded, 0);
+        assert!(
+            mods_dir.join("a.jar").exists(),
+            "у одиночного профиля нет списка модов — локальные файлы должны остаться"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_mods_removes_local_mods_missing_from_server_list() {
+        let dir = LauncherDirGuard::acquire("mods_sync_extra_cleanup").await;
+        let mut server = Server::new_async().await;
+
+        let intact = b"intact mod".to_vec();
+        server
+            .mock("GET", "/v1/launcher/files/mods")
+            .with_status(200)
+            .with_body(json!({ "mods/a.jar": sha1_hex(&intact) }).to_string())
+            .create_async()
+            .await;
+
+        let mods_dir = dir.project_dir("Cordelia").join("mods");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::write(mods_dir.join("a.jar"), &intact).unwrap();
+        std::fs::write(mods_dir.join("extra.jar"), b"stale").unwrap();
+
+        let state = state_with_server(&server.url(), "test-token");
+
+        let report = download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синхронизация модов");
+
+        assert_eq!(report.total, 1);
+        assert_eq!(report.downloaded, 0);
+        assert!(
+            mods_dir.join("a.jar").exists(),
+            "мод с сервера должен остаться"
+        );
+        assert!(
+            !mods_dir.join("extra.jar").exists(),
+            "при непустом списке лишний локальный мод должен удаляться как раньше"
+        );
     }
 
     #[tokio::test]
@@ -897,20 +1045,7 @@ mod mock_server_tests {
         std::fs::write(base.join("configs/settings.json"), b"stale local").unwrap();
         std::fs::write(base.join("configs/intact.json"), &intact).unwrap();
 
-        let state = Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: "Cordelia".to_string(),
-                server_url: Some(server.url()),
-                ..ProjectConfig::default()
-            },
-            session: Some(SessionTokens {
-                access_token: "test-token".to_string(),
-                uuid: String::new(),
-                username: "tester".to_string(),
-                project_name: "Cordelia".to_string(),
-            }),
-            ..GlobalState::default()
-        });
+        let state = state_with_server(&server.url(), "test-token");
 
         let report = download_all_files("Cordelia".to_string(), &state)
             .await
@@ -992,6 +1127,65 @@ mod mock_server_tests {
     }
 
     #[tokio::test]
+    async fn fetch_mods_list_rejects_oversized_list_body() {
+        let mut server = Server::new_async().await;
+        let padding = "a".repeat(MAX_LIST_BODY_BYTES as usize);
+        server
+            .mock("GET", "/v1/launcher/files/mods")
+            .with_status(200)
+            .with_body(format!("{{\"mods/a.jar\": \"{padding}\"}}"))
+            .create_async()
+            .await;
+
+        let ctx = api_context(&server).await;
+        let error = fetch_mods_list(&ctx.client, &ctx.server_url, "Cordelia")
+            .await
+            .expect_err("список сверх лимита должен отклоняться");
+
+        assert!(
+            error.chain().any(|cause| matches!(
+                cause.downcast_ref::<LauncherError>(),
+                Some(LauncherError::SizeLimit(_))
+            )),
+            "ожидался SizeLimit: {error}"
+        );
+        assert!(
+            error.to_string().contains("превысил"),
+            "ошибка должна называть превышение размера: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_file_error_body_is_bounded() {
+        let dir = LauncherDirGuard::acquire("files_error_body").await;
+        let mut server = Server::new_async().await;
+        let padding = "x".repeat(2 * 1024 * 1024);
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .with_status(500)
+            .with_body(format!("boom-{padding}"))
+            .create_async()
+            .await;
+
+        let dest = dir.project_dir("Cordelia").join("mods/a.jar");
+        let error = download_file(http_client(), &dest, "mods/a.jar", &server.url())
+            .await
+            .expect_err("ошибка сервера должна пробрасываться");
+
+        let rendered = error.to_string();
+        assert!(
+            !rendered.contains(&padding),
+            "тело ошибки не должно попадать в сообщение целиком: {}",
+            rendered.len()
+        );
+        assert!(
+            rendered.contains("не прочитано"),
+            "ошибка должна называть причину непрочитанного тела: {rendered}"
+        );
+        assert!(!dest.exists(), "файл назначения не должен появиться");
+    }
+
+    #[tokio::test]
     async fn fetch_mods_list_rejects_empty_hash() {
         let mut server = Server::new_async().await;
         server
@@ -1054,20 +1248,7 @@ mod mock_server_tests {
         storage::save_fallback("Cordelia", "tester", "refresh_token", "tok-old")
             .expect("сохранение refresh-токена");
 
-        let state = Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: "Cordelia".to_string(),
-                server_url: Some(server.url()),
-                ..ProjectConfig::default()
-            },
-            session: Some(SessionTokens {
-                access_token: "access-stale".to_string(),
-                uuid: String::new(),
-                username: "tester".to_string(),
-                project_name: "Cordelia".to_string(),
-            }),
-            ..GlobalState::default()
-        });
+        let state = state_with_server(&server.url(), "access-stale");
 
         let report = download_all_files("Cordelia".to_string(), &state)
             .await

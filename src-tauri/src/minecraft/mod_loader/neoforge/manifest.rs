@@ -75,32 +75,20 @@ mod tests {
     use super::{group_neoforge_versions, neoforge_installer_url, NEOFORGE, NEOFORGE_CACHE_FILE};
     use crate::minecraft::mod_loader::manifest::{
         current_loader_version, get_loader_index, latest_list_version, transform_loader_manifest,
-        Metadata, VersionList, Versioning,
+        Metadata,
     };
     use crate::state::dto::ProjectConfig as ConfigProject;
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::{loader_metadata, LauncherDirGuard};
     use mockito::Server;
-
-    fn metadata(versions: &[&str]) -> Metadata {
-        let latest = versions
-            .last()
-            .map(|v| (*v).to_string())
-            .unwrap_or_default();
-        Metadata {
-            versioning: Versioning {
-                latest: latest.clone(),
-                release: latest,
-                versions: VersionList {
-                    version_list: versions.iter().map(|v| (*v).to_string()).collect(),
-                },
-            },
-        }
-    }
 
     #[test]
     fn groups_patch_zero_under_short_mc_version_key() {
-        let index =
-            group_neoforge_versions(metadata(&["21.0.0-beta", "21.0.143", "21.1.1", "20.6.121"]));
+        let index = group_neoforge_versions(loader_metadata(&[
+            "21.0.0-beta",
+            "21.0.143",
+            "21.1.1",
+            "20.6.121",
+        ]));
 
         assert_eq!(
             index.get("1.21").map(Vec::as_slice),
@@ -119,7 +107,8 @@ mod tests {
 
     #[test]
     fn skips_non_numeric_loader_versions() {
-        let index = group_neoforge_versions(metadata(&["0.25w14craftmine.3-beta", "21.0.1-beta"]));
+        let index =
+            group_neoforge_versions(loader_metadata(&["0.25w14craftmine.3-beta", "21.0.1-beta"]));
 
         assert_eq!(index.len(), 1);
         assert!(index.contains_key("1.21"));
@@ -127,7 +116,7 @@ mod tests {
 
     #[test]
     fn groups_modern_scheme_without_one_prefix() {
-        let index = group_neoforge_versions(metadata(&[
+        let index = group_neoforge_versions(loader_metadata(&[
             "26.3.0.75-beta",
             "26.3.0.76",
             "26.1.2.116",
@@ -166,7 +155,7 @@ mod tests {
     ];
 
     fn real_neoforge_metadata() -> Metadata {
-        metadata(&[
+        loader_metadata(&[
             "26.1.0.19-beta",
             "26.1.1.15-beta",
             "26.1.2.115",

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use sha1::{Digest, Sha1};
 
+use crate::minecraft::mod_loader::manifest::{Metadata, VersionList, Versioning};
 use crate::minecraft::structs::{GameConfig, LaunchConfig, LibraryMod, VersionMod};
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
@@ -24,6 +25,34 @@ pub fn loader_version_mod(id: &str, main_class: &str) -> VersionMod {
         id: id.to_string(),
         main_class: main_class.to_string(),
         library: Vec::new(),
+    }
+}
+
+pub fn assert_loader_config_common(config: &GameConfig, libraries_dir: &Path) {
+    assert!(config
+        .jvm_args
+        .contains(&format!("-DlibraryDirectory={}", libraries_dir.display())));
+    assert!(config
+        .jvm_args
+        .contains(&"-Djava.net.preferIPv6Addresses=system".to_string()));
+    assert!(!config.jvm_args.contains(&"-cp".to_string()));
+    assert!(config.game_args.contains(&"--launchTarget".to_string()));
+    assert!(config.game_args.contains(&"forgeclient".to_string()));
+}
+
+pub fn loader_metadata(versions: &[&str]) -> Metadata {
+    let latest = versions
+        .last()
+        .map(|v| (*v).to_string())
+        .unwrap_or_default();
+    Metadata {
+        versioning: Versioning {
+            latest: latest.clone(),
+            release: latest,
+            versions: VersionList {
+                version_list: versions.iter().map(|v| (*v).to_string()).collect(),
+            },
+        },
     }
 }
 
@@ -57,6 +86,16 @@ pub fn offline_global_state(project_name: &str) -> tokio::sync::Mutex<GlobalStat
         launcher_config: Some(LauncherConfig::default()),
         app_version: String::new(),
     })
+}
+
+pub fn offline_project_config(name: &str) -> ProjectConfig {
+    ProjectConfig {
+        project_name: name.to_string(),
+        mc_version: "1.20.1".to_string(),
+        online: false,
+        server_url: Some("https://per-project.example.com".to_string()),
+        ..ProjectConfig::default()
+    }
 }
 
 pub async fn seeded_global_state(

@@ -31,6 +31,7 @@ const api = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
   selectDirectory: vi.fn(),
   probeJava: vi.fn(),
+  availableCpuCores: vi.fn(),
 }))
 
 const router = vi.hoisted(() => ({
@@ -41,6 +42,7 @@ const router = vi.hoisted(() => ({
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   authLogins: vi.fn(),
+  availableCpuCores: api.availableCpuCores,
   clearMinecraftConfig: vi.fn(),
   clearSession: vi.fn(),
   deleteProject: vi.fn(),
@@ -112,6 +114,8 @@ describe('useProjectSettings', () => {
     api.probeJava.mockReset()
     api.copyToClipboard.mockReset()
     api.selectDirectory.mockReset()
+    api.availableCpuCores.mockReset()
+    api.availableCpuCores.mockResolvedValue(16)
     useCoreStore().currentProject = 'proj'
   })
 
@@ -141,6 +145,32 @@ describe('useProjectSettings', () => {
     expect(store.config.javaPath).toBe('/java/temurin')
     expect(store.config.jvmArgs).toBe('-Xms512M, -XX:+UseG1GC')
     expect(store.config.memoryRange).toEqual([512, 4096])
+    expect(store.config.cpuCores).toBeNull()
+    expect(settings.isDirty.value).toBe(false)
+  })
+
+  it('loads the available cpu cores count in the background', async () => {
+    const settings = await loadReady()
+
+    await vi.waitFor(() => expect(settings.availableCpuCores.value).toBe(16))
+  })
+
+  it('keeps the cpu cores unknown and warns when the count fetch fails', async () => {
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    api.availableCpuCores.mockRejectedValue(new Error('ipc broken'))
+    const settings = setupSettings()
+    await vi.waitFor(() => expect(useProjectSettingsStore().isLoaded).toBe(true))
+
+    expect(settings.availableCpuCores.value).toBe(0)
+    expect(useNotificationStore().message).toBe('Не удалось получить число ядер CPU, доступен только режим «Авто»')
+  })
+
+  it('maps the saved cpu cores into the form without dirtying it', async () => {
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ cpuCores: 4 }))
+    const settings = setupSettings()
+    await vi.waitFor(() => expect(useProjectSettingsStore().isLoaded).toBe(true))
+
+    expect(useProjectSettingsStore().config.cpuCores).toBe(4)
     expect(settings.isDirty.value).toBe(false)
   })
 
@@ -269,6 +299,58 @@ describe('useProjectSettings', () => {
     expect(settings.isSaving.value).toBe(false)
   })
 
+  it('sends the probed java version when the java path changes', async () => {
+    const settings = await loadReady()
+    api.selectDirectory.mockResolvedValueOnce('/custom/jdk-21')
+    api.probeJava.mockResolvedValueOnce({ javaPath: '/custom/jdk-21/bin/java', javaVersion: 21 })
+    await settings.selectJavaFolder()
+
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    vi.mocked(saveSettingsProject).mockResolvedValue(
+      makeProjectConfig({ javaPath: '/custom/jdk-21/bin/java', javaVersion: 21 }),
+    )
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        javaPath: '/custom/jdk-21/bin/java',
+        javaVersion: 21,
+      }),
+    )
+    expect(useCoreStore().projectConfig?.javaVersion).toBe(21)
+    expect(useProjectSettingsStore().config.javaVersion).toBe(21)
+    expect(settings.isDirty.value).toBe(false)
+  })
+
+  it('does not carry the old java version over to a changed path without a probe', async () => {
+    const settings = await loadReady()
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ javaVersion: 21 }))
+    vi.mocked(saveSettingsProject).mockResolvedValue(
+      makeProjectConfig({ javaPath: '/new/java', javaVersion: null }),
+    )
+
+    useProjectSettingsStore().config.javaPath = '/new/java'
+    useProjectSettingsStore().config.javaVersion = null
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledWith(
+      expect.objectContaining({ javaPath: '/new/java', javaVersion: null }),
+    )
+  })
+
+  it('keeps the fresh java version when the java path is untouched', async () => {
+    const settings = await loadReady()
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ javaVersion: 21 }))
+    vi.mocked(saveSettingsProject).mockResolvedValue(makeProjectConfig())
+    useProjectSettingsStore().config.memoryRange = [1024, 4096]
+
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledWith(
+      expect.objectContaining({ javaVersion: 21 }),
+    )
+  })
+
   it('refreshes the form from the server response after the save', async () => {
     const settings = await loadReady()
     vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
@@ -314,6 +396,26 @@ describe('useProjectSettings', () => {
 
     expect(saveSettingsProject).toHaveBeenCalledWith(
       expect.objectContaining({ jvmArgs: ['-Xms512M', '-XX:+UseG1GC'] }),
+    )
+  })
+
+  it('saves the edited cpu cores and keeps the fresh value when untouched', async () => {
+    const settings = await loadReady()
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ cpuCores: 6 }))
+    vi.mocked(saveSettingsProject).mockResolvedValue(makeProjectConfig({ cpuCores: 8 }))
+
+    useProjectSettingsStore().config.cpuCores = 8
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenCalledWith(
+      expect.objectContaining({ cpuCores: 8 }),
+    )
+
+    useProjectSettingsStore().config.cpuCores = null
+    await settings.handleSave()
+
+    expect(saveSettingsProject).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cpuCores: null }),
     )
   })
 
@@ -590,6 +692,77 @@ describe('useProjectSettings', () => {
     expect(useCoreStore().currentProject).toBe('')
     expect(useCoreStore().projectConfig).toBeNull()
     expect(router.push).toHaveBeenCalledWith({ name: 'AddProfile' })
+  })
+
+  it('switches to the project the user picked during the deletion instead of the first remaining one', async () => {
+    vi.mocked(deleteProject).mockResolvedValue({ ...makeLauncherConfig(['beta', 'gamma']), currentProject: 'gamma' })
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    const settings = setupSettings()
+    await vi.waitFor(() => expect(useProjectSettingsStore().loadedProject).toBe('proj'))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'gamma' }))
+    vi.mocked(authLogins).mockResolvedValue([])
+
+    const pending = settings.handleDeleteProject()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    const core = useCoreStore()
+    expect(core.projects).toEqual(['beta', 'gamma'])
+    expect(core.currentProject).toBe('gamma')
+    expect(core.projectConfig?.projectName).toBe('gamma')
+    expect(loadSettingsProject).toHaveBeenCalledWith('gamma')
+    expect(useNotificationStore().message).toBe('Проект удалён')
+    expect(settings.isDeleting.value).toBe(false)
+  })
+
+  it('falls back to the first remaining project when the saved selection is gone after the deletion', async () => {
+    vi.mocked(deleteProject).mockResolvedValue({ ...makeLauncherConfig(['beta']), currentProject: 'proj' })
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    const settings = setupSettings()
+    await vi.waitFor(() => expect(useProjectSettingsStore().loadedProject).toBe('proj'))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta' }))
+    vi.mocked(authLogins).mockResolvedValue([])
+
+    const pending = settings.handleDeleteProject()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(useCoreStore().currentProject).toBe('beta')
+  })
+
+  it('blocks selectProject while the deletion is in flight and finalizes the session once', async () => {
+    let releaseDelete: () => void = () => {}
+    vi.mocked(deleteProject).mockImplementationOnce(
+      () =>
+        new Promise<LauncherConfig>((resolve) => {
+          releaseDelete = (): void => resolve(makeLauncherConfig(['beta']))
+        }),
+    )
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig())
+    const settings = setupSettings()
+    await vi.waitFor(() => expect(useProjectSettingsStore().loadedProject).toBe('proj'))
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta' }))
+    vi.mocked(authLogins).mockResolvedValue([])
+
+    const pending = settings.handleDeleteProject()
+    useNotificationStore().resolvePopup(true)
+    await vi.waitFor(() => expect(deleteProject).toHaveBeenCalledTimes(1))
+
+    const { result: switcher } = withSetup(() => useProjectSwitch())
+    await switcher.selectProject('beta')
+    const blockedMessage = useNotificationStore().message
+    const blockedSaves = vi.mocked(saveCurrentProject).mock.calls.length
+    const blockedSessions = vi.mocked(clearSession).mock.calls.length
+
+    releaseDelete()
+    await pending
+
+    expect(blockedMessage).toBe('Дождитесь завершения удаления проекта')
+    expect(blockedSaves).toBe(0)
+    expect(blockedSessions).toBe(0)
+    expect(clearSession).toHaveBeenCalledTimes(1)
+    expect(useCoreStore().currentProject).toBe('beta')
+    expect(settings.isDeleting.value).toBe(false)
   })
 
   it('keeps the project when the deletion is declined', async () => {

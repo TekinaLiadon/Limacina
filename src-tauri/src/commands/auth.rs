@@ -54,12 +54,6 @@ pub(crate) async fn persist_session_credentials(
     username: &str,
     data: &AuthData,
 ) -> Result<()> {
-    let uuid = data.uuid();
-    if !uuid.is_empty() {
-        if let Err(e) = storage::save_credential(project_name, username, "uuid", &uuid).await {
-            log_err!("Не удалось сохранить uuid аккаунта \"{username}\": {e:#}");
-        }
-    }
     storage::save_credential(
         project_name,
         username,
@@ -74,10 +68,7 @@ fn is_refresh_rejected(e: &anyhow::Error) -> bool {
     e.chain().any(|cause| {
         matches!(
             cause.downcast_ref::<LauncherError>(),
-            Some(LauncherError::HttpStatus {
-                status: 401 | 403,
-                ..
-            })
+            Some(LauncherError::HttpStatus { status: 401, .. })
         )
     })
 }
@@ -103,13 +94,18 @@ async fn project_server_url(project_name: &str, offline_reason: &str) -> Result<
         .ok_or(LauncherError::ServerUrlMissing.into())
 }
 
+const LEGACY_CREDENTIAL_KINDS: &[&str] = &["password", "uuid"];
+
 pub(crate) async fn wipe_project_credentials(
     project_name: &str,
     usernames: &[String],
 ) -> Result<()> {
     let mut failures: Vec<String> = Vec::new();
     for username in usernames {
-        for kind in ["password", "refresh_token", "uuid"] {
+        for kind in ["refresh_token"]
+            .into_iter()
+            .chain(LEGACY_CREDENTIAL_KINDS.iter().copied())
+        {
             if let Err(e) = storage::delete_credential(project_name, username, kind).await {
                 failures.push(format!("{username}/{kind}: {e}"));
             }
@@ -825,6 +821,35 @@ mod account_flow_tests {
     }
 
     #[tokio::test]
+    async fn remembered_login_persists_only_refresh_token() {
+        let env = password_change_env("auth_flow_login_composition").await;
+        let project = "PwdProj";
+        let username = "Steve";
+
+        login_account(&env.state, project, username, "old-pass", true)
+            .await
+            .expect("вход с запоминанием");
+
+        env.login.assert_async().await;
+        assert_eq!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .expect("вход с запоминанием должен сохранять токен"),
+            "tok-old"
+        );
+        assert!(
+            storage::get_credential(project, username, "uuid")
+                .await
+                .is_err(),
+            "uuid не должен записываться в хранилище: состав хранилища после входа — только refresh_token"
+        );
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища после теста");
+    }
+
+    #[tokio::test]
     async fn change_password_after_remembered_login_updates_stored_token() {
         let env = password_change_env("auth_flow_password_remembered").await;
         let project = "PwdProj";
@@ -1355,6 +1380,50 @@ mod restore_session_tests {
     }
 
     #[tokio::test]
+    async fn forbidden_refresh_keeps_refresh_token() {
+        let _guard = LauncherDirGuard::acquire("restore_session_403").await;
+        let mut server = Server::new_async().await;
+        let rejected = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .with_status(403)
+            .with_body("{\"message\": \"blocked by waf\"}")
+            .create_async()
+            .await;
+        let login = server
+            .mock("POST", "/v1/common/auth/login")
+            .expect(0)
+            .create_async()
+            .await;
+
+        seed_online_project("TestProj", &server.url()).await;
+        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
+            .expect("сохранение токена");
+
+        let error = restore_session("TestProj", "Steve", Some("secret1"))
+            .await
+            .expect_err("403 от WAF/CDN должен вернуть ошибку");
+
+        rejected.assert_async().await;
+        login.assert_async().await;
+        let message = format!("{error:#}");
+        assert!(
+            !message.contains("Нет сохранённых учётных данных"),
+            "403 не должен подменяться на NoSavedCredentials: {message}"
+        );
+        assert!(
+            message.contains("Не удалось обновить сессию"),
+            "403 должен считаться временным сбоем, а не отклонением токена: {message}"
+        );
+        assert_eq!(
+            storage::get_credential("TestProj", "Steve", "refresh_token")
+                .await
+                .expect("токен должен остаться на диске"),
+            "tok-keep",
+            "валидный refresh-токен не должен удаляться из-за 403"
+        );
+    }
+
+    #[tokio::test]
     async fn unauthorized_deletes_refresh_token_and_reports_no_saved_credentials() {
         let _guard = LauncherDirGuard::acquire("restore_session_401").await;
         let mut server = Server::new_async().await;
@@ -1392,7 +1461,7 @@ mod restore_session_tests {
         let mut server = Server::new_async().await;
         server
             .mock("POST", "/v1/common/auth/refresh")
-            .with_status(403)
+            .with_status(401)
             .with_body("{\"message\": \"token revoked\"}")
             .create_async()
             .await;

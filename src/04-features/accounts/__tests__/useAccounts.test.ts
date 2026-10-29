@@ -107,9 +107,27 @@ describe('useAccounts', () => {
     expect(launch.loginError).toBe('')
   })
 
+  it('keeps the new selection when the session read fails after a successful refresh', async () => {
+    const accountsStore = useAccountsStore()
+    accountsStore.session = makeSession('alice')
+    const accounts = setupAccounts()
+    accounts.selectedUsername.value = 'alice'
+    vi.mocked(authRefresh).mockResolvedValue(undefined)
+    vi.mocked(getSessionInfo).mockRejectedValue(new Error('ipc down'))
+
+    await accounts.handleSelect('bob')
+
+    expect(authRefresh).toHaveBeenCalledTimes(1)
+    expect(authRefresh).toHaveBeenCalledWith('proj', 'bob')
+    expect(accounts.selectedUsername.value).toBe('bob')
+    expect(accounts.errorMessage.value).toBe('ipc down')
+    expect(console.error).toHaveBeenCalledWith('Не удалось загрузить сессию аккаунта', expect.anything())
+    expect(accountsStore.session).toBeNull()
+    expect(accountsStore.isLoggedIn).toBe(false)
+  })
+
   it('reverts the selection and keeps the previous session on failure', async () => {
     const accountsStore = useAccountsStore()
-    accountsStore.isLoggedIn = true
     accountsStore.session = makeSession('alice')
     const accounts = setupAccounts()
     accounts.selectedUsername.value = 'alice'
@@ -209,7 +227,6 @@ describe('useAccounts', () => {
 
   it('leaves no stale selection or session when the project changed during a select', async () => {
     const accountsStore = useAccountsStore()
-    accountsStore.isLoggedIn = true
     accountsStore.session = makeSession('alice')
     const accounts = setupAccounts()
     accounts.selectedUsername.value = 'alice'

@@ -28,6 +28,12 @@ const CPM_PROJECT_READ: AllowlistedRead = AllowlistedRead::new(
     "модели",
 );
 
+const PROJECT_NAME_HEADER: &str = "Project-Name";
+const MODEL_NAME_HEADER: &str = "Model-Name";
+const MODEL_URL_HEADER: &str = "Model-Url";
+const MODEL_ID_HEADER: &str = "Model-Id";
+const MODEL_SLIM_HEADER: &str = "Model-Slim";
+
 static MODELS_MANIFEST_LOCK: Mutex<()> = Mutex::const_new(());
 
 fn pending_cpm_project() -> &'static StdMutex<Option<String>> {
@@ -152,17 +158,116 @@ async fn write_link_stub(dir: &std::path::Path, entry: &CpmModelEntry, url: &str
         .with_context(|| format!("Не удалось записать модель {path:?}"))
 }
 
-#[tauri::command]
-pub async fn save_player_model(
+#[derive(Debug)]
+struct PlayerModelRequest {
     project_name: String,
     name: String,
     url: Option<String>,
     model_id: Option<i64>,
     slim: Option<bool>,
     data: Option<Vec<u8>>,
-) -> CommandResult<()> {
-    let project_name = validated_project_name(&project_name)?;
-    save_player_model_inner(project_name, name, url, model_id, slim, data).await?;
+}
+
+fn header_raw<'a>(headers: &'a tauri::http::HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+fn decode_percent_header(raw: &str, header: &str) -> Result<String> {
+    let bytes = raw.as_bytes();
+    let mut decoded: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        let hex = bytes
+            .get(index + 1..index + 3)
+            .ok_or_else(|| anyhow!("Некорректное значение заголовка {header}"))?;
+        let hex = std::str::from_utf8(hex)
+            .map_err(|_| anyhow!("Некорректное значение заголовка {header}"))?;
+        if !hex.as_bytes().iter().all(u8::is_ascii_hexdigit) {
+            return Err(anyhow!("Некорректное значение заголовка {header}"));
+        }
+        let byte = u8::from_str_radix(hex, 16)
+            .map_err(|_| anyhow!("Некорректное значение заголовка {header}"))?;
+        decoded.push(byte);
+        index += 3;
+    }
+    String::from_utf8(decoded).with_context(|| format!("Некорректное значение заголовка {header}"))
+}
+
+fn required_text_header(headers: &tauri::http::HeaderMap, name: &str) -> Result<String> {
+    let raw = header_raw(headers, name).ok_or_else(|| {
+        anyhow!(LauncherError::InvalidInput(format!(
+            "Не указан заголовок {name}"
+        )))
+    })?;
+    decode_percent_header(raw, name)
+}
+
+fn optional_text_header(headers: &tauri::http::HeaderMap, name: &str) -> Result<Option<String>> {
+    match header_raw(headers, name) {
+        Some(raw) => Ok(Some(decode_percent_header(raw, name)?)),
+        None => Ok(None),
+    }
+}
+
+fn parse_player_model_request(
+    headers: &tauri::http::HeaderMap,
+    body: &tauri::ipc::InvokeBody,
+) -> Result<PlayerModelRequest> {
+    let data = match body {
+        tauri::ipc::InvokeBody::Raw(bytes) if bytes.is_empty() => None,
+        tauri::ipc::InvokeBody::Raw(bytes) => Some(bytes.clone()),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err(anyhow!(LauncherError::InvalidInput(
+                "Данные модели должны передаваться бинарным телом запроса".to_string()
+            )));
+        }
+    };
+    let slim = match header_raw(headers, MODEL_SLIM_HEADER) {
+        Some("true") => Some(true),
+        Some("false") => Some(false),
+        Some(_) => {
+            return Err(anyhow!(LauncherError::InvalidInput(format!(
+                "Некорректное значение заголовка {MODEL_SLIM_HEADER}"
+            ))));
+        }
+        None => None,
+    };
+    let model_id = match header_raw(headers, MODEL_ID_HEADER) {
+        Some(raw) => Some(raw.parse::<i64>().map_err(|_| {
+            anyhow!(LauncherError::InvalidInput(format!(
+                "Некорректное значение заголовка {MODEL_ID_HEADER}"
+            )))
+        })?),
+        None => None,
+    };
+    Ok(PlayerModelRequest {
+        project_name: required_text_header(headers, PROJECT_NAME_HEADER)?,
+        name: required_text_header(headers, MODEL_NAME_HEADER)?,
+        url: optional_text_header(headers, MODEL_URL_HEADER)?,
+        model_id,
+        slim,
+        data,
+    })
+}
+
+#[tauri::command]
+pub async fn save_player_model(request: tauri::ipc::Request<'_>) -> CommandResult<()> {
+    let payload = parse_player_model_request(request.headers(), request.body())?;
+    let project_name = validated_project_name(&payload.project_name)?;
+    save_player_model_inner(
+        project_name,
+        payload.name,
+        payload.url,
+        payload.model_id,
+        payload.slim,
+        payload.data,
+    )
+    .await?;
     Ok(())
 }
 
@@ -383,6 +488,7 @@ mod tests {
     use super::*;
     use crate::state::dto::{ProjectConfig, SessionTokens};
     use crate::test_support::LauncherDirGuard;
+    use tauri::http::{HeaderMap, HeaderValue};
 
     #[test]
     fn extract_cpm_project_path_finds_associated_file() {
@@ -1064,5 +1170,155 @@ mod tests {
                 "выбор только что сохранённой модели не должен теряться (раунд {round})"
             );
         }
+    }
+
+    fn percent_encode(value: &str) -> String {
+        let mut out = String::new();
+        for byte in value.as_bytes() {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+                out.push(char::from(*byte));
+            } else {
+                out.push_str(&format!("%{byte:02X}"));
+            }
+        }
+        out
+    }
+
+    fn model_request_headers(
+        project: &str,
+        name: &str,
+        url: Option<&str>,
+        id: Option<i64>,
+        slim: Option<bool>,
+    ) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("Project-Name", HeaderValue::from_str(project).unwrap());
+        headers.insert("Model-Name", HeaderValue::from_str(name).unwrap());
+        if let Some(url) = url {
+            headers.insert("Model-Url", HeaderValue::from_str(url).unwrap());
+        }
+        if let Some(id) = id {
+            headers.insert("Model-Id", HeaderValue::from_str(&id.to_string()).unwrap());
+        }
+        if let Some(slim) = slim {
+            headers.insert(
+                "Model-Slim",
+                HeaderValue::from_static(if slim { "true" } else { "false" }),
+            );
+        }
+        headers
+    }
+
+    fn raw_body(bytes: Vec<u8>) -> tauri::ipc::InvokeBody {
+        tauri::ipc::InvokeBody::Raw(bytes)
+    }
+
+    #[test]
+    fn parse_player_model_request_reads_headers_and_raw_body() {
+        let headers = model_request_headers(
+            "proj",
+            &percent_encode("Герой"),
+            Some("https://cdn/9.cpm"),
+            Some(9),
+            Some(true),
+        );
+        let body = raw_body(vec![0x53, 1, 2, 255]);
+
+        let payload = parse_player_model_request(&headers, &body).unwrap();
+
+        assert_eq!(payload.project_name, "proj");
+        assert_eq!(payload.name, "Герой");
+        assert_eq!(payload.url.as_deref(), Some("https://cdn/9.cpm"));
+        assert_eq!(payload.model_id, Some(9));
+        assert_eq!(payload.slim, Some(true));
+        assert_eq!(payload.data, Some(vec![0x53, 1, 2, 255]));
+    }
+
+    #[test]
+    fn parse_player_model_request_treats_missing_headers_and_empty_body_as_absent_fields() {
+        let headers = model_request_headers("proj", "hero", None, None, Some(false));
+        let body = raw_body(Vec::new());
+
+        let payload = parse_player_model_request(&headers, &body).unwrap();
+
+        assert_eq!(payload.url, None);
+        assert_eq!(payload.model_id, None);
+        assert_eq!(payload.slim, Some(false));
+        assert_eq!(payload.data, None);
+    }
+
+    #[test]
+    fn parse_player_model_request_rejects_json_body() {
+        let headers = model_request_headers("proj", "hero", None, None, None);
+        let body = tauri::ipc::InvokeBody::Json(serde_json::json!({ "data": [1, 2, 3] }));
+
+        let error = parse_player_model_request(&headers, &body).unwrap_err();
+
+        assert!(
+            error.to_string().contains("бинарным телом"),
+            "русская ошибка формата тела: {error}"
+        );
+    }
+
+    #[test]
+    fn parse_player_model_request_requires_project_and_name_headers() {
+        let body = raw_body(Vec::new());
+        let headers = model_request_headers("proj", "hero", None, None, None);
+
+        let mut without_project = headers.clone();
+        without_project.remove("Project-Name");
+        let error = parse_player_model_request(&without_project, &body).unwrap_err();
+        assert!(
+            error.to_string().contains("Project-Name"),
+            "ошибка: {error}"
+        );
+
+        let mut without_name = headers;
+        without_name.remove("Model-Name");
+        let error = parse_player_model_request(&without_name, &body).unwrap_err();
+        assert!(error.to_string().contains("Model-Name"), "ошибка: {error}");
+    }
+
+    #[test]
+    fn parse_player_model_request_rejects_broken_optional_headers() {
+        let body = raw_body(Vec::new());
+
+        let mut broken_slim = model_request_headers("proj", "hero", None, None, None);
+        broken_slim.insert("Model-Slim", HeaderValue::from_static("maybe"));
+        let error = parse_player_model_request(&broken_slim, &body).unwrap_err();
+        assert!(error.to_string().contains("Model-Slim"), "ошибка: {error}");
+
+        let mut broken_id = model_request_headers("proj", "hero", None, None, None);
+        broken_id.insert("Model-Id", HeaderValue::from_static("9x"));
+        let error = parse_player_model_request(&broken_id, &body).unwrap_err();
+        assert!(error.to_string().contains("Model-Id"), "ошибка: {error}");
+    }
+
+    #[test]
+    fn decode_percent_header_restores_unicode_and_escapes() {
+        assert_eq!(
+            decode_percent_header(&percent_encode("Модель 100%"), "Model-Name").unwrap(),
+            "Модель 100%"
+        );
+        assert_eq!(
+            decode_percent_header("plain-value", "Model-Name").unwrap(),
+            "plain-value"
+        );
+        assert_eq!(
+            decode_percent_header("a%20b+c", "Model-Name").unwrap(),
+            "a b+c"
+        );
+    }
+
+    #[test]
+    fn decode_percent_header_reports_broken_escapes() {
+        let error = decode_percent_header("a%G1", "Model-Name").unwrap_err();
+        assert!(error.to_string().contains("Model-Name"), "ошибка: {error}");
+
+        let error = decode_percent_header("trailing%", "Model-Name").unwrap_err();
+        assert!(error.to_string().contains("Model-Name"), "ошибка: {error}");
+
+        let error = decode_percent_header("a%+5", "Model-Name").unwrap_err();
+        assert!(error.to_string().contains("Model-Name"), "ошибка: {error}");
     }
 }

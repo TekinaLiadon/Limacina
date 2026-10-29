@@ -33,9 +33,16 @@ export function useAccounts() {
 
     try {
       await authRefresh(scope.project, username)
-      const session = await getSessionInfo()
-      if (!scope.isCurrent()) return
-      if (session) store.applySession(session)
+      try {
+        const session = await getSessionInfo()
+        if (!scope.isCurrent()) return
+        if (session) store.applySession(session)
+      } catch (e: unknown) {
+        if (!scope.isCurrent()) return
+        reportError('Не удалось загрузить сессию аккаунта', e)
+        store.clearSessionState()
+        errorMessage.value = getErrorMessage(e)
+      }
     } catch (e: unknown) {
       if (!scope.isCurrent()) return
       reportError('Не удалось выбрать аккаунт', e)

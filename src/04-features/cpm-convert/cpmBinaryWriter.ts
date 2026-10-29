@@ -1,21 +1,49 @@
 export const HEADER = 0x53
 export const DIV = Math.floor(32767 / 48)
 
+const INITIAL_CAPACITY = 1024
+
+export function wrapAngle360(deg: number): number {
+  return ((deg % 360) + 360) % 360
+}
+
 export class CpmBinaryWriter {
-  private buffer: number[] = []
+  private buffer: Uint8Array = new Uint8Array(INITIAL_CAPACITY)
+  private length: number = 0
+
+  private reserve(extra: number): void {
+    const needed = this.length + extra
+    if (needed <= this.buffer.length) return
+    let capacity = this.buffer.length
+    while (capacity < needed) capacity *= 2
+    const grown = new Uint8Array(capacity)
+    grown.set(this.buffer.subarray(0, this.length))
+    this.buffer = grown
+  }
 
   writeByte(v: number): void {
-    this.buffer.push(v & 0xFF)
+    this.reserve(1)
+    this.buffer[this.length] = v & 0xFF
+    this.length += 1
   }
 
   writeShort(v: number): void {
-    this.buffer.push((v >>> 8) & 0xFF)
-    this.buffer.push(v & 0xFF)
+    this.reserve(2)
+    this.buffer[this.length] = (v >>> 8) & 0xFF
+    this.buffer[this.length + 1] = v & 0xFF
+    this.length += 2
   }
 
   writeBytes(data: number[] | Uint8Array): void {
+    this.reserve(data.length)
+    if (data instanceof Uint8Array) {
+      this.buffer.set(data, this.length)
+      this.length += data.length
+      return
+    }
     for (const byte of data) {
-      this.buffer.push(byte)
+      this.buffer[this.length] = byte
+      this.length += 1
     }
   }
 
@@ -49,9 +77,7 @@ export class CpmBinaryWriter {
   }
 
   private angleShort(v: number): number {
-    let deg = v
-    while (deg < 0) deg += 360
-    while (deg >= 360) deg -= 360
+    const deg = wrapAngle360(v)
     return Math.max(0, Math.min(65535, Math.round(deg / 360 * 65535)))
   }
 
@@ -60,20 +86,36 @@ export class CpmBinaryWriter {
   }
 
   writeUTF(value: string): void {
-    const bytes: number[] = []
+    let byteCount = 0
     for (let i = 0; i < value.length; i++) {
       const code = value.charCodeAt(i)
       if (code >= 0x0001 && code <= 0x007F) {
-        bytes.push(code)
+        byteCount += 1
       } else if (code === 0 || (code >= 0x0080 && code <= 0x07FF)) {
-        bytes.push(0xC0 | ((code >> 6) & 0x1F), 0x80 | (code & 0x3F))
+        byteCount += 2
       } else {
-        bytes.push(0xE0 | ((code >> 12) & 0x0F), 0x80 | ((code >> 6) & 0x3F), 0x80 | (code & 0x3F))
+        byteCount += 3
       }
     }
-    if (bytes.length > 0xFFFF) throw new Error('Строка не помещается в формат UTF')
-    this.writeShort(bytes.length)
-    this.writeBytes(bytes)
+    if (byteCount > 0xFFFF) throw new Error('Строка не помещается в формат UTF')
+    this.writeShort(byteCount)
+    this.reserve(byteCount)
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i)
+      if (code >= 0x0001 && code <= 0x007F) {
+        this.buffer[this.length] = code
+        this.length += 1
+      } else if (code === 0 || (code >= 0x0080 && code <= 0x07FF)) {
+        this.buffer[this.length] = 0xC0 | ((code >> 6) & 0x1F)
+        this.buffer[this.length + 1] = 0x80 | (code & 0x3F)
+        this.length += 2
+      } else {
+        this.buffer[this.length] = 0xE0 | ((code >> 12) & 0x0F)
+        this.buffer[this.length + 1] = 0x80 | ((code >> 6) & 0x3F)
+        this.buffer[this.length + 2] = 0x80 | (code & 0x3F)
+        this.length += 3
+      }
+    }
   }
 
   writeObjectBlock(ordinal: number, writeFn: (writer: CpmBinaryWriter) => void): void {
@@ -86,7 +128,7 @@ export class CpmBinaryWriter {
   }
 
   toArray(): Uint8Array {
-    return new Uint8Array(this.buffer)
+    return this.buffer.slice(0, this.length)
   }
 }
 

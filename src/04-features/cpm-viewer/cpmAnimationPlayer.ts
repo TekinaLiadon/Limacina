@@ -433,8 +433,9 @@ export class CpmAnimationPlayer {
     this.clocks.forEach((clock) => {
       if (clock.speed === clamped) return
       if (clock.playing) {
-        const virtualElapsed = Math.max(0, (performance.now() - clock.startedAt) * clock.speed - clock.delayMs)
-        clock.startedAt = performance.now() - virtualElapsed / clamped
+        const now = performance.now()
+        const virtualElapsed = (now - clock.startedAt) * clock.speed - clock.delayMs
+        clock.startedAt = now - (virtualElapsed + clock.delayMs) / clamped
       }
       clock.speed = clamped
     })

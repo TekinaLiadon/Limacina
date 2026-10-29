@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { nextTick, ref, type Ref } from 'vue'
 import { createBackoffPoller } from '../createBackoffPoller'
+import { withSetup } from '@/test-support/withSetup'
 
 const OK_INTERVAL_MS = 1_000
 const MAX_INTERVAL_MS = 8_000
@@ -11,6 +12,7 @@ interface HarnessOptions {
 
 interface Harness {
   project: Ref<string | null>
+  poller: { startSync: () => void; stop: () => void }
   fetch: Mock<(name: string) => Promise<string>>
   applySuccess: Mock<(result: string) => void>
   applyError: Mock<() => void>
@@ -48,7 +50,7 @@ function setupHarness(options: HarnessOptions = {}): Harness {
   const poller = createBackoffPoller<string>(config)
   poller.startSync()
 
-  return { project, fetch, applySuccess, applyError, applyIdle, onFailureStreak, state }
+  return { project, poller, fetch, applySuccess, applyError, applyIdle, onFailureStreak, state }
 }
 
 describe('createBackoffPoller', () => {
@@ -387,5 +389,96 @@ describe('createBackoffPoller', () => {
     await vi.advanceTimersByTimeAsync(OK_INTERVAL_MS * 2)
     expect(harness.fetch).toHaveBeenCalledTimes(2)
     expect(harness.onFailureStreak).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops the chain and the project watch on stop and allows restart', async () => {
+    const harness = setupHarness()
+    harness.fetch.mockResolvedValue('ok')
+
+    harness.project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+
+    harness.poller.stop()
+    await vi.advanceTimersByTimeAsync(MAX_INTERVAL_MS * 3)
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+
+    harness.project.value = 'proj-2'
+    await nextTick()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(1)
+
+    harness.poller.startSync()
+    await flushJobs()
+    expect(harness.fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('discards an in-flight result when stop lands mid-cycle', async () => {
+    const project = ref<string | null>('proj')
+    const fetch = vi.fn<(name: string) => Promise<string>>()
+    const applySuccess = vi.fn<(result: string) => void>()
+    let releaseFetch: (value: string) => void = () => {}
+    fetch.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseFetch = resolve
+        }),
+    )
+
+    const poller = createBackoffPoller<string>({
+      okIntervalMs: OK_INTERVAL_MS,
+      maxIntervalMs: MAX_INTERVAL_MS,
+      watchSource: () => project.value,
+      isWatched: () => project.value !== null,
+      fetch: () => fetch(project.value ?? ''),
+      applySuccess,
+      applyIdle: vi.fn<() => void>(),
+    })
+    poller.startSync()
+    await flushJobs()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    poller.stop()
+    releaseFetch('late')
+    await flushJobs()
+    await vi.advanceTimersByTimeAsync(MAX_INTERVAL_MS * 3)
+
+    expect(applySuccess).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops automatically when the caller scope disposes', async () => {
+    const project = ref<string | null>(null)
+    const fetch = vi.fn<(name: string) => Promise<string>>()
+    const applySuccess = vi.fn<(result: string) => void>()
+    fetch.mockResolvedValue('ok')
+
+    const poller = createBackoffPoller<string>({
+      okIntervalMs: OK_INTERVAL_MS,
+      maxIntervalMs: MAX_INTERVAL_MS,
+      watchSource: () => project.value,
+      isWatched: () => project.value !== null,
+      fetch: () => fetch(project.value ?? ''),
+      applySuccess,
+      applyIdle: vi.fn<() => void>(),
+    })
+    const { unmount } = withSetup((): void => {
+      poller.startSync()
+    })
+
+    project.value = 'proj'
+    await nextTick()
+    await flushJobs()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    unmount()
+    await vi.advanceTimersByTimeAsync(MAX_INTERVAL_MS * 3)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    project.value = 'proj-2'
+    await nextTick()
+    await flushJobs()
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

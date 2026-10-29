@@ -223,21 +223,6 @@ describe('Mods', () => {
     wrapper.unmount()
   })
 
-  it('reloads the first page when the filters change', async () => {
-    const wrapper = mountMods()
-    loadPage.mockClear()
-
-    sort.value = 'downloads'
-    await nextTick()
-    expect(loadPage).toHaveBeenCalledWith(1)
-
-    categories.value = ['optimization']
-    await nextTick()
-    expect(loadPage).toHaveBeenCalledTimes(2)
-
-    wrapper.unmount()
-  })
-
   it('asks for the first page again through the feature action', async () => {
     const wrapper = mountMods()
     loadPage.mockClear()

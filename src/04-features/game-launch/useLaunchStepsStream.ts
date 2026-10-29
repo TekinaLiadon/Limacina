@@ -81,8 +81,6 @@ export function useLaunchStepsStream(): {
 
       if (!drainNextEvent()) break
     }
-
-    launch.recomputeProgress()
   }
 
   const clearQueueState = (): void => {
@@ -139,7 +137,6 @@ export function useLaunchStepsStream(): {
     while (eventQueue.length > 0) {
       if (!drainNextEvent()) break
     }
-    launch.recomputeProgress()
   }
 
   const startLaunchStepsStream = async (): Promise<void> => {

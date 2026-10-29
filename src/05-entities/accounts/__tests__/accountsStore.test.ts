@@ -38,6 +38,17 @@ describe('useAccountsStore', () => {
     expect(store.isLoggedIn).toBe(true)
   })
 
+  it('derives isLoggedIn from the stored session', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.session = { uuid: 'u1', username: 'Steve' }
+    expect(store.isLoggedIn).toBe(true)
+
+    store.session = null
+
+    expect(store.isLoggedIn).toBe(false)
+  })
+
   it('clearSessionState resets the session fields together', () => {
     setActivePinia(createPinia())
     const store = useAccountsStore()
@@ -47,6 +58,26 @@ describe('useAccountsStore', () => {
 
     expect(store.isLoggedIn).toBe(false)
     expect(store.session).toBeNull()
+  })
+
+  it('applySession clears the stale select error', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.errorMessage = 'Нет сохранённых учётных данных'
+
+    store.applySession({ uuid: 'u1', username: 'Steve' })
+
+    expect(store.errorMessage).toBe('')
+  })
+
+  it('clearSessionState clears the stale select error', () => {
+    setActivePinia(createPinia())
+    const store = useAccountsStore()
+    store.errorMessage = 'Нет сохранённых учётных данных'
+
+    store.clearSessionState()
+
+    expect(store.errorMessage).toBe('')
   })
 
   it('closes the auth form and wipes the login password', () => {

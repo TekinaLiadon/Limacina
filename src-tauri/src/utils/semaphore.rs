@@ -9,14 +9,14 @@ use tokio::{
 use crate::utils::errors::LauncherError;
 use crate::{log_err, log_info};
 pub(crate) const MAX_CONCURRENT_DOWNLOADS: usize = 15;
-const MAX_RETRIES: usize = 4;
+pub(crate) const MAX_RETRIES: usize = 4;
 
 pub struct SemaphoreInfo {
     pub url: String,
     pub dest: PathBuf,
 }
 
-fn is_retryable_failure(error: &Error) -> bool {
+pub(crate) fn is_retryable_failure(error: &Error) -> bool {
     error.chain().any(|cause| {
         if let Some(typed) = cause.downcast_ref::<LauncherError>() {
             match typed {
@@ -48,7 +48,7 @@ fn jitter_fraction(url: &str, attempt: usize) -> f64 {
     f64::from((hash % 1000) as u16) / 1000.0
 }
 
-fn retry_delay(attempt: usize, url: &str) -> Duration {
+pub(crate) fn retry_delay(attempt: usize, url: &str) -> Duration {
     let base_ms = 1000_u64 * 2_u64.pow(attempt as u32);
     let scaled = 0.5 + 0.5 * jitter_fraction(url, attempt);
     Duration::from_millis((base_ms as f64 * scaled) as u64)
@@ -87,20 +87,15 @@ where
                 }
             };
             let start_time = Instant::now();
-            let mut final_result = Err(LauncherError::Download(format!(
-                "Не удалось скачать файл после {MAX_RETRIES} попыток"
-            ))
-            .into());
-
-            for attempt in 1..=MAX_RETRIES {
+            let mut attempt = 1usize;
+            let final_result: Result<(), Error> = loop {
                 match download_fn(el.url.clone(), path.clone()).await {
                     Ok(_) => {
                         log_info!("[semaphore] Успешно скачан: {}", el.url);
                         if let Some(ref cb) = on_done {
                             cb(&el.url);
                         }
-                        final_result = Ok(());
-                        break;
+                        break Ok(());
                     }
                     Err(e) if attempt < MAX_RETRIES && is_retryable_failure(&e) => {
                         log_err!(
@@ -118,6 +113,7 @@ where
                             el.url
                         );
                         sleep(delay).await;
+                        attempt += 1;
                     }
 
                     Err(e) => {
@@ -128,11 +124,15 @@ where
                             MAX_RETRIES,
                             e
                         );
-                        final_result = Err(e);
-                        break;
+                        if attempt >= MAX_RETRIES {
+                            break Err(e.context(format!(
+                                "Не удалось скачать файл после {MAX_RETRIES} попыток"
+                            )));
+                        }
+                        break Err(e);
                     }
                 }
-            }
+            };
 
             let elapsed = start_time.elapsed();
             let min_duration = Duration::from_millis(100);
@@ -257,6 +257,7 @@ mod semaphore_core_tests {
     use super::retry_classification_tests::http_status;
     use super::{semaphore_core, SemaphoreInfo};
     use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -349,5 +350,39 @@ mod semaphore_core_tests {
     fn http_status_failing(url: &str) -> anyhow::Error {
         let _ = url;
         http_status(404)
+    }
+
+    #[tokio::test]
+    async fn exhausted_retries_mention_attempt_count() {
+        let guard = LauncherDirGuard::acquire("semaphore_exhausted").await;
+        let base = guard.root().to_path_buf();
+
+        let futures = semaphore_core(
+            base,
+            vec![info("u1", "a.txt")],
+            move |_url, _dest| async move {
+                Err::<(), anyhow::Error>(
+                    LauncherError::Download("обрыв соединения".to_string()).into(),
+                )
+            },
+            None::<fn(&str)>,
+        );
+        let results = futures::future::join_all(futures).await;
+
+        let error = results
+            .into_iter()
+            .next()
+            .expect("результат скачивания")
+            .expect_err("исчерпание попыток должно давать ошибку");
+        assert!(
+            error.to_string().contains("после 4 попыток"),
+            "ошибка должна называть число попыток: {error}"
+        );
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string().contains("обрыв соединения")),
+            "исходная ошибка должна сохраниться в цепочке: {error:#}"
+        );
     }
 }

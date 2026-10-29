@@ -82,6 +82,7 @@ export interface ProjectConfig {
   jvmArgs: string[]
   minMemory: string
   maxMemory: string
+  cpuCores: number | null
   online: boolean
   initialized: boolean
   serverUrl: string | null
@@ -182,5 +183,5 @@ export interface SavePlayerModelPayload {
   url: string | null
   modelId: number | null
   slim: boolean
-  data: number[] | null
+  data: Uint8Array | null
 }

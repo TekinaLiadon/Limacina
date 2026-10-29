@@ -90,15 +90,47 @@ export function useThreeScene(
     ctrl.autoRotateSpeed = autoRotateSpeed
     orbitControls = ctrl
 
-    const animate = (): void => {
-      animationId = requestAnimationFrame(animate)
-      ctrl.update()
-      r.render(s, cam)
+    updateRenderLoop()
+  }
+
+  function renderTick(): void {
+    const r = renderer.value
+    const s = scene.value
+    const cam = camera.value
+    if (r === null || s === null || cam === null || orbitControls === null) {
+      animationId = 0
+      return
     }
-    animate()
+    animationId = requestAnimationFrame(renderTick)
+    orbitControls.update()
+    r.render(s, cam)
+  }
+
+  const isSceneActive = (): boolean => {
+    const el = container.value
+    if (el === null || el.clientWidth === 0 || el.clientHeight === 0) return false
+    if (renderer.value === null || camera.value === null || orbitControls === null) return false
+    return document.visibilityState === 'visible'
+  }
+
+  const startRenderLoop = (): void => {
+    if (animationId !== 0) return
+    animationId = requestAnimationFrame(renderTick)
+  }
+
+  const stopRenderLoop = (): void => {
+    if (animationId === 0) return
+    cancelAnimationFrame(animationId)
+    animationId = 0
+  }
+
+  const updateRenderLoop = (): void => {
+    if (isSceneActive()) startRenderLoop()
+    else stopRenderLoop()
   }
 
   function onResize(): void {
+    updateRenderLoop()
     if (!container.value || !camera.value || !renderer.value) return
     const w = container.value.clientWidth
     const h = container.value.clientHeight
@@ -109,10 +141,11 @@ export function useThreeScene(
   }
 
   function cleanup(): void {
-    cancelAnimationFrame(animationId)
+    stopRenderLoop()
     themeObserver?.disconnect()
     themeObserver = null
     window.removeEventListener('resize', onResize)
+    document.removeEventListener('visibilitychange', updateRenderLoop)
     resizeObserver?.disconnect()
     resizeObserver = null
     orbitControls?.dispose()
@@ -136,6 +169,7 @@ export function useThreeScene(
     })
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     window.addEventListener('resize', onResize)
+    document.addEventListener('visibilitychange', updateRenderLoop)
     if (container.value) {
       resizeObserver = new ResizeObserver(onResize)
       resizeObserver.observe(container.value)

@@ -14,7 +14,7 @@ describe('useSettingsNav', () => {
     core.projectConfig = makeProjectConfig()
     store.isLoaded = true
     store.config.initialized = true
-    useAccountsStore().isLoggedIn = true
+    useAccountsStore().session = { uuid: 'u-1', username: 'user' }
 
     const items = setupNav().items.value
 

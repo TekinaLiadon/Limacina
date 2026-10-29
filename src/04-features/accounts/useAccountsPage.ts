@@ -7,7 +7,7 @@ import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsSt
 import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { deleteAccount, getErrorMessage, getGameState } from '@/06-shared/api'
-import { reportError, storeBinding, useAsyncAction } from '@/06-shared'
+import { captureProjectScope, reportError, storeBinding, useAsyncAction } from '@/06-shared'
 import { finalizeSession } from './finalizeSession'
 
 export function useAccountsPage() {
@@ -58,11 +58,13 @@ export function useAccountsPage() {
       notificationStore.show('Идёт переключение проекта, запуск невозможен')
       return
     }
+    const sessionCheckGeneration = launch.launchGeneration
     try {
       const usernames = await getGameState()
-      if (launch.isLaunching || isSwitching.value) return
-      if (activeUsername !== null && usernames.includes(activeUsername)) {
-        launch.gameUsernames = usernames
+      if (!launch.isCurrent(sessionCheckGeneration) || isSwitching.value) return
+      launch.setGameSessions(usernames)
+      const sessionUsername = store.session?.username ?? null
+      if (sessionUsername !== null && usernames.includes(sessionUsername)) {
         notificationStore.show('Этот аккаунт уже в игре')
         return
       }
@@ -120,6 +122,10 @@ export function useAccountsPage() {
 
   const goToAccounts = async (): Promise<void> => {
     launch.invalidateGeneration()
+    if (launch.isLaunchCommitted) {
+      store.closeAuthForm()
+      return
+    }
     if (launch.isLaunching && !launch.launchInterrupted) {
       launch.setCancelPending(true)
       return
@@ -148,8 +154,10 @@ export function useAccountsPage() {
     const confirmed = await notificationStore.confirm(`Вы хотите удалить аккаунт ${username}?`)
     if (!confirmed) return
 
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     await deleteAccountAction.run(async () => {
-      await deleteAccount(coreStore.currentProject, username)
+      await deleteAccount(scope.project, username)
+      if (!scope.isCurrent()) return
       if (store.session?.username === username) {
         await finalizeSession()
         store.selectedUsername = ''

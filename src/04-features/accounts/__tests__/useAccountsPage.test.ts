@@ -1,13 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { authLogins, clearSession, deleteAccount, getGameState, getSessionInfo, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
+import {
+  authLogins,
+  clearSession,
+  deleteAccount,
+  downloadJava,
+  downloadMinecraft,
+  exitLauncher,
+  getGameState,
+  getSessionInfo,
+  initializeProject,
+  loadInstallJournal,
+  loadSettingsProject,
+  saveCurrentProject,
+  setInitialized,
+  startMinecraft,
+} from '@/06-shared/api'
 import {
   useAccountsStore,
   useCoreStore,
   useLaunchStore,
   useNotificationStore,
   useServerStore,
+  type ProjectConfig,
+  type StepProgressItem,
 } from '@/05-entities'
 import { useAccountsPage } from '../useAccountsPage'
 import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
@@ -18,6 +35,13 @@ const stubs = vi.hoisted(() => ({
   executeSteps: vi.fn(),
   sendSystemNotification: vi.fn(),
   isIntegrityCheckRunning: vi.fn(),
+  useRealGameLaunch: false,
+}))
+
+const streamStubs = vi.hoisted(() => ({
+  prefillLaunchSteps: vi.fn(),
+  resetLaunchSteps: vi.fn(),
+  flushLaunchSteps: vi.fn(),
 }))
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -25,22 +49,39 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   authLogins: vi.fn(),
   clearSession: vi.fn(),
   deleteAccount: vi.fn(),
+  downloadJava: vi.fn(),
+  downloadMinecraft: vi.fn(),
+  exitLauncher: vi.fn(),
   getGameState: vi.fn(),
   getSessionInfo: vi.fn(),
+  initializeProject: vi.fn(),
   listenGameExit: vi.fn(async (): Promise<() => void> => () => {}),
   listenGameStarted: vi.fn(async (): Promise<() => void> => () => {}),
+  loadInstallJournal: vi.fn(),
   loadSettingsProject: vi.fn(),
   saveCurrentProject: vi.fn(),
+  setInitialized: vi.fn(),
+  startMinecraft: vi.fn(),
 }))
 
-vi.mock('@/04-features/game-launch/useGameLaunch', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/04-features/game-launch/useGameLaunch')>()),
-  useGameLaunch: () => ({
-    launchSteps: computed((): [] => []),
-    activeProgress: computed((): number => 0),
-    executeSteps: stubs.executeSteps,
-  }),
+vi.mock('@/04-features/game-launch/useLaunchStepsStream', () => ({
+  useLaunchStepsStream: () => streamStubs,
 }))
+
+vi.mock('@/04-features/game-launch/useGameLaunch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/04-features/game-launch/useGameLaunch')>()
+  return {
+    ...actual,
+    useGameLaunch: (): ReturnType<typeof actual.useGameLaunch> =>
+      stubs.useRealGameLaunch
+        ? actual.useGameLaunch()
+        : {
+            launchSteps: computed((): StepProgressItem[] => []),
+            activeProgress: computed((): number => 0),
+            executeSteps: stubs.executeSteps,
+          },
+  }
+})
 
 vi.mock('@/04-features/integrity-check/useIntegrityCheck', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/04-features/integrity-check/useIntegrityCheck')>()),
@@ -63,13 +104,25 @@ describe('useAccountsPage', () => {
     stubs.sendSystemNotification.mockReset()
     stubs.isIntegrityCheckRunning.mockReset()
     stubs.isIntegrityCheckRunning.mockReturnValue(false)
+    stubs.useRealGameLaunch = false
+    streamStubs.flushLaunchSteps.mockReset()
+    streamStubs.prefillLaunchSteps.mockReset()
+    streamStubs.resetLaunchSteps.mockReset()
+    streamStubs.flushLaunchSteps.mockResolvedValue(undefined)
     vi.mocked(authLogins).mockReset()
     vi.mocked(clearSession).mockReset()
     vi.mocked(deleteAccount).mockReset()
+    vi.mocked(downloadJava).mockReset()
+    vi.mocked(downloadMinecraft).mockReset()
+    vi.mocked(exitLauncher).mockReset()
     vi.mocked(getGameState).mockReset()
     vi.mocked(getSessionInfo).mockReset()
+    vi.mocked(initializeProject).mockReset()
+    vi.mocked(loadInstallJournal).mockReset()
     vi.mocked(loadSettingsProject).mockReset()
     vi.mocked(saveCurrentProject).mockReset()
+    vi.mocked(setInitialized).mockReset()
+    vi.mocked(startMinecraft).mockReset()
     vi.mocked(authLogins).mockResolvedValue([])
     vi.mocked(getSessionInfo).mockResolvedValue(null)
     vi.mocked(getGameState).mockResolvedValue([])
@@ -178,6 +231,60 @@ describe('useAccountsPage', () => {
     expect(stubs.executeSteps).not.toHaveBeenCalled()
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useNotificationStore().message).toBe('Не удалось проверить состояние игры, запуск заблокирован')
+  })
+
+  it('aborts the launch when the user leaves to the accounts view during the session check', async () => {
+    let resolveState: (usernames: string[]) => void = () => {}
+    vi.mocked(getGameState).mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveState = resolve
+        }),
+    )
+    const page = setupPage()
+
+    const pending = page.handleLaunch()
+    await vi.waitFor(() => expect(getGameState).toHaveBeenCalledTimes(1))
+    await page.goToAccounts()
+    resolveState([])
+    await pending
+
+    expect(stubs.executeSteps).not.toHaveBeenCalled()
+    expect(useLaunchStore().isLaunching).toBe(false)
+    expect(useNotificationStore().message).toBe('')
+  })
+
+  it('re-checks the active username after the session check resolves', async () => {
+    useAccountsStore().session = { username: 'alice', uuid: 'uuid-alice' }
+    let resolveState: (usernames: string[]) => void = () => {}
+    vi.mocked(getGameState).mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveState = resolve
+        }),
+    )
+    stubs.executeSteps.mockResolvedValueOnce(undefined)
+    const page = setupPage()
+
+    const pending = page.handleLaunch()
+    await vi.waitFor(() => expect(getGameState).toHaveBeenCalledTimes(1))
+    useAccountsStore().session = { username: 'bob', uuid: 'uuid-bob' }
+    resolveState(['alice'])
+    await pending
+
+    expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies the fresh session list even when the launch proceeds', async () => {
+    useLaunchStore().gameUsernames = ['ghost']
+    vi.mocked(getGameState).mockResolvedValue(['carol'])
+    stubs.executeSteps.mockResolvedValueOnce(undefined)
+    const page = setupPage()
+
+    await page.handleLaunch()
+
+    expect(useLaunchStore().gameUsernames).toEqual(['carol'])
+    expect(stubs.executeSteps).toHaveBeenCalledTimes(1)
   })
 
   it('returns to the accounts view and restores the session screen on the next launch', async () => {
@@ -346,6 +453,124 @@ describe('useAccountsPage', () => {
     expect(useAccountsStore().selectedUsername).toBe('')
   })
 
+  describe('with the real launch pipeline', () => {
+    it('keeps the running game session when the cancel lands during install finalization', async () => {
+      stubs.useRealGameLaunch = true
+      vi.mocked(initializeProject).mockResolvedValue(
+        makeProjectConfig({ online: false, initialized: false }),
+      )
+      vi.mocked(loadInstallJournal).mockResolvedValue([])
+      let releaseInitialized: (config: ProjectConfig) => void = () => {}
+      vi.mocked(setInitialized).mockImplementation(
+        () =>
+          new Promise<ProjectConfig>((resolve) => {
+            releaseInitialized = resolve
+          }),
+      )
+      const page = setupPage()
+
+      const pending = page.handleLaunch()
+      await vi.waitFor(() => expect(setInitialized).toHaveBeenCalledTimes(1))
+      await page.goToAccounts()
+      expect(useLaunchStore().isCancelPending).toBe(false)
+      expect(clearSession).not.toHaveBeenCalled()
+
+      releaseInitialized(makeProjectConfig({ online: false, initialized: true }))
+      await pending
+
+      expect(startMinecraft).toHaveBeenCalledTimes(1)
+      expect(clearSession).not.toHaveBeenCalled()
+      expect(useLaunchStore().isLaunching).toBe(false)
+      expect(useLaunchStore().isLaunchCommitted).toBe(true)
+      expect(useCoreStore().projectConfig?.initialized).toBe(true)
+    })
+
+    it('keeps the running game session when the cancel lands during the step flush', async () => {
+      stubs.useRealGameLaunch = true
+      vi.mocked(initializeProject).mockResolvedValue(
+        makeProjectConfig({ online: false, initialized: true }),
+      )
+      let releaseFlush: () => void = () => {}
+      streamStubs.flushLaunchSteps.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseFlush = resolve
+          }),
+      )
+      const page = setupPage()
+
+      const pending = page.handleLaunch()
+      await vi.waitFor(() => expect(streamStubs.flushLaunchSteps).toHaveBeenCalledTimes(1))
+      await page.goToAccounts()
+      expect(useLaunchStore().isCancelPending).toBe(false)
+
+      releaseFlush()
+      await pending
+
+      expect(startMinecraft).toHaveBeenCalledTimes(1)
+      expect(clearSession).not.toHaveBeenCalled()
+      expect(useLaunchStore().isLaunching).toBe(false)
+    })
+
+    it('keeps the session when the launch completes after a cancel during the process start', async () => {
+      stubs.useRealGameLaunch = true
+      vi.mocked(initializeProject).mockResolvedValue(
+        makeProjectConfig({ online: false, initialized: true }),
+      )
+      let releaseStart: () => void = () => {}
+      vi.mocked(startMinecraft).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseStart = resolve
+          }),
+      )
+      const page = setupPage()
+
+      const pending = page.handleLaunch()
+      await vi.waitFor(() => expect(startMinecraft).toHaveBeenCalledTimes(1))
+      await page.goToAccounts()
+      expect(useLaunchStore().isCancelPending).toBe(true)
+
+      releaseStart()
+      await pending
+
+      expect(clearSession).not.toHaveBeenCalled()
+      expect(useLaunchStore().isCancelPending).toBe(false)
+      expect(useLaunchStore().isLaunching).toBe(false)
+    })
+
+    it('finalizes the cancellation before the game process starts', async () => {
+      stubs.useRealGameLaunch = true
+      vi.mocked(initializeProject).mockResolvedValue(
+        makeProjectConfig({ online: false, initialized: false }),
+      )
+      vi.mocked(loadInstallJournal).mockResolvedValue([])
+      let releaseJava: () => void = () => {}
+      vi.mocked(downloadJava).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseJava = resolve
+          }),
+      )
+      useAccountsStore().selectedUsername = 'alice'
+      const page = setupPage()
+
+      const pending = page.handleLaunch()
+      await vi.waitFor(() => expect(downloadJava).toHaveBeenCalledTimes(1))
+      await page.goToAccounts()
+      expect(useLaunchStore().isCancelPending).toBe(true)
+
+      releaseJava()
+      await pending
+
+      expect(startMinecraft).not.toHaveBeenCalled()
+      expect(clearSession).toHaveBeenCalledTimes(1)
+      expect(useLaunchStore().isLaunching).toBe(false)
+      expect(useAccountsStore().showAuthForm).toBe(false)
+      expect(useAccountsStore().selectedUsername).toBe('')
+    })
+  })
+
   it('shows the auth form instead of cancelling an idle page', async () => {
     const accounts = useAccountsStore()
     accounts.showAuthForm = true
@@ -362,7 +587,6 @@ describe('useAccountsPage', () => {
   it('deletes the account after confirmation and clears the active session', async () => {
     const accountsStore = useAccountsStore()
     accountsStore.session = { uuid: 'u-1', username: 'alice' }
-    accountsStore.isLoggedIn = true
     vi.mocked(deleteAccount).mockResolvedValue(undefined)
     vi.mocked(clearSession).mockResolvedValue(undefined)
     vi.mocked(authLogins).mockResolvedValue([])
@@ -378,6 +602,41 @@ describe('useAccountsPage', () => {
     expect(accountsStore.isLoggedIn).toBe(false)
     expect(useAccountsStore().selectedUsername).toBe('')
     expect(useNotificationStore().message).toBe('Аккаунт удалён')
+  })
+
+  it('keeps the switched project session when the project changes while the deletion is in flight', async () => {
+    const core = useCoreStore()
+    const accountsStore = useAccountsStore()
+    accountsStore.session = { uuid: 'u-old', username: 'alice' }
+    accountsStore.selectedUsername = 'alice'
+    vi.mocked(authLogins).mockResolvedValue([])
+    let switchDuringDelete: () => void = () => {}
+    vi.mocked(deleteAccount).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          switchDuringDelete = (): void => {
+            core.currentProject = 'beta'
+            accountsStore.session = { uuid: 'u-new', username: 'alice' }
+            resolve()
+          }
+        }),
+    )
+    const page = setupPage()
+
+    const pending = page.handleDeleteAccount('alice')
+    useNotificationStore().resolvePopup(true)
+    await vi.waitFor(() => expect(deleteAccount).toHaveBeenCalledTimes(1))
+    const loginsCallsBefore = vi.mocked(authLogins).mock.calls.length
+    switchDuringDelete()
+    await pending
+
+    expect(deleteAccount).toHaveBeenCalledWith('proj', 'alice')
+    expect(clearSession).not.toHaveBeenCalled()
+    expect(accountsStore.session).toEqual({ uuid: 'u-new', username: 'alice' })
+    expect(accountsStore.isLoggedIn).toBe(true)
+    expect(accountsStore.selectedUsername).toBe('alice')
+    expect(vi.mocked(authLogins).mock.calls.length).toBe(loginsCallsBefore)
+    expect(useNotificationStore().message).toBe('')
   })
 
   it('keeps the account when the confirmation is declined', async () => {

@@ -11,6 +11,7 @@ const {
   isLoading,
   loadError,
   maxMemoryLimit,
+  availableCpuCores,
   jvmArgsError,
   isSaving,
   isClearingConfig,
@@ -55,9 +56,11 @@ const handleJavaReplaced = (): Promise<void> => loadConfig(coreStore.currentProj
     <ProjectRun
       v-model:memory-range="config.memoryRange"
       v-model:jvm-args="config.jvmArgs"
+      v-model:cpu-cores="config.cpuCores"
       :java-version="config.javaVersion"
       :max-memory-limit="maxMemoryLimit"
       :jvm-args-error="jvmArgsError"
+      :available-cpu-cores="availableCpuCores"
     />
 
     <ProjectJava

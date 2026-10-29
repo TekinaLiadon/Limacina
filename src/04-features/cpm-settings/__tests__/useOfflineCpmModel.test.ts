@@ -81,8 +81,10 @@ describe('useOfflineCpmModel', () => {
       url: null,
       modelId: null,
       slim: false,
-      data: [1, 2, 3],
+      data: new Uint8Array([1, 2, 3]),
     })
+    const [, payload] = vi.mocked(savePlayerModel).mock.calls[0]!
+    expect(payload.data).toBeInstanceOf(Uint8Array)
     expect(useNotificationStore().message).toBe('Модель сохранена в игру')
     expect(offline.isSaving.value).toBe(false)
   })
@@ -102,7 +104,7 @@ describe('useOfflineCpmModel', () => {
       { animations: [] },
     )
     expect(exporter.cpmProjectToBytes).not.toHaveBeenCalled()
-    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ data: [5, 6] }))
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ data: new Uint8Array([5, 6]) }))
     expect(useNotificationStore().message).toBe('Модель сохранена в игру')
     expect(offline.isSaving.value).toBe(false)
   })
@@ -156,7 +158,7 @@ describe('useOfflineCpmModel', () => {
     releaseBytes(new Uint8Array([1, 2, 3]))
     await saving
 
-    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ data: [1, 2, 3] }))
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ data: new Uint8Array([1, 2, 3]) }))
     expect(useNotificationStore().message).not.toBe('Модель сохранена в игру')
     expect(offline.isSaving.value).toBe(false)
   })

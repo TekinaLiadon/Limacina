@@ -53,6 +53,9 @@ const identityTransfer = <T>(defaultValue: T): FieldTransfer<T> => ({
 const MAX_SPEED_LIMIT_KBPS = 10_000_000
 const SPEED_LIMIT_ERROR = `Ограничение скорости: целое число от 1 до ${MAX_SPEED_LIMIT_KBPS} КБ/с`
 
+const CHANGE_LAUNCHER_PATH_CONFIRM =
+  'Сменить папку установки? Файлы игры, Java и профили останутся в прежней папке и будут скачаны заново'
+
 const isSpeedLimitValid = (value: number | null): boolean =>
   value === null ||
   (Number.isSafeInteger(value) && value >= 1 && value <= MAX_SPEED_LIMIT_KBPS)
@@ -269,6 +272,15 @@ export function useLauncherSettings(): {
       return
     }
     await saveAction.run(async () => {
+      const savedLauncherPath = coreStore.launcherConfig?.launcherPath
+      if (savedLauncherPath !== undefined && launcherPath.value !== savedLauncherPath) {
+        const confirmed = await notification.confirm(CHANGE_LAUNCHER_PATH_CONFIRM)
+        if (!confirmed) {
+          launcherPath.value = savedLauncherPath
+          return
+        }
+      }
+
       const startWithSystemDirty = dirtyState.isFieldDirty('startWithSystem')
       const osState = startWithSystemDirty
         ? await applyStartWithSystem(behaviorForm.value.startWithSystem)
@@ -291,7 +303,10 @@ export function useLauncherSettings(): {
         coreStore.patchLauncherConfig({ launcherPath: savedConfig.launcherPath })
       }
 
-      dirtyState.captureBaseline()
+      dirtyState.captureBaselineFrom({
+        launcherPath: launcherPath.value,
+        ...settingsPayload,
+      })
       notification.show('Настройки сохранены')
     })
   }

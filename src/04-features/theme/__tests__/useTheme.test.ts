@@ -278,4 +278,22 @@ describe('useTheme', () => {
     expect(theme.isSwitching.value).toBe(true)
     expect(api.saveTheme).toHaveBeenCalledWith('lime-light')
   })
+
+  it('clears the pending switch timer when the consumer scope disposes', async () => {
+    prepareStore('default', 'dark', true)
+    const { useTheme } = await import('../useTheme')
+    const { result, unmount } = withSetup(() => useTheme())
+
+    useSettingsStore().setTheme('lime', 'light')
+    await nextTick()
+    expect(result.isSwitching.value).toBe(true)
+
+    unmount()
+    expect(result.isSwitching.value).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('default-dark')
+    expect(result.isSwitching.value).toBe(false)
+  })
 })

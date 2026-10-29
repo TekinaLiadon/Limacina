@@ -155,7 +155,7 @@ describe('useAuth', () => {
 
   it('skips the prefill for an already logged in user', () => {
     const store = useAccountsStore()
-    store.isLoggedIn = true
+    store.session = { uuid: 'u-1', username: 'alice' }
     store.logins = ['alice']
     const { unmount } = setupAuth()
     expect(store.loginFormData.username).toBe('')
@@ -178,6 +178,34 @@ describe('useAuth', () => {
     expect(useNotificationStore().message).toBe('Авторизация прошла успешно')
     expect(auth.isLoading.value).toBe(false)
     expect(auth.errorMessage.value).toBe('')
+    unmount()
+  })
+
+  it('clears the stale select error after a successful login', async () => {
+    fillLoginForm()
+    const store = useAccountsStore()
+    store.errorMessage = 'Нет сохранённых учётных данных для "user", войдите с паролем'
+    vi.mocked(getSessionInfo).mockResolvedValue({ uuid: 'u-1', username: 'user' })
+    vi.mocked(authLogins).mockResolvedValue(['user'])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(store.errorMessage).toBe('')
+    unmount()
+  })
+
+  it('clears the stale select error even when the session command returns null', async () => {
+    fillLoginForm()
+    const store = useAccountsStore()
+    store.errorMessage = 'Нет сохранённых учётных данных для "user", войдите с паролем'
+    vi.mocked(getSessionInfo).mockResolvedValue(null)
+    vi.mocked(authLogins).mockResolvedValue([])
+    const { auth, unmount } = setupAuth()
+
+    await auth.handleLogin()
+
+    expect(store.errorMessage).toBe('')
     unmount()
   })
 

@@ -45,6 +45,23 @@ async fn register_project(state: &Mutex<GlobalState>, project_name: &str) -> Res
     Ok(())
 }
 
+async fn cleanup_unregistered_project(project_name: &str) {
+    if let Err(e) = delete_project_files(project_name).await {
+        log_err!("[profile] Не удалось откатить файлы незарегистрированного профиля {project_name}: {e:#}");
+    }
+}
+
+async fn register_project_or_rollback(
+    state: &Mutex<GlobalState>,
+    config: &ProjectConfig,
+) -> Result<()> {
+    if let Err(e) = register_project(state, &config.project_name).await {
+        cleanup_unregistered_project(&config.project_name).await;
+        return Err(e);
+    }
+    Ok(())
+}
+
 async fn validate_new_project_name(state: &Mutex<GlobalState>, name: &str) -> Result<()> {
     validate_project_name(name)?;
 
@@ -105,7 +122,7 @@ async fn add_server_profile(state: &Mutex<GlobalState>, server_url: &str) -> Res
         config.server_url = Some(base_url);
 
         persist_new_project(&config).await?;
-        register_project(state, &config.project_name).await?;
+        register_project_or_rollback(state, &config).await?;
     }
     activate_project(state, &config).await?;
 
@@ -151,7 +168,7 @@ async fn add_offline_profile(
             .await
             .with_context(|| format!("Не удалось создать папку модов {:?}", mods_dir))?;
 
-        register_project(state, &config.project_name).await?;
+        register_project_or_rollback(state, &config).await?;
         config
     };
     activate_project(state, &config).await?;
@@ -329,6 +346,7 @@ async fn delete_named_project(
     state: &Mutex<GlobalState>,
     project_name: &str,
 ) -> Result<LauncherConfig> {
+    let _launch_guard = crate::state::launch_state::try_acquire_launch_step()?;
     let project_name = validated_project_name(project_name)?;
     let registered = {
         let guard = state.lock().await;
@@ -350,6 +368,12 @@ async fn delete_named_project(
     {
         bail!(LauncherError::ProjectProtected(project_name.to_string()));
     }
+    if let Some(username) = crate::minecraft::process::project_game_username(project_name) {
+        bail!(LauncherError::ProjectGameRunning(
+            project_name.to_string(),
+            username,
+        ));
+    }
 
     let saved_logins = {
         let guard = state.lock().await;
@@ -359,31 +383,40 @@ async fn delete_named_project(
             .map(|c| c.get_logins(project_name))
             .unwrap_or_default()
     };
+
+    let deleting_current = {
+        let guard = state.lock().await;
+        guard.project_config.project_name == project_name
+    };
+    let next_config = if deleting_current {
+        let next_name = {
+            let guard = state.lock().await;
+            guard
+                .launcher_config
+                .as_ref()
+                .and_then(|c| c.project_names.iter().find(|p| *p != project_name).cloned())
+        };
+        Some(match next_name.as_deref() {
+            Some(name) => load_config_or_default(name).await?,
+            None => ProjectConfig::default(),
+        })
+    } else {
+        None
+    };
+    if let Some(next_config) = next_config {
+        set_project_config(state, next_config).await?;
+        let mut guard = state.lock().await;
+        guard.session = None;
+    }
+
+    delete_project_files(project_name).await?;
+
     delete_project_credentials(project_name, saved_logins).await?;
 
     let config = update_launcher_config(state, |config| {
         config.remove_project(project_name);
     })
     .await?;
-
-    delete_project_files(project_name).await?;
-
-    let deleting_current = {
-        let guard = state.lock().await;
-        guard.project_config.project_name == project_name
-    };
-    if deleting_current {
-        let next_project = config.current_project.clone();
-        let next_config = match next_project.as_deref() {
-            Some(name) if !name.is_empty() => load_config_or_default(name).await?,
-            _ => ProjectConfig::default(),
-        };
-        {
-            let mut guard = state.lock().await;
-            guard.session = None;
-        }
-        set_project_config(state, next_config).await?;
-    }
 
     log_info!("[profile] Проект {} удалён", project_name);
     Ok(config)
@@ -550,15 +583,19 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use crate::minecraft::process::{lock_game_registry_tests, TestGameSessionGuard};
     use crate::state::config::{load_config, project_config_write_lock, update_project_config};
     use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
+    use crate::state::launch_state::{lock_launch_step_tests, try_acquire_launch_step};
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
     use crate::utils::errors::LauncherError;
+    use mockito::Server;
     use tokio::sync::Mutex;
 
     use super::{
-        activate_project, add_offline_profile, delete_named_project, delete_project_files,
+        activate_project, add_offline_profile, add_server_profile, delete_named_project,
+        delete_project_files, persist_new_project, register_project_or_rollback,
     };
 
     fn empty_state() -> Mutex<GlobalState> {
@@ -702,6 +739,13 @@ mod tests {
         );
     }
 
+    fn seed_project_mods(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let project_dir = root.join("project").join(name);
+        std::fs::create_dir_all(project_dir.join("mods")).expect("создание папки проекта");
+        std::fs::write(project_dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+        project_dir
+    }
+
     fn state_with_current(project_name: &str) -> GlobalState {
         GlobalState {
             project_config: ProjectConfig {
@@ -749,7 +793,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn delete_switch_survives_parallel_settings_save() {
+        let _step_lock = lock_launch_step_tests();
         let guard = LauncherDirGuard::acquire("delete_switch_race").await;
         let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
         for name in ["Old", "Next"] {
@@ -793,7 +839,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn delete_named_project_targets_the_named_project_not_the_current_one() {
+        let _step_lock = lock_launch_step_tests();
         let guard = LauncherDirGuard::acquire("delete_named_not_current").await;
         let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
         for name in ["Alpha", "Beta"] {
@@ -805,9 +853,7 @@ mod tests {
             .save_config()
             .await
             .expect("сохранение конфига проекта");
-            let dir = guard.root().join("project").join(name);
-            std::fs::create_dir_all(dir.join("mods")).expect("создание папки проекта");
-            std::fs::write(dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+            seed_project_mods(guard.root(), name);
         }
 
         let mut state = state_with_current("Beta");
@@ -868,7 +914,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn delete_named_project_rejects_unknown_name() {
+        let _step_lock = lock_launch_step_tests();
         let guard = LauncherDirGuard::acquire("delete_named_unknown").await;
         let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
         let state = Mutex::new(state_with_current("Beta"));
@@ -892,14 +940,14 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn delete_named_project_aborts_when_toml_removal_fails() {
+        let _step_lock = lock_launch_step_tests();
         use std::os::unix::fs::PermissionsExt;
 
         let guard = LauncherDirGuard::acquire("delete_toml_locked").await;
         let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
-        let project_dir = guard.root().join("project").join("Cordelia");
-        std::fs::create_dir_all(project_dir.join("mods")).expect("создание папки проекта");
-        std::fs::write(project_dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+        let project_dir = seed_project_mods(guard.root(), "Cordelia");
         let config_dir = guard.root().join("project").join("config");
         std::fs::create_dir_all(&config_dir).expect("создание папки конфигов");
         std::fs::write(config_dir.join("Cordelia.toml"), b"toml").expect("создание TOML");
@@ -909,7 +957,12 @@ mod tests {
                 project_name: "Cordelia".to_string(),
                 ..ProjectConfig::default()
             },
-            session: None,
+            session: Some(crate::state::dto::SessionTokens {
+                access_token: "token".to_string(),
+                uuid: "uuid".to_string(),
+                username: "player".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
             launcher_config: Some(LauncherConfig::default()),
             app_version: String::new(),
         });
@@ -930,14 +983,14 @@ mod tests {
         result.expect_err("сбой удаления TOML должен останавливать удаление проекта");
 
         assert!(
-            !state
+            state
                 .lock()
                 .await
                 .launcher_config
                 .as_ref()
                 .expect("конфиг лаунчера")
                 .has_project("Cordelia"),
-            "реестр должен обновляться до удаления файлов"
+            "реестр не должен обновляться до успешного удаления файлов: проект остаётся переудаляемым"
         );
         assert!(
             project_dir.exists(),
@@ -947,14 +1000,129 @@ mod tests {
             config_dir.join("Cordelia.toml").exists(),
             "TOML должен остаться на месте при сбое"
         );
+        {
+            let guard = state.lock().await;
+            assert_ne!(
+                guard.project_config.project_name, "Cordelia",
+                "активный профиль не должен оставаться на полуудалённом проекте"
+            );
+            assert!(
+                guard.session.is_none(),
+                "сессия удалённого профиля не должна переживать сбой удаления"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn register_failure_rolls_back_profile_files() {
+        let guard = LauncherDirGuard::acquire("profile_register_rollback").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let mut base = empty_state().into_inner();
+        base.launcher_config
+            .as_mut()
+            .expect("конфиг лаунчера")
+            .add_project("Dup");
+        let state = Mutex::new(base);
+        let config = ProjectConfig {
+            project_name: "Dup".to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+
+        persist_new_project(&config)
+            .await
+            .expect("запись конфига нового профиля");
+        let error = register_project_or_rollback(&state, &config)
+            .await
+            .expect_err("повторная регистрация должна падать");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectExists(_))
+            ),
+            "ожидается ProjectExists: {error:#}"
+        );
+        assert!(
+            !guard
+                .root()
+                .join("project")
+                .join("config")
+                .join("Dup.toml")
+                .exists(),
+            "сбой регистрации должен откатывать записанный TOML"
+        );
+        assert!(
+            !guard.root().join("project").join("Dup").exists(),
+            "папка незарегистрированного профиля должна откатываться"
+        );
+        assert!(
+            load_config("Dup").await.is_err(),
+            "orphan-TOML не должен блокировать повторное использование имени"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn server_profile_register_failure_rolls_back_and_name_is_reusable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let guard = LauncherDirGuard::acquire("profile_server_rollback").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        std::fs::create_dir_all(guard.root().join("project").join("config"))
+            .expect("создание папок проекта");
+        let mut server = Server::new_async().await;
+        let body = r#"{"projectName":"Rollback","mcVersion":"1.20.1","modLoader":"vanilla",
+            "loaderVersion":null,"javaPath":null,"jvmArgs":[],
+            "minMemory":"-Xms512M","maxMemory":"-Xmx4G"}"#;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(body)
+            .expect(2)
+            .create_async()
+            .await;
+        let state = empty_state();
+
+        std::fs::set_permissions(guard.root(), std::fs::Permissions::from_mode(0o555))
+            .expect("запрет записи конфига лаунчера");
+        let first = add_server_profile(&state, &server.url()).await;
+        std::fs::set_permissions(guard.root(), std::fs::Permissions::from_mode(0o755))
+            .expect("возврат прав");
+
+        first.expect_err("сбой регистрации должен падать");
+
+        assert!(
+            !guard
+                .root()
+                .join("project")
+                .join("config")
+                .join("Rollback.toml")
+                .exists(),
+            "orphan-TOML должен откатываться после сбоя регистрации"
+        );
+        assert!(
+            !state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .has_project("Rollback"),
+            "проект не должен регистрироваться при сбое"
+        );
+
+        let retried = add_server_profile(&state, &server.url())
+            .await
+            .expect("имя профиля должно переиспользоваться после отката");
+        assert_eq!(retried.project_name, "Rollback");
+        mock.assert_async().await;
     }
 
     #[tokio::test]
     async fn delete_project_files_removes_dir_toml_and_manifest() {
         let guard = LauncherDirGuard::acquire("delete_project_files").await;
-        let project_dir = guard.root().join("project").join("Test");
-        std::fs::create_dir_all(project_dir.join("mods")).expect("создание папки проекта");
-        std::fs::write(project_dir.join("mods").join("mod.jar"), b"x").expect("создание мода");
+        let project_dir = seed_project_mods(guard.root(), "Test");
 
         let config_dir = guard.root().join("project").join("config");
         std::fs::create_dir_all(&config_dir).expect("создание папки конфигов");
@@ -987,5 +1155,133 @@ mod tests {
         delete_project_files("Ghost")
             .await
             .expect("удаление несуществующих артефактов должно быть успехом");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn delete_named_project_rejects_busy_launch_step() {
+        let _step_lock = lock_launch_step_tests();
+        let _guard = LauncherDirGuard::acquire("delete_busy_launch_step").await;
+        let state = Mutex::new(state_with_current("Beta"));
+
+        let held = try_acquire_launch_step().expect("захват шага запуска");
+        let error = delete_named_project(&state, "Beta")
+            .await
+            .expect_err("занятый шаг запуска должен отклонять удаление");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::LaunchInProgress)
+            ),
+            "ожидается LaunchInProgress: {error:#}"
+        );
+
+        drop(held);
+        let error = delete_named_project(&state, "Beta")
+            .await
+            .expect_err("после освобождения шага удаление доходит до проверки имени");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::InvalidInput(_))
+            ),
+            "ожидается отказ «проект не найден», а не шаг запуска: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn delete_named_project_rejects_running_game_before_mutations() {
+        let _step_lock = lock_launch_step_tests();
+        let _registry_lock = lock_game_registry_tests();
+        let guard = LauncherDirGuard::acquire("delete_running_game").await;
+        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
+        let project_dir = seed_project_mods(guard.root(), "Gamey");
+        ProjectConfig {
+            project_name: "Gamey".to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        }
+        .save_config()
+        .await
+        .expect("сохранение конфига проекта");
+
+        let mut state = state_with_current("Gamey");
+        if let Some(config) = state.launcher_config.as_mut() {
+            config.add_project("Gamey");
+        }
+        state.session = Some(crate::state::dto::SessionTokens {
+            access_token: "token".to_string(),
+            uuid: "uuid".to_string(),
+            username: "GamePlayer".to_string(),
+            project_name: "Gamey".to_string(),
+        });
+        let state = Mutex::new(state);
+
+        let session = TestGameSessionGuard::acquire("Gamey", "GamePlayer");
+
+        let error = delete_named_project(&state, "Gamey")
+            .await
+            .expect_err("запущенная игра должна блокировать удаление");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectGameRunning(_, _))
+            ),
+            "ожидается ProjectGameRunning: {error:#}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains("Gamey") && message.contains("GamePlayer"),
+            "ошибка должна называть проект и игрока: {message}"
+        );
+
+        assert!(
+            project_dir.join("mods").join("mod.jar").exists(),
+            "файлы проекта не должны удаляться"
+        );
+        assert!(
+            guard
+                .root()
+                .join("project")
+                .join("config")
+                .join("Gamey.toml")
+                .exists(),
+            "конфиг проекта не должен удаляться"
+        );
+        {
+            let snapshot = state.lock().await;
+            assert!(
+                snapshot
+                    .launcher_config
+                    .as_ref()
+                    .expect("конфиг лаунчера")
+                    .has_project("Gamey"),
+                "проект не должен сниматься с регистрации"
+            );
+            assert_eq!(
+                snapshot.project_config.project_name, "Gamey",
+                "активный профиль не должен переключаться"
+            );
+            assert!(snapshot.session.is_some(), "сессия не должна сбрасываться");
+        }
+
+        drop(session);
+
+        delete_named_project(&state, "Gamey")
+            .await
+            .expect("после завершения игры удаление проходит");
+
+        assert!(!project_dir.exists(), "папка проекта удаляется");
+        assert!(
+            !state
+                .lock()
+                .await
+                .launcher_config
+                .as_ref()
+                .expect("конфиг лаунчера")
+                .has_project("Gamey"),
+            "проект снимается с регистрации"
+        );
     }
 }

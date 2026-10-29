@@ -8,6 +8,7 @@ export type ProjectDirtyField =
   | 'javaPath'
   | 'jvmArgs'
   | 'memoryRange'
+  | 'cpuCores'
   | 'autoJoinServer'
 
 type ProjectDirtySnapshot = Pick<ProjectSettingsForm, ProjectDirtyField>
@@ -21,6 +22,7 @@ export interface ProjectSettingsForm {
   javaVersion: number | null
   jvmArgs: string
   memoryRange: [number, number]
+  cpuCores: number | null
   online: boolean
   initialized: boolean
   serverUrl: string | null
@@ -37,6 +39,7 @@ function defaultForm(): ProjectSettingsForm {
     javaVersion: null,
     jvmArgs: '',
     memoryRange: [512, 4096],
+    cpuCores: null,
     online: true,
     initialized: false,
     serverUrl: null,
@@ -68,6 +71,7 @@ export function projectSettingsFormFromConfig(config: ProjectConfig): ProjectSet
       parseMemory(config.minMemory, DEFAULT_MIN_MEMORY),
       parseMemory(config.maxMemory, DEFAULT_MAX_MEMORY),
     ],
+    cpuCores: config.cpuCores ?? null,
     online: config.online,
     initialized: config.initialized,
     serverUrl: config.serverUrl,
@@ -81,6 +85,7 @@ function pickDirtyFields(form: ProjectSettingsForm): ProjectDirtySnapshot {
     javaPath: form.javaPath,
     jvmArgs: form.jvmArgs,
     memoryRange: form.memoryRange,
+    cpuCores: form.cpuCores,
     autoJoinServer: form.autoJoinServer,
   }
 }

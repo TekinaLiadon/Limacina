@@ -13,8 +13,8 @@ mod tests {
     use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::{GameConfig, ModLoader};
     use crate::test_support::{
-        loader_manifest, loader_project, loader_vanilla_config, loader_version_mod,
-        write_loader_manifest, LauncherDirGuard,
+        assert_loader_config_common, loader_manifest, loader_project, loader_vanilla_config,
+        loader_version_mod, write_loader_manifest, LauncherDirGuard,
     };
     use crate::utils::get_classpath_separator;
     use serde_json::json;
@@ -66,20 +66,12 @@ mod tests {
         assert!(config.jvm_args.contains(
             &"-DignoreList=securejarhandler-2.1.24.jar,bootstraplauncher-1.1.2.jar,client-extra,neoforge-,1.20.4.jar".to_string()
         ));
-        assert!(config
-            .jvm_args
-            .contains(&format!("-DlibraryDirectory={}", libraries_dir.display())));
+        assert_loader_config_common(&config, &libraries_dir);
         assert!(config.jvm_args.contains(&format!(
             "{}/cpw/mods/securejarhandler/2.1.24/securejarhandler-2.1.24.jar{sep}{}/org/ow2/asm/asm/9.5/asm-9.5.jar",
             libraries_dir.display(),
             libraries_dir.display()
         )));
-        assert!(config
-            .jvm_args
-            .contains(&"-Djava.net.preferIPv6Addresses=system".to_string()));
-        assert!(!config.jvm_args.contains(&"-cp".to_string()));
-        assert!(config.game_args.contains(&"--launchTarget".to_string()));
-        assert!(config.game_args.contains(&"forgeclient".to_string()));
         assert!(config
             .game_args
             .contains(&"--fml.neoForgeVersion".to_string()));

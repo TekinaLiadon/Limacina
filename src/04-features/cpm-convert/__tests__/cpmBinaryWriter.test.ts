@@ -29,6 +29,29 @@ describe('cpmBinaryWriter', () => {
     expect(write((w) => w.writeBytes(new Uint8Array([4, 5])))).toEqual([4, 5])
   })
 
+  it('writes megabyte payloads byte-exactly across buffer regrowths', () => {
+    const reference = new Uint8Array(2 * 1024 * 1024)
+    for (let i = 0; i < reference.length; i += 1) reference[i] = (i * 131 + 17) % 251
+    const writer = new CpmBinaryWriter()
+    const chunkSize = 0x8000
+    for (let offset = 0; offset < reference.length; offset += chunkSize) {
+      writer.writeBytes(reference.subarray(offset, offset + chunkSize))
+    }
+    for (let i = 0; i < 4096; i += 1) writer.writeByte(reference[i] ?? 0)
+    writer.writeBytes(reference.subarray(reference.length - 10))
+
+    const written = writer.toArray()
+    expect(written.length).toBe(reference.length + 4096 + 10)
+    let mismatch: string | null = null
+    for (let i = 0; i < reference.length && mismatch === null; i += 1) {
+      if (written[i] !== reference[i]) mismatch = `байт ${i}: ${written[i]} !== ${reference[i]}`
+    }
+    expect(mismatch).toBeNull()
+    for (let i = 0; i < 4096; i += 1) {
+      expect(written[reference.length + i]).toBe(reference[i])
+    }
+  })
+
   it('writes unsigned LEB128 varints like IOHelper.writeVarInt', () => {
     expect(write((w) => w.writeVarInt(0))).toEqual([0])
     expect(write((w) => w.writeVarInt(127))).toEqual([127])

@@ -632,6 +632,59 @@ describe('useCpmViewer', () => {
     expect(onPlayingChanged).toHaveBeenLastCalledWith(false)
   })
 
+  it('does not rebuild animation tracks when nested frame data changes', async () => {
+    const harness = await mountViewer()
+    harness.cpmData.value = {
+      config: makeConfig(),
+      textureUrl: 'model.png',
+      animations: [makeAnimation('wave')],
+    }
+    await nextTick()
+    await resolveLastLoad(new THREE.Texture())
+
+    const animation = harness.cpmData.value.animations?.[0]
+    if (!animation) throw new Error('animation was not found')
+    harness.activeAnimations.value = [{ animation, startDelayMs: 0 }]
+    await nextTick()
+
+    const [player] = playerState.instances
+    if (!player) throw new Error('player was not created')
+    const setAnimationsCount = player.calls.filter((call) => call === 'setAnimations').length
+
+    const component = animation.frames[0]?.components[0]
+    if (!component) throw new Error('animation component was not found')
+    component.pos.x = 5
+    component.pos.y = 7
+    await nextTick()
+
+    expect(player.calls.filter((call) => call === 'setAnimations')).toHaveLength(setAnimationsCount)
+    harness.unmount()
+  })
+
+  it('reapplies animations when the selection list content changes', async () => {
+    const harness = await mountViewer()
+    harness.cpmData.value = {
+      config: makeConfig(),
+      textureUrl: 'model.png',
+      animations: [makeAnimation('wave'), makeAnimation('idle')],
+    }
+    await nextTick()
+    await resolveLastLoad(new THREE.Texture())
+
+    const [wave, idle] = harness.cpmData.value.animations ?? []
+    if (!wave || !idle) throw new Error('animations were not found')
+    harness.activeAnimations.value = [{ animation: wave, startDelayMs: 0 }]
+    await nextTick()
+    const [player] = playerState.instances
+    if (!player) throw new Error('player was not created')
+    const afterWave = player.calls.filter((call) => call === 'setAnimations').length
+
+    harness.activeAnimations.value = [{ animation: wave, startDelayMs: 0 }, { animation: idle, startDelayMs: 10 }]
+    await nextTick()
+    expect(player.calls.filter((call) => call === 'setAnimations')).toHaveLength(afterWave + 1)
+    harness.unmount()
+  })
+
   it('reports the playing state when animations are selected before the model loads', async () => {
     const onPlayingChanged = vi.fn()
     const harness = await mountViewer({ onPlayingChanged })

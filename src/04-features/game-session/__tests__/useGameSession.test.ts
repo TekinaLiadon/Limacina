@@ -69,6 +69,16 @@ describe('useGameSession', () => {
     expect(useLaunchStore().gameUsernames).toEqual(['alice', 'bob'])
   })
 
+  it('reconciles the hydrated set through the tracked session actions', async () => {
+    useLaunchStore().gameUsernames = ['ghost']
+    api.getGameState.mockResolvedValue(['alice', 'alice'])
+    const session = await loadSession()
+
+    await session.startGameSessionSync()
+
+    expect(useLaunchStore().gameUsernames).toEqual(['alice'])
+  })
+
   it('adds the started session and keeps the running ones', async () => {
     api.getGameState.mockResolvedValue(['alice'])
     const session = await loadSession()
@@ -150,6 +160,85 @@ describe('useGameSession', () => {
     await pending
 
     expect(useLaunchStore().gameUsernames).toEqual(['bob'])
+  })
+
+  it('applies only the freshest snapshot when two hydrations overlap', async () => {
+    api.getGameState.mockResolvedValueOnce(['carol'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    let resolveStale: (usernames: string[]) => void = () => {}
+    api.getGameState.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveStale = resolve
+        }),
+    )
+    const pendingStale = session.resyncGameSession()
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(2))
+
+    api.getGameState.mockResolvedValueOnce(['carol', 'alice'])
+    await session.resyncGameSession()
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(3))
+
+    resolveStale(['carol'])
+    await pendingStale
+
+    expect(useLaunchStore().gameUsernames).toEqual(['carol', 'alice'])
+  })
+
+  it('keeps the event-applied session over a stale snapshot of an older hydration', async () => {
+    api.getGameState.mockResolvedValueOnce(['carol'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    let resolveStale: (usernames: string[]) => void = () => {}
+    api.getGameState.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveStale = resolve
+        }),
+    )
+    const pendingStale = session.resyncGameSession()
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(2))
+
+    emitStarted?.('alice')
+    expect(useLaunchStore().gameUsernames).toEqual(['carol', 'alice'])
+
+    api.getGameState.mockResolvedValueOnce(['carol', 'alice'])
+    await session.resyncGameSession()
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(3))
+
+    resolveStale(['carol'])
+    await pendingStale
+
+    expect(useLaunchStore().gameUsernames).toEqual(['carol', 'alice'])
+  })
+
+  it('keeps the running session when the newer hydration fails', async () => {
+    api.getGameState.mockResolvedValueOnce(['carol'])
+    const session = await loadSession()
+    await session.startGameSessionSync()
+
+    let resolveStale: (usernames: string[]) => void = () => {}
+    api.getGameState.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveStale = resolve
+        }),
+    )
+    const pendingStale = session.resyncGameSession()
+    await vi.waitFor(() => expect(api.getGameState).toHaveBeenCalledTimes(2))
+
+    emitStarted?.('alice')
+
+    api.getGameState.mockRejectedValueOnce(new Error('ipc down'))
+    await session.resyncGameSession()
+
+    resolveStale(['carol'])
+    await pendingStale
+
+    expect(useLaunchStore().gameUsernames).toEqual(['carol', 'alice'])
   })
 
   it('reports a hydration failure without touching the state', async () => {

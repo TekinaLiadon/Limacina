@@ -9,6 +9,7 @@ use crate::commands::dto::create_mod_loader;
 use crate::commands::game_options::{
     disable_narrator, parse_options_version, OPTIONS_FILE, OPTIONS_VERSION_KEY,
 };
+use crate::commands::settings_project::extract_java_major;
 use crate::discord;
 use crate::minecraft::autojoin::{auto_join_args, first_server_address};
 use crate::minecraft::process::{spawn_game_process, GameProcess};
@@ -48,7 +49,6 @@ struct LaunchContext {
     access_token: String,
     project: String,
     mc_version: String,
-    discord_enabled: bool,
 }
 
 async fn start_minecraft_inner(
@@ -68,6 +68,7 @@ async fn start_minecraft_inner(
 
     let mut game_config = assemble_game_config(&project_config, &ctx, config_step.clone()).await?;
     apply_auto_join(&project_config, &mut game_config, config_step.clone()).await?;
+    probe_java_major_fallback(&state, &mut project_config, &game_config.java_path).await;
     config_step.finish(false);
 
     if let Err(e) = prepare_options_file(&game_config.game_dir).await {
@@ -77,7 +78,14 @@ async fn start_minecraft_inner(
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
     let process = step_try!(
         process_step,
-        spawn_game_step(&app, game_config, authlib.server_url(), &ctx)
+        spawn_game_step(
+            &app,
+            game_config,
+            authlib.server_url(),
+            project_config.java_version,
+            project_config.cpu_cores,
+            &ctx,
+        )
     );
     process_step.finish(false);
     let _ = app.emit("game-started", ctx.username.clone());
@@ -93,7 +101,7 @@ async fn read_launch_context(
     state: &tauri::State<'_, Mutex<GlobalState>>,
     step: StepHandle,
 ) -> CommandResult<(LaunchContext, ProjectConfig)> {
-    let (username, uuid, access_token, project, mc_version, project_config, discord_enabled) = {
+    let (username, uuid, access_token, project, mc_version, project_config) = {
         let state = state.lock().await;
         let session = step_try!(
             step,
@@ -118,12 +126,6 @@ async fn read_launch_context(
         let mc_version = state.project_config.mc_version.clone();
         let mod_loader = state.project_config.mod_loader.clone();
 
-        let discord_enabled = state
-            .launcher_config
-            .as_ref()
-            .map(|c| c.discord_activity)
-            .unwrap_or(true);
-
         log_info!(
             "[start] Запуск для проекта={}, версия={}, лоадер={:?}, пользователь={}, онлайн={}",
             project,
@@ -140,7 +142,6 @@ async fn read_launch_context(
             project,
             mc_version,
             state.project_config.clone(),
-            discord_enabled,
         )
     };
 
@@ -151,16 +152,62 @@ async fn read_launch_context(
             access_token,
             project,
             mc_version,
-            discord_enabled,
         },
         project_config,
     ))
+}
+
+async fn probe_java_major_fallback(
+    state: &tauri::State<'_, Mutex<GlobalState>>,
+    project_config: &mut ProjectConfig,
+    java_path: &Path,
+) {
+    if project_config.java_version.is_some() {
+        return;
+    }
+    let Some(major) = probe_installed_java_major(java_path).await else {
+        log_info!(
+            "[start] Не удалось определить версию установленной Java, CDS-ускорение не включается"
+        );
+        return;
+    };
+    if let Err(e) =
+        crate::state::config::update_project_config(state, async |stored: &mut ProjectConfig| {
+            if stored.java_version.is_none() {
+                stored.java_version = Some(major);
+            }
+            Ok(())
+        })
+        .await
+    {
+        log_err!(
+            "[start] Не удалось сохранить определённую версию Java: {}",
+            e
+        );
+    }
+    project_config.java_version = Some(major);
+}
+
+async fn probe_installed_java_major(java_path: &Path) -> Option<u32> {
+    let output = tokio::process::Command::new(java_path)
+        .arg("-version")
+        .output()
+        .await
+        .ok()?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    extract_java_major(&text)
 }
 
 fn spawn_game_step(
     app: &AppHandle,
     game_config: GameConfig,
     authlib_server_url: Option<&str>,
+    java_major: Option<u32>,
+    cpu_cores: Option<u16>,
     ctx: &LaunchContext,
 ) -> anyhow::Result<GameProcess> {
     crate::tray::add_game_session(app, &ctx.username);
@@ -170,6 +217,9 @@ fn spawn_game_step(
             game_config,
             authlib_server_url,
             ctx.username.clone(),
+            ctx.project.clone(),
+            java_major,
+            cpu_cores,
         )
         .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
         LauncherError::GameProcess,
@@ -325,9 +375,8 @@ fn notify_game_activity(process: &GameProcess, ctx: &LaunchContext) {
     let exited = process.exited_flag();
     let mc_version = ctx.mc_version.clone();
     let project = ctx.project.clone();
-    let discord_enabled = ctx.discord_enabled;
     tauri::async_runtime::spawn(async move {
-        discord::set_game_activity(discord_enabled, &mc_version, &project, Some(exited)).await;
+        discord::set_game_activity(&mc_version, &project, Some(exited)).await;
     });
 }
 
@@ -666,6 +715,55 @@ mod auto_join_tests {
             error.message.contains("Не удалось обработать манифест"),
             "типизированная ошибка должна сохраниться: {}",
             error.message
+        );
+    }
+}
+
+#[cfg(test)]
+mod java_major_probe_tests {
+    use super::probe_installed_java_major;
+    use crate::test_support::TempDir;
+
+    #[cfg(unix)]
+    fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.0.join(name);
+        std::fs::write(&path, body).expect("запись скрипта-заглушки");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("права на исполнение");
+        path
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_reads_major_from_java_version_banner() {
+        let dir = TempDir::new("start_probe_java");
+        let java = write_script(
+            &dir,
+            "java",
+            "#!/bin/sh\necho 'openjdk version \"21.0.1\" 2023-10-17' >&2\n",
+        );
+        let legacy = write_script(
+            &dir,
+            "java8",
+            "#!/bin/sh\necho 'openjdk version \"1.8.0_392\"' >&2\n",
+        );
+
+        assert_eq!(probe_installed_java_major(&java).await, Some(21));
+        assert_eq!(probe_installed_java_major(&legacy).await, Some(8));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_returns_none_for_unparsable_or_missing_java() {
+        let dir = TempDir::new("start_probe_java_bad");
+        let garbage = write_script(&dir, "not-java", "#!/bin/sh\necho 'не java' >&2\n");
+
+        assert_eq!(probe_installed_java_major(&garbage).await, None);
+        assert_eq!(
+            probe_installed_java_major(&dir.0.join("missing")).await,
+            None,
+            "не запускающаяся Java не даёт версию"
         );
     }
 }

@@ -219,11 +219,12 @@ describe('useAppInit', () => {
     api.checkUpdate.mockResolvedValue({ version: '2.0.0' })
     api.applyUpdateCmd.mockResolvedValue(undefined)
 
-    setupApp()
+    const app = setupApp()
     await runInit()
 
     expect(api.checkUpdate).toHaveBeenCalledTimes(1)
     expect(api.applyUpdateCmd).toHaveBeenCalledWith()
+    expect(app.preloaderText()).toBe('Обновление завершено, загрузка...')
     expect(api.getAppInitData).toHaveBeenCalledTimes(2)
     expect(useCoreStore().version).toBe('2.0.0')
     expect(useSettingsStore().theme).toBe('lime-light')
@@ -276,6 +277,27 @@ describe('useAppInit', () => {
 
     expect(api.applyUpdateCmd).not.toHaveBeenCalled()
     expect(useNotificationStore().message).toBe('Не удалось проверить обновления: manifest unreachable')
+    expect(useCoreStore().isLoading).toBe(false)
+  })
+
+  it('shows a neutral preloader status and keeps initializing when the update apply fails', async () => {
+    api.getAppInitData
+      .mockResolvedValueOnce(
+        makeInitData({ launcherConfig: makeLauncherConfig({ autoUpdate: true }) }),
+      )
+      .mockResolvedValueOnce(makeInitData({ version: '2.0.0' }))
+    api.checkUpdate.mockResolvedValue({ version: '2.0.0' })
+    api.applyUpdateCmd.mockRejectedValue(new Error('download failed'))
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
+
+    const app = setupApp()
+    await runInit()
+
+    expect(api.applyUpdateCmd).toHaveBeenCalledTimes(1)
+    expect(app.preloaderText()).toBe('Загрузка...')
+    expect(useNotificationStore().message).toBe('Не удалось обновить лаунчер: download failed')
+    expect(api.getAppInitData).toHaveBeenCalledTimes(2)
+    expect(useProjectSettingsStore().loadedProject).toBe('proj')
     expect(useCoreStore().isLoading).toBe(false)
   })
 

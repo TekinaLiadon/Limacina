@@ -13,6 +13,7 @@ export interface SingletonListeners {
 export function createSingletonListeners(): SingletonListeners {
   let started = false
   let starting: Promise<void> | null = null
+  let stopRequested = false
   let stops: ListenerStop[] = []
   let scope = effectScope(true)
 
@@ -30,6 +31,10 @@ export function createSingletonListeners(): SingletonListeners {
           stops.push(stop)
         })
       })
+      if (stopRequested) {
+        releaseTracked()
+        return
+      }
       started = true
     } catch (e: unknown) {
       releaseTracked()
@@ -40,6 +45,7 @@ export function createSingletonListeners(): SingletonListeners {
   const start = async (register: RegisterSingletonListeners): Promise<void> => {
     if (started) return
     if (starting !== null) return starting
+    stopRequested = false
     starting = runRegister(register).finally((): void => {
       starting = null
     })
@@ -47,6 +53,11 @@ export function createSingletonListeners(): SingletonListeners {
   }
 
   const stop = (): void => {
+    if (starting !== null) {
+      stopRequested = true
+      releaseTracked()
+      return
+    }
     if (!started) return
     started = false
     releaseTracked()

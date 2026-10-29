@@ -190,7 +190,7 @@ export function useGameLaunch() {
       }
     }
 
-    if (isCancelled?.()) return
+    launch.commitLaunch()
 
     if (isInstall) {
       try {
@@ -201,7 +201,7 @@ export function useGameLaunch() {
       try {
         coreStore.setProjectConfig(await setInitialized())
       } catch (error: unknown) {
-        await failStep(error, isCancelled)
+        await failStep(error)
         return
       }
     }
@@ -210,7 +210,7 @@ export function useGameLaunch() {
       try {
         await exitLauncher()
       } catch (error: unknown) {
-        await failStep(error, isCancelled)
+        await failStep(error)
         return
       }
       return

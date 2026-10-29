@@ -32,14 +32,18 @@ pub fn launch_in_progress() -> bool {
 }
 
 #[cfg(test)]
+pub(crate) fn lock_launch_step_tests() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex as StdMutex};
+    use std::sync::Arc;
 
-    use super::{launch_in_progress, try_acquire_launch_step};
+    use super::{launch_in_progress, lock_launch_step_tests, try_acquire_launch_step};
     use crate::utils::errors::LauncherError;
-
-    static TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     #[cfg(test)]
     fn reset_for_tests() {
@@ -48,7 +52,7 @@ mod tests {
 
     #[test]
     fn second_acquire_is_rejected_with_typed_error() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_launch_step_tests();
         reset_for_tests();
 
         let first = try_acquire_launch_step().expect("свободный шаг захватывается");
@@ -74,7 +78,7 @@ mod tests {
 
     #[test]
     fn concurrent_acquire_yields_single_winner() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_launch_step_tests();
         reset_for_tests();
 
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -115,7 +119,7 @@ mod tests {
 
     #[test]
     fn stale_guard_drop_keeps_current_owner() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock_launch_step_tests();
         reset_for_tests();
 
         let stale = try_acquire_launch_step().expect("первый захват");

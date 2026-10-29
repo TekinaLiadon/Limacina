@@ -126,12 +126,17 @@ export function useModrinth() {
         categories: categories.value,
         offset: newOffset,
       }),
-      apply: (result: ModrinthSearchResult): void => {
+      apply: async (result: ModrinthSearchResult): Promise<void> => {
         versionNumbers.value = result.version_numbers
         searchVersionsFailed.value = result.version_numbers_failed
         hits.value = result.hits
         total.value = result.total
-        currentPage.value = Math.floor(newOffset / PAGE_SIZE) + 1
+        const page = Math.floor(newOffset / PAGE_SIZE) + 1
+        currentPage.value = page
+        if (result.hits.length === 0 && result.total > 0 && page > 1) {
+          const lastOffset = Math.floor((result.total - 1) / PAGE_SIZE) * PAGE_SIZE
+          if (lastOffset !== newOffset) await search(lastOffset)
+        }
       },
     })
   }
@@ -273,8 +278,8 @@ export function useModrinth() {
     updatesGuard.cancel()
     detailsGuard.cancel()
     query.value = ''
-    sort.value = 'relevance'
-    categories.value = []
+    if (sort.value !== 'relevance') sort.value = 'relevance'
+    if (categories.value.length > 0) categories.value = []
     hits.value = []
     total.value = 0
     versionNumbers.value = {}
@@ -297,10 +302,16 @@ export function useModrinth() {
     popupError.value = ''
   }
 
+  watch([sort, categories], (): void => {
+    void loadPage(1)
+  })
+
   watch((): string => coreStore.currentProject, (projectName: string): void => {
     if (!projectName) return
+    const filtersChanged = sort.value !== 'relevance' || categories.value.length > 0
     resetTabState()
     void loadInstalled()
+    if (filtersChanged) return
     void search(0)
   })
 

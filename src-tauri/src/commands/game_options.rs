@@ -20,6 +20,7 @@ use crate::utils::tauri_err::CommandResult;
 
 pub const SETTINGS_DIR_NAME: &str = "settings";
 pub const GLOBAL_OPTIONS_FILE: &str = "game_options.json";
+pub const PENDING_OPTIONS_FILE: &str = "pending_game_options.json";
 pub const OPTIONS_FILE: &str = "options.txt";
 
 pub const OPTIONS_VERSION_KEY: &str = "version";
@@ -145,6 +146,63 @@ fn global_options_file_path() -> Result<PathBuf> {
     Ok(launcher_path(None)?
         .join(SETTINGS_DIR_NAME)
         .join(GLOBAL_OPTIONS_FILE))
+}
+
+fn pending_options_path(project_name: &str) -> Result<PathBuf> {
+    ensure_safe_project_name(project_name)?;
+    Ok(launcher_path(Some(project_name))?.join(PENDING_OPTIONS_FILE))
+}
+
+async fn read_pending_options(project_name: &str) -> Result<Option<GameOptions>> {
+    let path = pending_options_path(project_name)?;
+    let Some(content) = read_to_string_opt(&path).await? else {
+        return Ok(None);
+    };
+    match serde_json::from_str::<GameOptions>(&content) {
+        Ok(options) => Ok(Some(options)),
+        Err(e) => {
+            log_err!("[game-options] Повреждён файл отложенных настроек игры {path:?}: {e}");
+            Ok(None)
+        }
+    }
+}
+
+async fn write_pending_options(project_name: &str, options: &GameOptions) -> Result<()> {
+    let path = pending_options_path(project_name)?;
+    let content = serde_json::to_string_pretty(options)
+        .context("Не удалось сериализовать отложенные настройки игры")?;
+    write_options_file(&path, &content).await
+}
+
+async fn clear_pending_options(project_name: &str) -> Result<()> {
+    let path = pending_options_path(project_name)?;
+    match fs::remove_file(&path).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => {
+            Err(e).with_context(|| format!("Не удалось удалить отложенные настройки игры {path:?}"))
+        }
+    }
+}
+
+pub async fn install_options_for_project(
+    project_name: &str,
+    options: Option<&GameOptions>,
+) -> Result<Option<GameOptions>> {
+    if options.is_some() {
+        return Ok(options.cloned());
+    }
+    read_pending_options(project_name).await
+}
+
+pub async fn clear_pending_after_install(project_name: &str, game_dir: &Path) -> Result<()> {
+    let ready = read_to_string_opt(&game_dir.join(OPTIONS_FILE))
+        .await?
+        .is_some_and(|content| parse_options_version(&content).is_some());
+    if ready {
+        clear_pending_options(project_name).await?;
+    }
+    Ok(())
 }
 
 fn format_bool(value: bool) -> String {
@@ -522,12 +580,6 @@ pub async fn install_game_options(
     Ok(())
 }
 
-fn options_version_missing_error() -> LauncherError {
-    LauncherError::GameOptions(format!(
-        "{OPTIONS_FILE} ещё не создан: настройки запишутся при установке игры."
-    ))
-}
-
 async fn list_resource_packs(project_name: &str) -> Result<Vec<String>> {
     ensure_safe_project_name(project_name)?;
     let dir = launcher_path(Some(project_name))?.join("resourcepacks");
@@ -605,10 +657,18 @@ async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
         .as_deref()
         .is_some_and(|content| parse_options_version(content).is_some());
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
-    let mut options = content
-        .as_deref()
-        .map(|c| parse_options(c, normalized_fov))
-        .unwrap_or_default();
+    let pending = if version_ready {
+        None
+    } else {
+        read_pending_options(project_name).await?
+    };
+    let mut options = match pending {
+        Some(pending) => pending,
+        None => content
+            .as_deref()
+            .map(|c| parse_options(c, normalized_fov))
+            .unwrap_or_default(),
+    };
     let available_resource_packs = list_resource_packs(project_name).await?;
     normalize_resource_packs(&mut options.resource_packs, &available_resource_packs);
     let has_global = global_options_content().await?.is_some();
@@ -642,14 +702,22 @@ async fn write_options_file(path: &PathBuf, content: &str) -> Result<()> {
 async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> Result<()> {
     ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
-    let Some(content) = read_to_string_opt(&path).await? else {
-        return Err(options_version_missing_error().into());
-    };
-    if parse_options_version(&content).is_none() {
-        return Err(options_version_missing_error().into());
+    let content = read_to_string_opt(&path).await?;
+    let version_ready = content
+        .as_deref()
+        .is_some_and(|content| parse_options_version(content).is_some());
+
+    if !version_ready {
+        write_pending_options(project_name, options).await?;
+        log_info!(
+            "[game-options] Настройки игры проекта {} сохранены до установки: применятся при установке игры",
+            project_name
+        );
+        return Ok(());
     }
+
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
-    let merged = merge_options(Some(&content), options, normalized_fov);
+    let merged = merge_options(content.as_deref(), options, normalized_fov);
     write_options_file(&path, &merged).await?;
 
     log_info!(
@@ -703,9 +771,10 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_options_version, client_data_version, get_game_options_inner, install_game_options,
-        merge_options, parse_options, parse_options_version, save_game_options_inner,
-        write_options_file,
+        apply_options_version, clear_pending_after_install, clear_pending_options,
+        client_data_version, get_game_options_inner, install_game_options,
+        install_options_for_project, merge_options, parse_options, parse_options_version,
+        read_pending_options, save_game_options_inner, write_options_file, write_pending_options,
     };
     use crate::test_support::{part_files_in, write_test_zip, LauncherDirGuard, TempDir};
 
@@ -1190,37 +1259,244 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_game_options_refuses_without_file_created_by_game() {
-        let guard = LauncherDirGuard::acquire("game_options_save_no_version").await;
+    async fn save_game_options_writes_pending_when_file_is_missing() {
+        let guard = LauncherDirGuard::acquire("game_options_pending_save").await;
+        let options = super::GameOptions {
+            fov: 90.0,
+            ..super::GameOptions::default()
+        };
 
-        let result = save_game_options_inner("Cordelia", &super::GameOptions::default()).await;
-        assert!(
-            result.is_err(),
-            "нельзя создавать options.txt без ключа version: игра такой файл заменит дефолтным"
-        );
+        save_game_options_inner("Cordelia", &options)
+            .await
+            .expect("сохранение до установки уходит в отложенное хранилище");
+
         assert!(
             !guard
                 .project_dir("Cordelia")
                 .join(super::OPTIONS_FILE)
                 .exists(),
-            "запись не должна создавать файл"
+            "options.txt без валидного version не создаётся"
         );
+        let pending = read_pending_options("Cordelia")
+            .await
+            .expect("чтение отложенных настроек")
+            .expect("отложенные настройки записаны на диск");
+        assert_eq!(pending.fov, 90.0);
     }
 
     #[tokio::test]
-    async fn save_game_options_refuses_file_with_broken_version() {
-        let guard = LauncherDirGuard::acquire("game_options_save_broken_version").await;
+    async fn save_game_options_writes_pending_when_version_is_broken() {
+        let guard = LauncherDirGuard::acquire("game_options_pending_broken").await;
         let path = guard.project_dir("Cordelia").join(super::OPTIONS_FILE);
         std::fs::create_dir_all(path.parent().expect("папка проекта")).unwrap();
         std::fs::write(&path, "version:1.16.5\nfov:0.5\n").unwrap();
 
-        let result = save_game_options_inner("Cordelia", &super::GameOptions::default()).await;
+        save_game_options_inner("Cordelia", &super::GameOptions::default())
+            .await
+            .expect("настройки уходят в отложенное хранилище");
 
-        assert!(result.is_err(), "нечисловой version игра не принимает");
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "version:1.16.5\nfov:0.5\n",
-            "файл не должен меняться"
+            "файл без валидного version не изменяется"
+        );
+        assert!(
+            read_pending_options("Cordelia")
+                .await
+                .expect("чтение отложенных настроек")
+                .is_some(),
+            "отложенные настройки записаны на диск"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_game_options_returns_pending_when_version_is_not_ready() {
+        let _guard = LauncherDirGuard::acquire("game_options_pending_load").await;
+        let options = super::GameOptions {
+            render_distance: 16,
+            ..super::GameOptions::default()
+        };
+        save_game_options_inner("Cordelia", &options)
+            .await
+            .expect("запись отложенных настроек");
+
+        let data = get_game_options_inner("Cordelia")
+            .await
+            .expect("загрузка настроек");
+
+        assert!(!data.version_ready);
+        assert_eq!(
+            data.options.render_distance, 16,
+            "отложенные настройки возвращаются вместо пустого файла"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_game_options_prefers_file_when_version_is_ready() {
+        let guard = LauncherDirGuard::acquire("game_options_pending_stale").await;
+        let project_dir = guard.project_dir("Cordelia");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            project_dir.join(super::OPTIONS_FILE),
+            "version:2586\nfov:0.5\n",
+        )
+        .unwrap();
+        let stale = super::GameOptions {
+            fov: 110.0,
+            ..super::GameOptions::default()
+        };
+        write_pending_options("Cordelia", &stale)
+            .await
+            .expect("запись устаревших отложенных настроек");
+
+        let data = get_game_options_inner("Cordelia")
+            .await
+            .expect("загрузка настроек");
+
+        assert!(data.version_ready);
+        assert_eq!(
+            data.options.fov, 90.0,
+            "настройки из файла побеждают устаревший pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_pending_options_ignores_corrupt_file() {
+        let guard = LauncherDirGuard::acquire("game_options_pending_corrupt").await;
+        let project_dir = guard.project_dir("Cordelia");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(project_dir.join(super::PENDING_OPTIONS_FILE), "{ broken").unwrap();
+
+        let pending = read_pending_options("Cordelia")
+            .await
+            .expect("повреждённый файл не ломает чтение");
+
+        assert!(
+            pending.is_none(),
+            "повреждённый кэш трактуется как отсутствие"
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_pending_options_removes_file_and_tolerates_missing() {
+        let _guard = LauncherDirGuard::acquire("game_options_pending_clear").await;
+        write_pending_options("Cordelia", &super::GameOptions::default())
+            .await
+            .expect("запись отложенных настроек");
+
+        clear_pending_options("Cordelia")
+            .await
+            .expect("удаление отложенных настроек");
+        assert!(read_pending_options("Cordelia")
+            .await
+            .expect("чтение после удаления")
+            .is_none());
+
+        clear_pending_options("Cordelia")
+            .await
+            .expect("повторное удаление без файла не даёт ошибку");
+    }
+
+    #[tokio::test]
+    async fn install_options_for_project_prefers_explicit_options() {
+        let _guard = LauncherDirGuard::acquire("game_options_install_explicit").await;
+        let pending = super::GameOptions {
+            fov: 110.0,
+            ..super::GameOptions::default()
+        };
+        write_pending_options("Cordelia", &pending)
+            .await
+            .expect("запись отложенных настроек");
+
+        let resolved =
+            install_options_for_project("Cordelia", Some(&super::GameOptions::default()))
+                .await
+                .expect("выбор настроек установки");
+
+        assert_eq!(
+            resolved.expect("настройки переданы").fov,
+            70.0,
+            "явные настройки с фронта побеждают отложенные"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_options_for_project_falls_back_to_pending() {
+        let _guard = LauncherDirGuard::acquire("game_options_install_fallback").await;
+        let pending = super::GameOptions {
+            render_distance: 16,
+            ..super::GameOptions::default()
+        };
+        write_pending_options("Cordelia", &pending)
+            .await
+            .expect("запись отложенных настроек");
+
+        let resolved = install_options_for_project("Cordelia", None)
+            .await
+            .expect("выбор настроек установки");
+
+        assert_eq!(
+            resolved
+                .expect("отложенные настройки подхвачены")
+                .render_distance,
+            16,
+            "после перезапуска лаунчера отложенные настройки применяются при установке"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_options_for_project_returns_none_without_pending() {
+        let _guard = LauncherDirGuard::acquire("game_options_install_none").await;
+
+        let resolved = install_options_for_project("Cordelia", None)
+            .await
+            .expect("выбор настроек установки");
+
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn clear_pending_after_install_clears_when_file_ready() {
+        let guard = LauncherDirGuard::acquire("game_options_clear_ready").await;
+        let game_dir = guard.project_dir("Cordelia");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join(super::OPTIONS_FILE), "version:2586\n").unwrap();
+        write_pending_options("Cordelia", &super::GameOptions::default())
+            .await
+            .expect("запись отложенных настроек");
+
+        clear_pending_after_install("Cordelia", &game_dir)
+            .await
+            .expect("очистка после установки");
+
+        assert!(
+            read_pending_options("Cordelia")
+                .await
+                .expect("чтение после установки")
+                .is_none(),
+            "отложенные настройки уходят после успешной установки"
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_pending_after_install_keeps_pending_without_file() {
+        let guard = LauncherDirGuard::acquire("game_options_clear_not_ready").await;
+        let game_dir = guard.project_dir("Cordelia");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        write_pending_options("Cordelia", &super::GameOptions::default())
+            .await
+            .expect("запись отложенных настроек");
+
+        clear_pending_after_install("Cordelia", &game_dir)
+            .await
+            .expect("очистка без выровненного файла");
+
+        assert!(
+            read_pending_options("Cordelia")
+                .await
+                .expect("чтение после установки")
+                .is_some(),
+            "без выровненного файла настройки ждут следующей попытки установки"
         );
     }
 

@@ -16,6 +16,10 @@ pub enum LauncherError {
     ProjectExists(String),
     #[error("Проект \"{0}\" прописан в сборке лаунчера и не может быть удалён")]
     ProjectProtected(String),
+    #[error(
+        "Проект \"{0}\" нельзя удалить: запущена игра ({1}), завершите её и повторите удаление"
+    )]
+    ProjectGameRunning(String, String),
     #[error("Настройки относятся к проекту \"{0}\", а активен \"{1}\". Перезагрузите настройки.")]
     ProjectSettingsMismatch(String, String),
     #[error("Одиночный профиль: {0}")]
@@ -98,6 +102,7 @@ impl LauncherError {
             | Self::ProjectNameReserved => "invalid_project_name",
             Self::ProjectExists(_) => "project_exists",
             Self::ProjectProtected(_) => "project_protected",
+            Self::ProjectGameRunning(_, _) => "project_game_running",
             Self::ProjectSettingsMismatch(_, _) => "project_settings_mismatch",
             Self::OfflineProfile(_) => "offline_profile",
             Self::NoSession => "auth_no_session",
@@ -175,6 +180,10 @@ mod tests {
             (
                 LauncherError::ProjectProtected("x".to_string()),
                 "project_protected",
+            ),
+            (
+                LauncherError::ProjectGameRunning("x".to_string(), "y".to_string()),
+                "project_game_running",
             ),
             (
                 LauncherError::ProjectSettingsMismatch("a".to_string(), "b".to_string()),

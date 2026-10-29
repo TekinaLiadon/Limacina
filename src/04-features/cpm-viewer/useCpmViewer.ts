@@ -486,10 +486,11 @@ export function useCpmViewer(
     else clearModel()
   }, { immediate: true })
 
-  watch(activeAnimations, (animations) => {
+  watch((): string => JSON.stringify(activeAnimations.value.map((entry) => entry.animation.id)), (): void => {
+    const animations = activeAnimations.value
     player?.setAnimations(animations)
     options.onPlayingChanged?.(isAnimationPlaying.value && animations.length > 0)
-  }, { deep: true })
+  })
 
   watch(isAnimationPlaying, (playing: boolean) => {
     player?.setPlaying(playing)

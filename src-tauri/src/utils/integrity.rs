@@ -473,8 +473,8 @@ pub async fn ensure_files(
 
     if failed.is_empty() {
         persist_install_manifest(project_name, &installed).await?;
-    } else {
-        let _ = persist_install_manifest(project_name, &installed).await;
+    } else if let Err(e) = persist_install_manifest(project_name, &installed).await {
+        log_err!("[install] Не удалось сохранить манифест установленных файлов: {e:#}");
     }
 
     log_info!(
@@ -849,6 +849,68 @@ mod ensure_files_tests {
         assert_eq!(installed.files.get("installer.jar"), Some(&sha1_hex(&body)));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn undeletable_broken_file_fails_instead_of_silent_record() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = LauncherDirGuard::acquire("ensure_undeletable").await;
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("каталог libraries");
+        let target_path = base.join("libraries/installer.jar");
+        std::fs::write(&target_path, b"stale bytes").expect("битый файл");
+
+        let stale_hash = sha1_hex(b"old installer");
+        let mut seeded = InstallManifest::default();
+        merge_installed(&mut seeded, "libraries/installer.jar", &stale_hash);
+        super::persist_install_manifest("Cordelia", &seeded)
+            .await
+            .expect("исходный манифест");
+
+        std::fs::set_permissions(
+            base.join("libraries"),
+            std::fs::Permissions::from_mode(0o500),
+        )
+        .expect("каталог без права на запись");
+
+        let target = integrity_url_target(
+            "libraries/installer.jar",
+            "",
+            "https://invalid.example.test/installer.jar".to_string(),
+        );
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            vec![target],
+        )
+        .await
+        .expect("отчёт установки");
+
+        std::fs::set_permissions(
+            base.join("libraries"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .expect("восстановление прав");
+
+        assert_eq!(
+            report.failed,
+            vec!["libraries/installer.jar".to_string()],
+            "неудаляемый битый файл должен попасть в failed, а не в repaired"
+        );
+        assert_eq!(report.repaired, 0);
+        let installed = load_install_manifest("Cordelia").await.expect("манифест");
+        assert_eq!(
+            installed.files.get("libraries/installer.jar"),
+            Some(&stale_hash),
+            "хеш старого битого файла не должен попадать в манифест как свежий"
+        );
+        assert_eq!(
+            std::fs::read(&target_path).expect("прежний файл на месте"),
+            b"stale bytes"
+        );
+    }
+
     #[tokio::test]
     async fn broken_manifest_does_not_block_ensure_files() {
         let dir = LauncherDirGuard::acquire("ensure_broken_manifest").await;
@@ -893,6 +955,70 @@ mod ensure_files_tests {
         assert_eq!(
             installed.files.get("libraries/installer.jar"),
             Some(&sha1_hex(&body))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn persist_failure_with_failed_files_keeps_report() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = LauncherDirGuard::acquire("ensure_persist_fail").await;
+        let mut server = Server::new_async().await;
+        let body = b"good bytes".to_vec();
+        server
+            .mock("GET", "/libs/good.jar")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/libs/bad.jar")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let base = dir.project_dir("Cordelia");
+        let targets = vec![
+            integrity_url_target(
+                "libraries/good.jar",
+                &sha1_hex(&body),
+                format!("{}/libs/good.jar", server.url()),
+            ),
+            integrity_url_target(
+                "libraries/bad.jar",
+                ZERO_SHA1,
+                format!("{}/libs/bad.jar", server.url()),
+            ),
+        ];
+
+        std::fs::create_dir_all(dir.root().join("manifest")).expect("каталог манифеста");
+        std::fs::set_permissions(
+            dir.root().join("manifest"),
+            std::fs::Permissions::from_mode(0o500),
+        )
+        .expect("каталог манифеста без права на запись");
+
+        let report = ensure_files(
+            &StepHandle::start("install", "Тест"),
+            &base,
+            "Cordelia",
+            targets,
+        )
+        .await
+        .expect("best-effort запись манифеста не должна ронять отчёт");
+
+        std::fs::set_permissions(
+            dir.root().join("manifest"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .expect("восстановление прав");
+
+        assert_eq!(report.repaired, 1);
+        assert_eq!(report.failed, vec!["libraries/bad.jar".to_string()]);
+        assert_eq!(
+            report.broken, 2,
+            "числа отчёта должны оставаться согласованными при сбое записи манифеста"
         );
     }
 
