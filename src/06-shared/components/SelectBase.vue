@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   openUp?: boolean
   isSelected?: (value: string) => boolean
+  ariaLabelledby?: string
 }>(), {
   maxVisible: 3,
   disabled: false,
@@ -82,11 +83,12 @@ defineExpose({ close })
   >
     <div
       class="select-base__value"
-      role="button"
+      role="combobox"
       tabindex="0"
       :aria-expanded="shown"
       aria-haspopup="listbox"
-      :aria-controls="listboxId"
+      :aria-controls="shown ? listboxId : undefined"
+      :aria-labelledby="ariaLabelledby"
       :aria-activedescendant="shown ? `${listboxId}-opt-${activeIndex}` : undefined"
       :aria-disabled="disabled"
       @click="toggle"

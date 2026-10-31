@@ -13,8 +13,12 @@ const emit = defineEmits<{
 
 <template>
   <div class="game-checkbox-field">
-    <span class="game-checkbox-field__text">{{ label }}</span>
-    <Checkbox :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" />
+    <Checkbox
+      class="game-checkbox-field__checkbox"
+      :label="label"
+      :model-value="modelValue"
+      @update:model-value="emit('update:modelValue', $event)"
+    />
   </div>
 </template>
 
@@ -26,8 +30,14 @@ const emit = defineEmits<{
 
   min-width: 0;
 
-  &__text {
-    white-space: nowrap;
+  &__checkbox {
+    flex: 1;
+    flex-direction: row-reverse;
+    justify-content: space-between;
+
+    .checkbox__label {
+      white-space: nowrap;
+    }
   }
 }
 </style>

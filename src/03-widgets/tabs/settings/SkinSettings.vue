@@ -71,6 +71,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
           type="button"
           class="skin-settings__mode-btn"
           :class="{ 'skin-settings__mode-btn--active': modelMode === mode.value }"
+          :aria-pressed="modelMode === mode.value"
           @click="modelMode = mode.value"
         >
           {{ mode.label }}

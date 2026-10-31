@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   maxVisible?: number
   disabled?: boolean
   openUp?: boolean
+  ariaLabelledby?: string
 }>(), {
   maxVisible: 3,
   disabled: false,
@@ -47,6 +48,7 @@ function handleSelect(value: string): void {
     :disabled="props.disabled"
     :open-up="props.openUp"
     :is-selected="isSelected"
+    :aria-labelledby="props.ariaLabelledby"
     @select="handleSelect"
   >
     <template #trailing>

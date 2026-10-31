@@ -16,7 +16,7 @@ describe('ResourcePacksOptions', () => {
   it('labels packs without the file prefix and marks enabled ones', () => {
     const wrapper = mountPacks(['file/Faithful.zip'], ['file/Faithful.zip', 'file/folder-pack'])
 
-    const labels = wrapper.findAll('.game-checkbox-field__text').map((node) => node.text())
+    const labels = wrapper.findAll('.checkbox__label').map((node) => node.text())
     expect(labels).toEqual(['Faithful.zip', 'folder-pack'])
 
     const checkboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')

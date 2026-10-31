@@ -48,7 +48,7 @@ describe('Tooltip', () => {
     await nextTick()
 
     expect(wrapper.find('.tooltip__bubble').isVisible()).toBe(false)
-    expect(wrapper.find('.tooltip').attributes('aria-describedby')).toBeUndefined()
+    expect(wrapper.find('.tooltip').attributes('aria-describedby')).toBe(wrapper.find('.tooltip__bubble').attributes('id'))
     wrapper.unmount()
   })
 
@@ -81,6 +81,32 @@ describe('Tooltip', () => {
     const wrapper = mountTooltip()
 
     await showBubble(wrapper)
+
+    expect(wrapper.find('.tooltip__bubble').isVisible()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps aria-describedby pointing at the hidden bubble before it is shown', () => {
+    const wrapper = mountTooltip()
+    const bubbleId = wrapper.find('.tooltip__bubble').attributes('id')
+
+    expect(bubbleId).toBeTruthy()
+    expect(wrapper.find('.tooltip').attributes('aria-describedby')).toBe(bubbleId)
+    expect(wrapper.find('.tooltip__bubble').isVisible()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows the bubble on keyboard focus even for touch-only devices and hides it on focusout', async () => {
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList)
+    const wrapper = mountTooltip()
+
+    await wrapper.find('.tooltip').trigger('focusin')
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(wrapper.find('.tooltip__bubble').isVisible()).toBe(true)
+    expect(wrapper.find('.tooltip').attributes('aria-describedby')).toBe(wrapper.find('.tooltip__bubble').attributes('id'))
+
+    await wrapper.find('.tooltip').trigger('focusout')
 
     expect(wrapper.find('.tooltip__bubble').isVisible()).toBe(false)
     wrapper.unmount()

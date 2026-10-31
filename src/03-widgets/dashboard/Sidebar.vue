@@ -52,8 +52,10 @@ const items = computed<TabItem[]>((): TabItem[] => {
       <button
         v-for="item in items"
         :key="item.key"
+        type="button"
         class="sidebar__item"
         :class="{ 'sidebar__item--active': activeTab === item.key }"
+        :aria-current="activeTab === item.key ? 'page' : undefined"
         @click="emit('navigate', item.key)"
       >
         <span class="sidebar__icon"><Icon :type="item.icon" /></span>
@@ -66,6 +68,7 @@ const items = computed<TabItem[]>((): TabItem[] => {
           :class="{ 'sidebar__item--active': activeTab === 'settings' }"
           type="button"
           :aria-expanded="isSettingsExpanded"
+          :aria-current="activeTab === 'settings' ? 'page' : undefined"
           @click="toggleSettings"
         >
           <span class="sidebar__icon"><Icon type="settings" /></span>
@@ -114,9 +117,10 @@ const items = computed<TabItem[]>((): TabItem[] => {
         class="sidebar__item"
         :class="{ 'sidebar__item--active': activeTab === 'debug' }"
         type="button"
+        :aria-current="activeTab === 'debug' ? 'page' : undefined"
         @click="emit('navigate', 'debug')"
       >
-        <span class="sidebar__icon"><Icon type="settings" /></span>
+        <span class="sidebar__icon"><Icon type="console" /></span>
         <span class="sidebar__label">Дебаг</span>
       </button>
     </div>

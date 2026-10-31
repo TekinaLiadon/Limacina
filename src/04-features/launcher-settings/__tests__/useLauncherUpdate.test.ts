@@ -158,6 +158,26 @@ describe('useLauncherUpdate', () => {
     expect(update.isApplying.value).toBe(false)
   })
 
+  it('resets isApplying when the backend apply times out', async () => {
+    useCoreStore().version = '1.2.3'
+    vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.3'), makeVersion('1.3.0')])
+    vi.mocked(applyUpdateCmd).mockRejectedValue(
+      new Error('Ошибка обновления: Скачивание обновления прервано: истекло время ожидания'),
+    )
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.3.0')
+
+    const pending = update.handleApplyVersion()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(useNotificationStore().message).toBe(
+      'Ошибка обновления: Скачивание обновления прервано: истекло время ожидания',
+    )
+    expect(update.isApplying.value).toBe(false)
+  })
+
   it('skips the apply for the running version without asking', async () => {
     useCoreStore().version = '1.2.3'
     vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.3')])

@@ -67,7 +67,7 @@ export interface DropdownOption {
   img?: string
 }
 
-export type IconType = 'home' | 'referrals' | 'settings' | 'puzzle' | 'chevron-down' | 'arrow-right'
+export type IconType = 'home' | 'referrals' | 'settings' | 'puzzle' | 'chevron-down' | 'arrow-right' | 'console'
 
 export interface ViewerControls {
   minZoom: number

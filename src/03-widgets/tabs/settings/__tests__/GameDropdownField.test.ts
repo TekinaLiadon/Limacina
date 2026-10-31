@@ -41,4 +41,15 @@ describe('GameDropdownField', () => {
   it('keeps the settings control min width token defined globally', () => {
     expect(colorsSource).toMatch(/--settings-control-min-width:\s*\d+px/)
   })
+
+  it('names the dropdown trigger through the visible row text', () => {
+    const wrapper = mountField()
+
+    const textId = wrapper.find('.game-dropdown-field__text').attributes('id')
+    expect(textId).toBeTruthy()
+    expect(wrapper.find('.select-base__value').attributes('aria-labelledby')).toBe(textId)
+    expect(wrapper.find('.select-base__value').attributes('aria-label')).toBeUndefined()
+
+    wrapper.unmount()
+  })
 })
