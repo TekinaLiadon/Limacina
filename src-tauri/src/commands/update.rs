@@ -281,7 +281,6 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
     use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
 
