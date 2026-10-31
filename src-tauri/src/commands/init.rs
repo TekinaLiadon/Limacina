@@ -1,12 +1,8 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::init;
-use crate::state::config::{
-    in_memory_project_config, is_corrupt_config, is_missing_config, load_config,
-    recover_project_config, update_project_config,
-};
+use crate::state::config::{load_repaired_project_config, update_project_config};
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::tauri_err::CommandResult;
@@ -16,7 +12,7 @@ pub async fn initialize_launcher(
     state: State<'_, Mutex<GlobalState>>,
     parent_path: String,
 ) -> CommandResult<LauncherConfig> {
-    Ok(init::init_launcher(&state, &parent_path).await?)
+    Ok(crate::init::init_launcher(&state, &parent_path).await?)
 }
 
 #[tauri::command]
@@ -32,34 +28,7 @@ async fn initialize_project_inner(
     state: &Mutex<GlobalState>,
     project_name: &str,
 ) -> Result<ProjectConfig> {
-    let config = match load_config(project_name).await {
-        Ok(config) => config,
-        Err(e) if is_corrupt_config(&e) => recover_project_config(state, project_name, e).await?,
-        Err(e) if is_missing_config(&e) => {
-            match in_memory_project_config(state, project_name).await {
-                Some(config) => config,
-                None => {
-                    let launcher_path = LauncherConfig::resolved_launcher_path()
-                        .to_string_lossy()
-                        .to_string();
-                    init::init_project_config(&launcher_path, project_name, None).await?
-                }
-            }
-        }
-        Err(e) => {
-            return Err(e).context(format!(
-                "Не удалось прочитать конфиг проекта {project_name}"
-            ))
-        }
-    };
-
-    let stored = update_project_config(state, async |stored: &mut ProjectConfig| {
-        *stored = config;
-        Ok(())
-    })
-    .await?;
-
-    Ok(stored)
+    load_repaired_project_config(state, project_name).await
 }
 
 #[tauri::command]
@@ -133,22 +102,34 @@ mod initialize_tests {
     }
 
     #[tokio::test]
-    async fn initialize_recovers_unknown_corrupt_profile_to_default_without_server() {
+    async fn unknown_corrupt_profile_never_falls_back_to_empty_default() {
         let guard = LauncherDirGuard::acquire("initialize_corrupt_unknown").await;
         let config_dir = guard.root().join("project").join("config");
         std::fs::create_dir_all(&config_dir).expect("создание config");
         std::fs::write(config_dir.join("Solo.toml"), "not [valid toml").expect("битый toml");
         let state = Mutex::new(GlobalState::default());
 
-        let config = initialize_project_inner(&state, "Solo")
-            .await
-            .expect("битый конфиг неизвестного профиля не должен тянуть сервер");
+        let result = initialize_project_inner(&state, "Solo").await;
 
-        assert_eq!(config.project_name, "Solo");
         assert!(
             config_dir.join("Solo.toml.bak").exists(),
             "битый файл сохраняется в бэкап: {}",
             guard.root().display()
         );
+        match result {
+            Ok(config) => {
+                assert!(
+                    !config.mc_version.trim().is_empty(),
+                    "серверное восстановление не должно отдавать пустую версию: {config:?}"
+                );
+            }
+            Err(_) => {
+                assert!(
+                    !config_dir.join("Solo.toml").exists(),
+                    "при недоступном сервере пустой дефолтный конфиг не должен попадать на диск: {}",
+                    guard.root().display()
+                );
+            }
+        }
     }
 }

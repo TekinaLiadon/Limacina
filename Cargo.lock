@@ -39,6 +39,7 @@ dependencies = [
  "url",
  "uuid 1.28.0",
  "walkdir",
+ "windows",
  "winreg 0.55.0",
  "zip 9.0.1",
 ]

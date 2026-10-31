@@ -22,6 +22,7 @@ use crate::utils::logger_utils::send_game_output;
 use crate::{log_err, log_info, minecraft::structs::GameConfig};
 use sha1::{Digest, Sha1};
 
+#[cfg(not(target_os = "windows"))]
 const WINDOW_OPEN_MARKERS: &[&str] = &[
     "Reloading ResourceManager",
     "Sound engine started",
@@ -29,7 +30,6 @@ const WINDOW_OPEN_MARKERS: &[&str] = &[
     "Backend library: LWJGL",
     "LWJGL Version:",
 ];
-
 #[cfg(target_os = "windows")]
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -589,6 +589,8 @@ pub fn kill_game_process() -> Result<()> {
 
 pub struct GameProcess {
     window_opened: Arc<AtomicBool>,
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    game_pid: u32,
     exited: Arc<AtomicBool>,
     exit_status: Arc<StdMutex<Option<String>>>,
     last_output: Arc<StdMutex<VecDeque<String>>>,
@@ -602,7 +604,8 @@ impl GameProcess {
     pub async fn wait_for_window(&self, timeout: Duration) -> Result<()> {
         let deadline = Instant::now() + timeout;
         loop {
-            if self.window_opened.load(AtomicOrdering::Relaxed) {
+            if self.detect_window() {
+                self.window_opened.store(true, AtomicOrdering::Relaxed);
                 log_info!("Окно игры открыто");
                 return Ok(());
             }
@@ -627,12 +630,23 @@ impl GameProcess {
             }
             if Instant::now() >= deadline {
                 log_info!(
-                    "Окно игры не обнаружено по логам за {} сек, ожидание прекращено",
+                    "Окно игры не обнаружено за {} сек, ожидание прекращено",
                     timeout.as_secs()
                 );
                 return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    }
+
+    fn detect_window(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            has_visible_game_window(self.game_pid)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.window_opened.load(AtomicOrdering::Relaxed)
         }
     }
 
@@ -655,10 +669,51 @@ impl GameProcess {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn is_window_open_marker(line: &str) -> bool {
     WINDOW_OPEN_MARKERS
         .iter()
         .any(|marker| line.contains(marker))
+}
+
+#[cfg(target_os = "windows")]
+fn has_visible_game_window(game_pid: u32) -> bool {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    struct WindowProbe {
+        pid: u32,
+        found: bool,
+    }
+
+    unsafe extern "system" fn probe_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let probe = &mut *(lparam.0 as *mut WindowProbe);
+        let mut window_pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
+        if window_pid == probe.pid
+            && IsWindowVisible(hwnd).as_bool()
+            && GetWindowTextLengthW(hwnd) > 0
+        {
+            probe.found = true;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+
+    let mut probe = WindowProbe {
+        pid: game_pid,
+        found: false,
+    };
+    unsafe {
+        let _ = EnumWindows(
+            Some(probe_window),
+            LPARAM(&mut probe as *mut WindowProbe as isize),
+        );
+    }
+    probe.found
 }
 
 fn track_output(last_output: &StdMutex<VecDeque<String>>, line: &str) {
@@ -670,6 +725,7 @@ fn track_output(last_output: &StdMutex<VecDeque<String>>, line: &str) {
     log.push_back(truncated);
 }
 
+#[cfg_attr(target_os = "windows", allow(unused_variables))]
 fn spawn_output_reader(
     stream: impl Read + Send + 'static,
     last_output: Arc<StdMutex<VecDeque<String>>>,
@@ -692,6 +748,7 @@ fn spawn_output_reader(
             let line = lossy.trim_end_matches(['\r', '\n']);
             send_game_output(format!("[MC|{username}] {line}"), is_error, &username);
             track_output(&last_output, line);
+            #[cfg(not(target_os = "windows"))]
             if !window_opened.load(AtomicOrdering::Relaxed) && is_window_open_marker(line) {
                 log_info!("Обнаружено открытие окна игры ({username})");
                 window_opened.store(true, AtomicOrdering::Relaxed);
@@ -803,6 +860,7 @@ pub fn spawn_game_process(
             LauncherError::GameProcess("Не удалось получить stderr процесса".to_string()).into(),
         );
     };
+    let game_pid = child.id();
     let (shared_child, launcher_terminated) =
         match register_game_session(child, &username, &project) {
             Ok(session) => session,
@@ -817,6 +875,7 @@ pub fn spawn_game_process(
 
     let process = GameProcess {
         window_opened: Arc::new(AtomicBool::new(false)),
+        game_pid,
         exited: Arc::new(AtomicBool::new(false)),
         exit_status: Arc::new(StdMutex::new(None)),
         last_output: Arc::new(StdMutex::new(VecDeque::new())),
@@ -1824,9 +1883,15 @@ mod spawn_output_reader_tests {
         let (last_output, window_opened) = run_reader(bytes);
         let lines = reader_lines(&last_output);
 
+        #[cfg(not(target_os = "windows"))]
         assert!(
             window_opened.load(AtomicOrdering::Relaxed),
             "маркер окна после мусора должен быть обнаружен"
+        );
+        #[cfg(target_os = "windows")]
+        assert!(
+            !window_opened.load(AtomicOrdering::Relaxed),
+            "на Windows флаг окна ставит только опрос реального окна, не лог-маркеры"
         );
         assert_eq!(
             lines.len(),
@@ -1841,11 +1906,11 @@ mod spawn_output_reader_tests {
 #[cfg(test)]
 mod process_helpers_tests {
     use super::*;
-    use std::io::Cursor;
 
     fn process_with_output(lines: &[&str]) -> GameProcess {
         GameProcess {
             window_opened: Arc::new(AtomicBool::new(false)),
+            game_pid: 0,
             exited: Arc::new(AtomicBool::new(false)),
             exit_status: Arc::new(StdMutex::new(None)),
             last_output: Arc::new(StdMutex::new(
@@ -1949,9 +2014,12 @@ mod process_helpers_tests {
 
     #[test]
     fn window_markers_and_flags_reflect_game_state() {
-        assert!(is_window_open_marker("LWJGL Version: 3.3.1"));
-        assert!(is_window_open_marker("Sound engine started"));
-        assert!(!is_window_open_marker("Random game log line"));
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(is_window_open_marker("LWJGL Version: 3.3.1"));
+            assert!(is_window_open_marker("Sound engine started"));
+            assert!(!is_window_open_marker("Random game log line"));
+        }
 
         let process = process_with_output(&[]);
         assert!(!process.has_exited());
@@ -1959,14 +2027,7 @@ mod process_helpers_tests {
     }
 
     #[tokio::test]
-    async fn wait_for_window_ok_when_window_opens_and_err_when_game_dies() {
-        let opened = process_with_output(&[]);
-        opened.window_opened.store(true, AtomicOrdering::Relaxed);
-        opened
-            .wait_for_window(Duration::from_millis(100))
-            .await
-            .expect("открытое окно — успех");
-
+    async fn wait_for_window_errs_when_game_dies_before_window() {
         let dead = process_with_output(&["last log line before crash"]);
         dead.exited.store(true, AtomicOrdering::Relaxed);
         *dead.exit_status.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -1987,8 +2048,22 @@ mod process_helpers_tests {
         );
     }
 
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test]
+    async fn wait_for_window_ok_when_marker_flag_fires() {
+        let opened = process_with_output(&[]);
+        opened.window_opened.store(true, AtomicOrdering::Relaxed);
+        opened
+            .wait_for_window(Duration::from_millis(100))
+            .await
+            .expect("открытое окно — успех");
+    }
+
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn output_reader_tracks_lines_and_detects_window() {
+        use std::io::Cursor;
+
         let last_output = Arc::new(StdMutex::new(VecDeque::new()));
         let window_opened = Arc::new(AtomicBool::new(false));
 
@@ -2024,6 +2099,101 @@ mod process_helpers_tests {
             find_authlib_jar(&guard.0),
             Some(guard.0.join("authlib-injector.jar"))
         );
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod window_detection_tests {
+    use super::{has_visible_game_window, GameProcess};
+    use std::collections::VecDeque;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex as StdMutex};
+    use std::time::Duration;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
+    };
+
+    fn game_process(game_pid: u32) -> GameProcess {
+        GameProcess {
+            window_opened: Arc::new(AtomicBool::new(false)),
+            game_pid,
+            exited: Arc::new(AtomicBool::new(false)),
+            exit_status: Arc::new(StdMutex::new(None)),
+            last_output: Arc::new(StdMutex::new(VecDeque::new())),
+        }
+    }
+
+    fn spawn_visible_test_window() -> HWND {
+        unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!("limacina-window-detect-test"),
+                WINDOW_STYLE(WS_VISIBLE.0 | WS_OVERLAPPEDWINDOW.0),
+                0,
+                0,
+                200,
+                100,
+                None,
+                None,
+                Some(
+                    GetModuleHandleW(None)
+                        .expect("HINSTANCE тестового процесса")
+                        .into(),
+                ),
+                None,
+            )
+            .expect("создание видимого тестового окна")
+        }
+    }
+
+    #[test]
+    fn visible_window_of_own_process_is_detected() {
+        let window = spawn_visible_test_window();
+
+        assert!(
+            has_visible_game_window(std::process::id()),
+            "видимое окно с заголовком должно находиться по pid процесса"
+        );
+
+        unsafe { DestroyWindow(window).expect("закрытие тестового окна") };
+    }
+
+    #[test]
+    fn pid_without_windows_is_not_detected() {
+        assert!(
+            !has_visible_game_window(0),
+            "у pid 0 нет окон с заголовками"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_window_ok_when_real_window_opens() {
+        let window = spawn_visible_test_window();
+        let process = game_process(std::process::id());
+
+        process
+            .wait_for_window(Duration::from_secs(5))
+            .await
+            .expect("реально открытое окно должно завершить ожидание");
+
+        assert!(process.window_opened());
+        unsafe { DestroyWindow(window).expect("закрытие тестового окна") };
+    }
+
+    #[tokio::test]
+    async fn wait_for_window_times_out_gracefully_without_window() {
+        let process = game_process(0);
+
+        process
+            .wait_for_window(Duration::from_millis(400))
+            .await
+            .expect("таймаут без окна — не ошибка, запуск продолжается");
+
+        assert!(!process.window_opened());
     }
 }
 

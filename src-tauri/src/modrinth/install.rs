@@ -44,7 +44,7 @@ fn ensure_safe_mod_url(url: &str) -> Result<()> {
     let loopback = parsed
         .host_str()
         .is_some_and(|host| matches!(host, "127.0.0.1" | "::1" | "localhost"));
-    if !https && !(cfg!(test) && loopback) {
+    if !(https || cfg!(test) && loopback) {
         bail!("URL файла мода должен использовать https: {url}");
     }
     Ok(())

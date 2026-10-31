@@ -9,7 +9,9 @@ pub const LAUNCHER_ID_HEADER: &str = "X-Launcher-Id";
 const ID_VERSION: &str = "v1";
 const ID_SALT: &[u8] = b"limacina-install-id-v1";
 const ID_HEX_LEN: usize = 32;
+#[cfg(not(target_os = "windows"))]
 const BY_ID_DIR: &str = "/dev/disk/by-id";
+#[cfg(any(test, not(target_os = "windows")))]
 const MACHINE_ID_PATHS: [&str; 2] = ["/etc/machine-id", "/var/lib/dbus/machine-id"];
 
 static INSTALL_ID: OnceLock<Option<String>> = OnceLock::new();
@@ -122,10 +124,12 @@ fn system_disk_by_id_name() -> Option<String> {
     None
 }
 
+#[cfg(any(test, not(target_os = "windows")))]
 fn partition_suffix(name: &str) -> Option<&str> {
     name.rfind("-part").map(|pos| &name[pos..])
 }
 
+#[cfg(any(test, not(target_os = "windows")))]
 fn disk_name_from_partition(name: &str) -> &str {
     match partition_suffix(name) {
         Some(suffix) => &name[..name.len() - suffix.len()],
@@ -145,6 +149,7 @@ fn collect_os_install_id() -> Option<String> {
         .find_map(|path| read_machine_id(path))
 }
 
+#[cfg(not(target_os = "windows"))]
 fn read_machine_id(path: &str) -> Option<String> {
     Some(std::fs::read_to_string(path).ok()?.trim().to_string())
 }

@@ -23,7 +23,7 @@ use crate::{
     utils::errors::LauncherError, utils::java::repair_java_path, utils::tauri_err::CommandResult,
 };
 
-const GAME_WINDOW_TIMEOUT: Duration = Duration::from_secs(120);
+const GAME_WINDOW_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[tauri::command]
 pub async fn start_minecraft(
@@ -88,11 +88,12 @@ async fn start_minecraft_inner(
         )
     );
     process_step.finish(false);
-    let _ = app.emit("game-started", ctx.username.clone());
 
     authlib.stop_on_game_exit(process.exited_flag());
 
     wait_for_game_window(&process, &ctx.project).await?;
+    crate::tray::add_game_session(&app, &ctx.username);
+    let _ = app.emit("game-started", ctx.username.clone());
     notify_game_activity(&process, &ctx);
     Ok(())
 }
@@ -210,8 +211,7 @@ fn spawn_game_step(
     cpu_cores: Option<u16>,
     ctx: &LaunchContext,
 ) -> anyhow::Result<GameProcess> {
-    crate::tray::add_game_session(app, &ctx.username);
-    let spawn_result = LauncherError::classify(
+    LauncherError::classify(
         spawn_game_process(
             app.clone(),
             game_config,
@@ -223,14 +223,7 @@ fn spawn_game_step(
         )
         .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
         LauncherError::GameProcess,
-    );
-    match spawn_result {
-        Ok(process) => Ok(process),
-        Err(e) => {
-            crate::tray::remove_game_session(app, &ctx.username);
-            Err(e)
-        }
-    }
+    )
 }
 
 async fn assemble_game_config(
@@ -362,7 +355,10 @@ async fn wait_for_game_window(process: &GameProcess, project: &str) -> CommandRe
         )
     );
     if !process.window_opened() {
-        window_step.detail("Окно игры не обнаружено за 120 сек, оно может открыться позже");
+        window_step.detail(&format!(
+            "Окно игры не обнаружено за {} сек, оно может открыться позже",
+            GAME_WINDOW_TIMEOUT.as_secs()
+        ));
     }
     window_step.finish(false);
     Ok(())

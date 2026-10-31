@@ -1,11 +1,12 @@
 use crate::log_err;
 use crate::state::dto::GlobalState;
+use crate::state::launcher_config::LauncherConfig;
 use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
 use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
 use anyhow::{Context, Result};
-use tokio::fs::{create_dir_all, read_to_string};
+use tokio::fs::{create_dir_all, read_to_string, remove_file};
 use tokio::sync::{Mutex, MutexGuard};
 use toml::{from_str, to_string_pretty};
 
@@ -155,12 +156,64 @@ pub(crate) async fn recover_project_config(
         backup_corrupt_config(project_name, &error)?;
     }
     log_err!(
-        "[config] Конфиг проекта {project_name} недоступен: {error:#}. Восстанавливаем последний известный конфиг"
+        "[config] Конфиг проекта {project_name} недоступен: {error:#}. Восстанавливаем конфиг из памяти или с сервера"
     );
-    Ok(match in_memory_project_config(state, project_name).await {
-        Some(config) => config,
-        None => default_project_config(project_name),
+    if let Some(config) = in_memory_project_config(state, project_name).await {
+        return Ok(config);
+    }
+    refetch_project_config(project_name, None).await
+}
+
+async fn refetch_project_config(
+    project_name: &str,
+    server_url: Option<&str>,
+) -> Result<ProjectConfig> {
+    let launcher_root = LauncherConfig::resolved_launcher_path()
+        .to_string_lossy()
+        .into_owned();
+    crate::init::init_project_config(&launcher_root, project_name, server_url).await
+}
+
+async fn repair_empty_mc_version(config: ProjectConfig) -> Result<ProjectConfig> {
+    if !config.online || !config.mc_version.trim().is_empty() {
+        return Ok(config);
+    }
+    log_err!(
+        "[config] В конфиге проекта {} пустая версия Minecraft, перезапрашиваем конфиг с сервера",
+        config.project_name
+    );
+    let toml_path = config_file_path(&config.project_name)?;
+    let _ = remove_file(&toml_path).await;
+    let repaired =
+        refetch_project_config(&config.project_name, config.server_url.as_deref()).await?;
+    Ok(ProjectConfig {
+        cpu_cores: config.cpu_cores,
+        auto_join_server: config.auto_join_server,
+        ..repaired
     })
+}
+
+pub(crate) async fn load_repaired_project_config(
+    state: &Mutex<GlobalState>,
+    project_name: &str,
+) -> Result<ProjectConfig> {
+    let config = match load_config(project_name).await {
+        Ok(config) => config,
+        Err(e) if is_corrupt_config(&e) || is_missing_config(&e) => {
+            recover_project_config(state, project_name, e).await?
+        }
+        Err(e) => {
+            return Err(e).context(format!(
+                "Не удалось прочитать конфиг проекта {project_name}"
+            ))
+        }
+    };
+    let config = repair_empty_mc_version(config).await?;
+    update_project_config(state, async |stored: &mut ProjectConfig| {
+        *stored = config;
+        Ok(())
+    })
+    .await
 }
 
 pub(crate) fn backup_corrupt_config(project_name: &str, error: &anyhow::Error) -> Result<()> {
@@ -431,6 +484,143 @@ mod tests {
         assert_eq!(
             saved.max_memory, "-Xmx8G",
             "параллельная мутация не должна теряться"
+        );
+    }
+}
+#[cfg(test)]
+mod recovery_tests {
+    use crate::state::config::{load_config, load_repaired_project_config};
+    use crate::state::dto::{GlobalState, ModLoader};
+    use crate::test_support::LauncherDirGuard;
+    use mockito::Server;
+    use std::path::PathBuf;
+    use tokio::sync::Mutex;
+
+    fn server_config_body() -> String {
+        serde_json::json!({
+            "projectName": "Ignored",
+            "mcVersion": "1.20.1",
+            "modLoader": "fabric",
+            "loaderVersion": "0.19.3",
+            "jvmArgs": [],
+            "minMemory": "-Xms512M",
+            "maxMemory": "-Xmx4G"
+        })
+        .to_string()
+    }
+
+    fn config_dir(guard: &LauncherDirGuard) -> PathBuf {
+        guard.root().join("project").join("config")
+    }
+
+    #[tokio::test]
+    async fn missing_config_recovery_never_persists_an_empty_default() {
+        let guard = LauncherDirGuard::acquire("config_recover_missing_offline").await;
+        let state = Mutex::new(GlobalState::default());
+
+        let result = load_repaired_project_config(&state, "Solo").await;
+
+        match result {
+            Ok(config) => {
+                assert!(
+                    !config.mc_version.trim().is_empty(),
+                    "серверное восстановление не должно отдавать пустую версию: {config:?}"
+                );
+                let disk = load_config("Solo")
+                    .await
+                    .expect("восстановленный конфиг должен персиститься");
+                assert!(
+                    !disk.mc_version.trim().is_empty(),
+                    "на диске не должно оказаться пустого дефолта: {disk:?}"
+                );
+            }
+            Err(_) => {
+                assert!(
+                    !config_dir(&guard).join("Solo.toml").exists(),
+                    "при недоступном сервере пустой дефолтный конфиг не должен попадать на диск: {}",
+                    guard.root().display()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_online_version_is_refetched_and_user_fields_kept() {
+        let guard = LauncherDirGuard::acquire("config_repair_empty_version").await;
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(server_config_body())
+            .expect(1)
+            .create_async()
+            .await;
+        std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
+        std::fs::write(
+            config_dir(&guard).join("Solo.toml"),
+            format!(
+                "projectName = \"Solo\"\nmcVersion = \"\"\nmodLoader = \"vanilla\"\njvmArgs = []\nminMemory = \"-Xms512M\"\nmaxMemory = \"-Xmx4G\"\nonline = true\ninitialized = true\njavaPath = 'old/java.exe'\njavaVersion = 8\ncpuCores = 3\nautoJoinServer = true\nserverUrl = \"{}\"\n",
+                server.url()
+            ),
+        )
+        .expect("запись конфига с пустой версией");
+        let state = Mutex::new(GlobalState::default());
+
+        let repaired = load_repaired_project_config(&state, "Solo")
+            .await
+            .expect("конфиг с пустой версией должен лечиться с сервера");
+
+        assert_eq!(repaired.mc_version, "1.20.1");
+        assert_eq!(repaired.mod_loader, ModLoader::Fabric);
+        assert_eq!(repaired.loader_version.as_deref(), Some("0.19.3"));
+        assert_eq!(
+            repaired.java_path, None,
+            "путь Java сбрасывается: старый ставился под неизвестную версию"
+        );
+        assert_eq!(repaired.java_version, None);
+        assert_eq!(
+            repaired.cpu_cores,
+            Some(3),
+            "настройки пользователя сохраняются"
+        );
+        assert!(repaired.auto_join_server);
+        assert!(
+            !repaired.initialized,
+            "версия могла смениться, нужна переустановка"
+        );
+        assert_eq!(
+            repaired.server_url.as_deref(),
+            Some(server.url().as_str()),
+            "адрес сервера проекта сохраняется"
+        );
+
+        let disk = load_config("Solo")
+            .await
+            .expect("починенный конфиг должен персиститься");
+        assert_eq!(disk.mc_version, "1.20.1");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn offline_profile_with_empty_version_is_left_untouched() {
+        let guard = LauncherDirGuard::acquire("config_repair_offline_skip").await;
+        std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
+        std::fs::write(
+            config_dir(&guard).join("Solo.toml"),
+            "projectName = \"Solo\"\nmcVersion = \"\"\nmodLoader = \"vanilla\"\njvmArgs = []\nminMemory = \"-Xms512M\"\nmaxMemory = \"-Xmx4G\"\nonline = false\n",
+        )
+        .expect("запись офлайн-конфига");
+        let state = Mutex::new(GlobalState::default());
+
+        let config = load_repaired_project_config(&state, "Solo")
+            .await
+            .expect("офлайн-конфиг читается как есть");
+
+        assert!(!config.online);
+        assert_eq!(config.mc_version, "");
+        assert!(
+            config.server_url.is_none(),
+            "офлайн-профиль не должен ходить на сервер"
         );
     }
 }

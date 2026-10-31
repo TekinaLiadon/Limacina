@@ -7,8 +7,8 @@ use tokio::sync::Mutex;
 use crate::java::find_java_executable;
 use crate::log_info;
 use crate::state::config::{
-    ensure_project_selected, is_corrupt_config, is_missing_config, load_config,
-    recover_project_config, update_project_config, validated_project_name,
+    ensure_project_selected, load_repaired_project_config, update_project_config,
+    validated_project_name,
 };
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::blocking;
@@ -146,23 +146,7 @@ async fn load_settings_project_inner(
     state: &Mutex<GlobalState>,
     project_name: &str,
 ) -> Result<ProjectConfig> {
-    let config = match load_config(project_name).await {
-        Ok(config) => config,
-        Err(e) if is_corrupt_config(&e) || is_missing_config(&e) => {
-            recover_project_config(state, project_name, e).await?
-        }
-        Err(e) => {
-            return Err(e).context(format!(
-                "Не удалось прочитать конфиг проекта {project_name}"
-            ))
-        }
-    };
-
-    update_project_config(state, async |stored: &mut ProjectConfig| {
-        *stored = config;
-        Ok(())
-    })
-    .await
+    load_repaired_project_config(state, project_name).await
 }
 
 #[tauri::command]
