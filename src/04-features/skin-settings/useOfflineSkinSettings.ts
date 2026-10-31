@@ -1,9 +1,10 @@
 import { computed, nextTick, onMounted, watch } from 'vue'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { captureProjectScope, getErrorMessage, reportError } from '@/06-shared'
+import { captureProjectScope, reportError } from '@/06-shared'
 import {
   deleteOfflineSkin, getOfflineSkin, getOfflineSkinModel, saveOfflineSkin,
 } from '@/06-shared/api'
+import { runPreviewLoad } from '@/04-features/user-content/previewUrls'
 import { useSkinSettings } from './useSkinSettings'
 
 export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
@@ -48,34 +49,31 @@ export function useOfflineSkinSettings(): ReturnType<typeof useSkinSettings> {
   const loadOfflineSkin = async (): Promise<void> => {
     const project = coreStore.currentProject
     const generation = settings.skinPreviewGuard.next()
-    let dataUrl: string | null = null
-    try {
-      const bytes = await getOfflineSkin(project)
-      if (!settings.skinPreviewGuard.isCurrent(generation)) return
-      if (bytes.length === 0) return
-      dataUrl = await settings.createPreviewUrl(bytes)
-      if (!settings.skinPreviewGuard.isCurrent(generation)) {
-        settings.discardPreviewUrl(dataUrl)
-        return
-      }
-      settings.skinFileBytes.value = bytes
-      restoringOfflineModel = true
-      const model = await getOfflineSkinModel(project)
-      if (!settings.skinPreviewGuard.isCurrent(generation)) {
-        restoringOfflineModel = false
-        settings.discardPreviewUrl(dataUrl)
-        return
-      }
-      if (model === 'slim' || model === 'classic') settings.modelMode.value = model
-      await nextTick()
-      restoringOfflineModel = false
-      settings.adoptPreviewUrl(dataUrl)
-    } catch (e: unknown) {
-      restoringOfflineModel = false
-      if (dataUrl !== null) settings.discardPreviewUrl(dataUrl)
-      settings.errorMessage.value = getErrorMessage(e)
-      reportError('Не удалось загрузить локальный скин', e)
-    }
+    await runPreviewLoad({
+      generation,
+      guard: settings.skinPreviewGuard,
+      fetchBytes: async (): Promise<Uint8Array | null> => {
+        const bytes = await getOfflineSkin(project)
+        return bytes.length === 0 ? null : bytes
+      },
+      createUrl: settings.createPreviewUrl,
+      adopt: settings.adoptPreviewUrl,
+      discard: settings.discardPreviewUrl,
+      errorTarget: settings.errorMessage,
+      reportMessage: 'Не удалось загрузить локальный скин',
+      beforeAdopt: async (bytes: Uint8Array): Promise<void> => {
+        settings.skinFileBytes.value = bytes
+        restoringOfflineModel = true
+        try {
+          const model = await getOfflineSkinModel(project)
+          if (!settings.skinPreviewGuard.isCurrent(generation)) return
+          if (model === 'slim' || model === 'classic') settings.modelMode.value = model
+          await nextTick()
+        } finally {
+          restoringOfflineModel = false
+        }
+      },
+    })
   }
 
   watch((): string => coreStore.currentProject, (): void => {

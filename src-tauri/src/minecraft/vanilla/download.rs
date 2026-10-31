@@ -461,7 +461,7 @@ pub fn collect_library_targets(manifest: &VersionDetailsManifest) -> Result<Vec<
 
         if let Some(native_artifact) = native_artifact_for_os(lib, current_os) {
             let rel_path = PathBuf::from(format!("libraries/{}", native_artifact.path));
-            if !queued.contains(&rel_path) {
+            if !native_artifact.url.is_empty() && !queued.contains(&rel_path) {
                 ensure_safe_relative_path(&native_artifact.path, "пути библиотеки в манифесте")?;
                 if native_artifact.sha1.is_empty() {
                     return Err(LauncherError::ManifestParse(format!(
@@ -937,6 +937,34 @@ mod tests {
         assert!(
             error.to_string().contains("SHA1"),
             "ошибка должна называть отсутствующий хеш: {error}"
+        );
+    }
+
+    #[test]
+    fn natives_target_without_url_is_skipped_like_regular_artifact() {
+        if get_current_os() == "osx" {
+            return;
+        }
+        let suffix = if get_current_os() == "windows" {
+            "natives-windows"
+        } else {
+            "natives-linux"
+        };
+        let mut value = manifest_1_18_2();
+        value["libraries"][4]["downloads"]["classifiers"][suffix]["url"] = json!("");
+        let manifest: VersionDetailsManifest = serde_json::from_value(value).unwrap();
+
+        let targets = collect_library_targets(&manifest).expect("таргеты библиотек");
+        let natives_rel = format!("libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-{suffix}.jar");
+        assert!(
+            !targets
+                .iter()
+                .any(|target| target.rel_path.to_string_lossy() == natives_rel),
+            "natives-артефакт без URL не должен становиться таргетом: {:?}",
+            targets
+                .iter()
+                .map(|target| target.rel_path.clone())
+                .collect::<Vec<_>>()
         );
     }
 

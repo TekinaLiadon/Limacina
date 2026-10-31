@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useThemeSettings } from '@/04-features'
+import { useRovingTabs } from '@/06-shared'
 import ThemeModeToggle from '@/03-widgets/theme/ThemeModeToggle.vue'
 
 const {
@@ -9,6 +10,29 @@ const {
   previewOf,
   selectFamily,
 } = useThemeSettings()
+
+const tabId = (familyId: string): string => `theme-family-${familyId}`
+
+const { handleKeydown: handleRovingKeydown, move } = useRovingTabs<string>({
+  tabs: (): Array<{ key: string }> => families.map((family) => ({ key: family.id })),
+  isActive: (familyId: string): boolean => currentFamily.value === familyId,
+  tabId,
+  select: selectFamily,
+})
+
+const handleKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    move(1)
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    move(-1)
+    return
+  }
+  handleRovingKeydown(event)
+}
 </script>
 
 <template>
@@ -19,15 +43,17 @@ const {
       <ThemeModeToggle variant="labels" />
     </div>
 
-    <div class="theme-selector__list" role="radiogroup" aria-label="Тема оформления">
+    <div class="theme-selector__list" role="radiogroup" aria-label="Тема оформления" @keydown="handleKeydown">
       <button
         v-for="family in families"
+        :id="tabId(family.id)"
         :key="family.id"
         type="button"
         role="radio"
         class="theme-selector__item"
         :class="{ 'theme-selector__item--active': currentFamily === family.id }"
         :aria-checked="currentFamily === family.id"
+        :tabindex="currentFamily === family.id ? 0 : -1"
         :disabled="isSwitchDisabled"
         @click="selectFamily(family.id)"
       >

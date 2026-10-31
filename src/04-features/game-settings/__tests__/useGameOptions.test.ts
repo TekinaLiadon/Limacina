@@ -185,20 +185,57 @@ describe('useGameOptions', () => {
     expect(options.isSaving.value).toBe(false)
   })
 
-  it('keeps settings in the store while the game file is not ready', async () => {
+  it('persists the pre-install save through the backend and mirrors it in the store', async () => {
     vi.mocked(getGameOptions).mockResolvedValue(makeData({}, { versionReady: false }))
+    vi.mocked(saveGameOptions).mockResolvedValue(undefined)
     const options = setupOptions()
     await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
 
     options.options.value.fov = 110
     await options.handleSave()
 
-    expect(saveGameOptions).not.toHaveBeenCalled()
+    expect(saveGameOptions).toHaveBeenCalledWith('proj', expect.objectContaining({ fov: 110 }))
     expect(useGameOptionsStore().pendingFor('proj')?.fov).toBe(110)
     expect(useNotificationStore().message).toBe(
       'Настройки игры сохранены: они применятся при установке игры',
     )
     expect(options.isDirty.value).toBe(false)
+  })
+
+  it('surfaces a failed pre-install save and keeps the form dirty', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({}, { versionReady: false }))
+    vi.mocked(saveGameOptions).mockRejectedValue(new Error('disk full'))
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    options.options.value.fov = 110
+    await options.handleSave()
+
+    expect(useGameOptionsStore().pendingFor('proj')).toBeNull()
+    expect(options.isDirty.value).toBe(true)
+    expect(useNotificationStore().message).toBe('disk full')
+  })
+
+  it('restores pre-install saves after a launcher restart', async () => {
+    vi.mocked(getGameOptions).mockResolvedValue(makeData({}, { versionReady: false }))
+    vi.mocked(saveGameOptions).mockResolvedValue(undefined)
+    const options = setupOptions()
+    await vi.waitFor(() => expect(options.isLoading.value).toBe(false))
+
+    options.options.value.fov = 110
+    await options.handleSave()
+    const saved = vi.mocked(saveGameOptions).mock.calls[0]?.[1]
+    expect(saved).toBeDefined()
+    if (!saved) return
+
+    setActivePinia(createPinia())
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(getGameOptions).mockResolvedValue(makeData(saved, { versionReady: false }))
+    const reloaded = setupOptions()
+    await vi.waitFor(() => expect(reloaded.isLoading.value).toBe(false))
+
+    expect(reloaded.options.value.fov).toBe(110)
+    expect(reloaded.isDirty.value).toBe(false)
   })
 
   it('shows the stored settings while the game file is not ready', async () => {

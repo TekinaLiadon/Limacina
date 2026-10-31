@@ -122,6 +122,24 @@ mod tests {
         assert_eq!(authlib.server_url(), Some("https://mc.example.com"));
     }
 
+    #[tokio::test]
+    async fn resolve_offline_falls_back_without_shim_when_preparation_fails() {
+        let config = ProjectConfig {
+            online: false,
+            project_name: String::new(),
+            ..Default::default()
+        };
+
+        let authlib =
+            AuthlibLaunch::resolve(&config, "Steve", "069a79f444e94726a5befca90e38abaf").await;
+
+        assert_eq!(
+            authlib.server_url(),
+            None,
+            "при отказе подготовки шима запуск не должен получать URL агента"
+        );
+    }
+
     #[test]
     fn shim_launch_exposes_shim_url() {
         let (authlib, url) = shim_launch();

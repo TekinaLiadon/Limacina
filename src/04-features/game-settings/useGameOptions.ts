@@ -155,16 +155,15 @@ export function useGameOptions(): {
     const scope = captureProjectScope((): string => coreStore.currentProject)
     if (!scope.project || isLoading.value || isSaving.value || loadError.value) return
 
-    if (!versionReady.value) {
-      gameOptionsStore.setPending(scope.project, options.value)
-      dirtyState.captureBaseline()
-      notification.show('Настройки игры сохранены: они применятся при установке игры')
-      return
-    }
-
     await saveAction.run(async () => {
       await saveGameOptions(scope.project, options.value)
       if (!scope.isCurrent()) return
+      if (!versionReady.value) {
+        gameOptionsStore.setPending(scope.project, options.value)
+        dirtyState.captureBaseline()
+        notification.show('Настройки игры сохранены: они применятся при установке игры')
+        return
+      }
       dirtyState.captureBaseline()
       notification.show('Настройки игры сохранены')
     })

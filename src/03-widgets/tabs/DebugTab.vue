@@ -106,6 +106,8 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       v-else
       ref="parentRef"
       class="debug-tab__scroll"
+      role="log"
+      tabindex="0"
       @scroll.passive="onScroll"
     >
       <div

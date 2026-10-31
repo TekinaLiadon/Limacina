@@ -9,9 +9,9 @@ import {
   type ProjectSettingsForm,
   type ProjectConfig,
 } from '@/05-entities'
-import { clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJava, refreshManifests, saveSettingsProject } from '@/06-shared/api'
+import { availableCpuCores as fetchAvailableCpuCores, clearMinecraftConfig, deleteProject, getErrorMessage, getServerConnectUrl, loadSettingsProject, probeJava, refreshManifests, saveSettingsProject } from '@/06-shared/api'
 import { captureProjectScope, copyToClipboard, reportError, selectDirectory, useAsyncAction } from '@/06-shared'
-import { useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
+import { isProjectDeleting, useProjectSwitch } from '@/04-features/project-switch/useProjectSwitch'
 import { loadProjectConfig } from './loadProjectConfig'
 import { splitJvmArgs, validateJvmArgs } from './jvmPresets'
 
@@ -25,6 +25,7 @@ export function useProjectSettings(): {
   loadError: ComputedRef<string>
   isDirty: ComputedRef<boolean>
   maxMemoryLimit: ComputedRef<number>
+  availableCpuCores: Ref<number>
   jvmArgsError: ComputedRef<string>
   isSaving: ComputedRef<boolean>
   isClearingConfig: Ref<boolean>
@@ -59,6 +60,17 @@ export function useProjectSettings(): {
   const maxMemoryLimit = computed((): number => {
     return Math.max(MIN_MEMORY_LIMIT_MB, coreStore.totalMemoryMb - OS_MEMORY_RESERVE_MB)
   })
+
+  const availableCpuCores = ref<number>(0)
+  const loadAvailableCpuCores = async (): Promise<void> => {
+    try {
+      availableCpuCores.value = await fetchAvailableCpuCores()
+    } catch (e: unknown) {
+      reportError('Не удалось получить число ядер CPU', e)
+      notification.show('Не удалось получить число ядер CPU, доступен только режим «Авто»')
+    }
+  }
+  void loadAvailableCpuCores()
 
   const jvmArgsError = computed((): string => validateJvmArgs(config.value.jvmArgs))
 
@@ -114,9 +126,11 @@ export function useProjectSettings(): {
         ...fresh,
         loaderVersion: store.isFieldDirty('loaderVersion') ? config.value.loaderVersion || null : fresh.loaderVersion,
         javaPath: store.isFieldDirty('javaPath') ? config.value.javaPath || null : fresh.javaPath,
+        javaVersion: store.isFieldDirty('javaPath') ? config.value.javaVersion : fresh.javaVersion,
         jvmArgs: store.isFieldDirty('jvmArgs') ? (config.value.jvmArgs ? splitJvmArgs(config.value.jvmArgs) : []) : fresh.jvmArgs,
         minMemory: store.isFieldDirty('memoryRange') ? `-Xms${config.value.memoryRange[0]}M` : fresh.minMemory,
         maxMemory: store.isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
+        cpuCores: store.isFieldDirty('cpuCores') ? config.value.cpuCores : fresh.cpuCores,
         autoJoinServer: store.isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
       }
       const saved = await saveSettingsProject(projectConfig)
@@ -208,36 +222,43 @@ export function useProjectSettings(): {
     }
     if (guardProjectSwitching()) return
 
-    const scope = captureProjectScope((): string => coreStore.currentProject)
-    const confirmed = await notification.confirm(
-      `Удалить проект "${projectName}"? Папка с игрой, модами, конфигами и сохранениями будет удалена безвозвратно`
-    )
-    if (!confirmed) return
-    if (!scope.isCurrent()) {
-      notification.show('Проект сменился, удаление отменено')
-      return
-    }
-
-    await deleteAction.run(async () => {
-      coreStore.setLauncherConfig(await deleteProject(scope.project))
-      resetAccountsState()
-      notification.show('Проект удалён')
-
-      const [next] = coreStore.projects
-      if (next === undefined) {
-        coreStore.setProjectConfig(null)
-        await router.push({ name: 'AddProfile' })
+    isProjectDeleting.value = true
+    try {
+      const scope = captureProjectScope((): string => coreStore.currentProject)
+      const confirmed = await notification.confirm(
+        `Удалить проект "${projectName}"? Папка с игрой, модами, конфигами и сохранениями будет удалена безвозвратно`
+      )
+      if (!confirmed) return
+      if (!scope.isCurrent()) {
+        notification.show('Проект сменился, удаление отменено')
         return
       }
 
-      try {
-        await applyProjectSwitch(next)
-      } catch (e: unknown) {
-        reportError('Не удалось переключиться на следующий проект после удаления', e)
-        coreStore.setProjectConfig(null)
-        notification.show(getErrorMessage(e))
-      }
-    })
+      await deleteAction.run(async () => {
+        coreStore.setLauncherConfig(await deleteProject(scope.project))
+        resetAccountsState()
+        notification.show('Проект удалён')
+
+        const [first] = coreStore.projects
+        if (first === undefined) {
+          coreStore.setProjectConfig(null)
+          await router.push({ name: 'AddProfile' })
+          return
+        }
+
+        const selected = coreStore.currentProject
+        const target = coreStore.projects.includes(selected) ? selected : first
+        try {
+          await applyProjectSwitch(target)
+        } catch (e: unknown) {
+          reportError('Не удалось переключиться на следующий проект после удаления', e)
+          coreStore.setProjectConfig(null)
+          notification.show(getErrorMessage(e))
+        }
+      })
+    } finally {
+      isProjectDeleting.value = false
+    }
   }
 
   return {
@@ -247,6 +268,7 @@ export function useProjectSettings(): {
     loadError,
     isDirty,
     maxMemoryLimit,
+    availableCpuCores,
     jvmArgsError,
     isSaving,
     isClearingConfig,

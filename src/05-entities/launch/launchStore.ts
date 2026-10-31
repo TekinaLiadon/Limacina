@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { applyStepEvent, computeStepProgress, createStepItem, type StepEvent, type StepProgressItem, type StepPlanItem } from '@/06-shared'
 
@@ -6,9 +6,10 @@ export const useLaunchStore = defineStore('launch', () => {
   const isLaunching = ref<boolean>(false)
   const launchInterrupted = ref<boolean>(false)
   const isCancelPending = ref<boolean>(false)
+  const isLaunchCommitted = ref<boolean>(false)
   const launchGeneration = ref<number>(0)
   const launchSteps = ref<StepProgressItem[]>([])
-  const activeProgress = ref<number>(0)
+  const activeProgress = computed((): number => computeStepProgress(launchSteps.value))
   const loginError = ref<string>('')
   const gameUsernames = ref<string[]>([])
   const sessionViewDismissed = ref<boolean>(false)
@@ -23,12 +24,25 @@ export const useLaunchStore = defineStore('launch', () => {
     gameUsernames.value = gameUsernames.value.filter((name: string): boolean => name !== username)
   }
 
+  function setGameSessions(usernames: string[]): void {
+    for (const username of usernames) addGameSession(username)
+    for (const username of [...gameUsernames.value]) {
+      if (!usernames.includes(username)) removeGameSession(username)
+    }
+  }
+
   function beginLaunch(): number {
     isCancelPending.value = false
+    isLaunchCommitted.value = false
     launchGeneration.value += 1
     isLaunching.value = true
     sessionViewDismissed.value = false
     return launchGeneration.value
+  }
+
+  function commitLaunch(): void {
+    isLaunchCommitted.value = true
+    isCancelPending.value = false
   }
 
   function invalidateGeneration(): void {
@@ -56,8 +70,6 @@ export const useLaunchStore = defineStore('launch', () => {
     if (step) {
       step.status = 'error'
       step.error = message
-    } else {
-      activeProgress.value = 0
     }
     failActive(message)
   }
@@ -80,7 +92,6 @@ export const useLaunchStore = defineStore('launch', () => {
     isLaunching.value = true
     launchInterrupted.value = true
     launchSteps.value = []
-    activeProgress.value = 0
   }
 
   function prefillSteps(plan: StepPlanItem[]): void {
@@ -88,7 +99,6 @@ export const useLaunchStore = defineStore('launch', () => {
       ...createStepItem(item.key, item.label, 0),
       status: 'pending' as const,
     }))
-    activeProgress.value = 0
     launchInterrupted.value = false
   }
 
@@ -103,16 +113,10 @@ export const useLaunchStore = defineStore('launch', () => {
         item.skipped = true
       }
     }
-    activeProgress.value = computeStepProgress(launchSteps.value)
-  }
-
-  function recomputeProgress(): void {
-    activeProgress.value = computeStepProgress(launchSteps.value)
   }
 
   function resetSteps(): void {
     launchSteps.value = []
-    activeProgress.value = 0
     launchInterrupted.value = false
   }
 
@@ -124,8 +128,8 @@ export const useLaunchStore = defineStore('launch', () => {
     isLaunching.value = false
     launchInterrupted.value = false
     isCancelPending.value = false
+    isLaunchCommitted.value = false
     launchSteps.value = []
-    activeProgress.value = 0
     loginError.value = ''
     gameUsernames.value = []
     sessionViewDismissed.value = false
@@ -135,6 +139,7 @@ export const useLaunchStore = defineStore('launch', () => {
     isLaunching,
     launchInterrupted,
     isCancelPending,
+    isLaunchCommitted,
     launchGeneration,
     launchSteps,
     activeProgress,
@@ -142,6 +147,7 @@ export const useLaunchStore = defineStore('launch', () => {
     gameUsernames,
     sessionViewDismissed,
     beginLaunch,
+    commitLaunch,
     invalidateGeneration,
     isCurrent,
     reportFailure,
@@ -154,11 +160,11 @@ export const useLaunchStore = defineStore('launch', () => {
     prefillSteps,
     applyStreamEvent,
     markStepsSkipped,
-    recomputeProgress,
     resetSteps,
     clearLoginError,
     addGameSession,
     removeGameSession,
+    setGameSessions,
     reset,
   }
 })

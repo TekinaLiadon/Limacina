@@ -49,6 +49,14 @@ const exportMods = computed((): ModrinthExportMod[] => props.exportReport?.mods 
 
 const unresolved = computed((): ModrinthExportReport['unresolved'] => props.exportReport?.unresolved ?? [])
 
+const isImportPreview = computed((): boolean => props.view === 'import-preview')
+
+const importEntries = computed((): ModrinthModsetEntry[] | null => {
+  if (isImportPreview.value) return props.importPreview?.entries ?? null
+  if (props.view === 'import-report') return props.importReport?.entries ?? null
+  return null
+})
+
 function entryName(entry: ModrinthExportMod | ModrinthModsetEntry): string {
   return entry.title ?? entry.filename ?? entry.slug ?? entry.project_id ?? 'Неизвестный мод'
 }
@@ -86,9 +94,9 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
       </div>
     </div>
 
-    <div v-else-if="props.view === 'import-preview' && props.importPreview" class="modrinth-modset-popup__list">
+    <div v-else-if="importEntries" class="modrinth-modset-popup__list">
       <div
-        v-for="(entry, index) in props.importPreview.entries"
+        v-for="(entry, index) in importEntries"
         :key="entryKey(entry, index)"
         class="modrinth-modset-popup__row"
       >
@@ -100,27 +108,11 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
           <span class="modrinth-modset-popup__status" :class="`modrinth-modset-popup__status--${entry.status}`">
             {{ STATUS_LABELS[entry.status] }}
           </span>
-          <span v-if="entry.status === 'ready' && isEntryInstalled(entry)" class="modrinth-modset-popup__status">
+          <span
+            v-if="isImportPreview && entry.status === 'ready' && isEntryInstalled(entry)"
+            class="modrinth-modset-popup__status"
+          >
             Уже установлен
-          </span>
-          <span v-if="entry.message" class="modrinth-modset-popup__message">{{ entry.message }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="props.view === 'import-report' && props.importReport" class="modrinth-modset-popup__list">
-      <div
-        v-for="(entry, index) in props.importReport.entries"
-        :key="entryKey(entry, index)"
-        class="modrinth-modset-popup__row"
-      >
-        <div class="modrinth-modset-popup__row-head">
-          <span class="modrinth-modset-popup__name">{{ entryName(entry) }}</span>
-          <span class="modrinth-modset-popup__version">{{ entryVersion(entry) }}</span>
-        </div>
-        <div class="modrinth-modset-popup__row-status">
-          <span class="modrinth-modset-popup__status" :class="`modrinth-modset-popup__status--${entry.status}`">
-            {{ STATUS_LABELS[entry.status] }}
           </span>
           <span v-if="entry.message" class="modrinth-modset-popup__message">{{ entry.message }}</span>
         </div>

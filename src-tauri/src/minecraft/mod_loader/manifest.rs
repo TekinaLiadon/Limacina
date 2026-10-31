@@ -14,7 +14,7 @@ use crate::{
         mod_loader::{
             config::{build_loader_config, LoaderConfigOptions, VanillaClientJar},
             installer::setup_loader,
-            utils::maven_to_url,
+            utils::{maven_to_path, maven_to_url},
         },
         rules::is_json_rules_allowed,
         structs::{GameConfig, LibraryMod, ModLoader, VersionMod},
@@ -319,6 +319,28 @@ pub fn loader_libraries(libraries: Vec<Library>, maven_base: &str) -> Result<Vec
     Ok(result)
 }
 
+pub async fn installer_artifacts_missing(base: &Path, libraries: &[Library]) -> Result<bool> {
+    for lib in libraries {
+        let artifact = &lib.downloads.artifact;
+        if !artifact.url.is_empty() {
+            continue;
+        }
+        let rel_path = if artifact.path.is_empty() {
+            maven_to_path(&lib.name)?
+        } else {
+            ensure_safe_relative_path(&artifact.path, "пути библиотеки лоадера")?;
+            PathBuf::from(&artifact.path)
+        };
+        if !fs::try_exists(base.join("libraries").join(rel_path))
+            .await
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub type LoaderIndex = BTreeMap<String, Vec<String>>;
 
 pub(crate) struct LoaderDef {
@@ -471,9 +493,11 @@ mod latest_version_tests {
 
 #[cfg(test)]
 mod loader_libraries_tests {
+    use super::installer_artifacts_missing;
     use super::loader_libraries;
     use super::{Artifact, Downloads, Library};
     use crate::minecraft::mod_loader::neoforge::manifest::NEOFORGE_MAVEN_BASE;
+    use crate::test_support::LauncherDirGuard;
 
     fn library(name: &str, path: &str, url: &str) -> Library {
         Library {
@@ -518,6 +542,57 @@ mod loader_libraries_tests {
             mods[0].url,
             "https://maven.neoforged.net/releases/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
             "fallback-URL строится от продовой базы с /releases, иначе maven отдаёт 404"
+        );
+    }
+
+    #[tokio::test]
+    async fn installer_artifacts_missing_detects_absent_local_library() {
+        let dir = LauncherDirGuard::acquire("installer_artifacts_missing").await;
+        let base = dir.project_dir("Proj");
+        let libraries = vec![library(
+            "net.minecraftforge:forge:1.16.5-36.2.42",
+            "net/minecraftforge/forge/1.16.5-36.2.42/forge-1.16.5-36.2.42.jar",
+            "",
+        )];
+
+        assert!(
+            installer_artifacts_missing(&base, &libraries)
+                .await
+                .expect("проверка отсутствующей библиотеки"),
+            "отсутствующий артефакт без URL должен требовать запуска инсталлера"
+        );
+
+        let rel_path = "libraries/net/minecraftforge/forge/1.16.5-36.2.42";
+        std::fs::create_dir_all(base.join(rel_path)).unwrap();
+        std::fs::write(
+            base.join(rel_path).join("forge-1.16.5-36.2.42.jar"),
+            b"shim",
+        )
+        .unwrap();
+
+        assert!(
+            !installer_artifacts_missing(&base, &libraries)
+                .await
+                .expect("проверка лежащей библиотеки"),
+            "лежащий артефакт без URL не должен требовать запуска инсталлера"
+        );
+    }
+
+    #[tokio::test]
+    async fn installer_artifacts_missing_ignores_downloadable_libraries() {
+        let dir = LauncherDirGuard::acquire("installer_artifacts_downloadable").await;
+        let base = dir.project_dir("Proj");
+        let libraries = vec![library(
+            "net.fabricmc:fabric-loader:0.16.9",
+            "",
+            "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar",
+        )];
+
+        assert!(
+            !installer_artifacts_missing(&base, &libraries)
+                .await
+                .expect("проверка скачиваемой библиотеки"),
+            "библиотеки с URL скачиваются обычным путём"
         );
     }
 }

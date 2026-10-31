@@ -1,4 +1,5 @@
 import { isRecord } from './cpmProjectZip'
+import { wrapAngle360 } from './cpmBinaryWriter'
 import type { CPMAnimation, CPMAnimationFrame, CPMAnimationFrameComponent, CPMVec3 } from '@/05-entities'
 
 export interface BbmodelAnimatorTarget {
@@ -63,10 +64,6 @@ function molangNum(value: unknown, label: string): number {
   throw new Error(`Файл .bbmodel повреждён: ${label} должен быть числом, выражения Molang не поддерживаются`)
 }
 
-function wrap360(deg: number): number {
-  return ((deg % 360) + 360) % 360
-}
-
 function keyframeVec(point: unknown, animName: string, channel: ChannelName): CPMVec3 {
   const label = `координата канала ${channel} анимации "${animName}"`
   if (!isRecord(point)) {
@@ -83,7 +80,7 @@ function applySigns(channel: ChannelName, value: CPMVec3, legacySigns: boolean):
   if (channel === 'scale') return { x: value.x, y: value.y, z: value.z }
   const x = (legacySigns ? -value.x : value.x) + 0
   if (channel === 'position') return { x, y: -value.y + 0, z: -value.z + 0 }
-  return { x: wrap360(x), y: wrap360(legacySigns ? value.y : -value.y), z: wrap360(-value.z) }
+  return { x: wrapAngle360(x), y: wrapAngle360(legacySigns ? value.y : -value.y), z: wrapAngle360(-value.z) }
 }
 
 function parseTrack(

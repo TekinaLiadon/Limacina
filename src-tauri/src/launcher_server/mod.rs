@@ -9,7 +9,7 @@ use crate::log_err;
 use crate::log_info;
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::errors::LauncherError;
-use crate::utils::http::{http_client, with_launcher_id};
+use crate::utils::http::{http_client, read_error_body_text, with_launcher_id};
 
 pub(crate) async fn fetch_project_config(base_url: &str) -> Result<ProjectConfig> {
     let response = LauncherError::classify(
@@ -22,7 +22,7 @@ pub(crate) async fn fetch_project_config(base_url: &str) -> Result<ProjectConfig
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        let body = read_error_body_text(response, base_url).await;
         log_err!("Сервер вернул {} при запросе конфига: {}", status, body);
         bail!(LauncherError::LauncherServer(format!(
             "Сервер {} вернул {} при запросе конфига проекта",

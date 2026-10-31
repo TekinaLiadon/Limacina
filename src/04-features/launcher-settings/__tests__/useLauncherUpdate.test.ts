@@ -58,6 +58,47 @@ describe('useLauncherUpdate', () => {
     expect(update.selectedVersion.value).toBe('1.2.3')
   })
 
+  it('keeps the selected version across a retry', async () => {
+    useCoreStore().version = '1.2.3'
+    vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.3'), makeVersion('1.3.0')])
+
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.3.0')
+
+    await update.retryLoad()
+
+    expect(update.versions.value).toHaveLength(2)
+    expect(update.selectedVersion.value).toBe('1.3.0')
+  })
+
+  it('drops a stale version list after a retry supersedes the first load', async () => {
+    useCoreStore().version = '1.2.3'
+    let releaseFirst: (list: UpdateInfo[]) => void = () => {}
+    vi.mocked(getLauncherVersions)
+      .mockImplementationOnce(
+        () =>
+          new Promise<UpdateInfo[]>((resolve) => {
+            releaseFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce([makeVersion('2.0.0')])
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.isLoading.value).toBe(true))
+
+    await update.retryLoad()
+    expect(update.versions.value).toEqual([makeVersion('2.0.0')])
+
+    releaseFirst([makeVersion('0.9.0')])
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0)
+    })
+
+    expect(update.versions.value).toEqual([makeVersion('2.0.0')])
+    expect(update.selectedVersion.value).toBe('1.2.3')
+    expect(update.isLoading.value).toBe(false)
+  })
+
   it('enables the apply action for another version', async () => {
     useCoreStore().version = '1.2.3'
     vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.3'), makeVersion('1.3.0')])
@@ -114,6 +155,26 @@ describe('useLauncherUpdate', () => {
     await pending
 
     expect(useNotificationStore().message).toBe('signature mismatch')
+    expect(update.isApplying.value).toBe(false)
+  })
+
+  it('resets isApplying when the backend apply times out', async () => {
+    useCoreStore().version = '1.2.3'
+    vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.3'), makeVersion('1.3.0')])
+    vi.mocked(applyUpdateCmd).mockRejectedValue(
+      new Error('Ошибка обновления: Скачивание обновления прервано: истекло время ожидания'),
+    )
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.3.0')
+
+    const pending = update.handleApplyVersion()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(useNotificationStore().message).toBe(
+      'Ошибка обновления: Скачивание обновления прервано: истекло время ожидания',
+    )
     expect(update.isApplying.value).toBe(false)
   })
 

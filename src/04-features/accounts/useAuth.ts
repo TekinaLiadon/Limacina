@@ -83,6 +83,7 @@ export function useAuth() {
         store.loginFormData.rememberMe
       )
       if (!scope.isCurrent()) return
+      store.errorMessage = ''
 
       await refreshSession(scope, store.applySession, 'Не удалось обновить сессию после входа')
 

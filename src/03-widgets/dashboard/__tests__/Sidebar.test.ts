@@ -33,6 +33,22 @@ describe('Sidebar item markup', () => {
 
     expect(first?.classes()).toContain('sidebar__item--active')
   })
+
+  it('types every row as a button and marks the active one with aria-current', () => {
+    const rows = mountSidebar().findAll('button.sidebar__item')
+
+    for (const row of rows) {
+      expect(row.attributes('type')).toBe('button')
+    }
+    expect(rows[0]?.attributes('aria-current')).toBe('page')
+    expect(rows[1]?.attributes('aria-current')).toBeUndefined()
+    expect(rows[2]?.attributes('aria-current')).toBeUndefined()
+  })
+
+  it('gives the debug row its own icon instead of the settings glyph', () => {
+    expect(sidebarSource).toContain('<Icon type="console" />')
+    expect(sidebarSource.match(/<Icon type="settings" \/>/g)).toHaveLength(1)
+  })
 })
 
 describe('Sidebar hover response', () => {

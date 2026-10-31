@@ -46,8 +46,8 @@ jobs:
       - name: Typecheck (vue-tsc)
         run: bunx vue-tsc --noEmit
 
-      - name: Unit tests (vitest)
-        run: bun run test
+      - name: Unit tests with coverage thresholds (vitest)
+        run: bun run test:coverage
 
       - name: Build (vite)
         run: bun run build

@@ -7,6 +7,7 @@
   },
   "rules": {
     "eslint/no-control-regex": "off",
+    "eslint/no-underscore-dangle": ["error", { "allow": ["__TAURI_INTERNALS__"] }],
     "typescript/consistent-type-imports": ["warn", { "prefer": "inline-type-imports" }],
     "typescript/array-type": "warn",
     "eslint/prefer-destructuring": "warn",

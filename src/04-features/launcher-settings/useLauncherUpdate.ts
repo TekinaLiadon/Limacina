@@ -1,7 +1,7 @@
 import { computed, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, type UpdateInfo } from '@/05-entities'
 import { applyUpdateCmd, getErrorMessage, getLauncherVersions } from '@/06-shared/api'
-import { reportError, runScopedAction } from '@/06-shared'
+import { reportError, runScopedAction, useAsyncRaceGuard } from '@/06-shared'
 
 export function useLauncherUpdate(): {
   versions: Ref<UpdateInfo[]>
@@ -35,15 +35,18 @@ export function useLauncherUpdate(): {
     )
   })
 
+  const loadGuard = useAsyncRaceGuard()
+
   const loadVersions = async (): Promise<void> => {
     await runScopedAction({
+      guard: loadGuard,
       busyFlag: isLoading,
       errorTarget: loadError,
       errorMessage: 'Не удалось загрузить список версий лаунчера',
       run: getLauncherVersions,
       apply: (list: UpdateInfo[]): void => {
         versions.value = list
-        selectedVersion.value = currentVersion.value
+        if (!selectedVersion.value) selectedVersion.value = currentVersion.value
       },
     })
   }

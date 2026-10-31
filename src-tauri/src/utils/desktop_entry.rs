@@ -45,11 +45,7 @@ pub fn sync_desktop_entry(app: &tauri::AppHandle) -> Result<()> {
         ))
     })?;
     let entry_path = applications_dir.join(format!("{identifier}.desktop"));
-    let unchanged = entry_path.is_file()
-        && std::fs::read_to_string(&entry_path)
-            .map(|content| content.contains(&exec))
-            .unwrap_or(false);
-    if !unchanged {
+    if !entry_is_current(&entry_path, &entry) {
         std::fs::write(&entry_path, entry).map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось записать {}: {e:#}",
@@ -58,6 +54,13 @@ pub fn sync_desktop_entry(app: &tauri::AppHandle) -> Result<()> {
         })?;
     }
     Ok(())
+}
+
+fn entry_is_current(entry_path: &Path, entry: &str) -> bool {
+    entry_path.is_file()
+        && std::fs::read_to_string(entry_path)
+            .map(|content| content == entry)
+            .unwrap_or(false)
 }
 
 fn format_exec_line(appimage: &Path) -> String {
@@ -201,6 +204,58 @@ mod tests {
             format_exec_line(Path::new("/opt/100% Limacina%20.AppImage")),
             "\"/opt/100%% Limacina%%20.AppImage\""
         );
+    }
+
+    #[test]
+    fn entry_is_current_requires_full_match() {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-entry-current-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let entry_path = dir.join("com.tekina.limacina.desktop");
+        let entry = render_desktop_entry(
+            "Limacina",
+            "Лаунчер",
+            "\"/opt/Limacina.AppImage\"",
+            "com.tekina.limacina",
+        );
+        std::fs::write(&entry_path, &entry).unwrap();
+
+        assert!(
+            entry_is_current(&entry_path, &entry),
+            "идентичная запись не перезаписывается"
+        );
+
+        let renamed = render_desktop_entry(
+            "Limacina Reborn",
+            "Лаунчер",
+            "\"/opt/Limacina.AppImage\"",
+            "com.tekina.limacina",
+        );
+        assert!(
+            !entry_is_current(&entry_path, &renamed),
+            "смена Name должна приводить к перезаписи файла"
+        );
+
+        let reiconed = render_desktop_entry(
+            "Limacina",
+            "Лаунчер",
+            "\"/opt/Limacina.AppImage\"",
+            "com.tekina.limacina.new",
+        );
+        assert!(
+            !entry_is_current(&entry_path, &reiconed),
+            "смена Icon должна приводить к перезаписи файла"
+        );
+        assert!(
+            !entry_is_current(&dir.join("missing.desktop"), &entry),
+            "отсутствующий файл должен записываться"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

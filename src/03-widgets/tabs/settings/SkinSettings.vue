@@ -71,6 +71,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
           type="button"
           class="skin-settings__mode-btn"
           :class="{ 'skin-settings__mode-btn--active': modelMode === mode.value }"
+          :aria-pressed="modelMode === mode.value"
           @click="modelMode = mode.value"
         >
           {{ mode.label }}
@@ -116,25 +117,7 @@ const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
   }
 
   &__mode-btn {
-    @include mixins.mode-toggle;
-
-    min-width: var(--skin-mode-btn-min-width);
-    min-height: var(--control-height-sm);
-    padding: 0 var(--control-padding-x);
-    border-radius: var(--radius-button);
-    background: var(--surface-subtle);
-    box-shadow: var(--elevation-inset);
-    color: var(--login-text-secondary);
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
-    }
-
-    &--active {
-      background: var(--accent-active-bg);
-      color: var(--accent-text);
-    }
+    @include mixins.mode-toggle-button;
   }
 
   &__active-badge {

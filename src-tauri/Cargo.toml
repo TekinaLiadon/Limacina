@@ -1,6 +1,6 @@
 [package]
 name = "Limacina"
-version = "0.8.1"
+version = "0.8.2"
 description = "Limacina — Minecraft launcher"
 authors = ["Tekina"]
 license = "MIT"
@@ -35,7 +35,7 @@ fastnbt = "2"
 quick-xml = { version = "0.42", features = ["serialize"] }
 tar = "0.4.46"
 flate2 = "1.1.9"
-keyring = { version = "3", features = ["sync-secret-service", "windows-native"] }
+keyring = { version = "3", features = ["sync-secret-service", "windows-native", "apple-native"] }
 dirs = "6"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"

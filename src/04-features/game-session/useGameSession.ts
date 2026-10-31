@@ -3,15 +3,18 @@ import { getGameState, listenGameExit, listenGameStarted } from '@/06-shared/api
 import { createSingletonListeners, reportError } from '@/06-shared'
 
 let syncGameSessionPromise: Promise<void> | null = null
-let eventDuringHydration = false
+let latestHydrationId = 0
+let sessionEventCount = 0
 const gameSessionListeners = createSingletonListeners()
 
 const hydrateSessionState = async (): Promise<void> => {
   const launchStore = useLaunchStore()
-  eventDuringHydration = false
+  const hydrationId = ++latestHydrationId
+  const eventsAtHydrationStart = sessionEventCount
   try {
     const usernames = await getGameState()
-    if (!eventDuringHydration) launchStore.gameUsernames = usernames
+    if (hydrationId !== latestHydrationId || eventsAtHydrationStart !== sessionEventCount) return
+    launchStore.setGameSessions(usernames)
   } catch (e: unknown) {
     reportError('Не удалось получить состояние игровой сессии', e)
   }
@@ -21,11 +24,11 @@ const runSessionSync = async (): Promise<void> => {
   try {
     await gameSessionListeners.start(async (track): Promise<void> => {
       track(await listenGameStarted((username: string): void => {
-        eventDuringHydration = true
+        sessionEventCount += 1
         useLaunchStore().addGameSession(username)
       }))
       track(await listenGameExit((info: GameExitInfo): void => {
-        eventDuringHydration = true
+        sessionEventCount += 1
         useLaunchStore().removeGameSession(info.username)
       }))
     })

@@ -34,6 +34,7 @@ const {
           class="settings-row"
           label="Путь к лаунчеру"
           placeholder="Путь не установлен"
+          hint="При смене папки файлы игры, Java и профили останутся в прежней папке и будут скачаны заново"
           :model-value="launcherPath"
           @browse="selectLauncherFolder"
         />

@@ -1,4 +1,4 @@
-import { CpmBinaryWriter } from './cpmBinaryWriter'
+import { CpmBinaryWriter, wrapAngle360 } from './cpmBinaryWriter'
 import { parseHexColor, reportError } from '@/06-shared'
 import {
   SKIN_LAYERS,
@@ -43,6 +43,7 @@ const NAME_PREFIXES: Partial<Record<CPMAnimation['kind'], string>> = {
 const CUSTOM_POSE_INDEX = 0
 const UNKNOWN_GID = -1
 const MAX_ANIMATION_ID = 250
+const MAX_GID = 0xFF
 const CHANGE_EPSILON = 0.01
 const VEC_DIV = Math.floor(32767 / 48)
 const MIN_FREE_LAYERS = 2
@@ -331,9 +332,9 @@ function writeAnimationVec(writer: CpmBinaryWriter, v: CPMVec3): void {
 }
 
 function writeAnimationAngle(writer: CpmBinaryWriter, v: CPMVec3): void {
-  writer.writeShort(clamp(Math.trunc(v.x / 360 * 65535), 0, 65535))
-  writer.writeShort(clamp(Math.trunc(v.y / 360 * 65535), 0, 65535))
-  writer.writeShort(clamp(Math.trunc(v.z / 360 * 65535), 0, 65535))
+  writer.writeShort(clamp(Math.trunc(wrapAngle360(v.x) / 360 * 65535), 0, 65535))
+  writer.writeShort(clamp(Math.trunc(wrapAngle360(v.y) / 360 * 65535), 0, 65535))
+  writer.writeShort(clamp(Math.trunc(wrapAngle360(v.z) / 360 * 65535), 0, 65535))
 }
 
 function writeShowFrames(writer: CpmBinaryWriter, frames: boolean[]): void {
@@ -509,7 +510,12 @@ export function writeAnimationParts(source: CpmAnimationExport): Uint8Array[] {
         }
       } else {
         if (animation.layerControlled !== false) usedFallback = true
-        if (added.add(key)) rest.push(entry)
+        if (!added.has(key)) {
+          added.add(key)
+          rest.push(entry)
+        } else {
+          entry.gid = UNKNOWN_GID
+        }
       }
     }
 
@@ -522,6 +528,7 @@ export function writeAnimationParts(source: CpmAnimationExport): Uint8Array[] {
   rest.forEach((entry) => {
     let next = encId++
     if (next === resetId) next = encId++
+    if (next > MAX_GID) throw new Error(`Контрольный id ${next} не помещается в однобайтовый диапазон`)
     entry.gid = next
   })
 

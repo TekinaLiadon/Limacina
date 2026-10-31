@@ -13,6 +13,7 @@ const makeForm = (overrides: Partial<ProjectSettingsForm> = {}): ProjectSettings
   javaVersion: 21,
   jvmArgs: '',
   memoryRange: [1024, 4096],
+  cpuCores: null,
   online: true,
   initialized: true,
   serverUrl: 'https://example.com',
@@ -30,6 +31,7 @@ describe('useProjectSettingsStore', () => {
     expect(store.config.projectName).toBe('')
     expect(store.config.modLoader).toBe('vanilla')
     expect(store.config.memoryRange).toEqual([512, 4096])
+    expect(store.config.cpuCores).toBeNull()
     expect(store.isLoaded).toBe(false)
     expect(store.isSaving).toBe(false)
     expect(store.loadError).toBe('')
@@ -51,6 +53,20 @@ describe('useProjectSettingsStore', () => {
     expect(store.isFieldDirty('javaPath')).toBe(false)
 
     store.captureBaseline()
+    expect(store.isDirty).toBe(false)
+  })
+
+  it('tracks a cpu cores edit as dirty and back to auto', () => {
+    const store = useProjectSettingsStore()
+    store.startLoading('Alpha')
+    store.applyLoaded('Alpha', makeForm())
+
+    store.config.cpuCores = 4
+    expect(store.isDirty).toBe(true)
+    expect(store.isFieldDirty('cpuCores')).toBe(true)
+    expect(store.isFieldDirty('jvmArgs')).toBe(false)
+
+    store.config.cpuCores = null
     expect(store.isDirty).toBe(false)
   })
 
@@ -111,6 +127,7 @@ describe('useProjectSettingsStore', () => {
     expect(store.config.mcVersion).toBe('')
     expect(store.config.loaderVersion).toBe('')
     expect(store.config.memoryRange).toEqual([512, 4096])
+    expect(store.config.cpuCores).toBeNull()
     expect(store.isDirty).toBe(false)
   })
 
@@ -236,5 +253,11 @@ describe('projectSettingsFormFromConfig', () => {
   it('falls back to default memory values for unreadable entries', () => {
     const form = projectSettingsFormFromConfig(makeConfig({ minMemory: 'abc', maxMemory: '' }))
     expect(form.memoryRange).toEqual([512, 4096])
+  })
+
+  it('maps cpu cores with auto as the fallback', () => {
+    expect(projectSettingsFormFromConfig(makeConfig()).cpuCores).toBeNull()
+    expect(projectSettingsFormFromConfig(makeConfig({ cpuCores: null })).cpuCores).toBeNull()
+    expect(projectSettingsFormFromConfig(makeConfig({ cpuCores: 4 })).cpuCores).toBe(4)
   })
 })

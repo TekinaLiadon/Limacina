@@ -50,8 +50,9 @@ const open = async (): Promise<void> => {
   updatePosition()
 }
 
-const scheduleShow = (): void => {
-  if (props.disabled || props.content.trim() === '' || shown.value || isTouchOnly()) return
+const scheduleShow = (viaHover: boolean): void => {
+  if (props.disabled || props.content.trim() === '' || shown.value) return
+  if (viaHover && isTouchOnly()) return
   if (showTimer !== null) return
   showTimer = window.setTimeout((): void => {
     showTimer = null
@@ -101,10 +102,10 @@ onBeforeUnmount((): void => {
   <span
     ref="rootRef"
     class="tooltip"
-    :aria-describedby="shown ? bubbleId : undefined"
-    @mouseenter="scheduleShow"
+    :aria-describedby="bubbleId"
+    @mouseenter="scheduleShow(true)"
     @mouseleave="hide"
-    @focusin="scheduleShow"
+    @focusin="scheduleShow(false)"
     @focusout="hide"
     @mousedown="hide"
   >

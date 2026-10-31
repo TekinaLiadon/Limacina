@@ -215,7 +215,7 @@ describe('useConsoleStream', () => {
     expect(stream.streamError.value).toBe('')
   })
 
-  it('keeps the live lines that arrive while the startup logs are loading', async () => {
+  it('shows the startup lines before the live lines that arrive while they are loading', async () => {
     let resolveStartup: (logs: { line: string; isError: boolean; session: string | null }[]) => void = () => {}
     const startupPromise = new Promise<{ line: string; isError: boolean; session: string | null }[]>((resolve) => {
       resolveStartup = resolve
@@ -232,7 +232,26 @@ describe('useConsoleStream', () => {
 
     stream.setConsoleActive(true)
 
-    expect(stream.logs.value.map((log) => log.line)).toEqual(['live line', 'startup line'])
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['startup line', 'live line'])
+  })
+
+  it('shows the startup lines before the live lines when the console opens during the load', async () => {
+    let resolveStartup: (logs: { line: string; isError: boolean; session: string | null }[]) => void = () => {}
+    const startupPromise = new Promise<{ line: string; isError: boolean; session: string | null }[]>((resolve) => {
+      resolveStartup = resolve
+    })
+    api.getStartupLogs.mockImplementationOnce(() => startupPromise)
+    const stream = await loadStream()
+
+    const pending = stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    ingest?.({ line: 'live line', isError: false, session: null })
+    resolveStartup([{ line: 'startup line', isError: false, session: null }])
+    await pending
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['startup line', 'live line'])
   })
 
   it('cleans up the subscription when the startup logs fail and allows a retry', async () => {

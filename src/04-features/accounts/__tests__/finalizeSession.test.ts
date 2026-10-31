@@ -14,7 +14,6 @@ describe('finalizeSession', () => {
     setActivePinia(createPinia())
     vi.mocked(clearSession).mockResolvedValue(undefined)
     const store = useAccountsStore()
-    store.isLoggedIn = true
     store.session = { uuid: 'u-1', username: 'alice' }
 
     await finalizeSession()
@@ -29,7 +28,6 @@ describe('finalizeSession', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(clearSession).mockRejectedValue(new Error('ipc down'))
     const store = useAccountsStore()
-    store.isLoggedIn = true
     store.session = { uuid: 'u-1', username: 'alice' }
 
     await expect(finalizeSession()).resolves.toBeUndefined()

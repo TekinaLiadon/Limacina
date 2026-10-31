@@ -144,7 +144,7 @@ describe('useModrinth', () => {
   })
 
   it('clamps the requested page into the available range', async () => {
-    vi.mocked(modrinthSearch).mockResolvedValue(makeResult({ total: PAGE_SIZE * 3 }))
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult({ total: PAGE_SIZE * 3, hits: [makeHit('a')] }))
     const mods = useModrinth()
 
     await mods.loadPage(0)
@@ -157,6 +157,38 @@ describe('useModrinth', () => {
     await mods.loadPage(99)
     expect(modrinthSearch).toHaveBeenLastCalledWith(expect.objectContaining({ offset: PAGE_SIZE * 2 }))
     expect(mods.currentPage.value).toBe(3)
+  })
+
+  it('reloads the last available page when the resolved search leaves the page empty', async () => {
+    vi.mocked(modrinthSearch)
+      .mockResolvedValueOnce(makeResult({ total: PAGE_SIZE * 5, hits: [makeHit('seed')] }))
+      .mockResolvedValueOnce(makeResult({ hits: [], total: PAGE_SIZE + 5 }))
+      .mockResolvedValueOnce(makeResult({ hits: [makeHit('a')], total: PAGE_SIZE + 5 }))
+    const mods = useModrinth()
+    await mods.search()
+    vi.mocked(modrinthSearch).mockClear()
+
+    await mods.loadPage(3)
+
+    expect(modrinthSearch).toHaveBeenCalledTimes(2)
+    expect(modrinthSearch).toHaveBeenNthCalledWith(1, expect.objectContaining({ offset: PAGE_SIZE * 2 }))
+    expect(modrinthSearch).toHaveBeenNthCalledWith(2, expect.objectContaining({ offset: PAGE_SIZE }))
+    expect(mods.currentPage.value).toBe(2)
+    expect(mods.hits.value.map((hit) => hit.project_id)).toEqual(['a'])
+  })
+
+  it('stops the out-of-range recovery when the last page is empty as well', async () => {
+    vi.mocked(modrinthSearch)
+      .mockResolvedValueOnce(makeResult({ total: PAGE_SIZE * 5, hits: [makeHit('seed')] }))
+      .mockResolvedValue(makeResult({ hits: [], total: PAGE_SIZE + 5 }))
+    const mods = useModrinth()
+    await mods.search()
+    vi.mocked(modrinthSearch).mockClear()
+
+    await mods.loadPage(3)
+
+    expect(modrinthSearch).toHaveBeenCalledTimes(2)
+    expect(mods.currentPage.value).toBe(2)
   })
 
   it('replaces the catalog versions with each search instead of accumulating them', async () => {
@@ -293,6 +325,21 @@ describe('useModrinth', () => {
 
     expect(installed).toBe(false)
     expect(mods.actionError.value).toBe('no space')
+    expect(mods.installingId.value).toBeNull()
+  })
+
+  it('keeps the install successful when the installed-list refresh fails after it', async () => {
+    vi.mocked(modrinthInstall).mockResolvedValue({ installed: ['a'], skipped: [] })
+    vi.mocked(modrinthInstalled).mockRejectedValue(new Error('refresh failed'))
+    const mods = useModrinth()
+    mods.updates.value = { a: '2.0' }
+
+    const installed = await mods.install('a')
+
+    expect(installed).toBe(true)
+    expect(mods.actionError.value).toBe('')
+    expect(mods.installedError.value).toBe('refresh failed')
+    expect(mods.updates.value).toEqual({})
     expect(mods.installingId.value).toBeNull()
   })
 
@@ -577,6 +624,49 @@ describe('useModrinth', () => {
     expect(mods.updates.value).toEqual({})
     expect(mods.versionNumbers.value).toEqual({ fresh: '2.0' })
     expect(mods.installed.value.map((mod) => mod.project_id)).toEqual(['fresh'])
+  })
+
+  it('runs a single search when a project switch also resets the filters', async () => {
+    vi.mocked(modrinthInstalled).mockResolvedValue([])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult({ hits: [makeHit('fresh')] }))
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const mods = useModrinth()
+    await mods.search()
+    vi.mocked(modrinthSearch).mockClear()
+
+    mods.sort.value = 'downloads'
+    mods.categories.value = ['utility']
+    await nextTick()
+    expect(modrinthSearch).toHaveBeenCalledTimes(1)
+    vi.mocked(modrinthSearch).mockClear()
+
+    core.currentProject = 'new'
+    await nextTick()
+    await vi.waitFor(() => expect(modrinthSearch).toHaveBeenCalledTimes(1))
+
+    expect(modrinthSearch).toHaveBeenCalledWith({
+      query: '',
+      index: 'relevance',
+      categories: [],
+      offset: 0,
+    })
+  })
+
+  it('keeps the single project-switch search when the filters are already fresh', async () => {
+    vi.mocked(modrinthInstalled).mockResolvedValue([])
+    vi.mocked(modrinthSearch).mockResolvedValue(makeResult())
+    const core = useCoreStore()
+    core.currentProject = 'old'
+    const mods = useModrinth()
+    await mods.search()
+    vi.mocked(modrinthSearch).mockClear()
+
+    core.currentProject = 'new'
+    await nextTick()
+    await vi.waitFor(() => expect(modrinthSearch).toHaveBeenCalledTimes(1))
+
+    expect(modrinthSearch).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }))
   })
 
   it('keeps the tab state when the project name is emptied', async () => {

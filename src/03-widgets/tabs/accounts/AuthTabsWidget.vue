@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button, Input, Checkbox } from '@/06-shared'
+import { Button, Input, Checkbox, useRovingTabs } from '@/06-shared'
 import { useAuth, useOfflineLogin } from '@/04-features'
 import AuthForm from '@/03-widgets/tabs/login/AuthForm.vue'
 import { AUTH_LOGIN_TAB, AUTH_REGISTER_TAB, type AuthSubTab } from '@/05-entities'
@@ -54,23 +54,39 @@ const switchTab = (tab: AuthSubTab): void => {
   clearError()
   emit('update:activeTab', tab)
 }
+
+const authTabPanelId = 'auth-tabs-content'
+
+const tabId = (key: AuthSubTab): string => `auth-tab-${key}`
+
+const { handleKeydown: handleTabsKeydown } = useRovingTabs<AuthSubTab>({
+  tabs: (): AuthButtonTab[] => tabs,
+  isActive: (key: AuthSubTab): boolean => currentTab.value === key,
+  tabId,
+  select: switchTab,
+})
 </script>
 
 <template>
   <div class="auth-tabs">
-    <div v-if="showTabs" class="auth-tabs__tabs">
+    <div v-if="showTabs" class="auth-tabs__tabs" role="tablist" aria-label="Авторизация" @keydown="handleTabsKeydown">
       <Button
           v-for="el in tabs"
+          :id="tabId(el.key)"
           :key="el.key"
           class="auth-tabs__tab"
           :class="{ 'auth-tabs__tab--active': activeTab === el.key }"
+          role="tab"
+          :aria-selected="activeTab === el.key"
+          :tabindex="activeTab === el.key ? 0 : -1"
+          :aria-controls="authTabPanelId"
           @click="switchTab(el.key)"
         >
         {{el.text}}
       </Button>
     </div>
 
-    <div class="auth-tabs__content">
+    <div :id="authTabPanelId" class="auth-tabs__content" role="tabpanel" :aria-labelledby="tabId(currentTab)">
       <AuthForm
         v-if="currentTab === AUTH_LOGIN_TAB"
         v-model:username="loginFormData.username"

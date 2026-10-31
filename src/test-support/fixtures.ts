@@ -10,6 +10,7 @@ export const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): Proje
   jvmArgs: [],
   minMemory: '512',
   maxMemory: '4096',
+  cpuCores: null,
   online: true,
   initialized: true,
   serverUrl: null,

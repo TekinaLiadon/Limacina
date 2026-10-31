@@ -65,6 +65,10 @@ export async function probeJava(path: string): Promise<JavaProbe> {
   return invoke<JavaProbe>('probe_java_version', { path })
 }
 
+export async function availableCpuCores(): Promise<number> {
+  return invoke<number>('available_cpu_cores')
+}
+
 export async function saveLauncherConfig(parentPath: string): Promise<LauncherConfig> {
   return invoke<LauncherConfig>('save_launcher_config', { parentPath })
 }
@@ -402,7 +406,14 @@ export async function deleteModel(id: number): Promise<void> {
 }
 
 export async function savePlayerModel(projectName: string, payload: SavePlayerModelPayload): Promise<void> {
-  return invoke('save_player_model', { ...payload, projectName })
+  const headers: Record<string, string> = {
+    'Project-Name': encodeURIComponent(projectName),
+    'Model-Name': encodeURIComponent(payload.name),
+    'Model-Slim': payload.slim ? 'true' : 'false',
+  }
+  if (payload.url !== null) headers['Model-Url'] = encodeURIComponent(payload.url)
+  if (payload.modelId !== null) headers['Model-Id'] = payload.modelId.toString()
+  return invoke('save_player_model', payload.data ?? new Uint8Array(0), { headers })
 }
 
 export async function readCpmProjectFile(path: string): Promise<Uint8Array> {

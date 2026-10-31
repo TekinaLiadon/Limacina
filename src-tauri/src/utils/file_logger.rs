@@ -287,7 +287,7 @@ pub fn write_panic(info: &std::panic::PanicHookInfo<'_>, backtrace: &str) {
 }
 
 #[cfg(test)]
-fn reset_for_tests() {
+pub(crate) fn reset_for_tests() {
     *OPEN_LOG_FILE.lock().unwrap_or_else(|e| e.into_inner()) = None;
     SESSION_HEADER_WRITTEN.store(false, Ordering::Relaxed);
     LOG_CLEANUP_DONE.store(false, Ordering::Relaxed);

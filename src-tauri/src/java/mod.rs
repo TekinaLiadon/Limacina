@@ -77,8 +77,15 @@ pub(crate) fn parse_java_major(version: &str) -> Result<u32> {
     })
 }
 
+fn adoptium_os(os: &str) -> &str {
+    match os {
+        "osx" => "mac",
+        other => other,
+    }
+}
+
 async fn download_archive(java_dir: &Path, java_version: &str) -> Result<PathBuf> {
-    let os = get_current_os();
+    let os = adoptium_os(get_current_os());
     let arch = match get_arch()? {
         "x86_64" => "x64",
         other => other,
@@ -384,11 +391,11 @@ pub(crate) fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::get_java_version;
+    use super::{adoptium_os, get_java_version};
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
 
     #[cfg(not(target_os = "windows"))]
-    fn write_test_tar_gz(archive_path: &std::path::Path, root: &str) {
+    fn write_test_tar_gz(archive_path: &std::path::Path, root: &str, entries: &[(&str, &[u8])]) {
         use flate2::write::GzEncoder;
         use flate2::Compression;
         use std::io::Write;
@@ -414,39 +421,13 @@ mod tests {
             .append_data(&mut dir_header, entry_name("bin"), std::io::empty())
             .expect("добавление директории в tar");
 
-        for (name, data) in [("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])] {
-            let mut header = Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, entry_name(name), data)
-                .expect("добавление записи в tar");
-        }
-        let tar_bytes = builder.into_inner().expect("сборка tar").into_inner();
-        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
-        gz.write_all(&tar_bytes).expect("сжатие tar");
-        let bytes = gz.finish().expect("завершение gz");
-        std::fs::write(archive_path, bytes).expect("запись архива");
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn write_test_tar_gz_entries(archive_path: &std::path::Path, entries: &[(&str, &[u8])]) {
-        use flate2::write::GzEncoder;
-        use flate2::Compression;
-        use std::io::Write;
-        use tar::{Builder, Header};
-
-        let buffer = std::io::Cursor::new(Vec::new());
-        let mut builder = Builder::new(buffer);
-
         for (name, data) in entries {
             let mut header = Header::new_gnu();
             header.set_size(data.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
             builder
-                .append_data(&mut header, *name, *data)
+                .append_data(&mut header, entry_name(name), *data)
                 .expect("добавление записи в tar");
         }
         let tar_bytes = builder.into_inner().expect("сборка tar").into_inner();
@@ -461,7 +442,7 @@ mod tests {
         use super::super::{
             find_java_executable, install_java_archive, remove_archive_best_effort,
         };
-        use super::{write_test_tar_gz, write_test_tar_gz_entries};
+        use super::write_test_tar_gz;
         use crate::test_support::TempDir;
 
         #[tokio::test]
@@ -470,7 +451,11 @@ mod tests {
             let java_parent = dir.0.join("21");
             std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
             let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(&archive_path, "jdk-21-test");
+            write_test_tar_gz(
+                &archive_path,
+                "jdk-21-test",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
 
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
@@ -508,7 +493,11 @@ mod tests {
             );
 
             let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(&archive_path, "jdk-21-test");
+            write_test_tar_gz(
+                &archive_path,
+                "jdk-21-test",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("повторная установка после обрыва");
@@ -554,7 +543,11 @@ mod tests {
             std::fs::write(broken.join("junk"), b"old").expect("запись мусора");
 
             let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(&archive_path, "jdk-21-test");
+            write_test_tar_gz(
+                &archive_path,
+                "jdk-21-test",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("переустановка поверх битой Java");
@@ -572,7 +565,11 @@ mod tests {
             let java_parent = dir.0.join("21");
             std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
             let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(&archive_path, "jdk-21-test");
+            write_test_tar_gz(
+                &archive_path,
+                "jdk-21-test",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
             let mut bytes = std::fs::read(&archive_path).expect("чтение архива");
             bytes.truncate(20);
             std::fs::write(&archive_path, &bytes).expect("запись обрезанного архива");
@@ -585,7 +582,11 @@ mod tests {
                 "битый архив удаляется, чтобы повторная попытка скачала его заново"
             );
 
-            write_test_tar_gz(&archive_path, "jdk-21-test");
+            write_test_tar_gz(
+                &archive_path,
+                "jdk-21-test",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("повторная установка после перекачки");
@@ -598,8 +599,9 @@ mod tests {
             let java_parent = dir.0.join("21");
             std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
             let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz_entries(
+            write_test_tar_gz(
                 &archive_path,
+                "",
                 &[
                     ("aaa/bin/tool", b"tool"),
                     ("aaa/release", b"OLD"),
@@ -629,8 +631,9 @@ mod tests {
             std::fs::write(installed.join("java"), b"working").expect("запись java");
 
             let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz_entries(
+            write_test_tar_gz(
                 &archive_path,
+                "",
                 &[("jdk/bin/readme", b"no java"), ("jdk/release", b"JDK")],
             );
 
@@ -705,7 +708,11 @@ mod tests {
         fn tar_extract_writes_entries_within_limit() {
             let dir = TempDir::new("ok");
             let archive_path = dir.0.join("archive.tar.gz");
-            write_test_tar_gz(&archive_path, "");
+            write_test_tar_gz(
+                &archive_path,
+                "",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
             let target = dir.0.join("out");
             std::fs::create_dir_all(&target).expect("создание целевой папки");
 
@@ -726,7 +733,11 @@ mod tests {
         fn tar_extract_stops_when_total_size_exceeds_limit() {
             let dir = TempDir::new("limit");
             let archive_path = dir.0.join("archive.tar.gz");
-            write_test_tar_gz(&archive_path, "");
+            write_test_tar_gz(
+                &archive_path,
+                "",
+                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+            );
             let target = dir.0.join("out");
             std::fs::create_dir_all(&target).expect("создание целевой папки");
 
@@ -737,6 +748,13 @@ mod tests {
                 "записи сверх лимита не должны распаковываться"
             );
         }
+    }
+
+    #[test]
+    fn adoptium_os_maps_internal_names_to_api_values() {
+        assert_eq!(adoptium_os("osx"), "mac");
+        assert_eq!(adoptium_os("windows"), "windows");
+        assert_eq!(adoptium_os("linux"), "linux");
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::offline::{delete_offline_skin_files, offline_skin_paths, parse_offlin
 use crate::state::config::{current_project_config, validated_project_name};
 use crate::state::dto::GlobalState;
 use crate::utils::allowlisted_read::AllowlistedRead;
-use crate::utils::download_file::{download_file, write_atomic};
+use crate::utils::download_file::{download_file_limited, write_atomic};
 use crate::utils::env_info::{ensure_safe_relative_path, launcher_path};
 use crate::utils::hex::digest_hex;
 use crate::utils::tauri_err::CommandResult;
@@ -136,11 +136,8 @@ fn ensure_skin_origin(url: &str, server_url: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-async fn get_profile_skin_inner(
-    state: &State<'_, Mutex<GlobalState>>,
-    url: &str,
-) -> Result<Vec<u8>> {
-    let config = current_project_config(state.inner()).await?;
+async fn get_profile_skin_inner(state: &Mutex<GlobalState>, url: &str) -> Result<Vec<u8>> {
+    let config = current_project_config(state).await?;
     let server_url = config.resolved_server_url();
     let project_name = config.project_name;
     let uuid = state
@@ -176,7 +173,9 @@ async fn get_profile_skin_inner(
     })
     .await?;
 
-    download_file(url, &cache_path).await?;
+    if !cache_path.exists() {
+        download_file_limited(url, &cache_path, Some(SKIN_MAX_BYTES)).await?;
+    }
 
     let cache_path_clone = cache_path.clone();
     let bytes = crate::utils::blocking(
@@ -195,7 +194,7 @@ pub async fn get_profile_skin(
     state: State<'_, Mutex<GlobalState>>,
     url: String,
 ) -> CommandResult<tauri::ipc::Response> {
-    let bytes = get_profile_skin_inner(&state, &url).await?;
+    let bytes = get_profile_skin_inner(state.inner(), &url).await?;
     log_info!("Скин профиля получен из кэша: {}", url);
     Ok(tauri::ipc::Response::new(bytes))
 }
@@ -566,6 +565,117 @@ mod offline_skin_tests {
         assert!(
             !guard.project_dir("Alpha").exists(),
             "файлов быть не должно"
+        );
+    }
+}
+
+#[cfg(test)]
+mod profile_skin_download_tests {
+    use super::{get_profile_skin_inner, skin_cache_name, SKIN_MAX_BYTES};
+    use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::errors::LauncherError;
+    use mockito::Server;
+    use tokio::sync::Mutex;
+
+    fn state_with_session(server_url: &str) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server_url.to_string()),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: "token".to_string(),
+                uuid: "uuid-1".to_string(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn fresh_skin_download_writes_cache() {
+        let dir = LauncherDirGuard::acquire("skin_download_fresh").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/skins/a.png")
+            .with_status(200)
+            .with_body(b"skin bytes" as &[u8])
+            .create_async()
+            .await;
+
+        let url = format!("{}/skins/a.png", server.url());
+        let bytes = get_profile_skin_inner(&state_with_session(&server.url()), &url)
+            .await
+            .expect("скачивание скина в лимите");
+
+        assert_eq!(bytes, b"skin bytes".to_vec());
+        let cache_dir = dir.project_dir("Cordelia").join("profile_skins");
+        let cache_path = cache_dir.join(skin_cache_name("uuid-1", &url).expect("имя кэша"));
+        assert_eq!(
+            std::fs::read(&cache_path).expect("кэш скина"),
+            b"skin bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn cached_skin_skips_download() {
+        let dir = LauncherDirGuard::acquire("skin_download_cache").await;
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/skins/a.png")
+            .expect(0)
+            .with_status(200)
+            .with_body(b"downloaded" as &[u8])
+            .create_async()
+            .await;
+
+        let url = format!("{}/skins/a.png", server.url());
+        let cache_dir = dir.project_dir("Cordelia").join("profile_skins");
+        std::fs::create_dir_all(&cache_dir).expect("каталог кэша");
+        let cache_path = cache_dir.join(skin_cache_name("uuid-1", &url).expect("имя кэша"));
+        std::fs::write(&cache_path, b"cached bytes").expect("заготовленный кэш");
+
+        let bytes = get_profile_skin_inner(&state_with_session(&server.url()), &url)
+            .await
+            .expect("скин из кэша");
+
+        assert_eq!(bytes, b"cached bytes".to_vec());
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn oversized_skin_download_fails_without_cache() {
+        let dir = LauncherDirGuard::acquire("skin_download_oversize").await;
+        let mut server = Server::new_async().await;
+        let body = vec![0x89u8; SKIN_MAX_BYTES as usize + 1];
+        server
+            .mock("GET", "/skins/a.png")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let url = format!("{}/skins/a.png", server.url());
+        let error = get_profile_skin_inner(&state_with_session(&server.url()), &url)
+            .await
+            .expect_err("скин сверх лимита должен отклоняться");
+
+        assert!(
+            error.chain().any(|cause| matches!(
+                cause.downcast_ref::<LauncherError>(),
+                Some(LauncherError::SizeLimit(_))
+            )),
+            "ожидался SizeLimit: {error}"
+        );
+        let cache_dir = dir.project_dir("Cordelia").join("profile_skins");
+        assert!(
+            std::fs::read_dir(&cache_dir)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(true),
+            "перекачанный сверх лимита скин не должен попадать в кэш"
         );
     }
 }

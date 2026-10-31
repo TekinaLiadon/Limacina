@@ -4,11 +4,11 @@ use serde::Serialize;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 
-use crate::init::init_project_config;
 use crate::java::find_java_executable;
 use crate::log_info;
 use crate::state::config::{
-    ensure_project_selected, load_config, update_project_config, validated_project_name,
+    ensure_project_selected, is_corrupt_config, is_missing_config, load_config,
+    recover_project_config, update_project_config, validated_project_name,
 };
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::blocking;
@@ -35,10 +35,18 @@ async fn save_project_settings(
                 stored.project_name.clone(),
             ));
         }
+        if let Some(cores) = config.cpu_cores {
+            let available = crate::utils::env_info::available_cpu_cores()?;
+            if cores == 0 || cores > available {
+                bail!(LauncherError::InvalidInput(format!(
+                    "Некорректное число ядер CPU: {cores}. Допустимо от 1 до {available}"
+                )));
+            }
+        }
         let java_version = if stored.java_path == config.java_path {
             stored.java_version
         } else {
-            None
+            config.java_version
         };
         let online = stored.online;
         let server_url = stored.server_url.clone();
@@ -54,7 +62,7 @@ async fn save_project_settings(
     .await
 }
 
-fn extract_java_major(output: &str) -> Option<u32> {
+pub(crate) fn extract_java_major(output: &str) -> Option<u32> {
     let start = output.find('"')? + 1;
     let rest = &output[start..];
     let end = rest.find('"')?;
@@ -122,6 +130,11 @@ pub async fn probe_java_version(path: String) -> CommandResult<JavaProbe> {
 }
 
 #[tauri::command]
+pub async fn available_cpu_cores() -> CommandResult<u16> {
+    Ok(crate::utils::env_info::available_cpu_cores()?)
+}
+
+#[tauri::command]
 pub async fn load_settings_project(
     state: tauri::State<'_, Mutex<GlobalState>>,
     project_name: String,
@@ -135,13 +148,13 @@ async fn load_settings_project_inner(
 ) -> Result<ProjectConfig> {
     let config = match load_config(project_name).await {
         Ok(config) => config,
-        Err(_) => {
-            let launcher_path =
-                crate::state::launcher_config::LauncherConfig::resolved_launcher_path()
-                    .to_string_lossy()
-                    .to_string();
-
-            init_project_config(&launcher_path, project_name, None).await?
+        Err(e) if is_corrupt_config(&e) || is_missing_config(&e) => {
+            recover_project_config(state, project_name, e).await?
+        }
+        Err(e) => {
+            return Err(e).context(format!(
+                "Не удалось прочитать конфиг проекта {project_name}"
+            ))
         }
     };
 
@@ -234,6 +247,130 @@ async fn clear_minecraft_config_inner(
             .with_context(|| format!("Не удалось удалить папку {:?}", config_dir))?;
         log_info!("Папка config проекта {} удалена", project_name);
         Ok("Папка конфигов удалена".to_string())
+    }
+}
+
+#[cfg(test)]
+mod available_cores_tests {
+    use super::available_cpu_cores;
+
+    #[tokio::test]
+    async fn returns_positive_core_count() {
+        let cores = available_cpu_cores().await.expect("число ядер хоста");
+        assert!(cores >= 1, "число ядер должно быть положительным: {cores}");
+    }
+}
+
+#[cfg(test)]
+mod load_settings_tests {
+    use super::load_settings_project_inner;
+    use crate::state::config::load_config;
+    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::test_support::{offline_project_config, LauncherDirGuard};
+    use tokio::sync::Mutex;
+
+    fn offline_config(name: &str) -> ProjectConfig {
+        ProjectConfig {
+            max_memory: "-Xmx8G".to_string(),
+            ..offline_project_config(name)
+        }
+    }
+
+    #[tokio::test]
+    async fn load_settings_recovers_offline_profile_without_server() {
+        let guard = LauncherDirGuard::acquire("load_settings_missing_offline").await;
+        let state = Mutex::new(GlobalState {
+            project_config: offline_config("Solo"),
+            ..GlobalState::default()
+        });
+
+        let config = load_settings_project_inner(&state, "Solo")
+            .await
+            .expect("потерянный конфиг офлайн-профиля восстанавливается из памяти");
+
+        assert!(
+            !config.online,
+            "офлайн-профиль не должен становиться онлайн"
+        );
+        assert_eq!(config.mc_version, "1.20.1");
+        assert_eq!(
+            config.server_url.as_deref(),
+            Some("https://per-project.example.com"),
+            "сервер проекта не должен теряться при восстановлении"
+        );
+
+        let restored = load_config("Solo")
+            .await
+            .expect("восстановленный конфиг персистится");
+        assert!(
+            !restored.online,
+            "на диске должен оказаться офлайн-конфиг: {}",
+            guard.root().display()
+        );
+    }
+
+    #[tokio::test]
+    async fn load_settings_recovers_corrupt_profile_with_backup() {
+        let guard = LauncherDirGuard::acquire("load_settings_corrupt_offline").await;
+        let config_dir = guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("создание config");
+        std::fs::write(config_dir.join("Solo.toml"), "not [valid toml").expect("битый toml");
+        let state = Mutex::new(GlobalState {
+            project_config: offline_config("Solo"),
+            ..GlobalState::default()
+        });
+
+        let config = load_settings_project_inner(&state, "Solo")
+            .await
+            .expect("битый конфиг офлайн-профиля восстанавливается без сервера");
+
+        assert!(
+            !config.online,
+            "офлайн-профиль не должен становиться онлайн"
+        );
+        assert_eq!(config.mc_version, "1.20.1");
+        assert!(
+            config_dir.join("Solo.toml.bak").exists(),
+            "битый файл сохраняется в бэкап"
+        );
+        let restored = load_config("Solo")
+            .await
+            .expect("конфиг перезаписан рабочим");
+        assert!(!restored.online);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn load_settings_propagates_transient_read_errors_without_overwrite() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let guard = LauncherDirGuard::acquire("load_settings_transient").await;
+        let config_dir = guard.root().join("project").join("config");
+        std::fs::create_dir_all(&config_dir).expect("создание config");
+        let toml_path = config_dir.join("Solo.toml");
+        std::fs::write(&toml_path, "mcVersion = \"1.20.1\"\n").expect("запись toml");
+        std::fs::set_permissions(&toml_path, std::fs::Permissions::from_mode(0o000))
+            .expect("запрет чтения конфига");
+        let state = Mutex::new(GlobalState {
+            project_config: offline_config("Solo"),
+            ..GlobalState::default()
+        });
+
+        let result = load_settings_project_inner(&state, "Solo").await;
+        std::fs::set_permissions(&toml_path, std::fs::Permissions::from_mode(0o644))
+            .expect("возврат прав");
+
+        let error = result.expect_err("ошибка чтения должна доходить до вызывающего");
+        assert!(
+            error.to_string().contains("Не удалось прочитать конфиг"),
+            "ошибка должна называть операцию: {error:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&toml_path).expect("чтение после возврата прав"),
+            "mcVersion = \"1.20.1\"\n",
+            "транзиентная ошибка не должна перезаписывать конфиг: {}",
+            guard.root().display()
+        );
     }
 }
 
@@ -509,6 +646,68 @@ mod save_settings_tests {
     }
 
     #[tokio::test]
+    async fn settings_save_rejects_zero_cpu_cores() {
+        let (_guard, state, payload) = cores_settings("settings_cpu_cores_zero", Some(0)).await;
+        let error = save_project_settings(&state, payload)
+            .await
+            .expect_err("нулевое число ядер должно отклоняться");
+
+        assert!(
+            error.to_string().contains("ядер CPU"),
+            "ошибка должна называть настройку: {error}"
+        );
+    }
+
+    async fn cores_settings(
+        label: &str,
+        cpu_cores: Option<u16>,
+    ) -> (LauncherDirGuard, Mutex<GlobalState>, ProjectConfig) {
+        let (guard, state) = seeded_global_state(
+            label,
+            ProjectConfig {
+                project_name: "Cores".to_string(),
+                mc_version: "1.20.1".to_string(),
+                ..ProjectConfig::default()
+            },
+        )
+        .await;
+        let payload = ProjectConfig {
+            project_name: "Cores".to_string(),
+            mc_version: "1.20.1".to_string(),
+            cpu_cores,
+            ..ProjectConfig::default()
+        };
+        (guard, state, payload)
+    }
+
+    #[tokio::test]
+    async fn settings_save_rejects_cpu_cores_above_available() {
+        let available = crate::utils::env_info::available_cpu_cores().expect("число ядер хоста");
+        let (_guard, state, payload) =
+            cores_settings("settings_cpu_cores_high", Some(available.saturating_add(1))).await;
+        let error = save_project_settings(&state, payload)
+            .await
+            .expect_err("значение больше доступных ядер должно отклоняться");
+
+        assert!(
+            error.to_string().contains("Допустимо"),
+            "ошибка должна называть допустимый диапазон: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_save_keeps_valid_cpu_cores() {
+        let available = crate::utils::env_info::available_cpu_cores().expect("число ядер хоста");
+        let (_guard, state, payload) =
+            cores_settings("settings_cpu_cores_valid", Some(available)).await;
+        let saved = save_project_settings(&state, payload)
+            .await
+            .expect("валидное число ядер сохраняется");
+
+        assert_eq!(saved.cpu_cores, Some(available));
+    }
+
+    #[tokio::test]
     async fn settings_save_keeps_java_version_only_while_path_unchanged() {
         let (_guard, state) = seeded_global_state(
             "settings_java_version",
@@ -526,6 +725,7 @@ mod save_settings_tests {
             project_name: "JavaVer".to_string(),
             mc_version: "1.20.1".to_string(),
             java_path: Some("/old/java".to_string()),
+            java_version: Some(99),
             ..ProjectConfig::default()
         };
         let saved = save_project_settings(&state, same_path)
@@ -534,7 +734,7 @@ mod save_settings_tests {
         assert_eq!(
             saved.java_version,
             Some(17),
-            "неизменный java_path сохраняет известную версию из stored-конфига"
+            "неизменный java_path сохраняет известную версию из stored-конфига, а не значение формы"
         );
 
         let new_path = ProjectConfig {
@@ -545,10 +745,49 @@ mod save_settings_tests {
         };
         let saved = save_project_settings(&state, new_path)
             .await
-            .expect("сохранение с новым java_path");
+            .expect("сохранение с новым java_path без версии");
         assert_eq!(
             saved.java_version, None,
-            "смена java_path сбрасывает версию до нового прогона"
+            "смена java_path без пробы сбрасывает версию до безопасного значения"
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_save_uses_probed_java_version_when_path_changes() {
+        let (_guard, state) = seeded_global_state(
+            "settings_java_version_probed",
+            ProjectConfig {
+                project_name: "JavaVer".to_string(),
+                mc_version: "1.20.1".to_string(),
+                java_path: Some("/old/java".to_string()),
+                java_version: Some(17),
+                ..ProjectConfig::default()
+            },
+        )
+        .await;
+
+        let new_path = ProjectConfig {
+            project_name: "JavaVer".to_string(),
+            mc_version: "1.20.1".to_string(),
+            java_path: Some("/new/java".to_string()),
+            java_version: Some(21),
+            ..ProjectConfig::default()
+        };
+        let saved = save_project_settings(&state, new_path)
+            .await
+            .expect("сохранение с новым java_path и пробой");
+
+        assert_eq!(
+            saved.java_version,
+            Some(21),
+            "версия пробы выбранной JDK сохраняется вместе с новым путём"
+        );
+
+        let from_disk = load_config("JavaVer").await.expect("чтение конфига");
+        assert_eq!(
+            from_disk.java_version,
+            Some(21),
+            "проба персистится в конфиг проекта и переживает перезапуск"
         );
     }
 

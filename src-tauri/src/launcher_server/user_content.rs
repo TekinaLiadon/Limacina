@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::launcher_server::with_session_retry;
 use crate::log_info;
 use crate::state::dto::GlobalState;
+use crate::utils::env_info::ensure_safe_relative_path;
 use crate::utils::errors::LauncherError;
 use crate::utils::http::{request_json, require_success, with_launcher_id};
 use tokio::sync::Mutex;
@@ -117,11 +118,27 @@ pub async fn upload_skin(
     LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
+fn ensure_safe_uuid(uuid: &str) -> Result<()> {
+    ensure_safe_relative_path(uuid, "uuid профиля")?;
+    if uuid.is_empty()
+        || !uuid
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(LauncherError::InvalidInput(format!(
+            "Некорректное значение uuid профиля: {uuid}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 async fn list_content(
     state: &Mutex<GlobalState>,
     resource: &str,
     uuid: String,
 ) -> Result<Vec<UserContentItem>> {
+    ensure_safe_uuid(&uuid)?;
     let (token, server_url) = crate::launcher_server::api_context(state).await?;
     let url = format!("{server_url}/v1/common/content/{resource}/{uuid}");
     api_get_json(&url, &token).await
@@ -420,6 +437,38 @@ mod tests {
             .expect("загрузка модели");
 
         assert_eq!(item.id, Some(5));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn list_rejects_unsafe_uuid_without_any_request() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", mockito::Matcher::Any)
+            .expect(0)
+            .create_async()
+            .await;
+
+        let state = state_with(&server.url());
+        for uuid in ["../launcher/config", "x?y=1", "a/b", "%2Fadmin", " ", ""] {
+            let error = list_skins(&state, uuid.to_string())
+                .await
+                .expect_err("небезопасный uuid должен отклоняться");
+            assert!(
+                matches!(
+                    error.downcast_ref::<LauncherError>(),
+                    Some(LauncherError::InvalidInput(_))
+                ),
+                "ожидается InvalidInput для {uuid:?}: {error:#}"
+            );
+        }
+
+        let models = list_models(&state, "../launcher/config".to_string()).await;
+        assert!(
+            models.is_err(),
+            "list_models тоже должен отклонять небезопасный uuid"
+        );
+
         mock.assert_async().await;
     }
 

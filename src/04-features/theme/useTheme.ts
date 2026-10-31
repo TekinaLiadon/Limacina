@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { onScopeDispose, ref, watch, type Ref } from 'vue'
 import { useCoreStore, useNotificationStore, useSettingsStore, parseThemeId } from '@/05-entities'
 import { saveTheme, setWindowBackgroundColor, cssDurationMs, reportError } from '@/06-shared'
 
@@ -40,6 +40,14 @@ export function useTheme(): {
   applyWindowBackground(settingsStore.theme)
 
   let switchTimerId: ReturnType<typeof setTimeout> | null = null
+
+  onScopeDispose((): void => {
+    if (switchTimerId !== null) {
+      clearTimeout(switchTimerId)
+      switchTimerId = null
+    }
+    isSwitching.value = false
+  })
 
   watch(() => settingsStore.theme, (newTheme: string, oldTheme: string | undefined): void => {
     if (switchTimerId !== null) {

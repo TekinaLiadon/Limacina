@@ -80,11 +80,25 @@ export function useConsoleStream(): {
 
     try {
       await consoleStreamListeners.start(async (track): Promise<void> => {
-        track(await listenGameConsole(ingest))
+        const liveDuringLoad: ConsoleLog[] = []
+        let isStartupLoading = logs.value.length === 0
+        track(
+          await listenGameConsole((log): void => {
+            if (isStartupLoading) {
+              liveDuringLoad.push(log)
+              return
+            }
+            ingest(log)
+          }),
+        )
 
-        if (logs.value.length === 0) {
+        if (isStartupLoading) {
           const startupLogs: ConsoleLog[] = await getStartupLogs()
           for (const log of startupLogs) {
+            ingest(log)
+          }
+          isStartupLoading = false
+          for (const log of liveDuringLoad) {
             ingest(log)
           }
         }

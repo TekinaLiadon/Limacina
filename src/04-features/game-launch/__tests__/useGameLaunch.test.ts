@@ -442,4 +442,61 @@ describe('useGameLaunch', () => {
     expect(useLaunchStore().isLaunching).toBe(false)
     expect(useLaunchStore().activeProgress).toBe(0)
   })
+
+  it('completes the flow and drops the pending cancel when cancelled during the process start', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: true }))
+    let cancelled = false
+    vi.mocked(startMinecraft).mockImplementation(async () => {
+      cancelled = true
+      useLaunchStore().setCancelPending(true)
+    })
+
+    await useGameLaunch().executeSteps(() => cancelled)
+
+    const launch = useLaunchStore()
+    expect(launch.isLaunchCommitted).toBe(true)
+    expect(launch.isCancelPending).toBe(false)
+    expect(launch.isLaunching).toBe(false)
+    expect(launch.loginError).toBe('')
+    expect(streamMocks.flushLaunchSteps).toHaveBeenCalledTimes(1)
+    expect(streamMocks.resetLaunchSteps).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a finalization failure even when cancelled after the steps passed', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
+    vi.mocked(loadInstallJournal).mockResolvedValue([])
+    let cancelled = false
+    vi.mocked(startMinecraft).mockImplementation(async () => {
+      cancelled = true
+    })
+    vi.mocked(setInitialized).mockRejectedValue(new Error('init failed'))
+
+    await useGameLaunch().executeSteps(() => cancelled)
+
+    const launch = useLaunchStore()
+    expect(launch.isLaunchCommitted).toBe(true)
+    expect(launch.loginError).toBe('init failed')
+    expect(launch.isLaunching).toBe(false)
+    expect(streamMocks.resetLaunchSteps).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when a step fails and the launch was cancelled before it started', async () => {
+    useCoreStore().currentProject = 'proj'
+    vi.mocked(initializeProject).mockResolvedValue(makeConfig({ initialized: false }))
+    vi.mocked(loadInstallJournal).mockResolvedValue([])
+    let cancelled = false
+    vi.mocked(startMinecraft).mockImplementation(async () => {
+      cancelled = true
+      throw new Error('spawn failed')
+    })
+
+    await useGameLaunch().executeSteps(() => cancelled)
+
+    const launch = useLaunchStore()
+    expect(launch.loginError).toBe('')
+    expect(launch.isLaunchCommitted).toBe(false)
+    expect(streamMocks.flushLaunchSteps).not.toHaveBeenCalled()
+  })
 })

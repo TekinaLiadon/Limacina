@@ -234,7 +234,7 @@ export function usePresetSkinApply(source: PresetSkinApplySource): {
           url: null,
           modelId: null,
           slim: skinMode.value === 'slim',
-          data: Array.from(bytes),
+          data: bytes,
         })
       } else {
         const link = bytesToBase64(cpmConfigToLinkBytes(dressed.config, dressed.skinPng, animationSource))

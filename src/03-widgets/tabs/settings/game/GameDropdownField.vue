@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useId } from 'vue'
 import { Dropdown, type DropdownOption } from '@/06-shared'
 
 defineProps<{
@@ -10,13 +11,16 @@ defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
+
+const labelId = useId()
 </script>
 
 <template>
   <div class="game-dropdown-field">
-    <span class="game-dropdown-field__text">{{ label }}</span>
+    <span :id="labelId" class="game-dropdown-field__text">{{ label }}</span>
     <Dropdown
       class="game-dropdown-field__control"
+      :aria-labelledby="labelId"
       :options="options"
       :model-value="modelValue"
       @update:model-value="emit('update:modelValue', $event)"

@@ -28,6 +28,9 @@ jobs:
           - os: ubuntu-22.04
             name: linux-x64
             bundle-path: target/release/bundle/appimage/*.AppImage
+          - os: macos-latest
+            name: macos-arm64
+            bundle-path: target/release/bundle/dmg/*.dmg
     steps:
       - uses: actions/checkout@v4
 

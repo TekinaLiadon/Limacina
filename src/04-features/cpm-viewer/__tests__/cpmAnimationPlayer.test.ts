@@ -353,6 +353,103 @@ describe('CpmAnimationPlayer', () => {
     expect(clocks.get('b')?.speed).toBe(2)
   })
 
+  it('keeps the elapsed position of a delayed animation when the speed changes mid-playback', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds, true)
+    const frameAt = (y: number) => ({
+      components: [{
+        storeID: 0,
+        pos: { x: 0, y, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        show: true,
+      }],
+    })
+
+    player.setAnimations([
+      { animation: makeAnimation({ id: 'main', duration: 1000, interpolator: 'linear_single', frames: [frameAt(8), frameAt(8)] }), startDelayMs: 1000 },
+    ])
+
+    advance(1500)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(16)
+
+    player.setSpeed(2)
+    expect(player.elapsedOf('main')).toBe(500)
+
+    advance(100)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(16)
+  })
+
+  it('keeps the remaining delay of a delayed animation when the speed changes during the delay', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds, true)
+    const frameAt = (y: number) => ({
+      components: [{
+        storeID: 0,
+        pos: { x: 0, y, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        show: true,
+      }],
+    })
+
+    player.setAnimations([
+      { animation: makeAnimation({ id: 'main', duration: 1000, interpolator: 'linear_single', frames: [frameAt(8), frameAt(8)] }), startDelayMs: 1000 },
+    ])
+
+    advance(500)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(0)
+
+    player.setSpeed(2)
+    expect(player.elapsedOf('main')).toBe(-500)
+
+    advance(249)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(0)
+
+    advance(1)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(16)
+  })
+
+  it('keeps the mutual phases of a sequenced composition when the speed changes mid-way', () => {
+    const activeLayerIds = ref<number[]>([7])
+    const { player, mesh } = makePlayerWithModel(activeLayerIds, true)
+    const frameAt = (y: number) => ({
+      components: [{
+        storeID: 0,
+        pos: { x: 0, y, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        show: true,
+      }],
+    })
+
+    player.setAnimations([
+      { animation: makeAnimation({ id: 'pre', duration: 1000, interpolator: 'linear_single', frames: [frameAt(4), frameAt(4)] }), startDelayMs: 0 },
+      { animation: makeAnimation({ id: 'main', duration: 1000, interpolator: 'linear_single', frames: [frameAt(8), frameAt(8)] }), startDelayMs: 1000 },
+    ])
+
+    advance(400)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(20)
+
+    player.setSpeed(2)
+    expect(player.elapsedOf('pre')).toBe(400)
+    expect(player.elapsedOf('main')).toBe(-600)
+
+    advance(299)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(20)
+
+    advance(1)
+    player.update()
+    expect(mesh.parent?.position.y).toBe(16)
+  })
+
   it('clears the shared clocks on dispose so a rebuilt player starts animations from zero', () => {
     const { player, clocks } = makePlayer(true)
 

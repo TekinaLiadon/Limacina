@@ -28,6 +28,7 @@ interface DirtySnapshotState<T extends object> {
   isDirty: ComputedRef<boolean>
   hasBaseline: ComputedRef<boolean>
   captureBaseline: () => void
+  captureBaselineFrom: (data: T) => void
   patchBaseline: (partial: Partial<T>) => void
   clearBaseline: () => void
   isFieldDirty: (key: keyof T) => boolean
@@ -36,8 +37,12 @@ interface DirtySnapshotState<T extends object> {
 export function useDirtySnapshot<T extends object>(source: () => T): DirtySnapshotState<T> {
   const baseline = ref<DirtyBaseline<T> | null>(null)
 
+  const captureBaselineFrom = (data: T): void => {
+    baseline.value = captureDirtyBaseline(data)
+  }
+
   const captureBaseline = (): void => {
-    baseline.value = captureDirtyBaseline(source())
+    captureBaselineFrom(source())
   }
 
   const patchBaseline = (partial: Partial<T>): void => {
@@ -72,5 +77,5 @@ export function useDirtySnapshot<T extends object>(source: () => T): DirtySnapsh
     return hasDirtyFields(snapshot, source())
   })
 
-  return { isDirty, hasBaseline, captureBaseline, patchBaseline, clearBaseline, isFieldDirty }
+  return { isDirty, hasBaseline, captureBaseline, captureBaselineFrom, patchBaseline, clearBaseline, isFieldDirty }
 }

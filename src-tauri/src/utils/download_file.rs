@@ -154,7 +154,11 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
 
 pub async fn download_file_limited(url: &str, dest: &Path, max_bytes: Option<u64>) -> Result<()> {
     if dest.exists() {
-        return Ok(());
+        tokio::fs::remove_file(dest).await.map_err(|e| {
+            LauncherError::DiskIo(format!(
+                "Не удалось удалить существующий файл {dest:?} перед загрузкой: {e:#}"
+            ))
+        })?;
     }
 
     let response = fetch_response(url).await?;
@@ -295,9 +299,11 @@ pub async fn download_json<T: DeserializeOwned>(url: Option<&str>, dest: &Path) 
     }
 }
 
+pub const XML_BODY_LIMIT: u64 = 16 * 1024 * 1024;
+
 pub async fn download_xml<T: DeserializeOwned>(url: &str) -> Result<T> {
     let response = fetch_response(url).await?;
-    let body = read_body_through_bucket(response, url).await?;
+    let body = read_body_through_bucket(response, url, Some(XML_BODY_LIMIT)).await?;
     let xml = String::from_utf8(body).map_err(|e| {
         LauncherError::Download(format!("Некорректная кодировка ответа от {url}: {e}"))
     })?;
@@ -307,9 +313,13 @@ pub async fn download_xml<T: DeserializeOwned>(url: &str) -> Result<T> {
     Ok(xml_struct)
 }
 
-async fn read_body_through_bucket(response: reqwest::Response, url: &str) -> Result<Vec<u8>> {
+async fn read_body_through_bucket(
+    response: reqwest::Response,
+    url: &str,
+    max_bytes: Option<u64>,
+) -> Result<Vec<u8>> {
     let mut body = Vec::new();
-    stream_response_to_writer(response, url, None, &mut body).await?;
+    stream_response_to_writer(response, url, max_bytes, &mut body).await?;
     Ok(body)
 }
 
@@ -356,15 +366,21 @@ where
     }
 
     if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|e| {
-            LauncherError::DiskIo(format!("Не удалось создать директорию для {dest:?}: {e:#}"))
-        })?;
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            let _ = tokio::fs::remove_file(&staging).await;
+            return Err(LauncherError::DiskIo(format!(
+                "Не удалось создать директорию для {dest:?}: {e:#}"
+            ))
+            .into());
+        }
     }
-    tokio::fs::rename(&staging, dest).await.map_err(|e| {
-        LauncherError::DiskIo(format!(
+    if let Err(e) = tokio::fs::rename(&staging, dest).await {
+        let _ = tokio::fs::remove_file(&staging).await;
+        return Err(LauncherError::DiskIo(format!(
             "Не удалось переместить {staging:?} в {dest:?}: {e:#}"
         ))
-    })?;
+        .into());
+    }
     Ok(true)
 }
 
@@ -404,6 +420,66 @@ pub async fn file_sha256(path: &Path) -> Result<String> {
 
 pub async fn file_sha512(path: &Path) -> Result<String> {
     file_hash::<sha2::Sha512>(path).await
+}
+
+#[cfg(test)]
+mod download_xml_tests {
+    use super::{download_xml, XML_BODY_LIMIT};
+    use crate::utils::errors::LauncherError;
+    use mockito::Server;
+    use serde::Deserialize;
+
+    #[derive(Deserialize, Debug)]
+    struct EmptyXml {}
+
+    #[tokio::test]
+    async fn oversized_xml_body_is_rejected() {
+        let mut server = Server::new_async().await;
+        let padding = "x".repeat(XML_BODY_LIMIT as usize);
+        server
+            .mock("GET", "/meta.xml")
+            .with_status(200)
+            .with_body(format!("<a>{padding}</a>"))
+            .create_async()
+            .await;
+
+        let result = download_xml::<EmptyXml>(&format!("{}/meta.xml", server.url())).await;
+
+        let error = result.expect_err("XML сверх лимита должен отклоняться");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::SizeLimit(_))
+            ),
+            "ожидался SizeLimit: {error}"
+        );
+        assert!(
+            error.to_string().contains("ожидалось не более 16777216"),
+            "ошибка должна называть лимит: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn small_xml_body_parses() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/meta.xml")
+            .with_status(200)
+            .with_body("<a><b>1</b></a>")
+            .create_async()
+            .await;
+
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Doc {
+            b: u32,
+        }
+
+        let doc: Doc = download_xml(&format!("{}/meta.xml", server.url()))
+            .await
+            .expect("маленький XML разбирается");
+
+        assert_eq!(doc.b, 1);
+    }
 }
 
 #[cfg(test)]
@@ -533,6 +609,33 @@ mod download_and_verify_tests {
             "staging переименовывается в dest"
         );
     }
+
+    #[tokio::test]
+    async fn failed_rename_removes_staging_file() {
+        let dir = LauncherDirGuard::acquire("verify_rename_fail").await;
+        let dest = dir.root().join("mods").join("a.jar");
+        tokio::fs::create_dir_all(&dest).await.unwrap();
+
+        let result: Result<bool> = download_and_verify_with(
+            &dest,
+            Some(&sha1_hex(b"new jar")),
+            true,
+            |path| async move {
+                tokio::fs::write(&path, b"new jar").await?;
+                Ok(())
+            },
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "переименовать файл в директорию нельзя — должна быть ошибка"
+        );
+        assert!(
+            part_files_in(dest.parent().unwrap()).is_empty(),
+            "staging-файл должен удаляться при сбое финального rename"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -650,6 +753,62 @@ mod tests {
             part_files_in(dest.parent().unwrap()).is_empty(),
             "part-файл должен быть удалён"
         );
+    }
+
+    #[tokio::test]
+    async fn undeletable_dest_fails_instead_of_ok() {
+        let dir = LauncherDirGuard::acquire("undeletable_dest").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/blocked.bin")
+            .with_status(200)
+            .with_body("fresh bytes")
+            .create_async()
+            .await;
+
+        let dest = dir.root().join("downloads").join("blocked.bin");
+        tokio::fs::create_dir_all(&dest).await.unwrap();
+        let url = format!("{}/blocked.bin", server.url());
+
+        let result = download_file_limited(&url, &dest, None).await;
+
+        assert!(
+            result.is_err(),
+            "неудаляемый путь назначения должен давать ошибку, а не молчаливый Ok"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Не удалось удалить существующий файл"),
+            "ошибка должна объяснять, что существующий файл не удалось удалить"
+        );
+    }
+
+    #[tokio::test]
+    async fn existing_dest_file_is_replaced_not_skipped() {
+        let dir = LauncherDirGuard::acquire("dest_replace").await;
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/replaced.bin")
+            .with_status(200)
+            .with_body("fresh bytes")
+            .create_async()
+            .await;
+
+        let dest = dir.root().join("downloads").join("replaced.bin");
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&dest, b"stale bytes").await.unwrap();
+        let url = format!("{}/replaced.bin", server.url());
+
+        download_file_limited(&url, &dest, None)
+            .await
+            .expect("существующий файл перекачивается, а не пропускается");
+
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"fresh bytes");
+        assert!(part_files_in(dest.parent().unwrap()).is_empty());
     }
 
     #[tokio::test]

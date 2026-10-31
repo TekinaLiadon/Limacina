@@ -102,4 +102,27 @@ describe('SelectBase', () => {
 
     expect(wrapper.find('.select-base-options').attributes('aria-label')).toBe('Pick one')
   })
+
+  it('exposes the trigger as a combobox that controls the listbox only while it is shown', async () => {
+    const wrapper = mountSelect()
+    const trigger = wrapper.find('.select-base__value')
+    expect(trigger.attributes('role')).toBe('combobox')
+    expect(trigger.attributes('aria-controls')).toBeUndefined()
+
+    await pressKey(wrapper, 'ArrowDown')
+
+    const listboxId = wrapper.find('[role="listbox"]').attributes('id')
+    expect(wrapper.find('.select-base__value').attributes('aria-controls')).toBe(listboxId)
+    expect(wrapper.find('.select-base__value').attributes('aria-activedescendant')).toBe(`${listboxId}-opt-0`)
+  })
+
+  it('announces the active option through aria-activedescendant while navigating', async () => {
+    const wrapper = mountSelect()
+
+    await pressKey(wrapper, 'ArrowDown')
+    await pressKey(wrapper, 'ArrowDown')
+
+    const listboxId = wrapper.find('[role="listbox"]').attributes('id')
+    expect(wrapper.find('.select-base__value').attributes('aria-activedescendant')).toBe(`${listboxId}-opt-1`)
+  })
 })

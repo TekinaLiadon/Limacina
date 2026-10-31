@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   authLogins,
+  checkFilesIntegrity,
   clearSession,
   killGameProcess,
+  listenIntegritySteps,
   loadSettingsProject,
   saveCurrentProject,
 } from '@/06-shared/api'
@@ -14,16 +16,20 @@ import {
   useNotificationStore,
   useProjectSettingsStore,
   useSettingsDirtyStore,
+  type IntegrityReport,
 } from '@/05-entities'
 import { useKillGame } from '@/04-features/game-session/useKillGame'
+import { useIntegrityCheck } from '@/04-features/integrity-check/useIntegrityCheck'
 import { makeProjectConfig } from '@/test-support/fixtures'
-import { useProjectSwitch } from '../useProjectSwitch'
+import { isProjectDeleting, useProjectSwitch } from '../useProjectSwitch'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/06-shared/api')>()),
   authLogins: vi.fn(),
+  checkFilesIntegrity: vi.fn(),
   clearSession: vi.fn(),
   killGameProcess: vi.fn(),
+  listenIntegritySteps: vi.fn(),
   loadSettingsProject: vi.fn(),
   saveCurrentProject: vi.fn(),
 }))
@@ -35,13 +41,16 @@ describe('useProjectSwitch', () => {
     setActivePinia(createPinia())
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(authLogins).mockReset()
+    vi.mocked(checkFilesIntegrity).mockReset()
     vi.mocked(clearSession).mockReset()
     vi.mocked(killGameProcess).mockReset()
+    vi.mocked(listenIntegritySteps).mockReset()
     vi.mocked(loadSettingsProject).mockReset()
     vi.mocked(saveCurrentProject).mockReset()
   })
 
   afterEach(() => {
+    isProjectDeleting.value = false
     vi.restoreAllMocks()
   })
 
@@ -112,6 +121,53 @@ describe('useProjectSwitch', () => {
     expect(settings.config.projectName).toBe('beta')
     expect(settings.isDirty).toBe(false)
     expect(loadSettingsProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('sets and releases isProjectSwitching around a standalone applyProjectSwitch and blocks selectProject meanwhile', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    let releaseLoad: () => void = () => {}
+    vi.mocked(loadSettingsProject).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseLoad = (): void => resolve(makeProjectConfig({ projectName: 'beta', online: true }))
+        }),
+    )
+    vi.mocked(authLogins).mockResolvedValue(['carol'])
+    const ps = setup()
+
+    const pending = ps.applyProjectSwitch('beta')
+    expect(ps.isSwitching.value).toBe(true)
+
+    await ps.selectProject('beta')
+    const blockedSaves = vi.mocked(saveCurrentProject).mock.calls.length
+    const blockedSessions = vi.mocked(clearSession).mock.calls.length
+    const blockedProject = core.currentProject
+
+    releaseLoad()
+    await pending
+
+    expect(blockedSaves).toBe(0)
+    expect(blockedSessions).toBe(0)
+    expect(blockedProject).toBe('alpha')
+    expect(core.currentProject).toBe('beta')
+    expect(ps.isSwitching.value).toBe(false)
+    expect(clearSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks the switch while a project deletion is in flight', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    isProjectDeleting.value = true
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(useNotificationStore().message).toBe('Дождитесь завершения удаления проекта')
+    expect(saveCurrentProject).not.toHaveBeenCalled()
+    expect(core.currentProject).toBe('alpha')
   })
 
   it('ignores a no-op or empty selection', async () => {
@@ -195,6 +251,39 @@ describe('useProjectSwitch', () => {
     expect(saveCurrentProject).not.toHaveBeenCalled()
   })
 
+  it('blocks the switch while an integrity check is running and allows it after', async () => {
+    const core = useCoreStore()
+    core.currentProject = 'alpha'
+    core.projects = ['alpha', 'beta']
+    vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
+    vi.mocked(authLogins).mockResolvedValue(['carol'])
+    vi.mocked(listenIntegritySteps).mockResolvedValue(() => {})
+    let releaseCheck: () => void = () => {}
+    vi.mocked(checkFilesIntegrity).mockImplementationOnce(
+      (): Promise<IntegrityReport> =>
+        new Promise((resolve) => {
+          releaseCheck = (): void =>
+            resolve({ total: 0, broken: 0, repaired: 0, missing: 0, failed: [] })
+        }),
+    )
+    const integrity = useIntegrityCheck()
+    const checkPromise = integrity.handleCheck()
+    const ps = setup()
+
+    await ps.selectProject('beta')
+
+    expect(useNotificationStore().message).toBe('Дождитесь завершения проверки целостности')
+    expect(saveCurrentProject).not.toHaveBeenCalled()
+    expect(core.currentProject).toBe('alpha')
+
+    releaseCheck()
+    await checkPromise
+    await ps.selectProject('beta')
+
+    expect(saveCurrentProject).toHaveBeenCalledWith('beta')
+    expect(core.currentProject).toBe('beta')
+  })
+
   it('blocks the switch while a login or an account select is in flight', async () => {
     const core = useCoreStore()
     core.currentProject = 'alpha'
@@ -230,6 +319,7 @@ describe('useProjectSwitch', () => {
       javaVersion: null,
       jvmArgs: '',
       memoryRange: [512, 4096],
+      cpuCores: null,
       online: true,
       initialized: true,
       serverUrl: null,
@@ -266,6 +356,7 @@ describe('useProjectSwitch', () => {
       javaVersion: null,
       jvmArgs: '',
       memoryRange: [512, 4096],
+      cpuCores: null,
       online: true,
       initialized: true,
       serverUrl: null,
@@ -299,6 +390,7 @@ describe('useProjectSwitch', () => {
       javaVersion: null,
       jvmArgs: '',
       memoryRange: [512, 4096],
+      cpuCores: null,
       online: true,
       initialized: true,
       serverUrl: null,
@@ -355,7 +447,6 @@ describe('useProjectSwitch', () => {
     core.currentProject = 'alpha'
     core.projects = ['alpha', 'beta']
     const accounts = useAccountsStore()
-    accounts.isLoggedIn = true
     accounts.session = { uuid: 'u-1', username: 'alice' }
     vi.mocked(loadSettingsProject).mockResolvedValue(makeProjectConfig({ projectName: 'beta', online: true }))
     vi.mocked(authLogins).mockResolvedValue(['carol'])

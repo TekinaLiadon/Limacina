@@ -82,6 +82,7 @@ describe('useIntegrityCheck', () => {
       STEP_IDS.mcManifest,
       STEP_IDS.mcJar,
       STEP_IDS.mcLibs,
+      STEP_IDS.mcNatives,
       STEP_IDS.mcAssetsIndex,
       STEP_IDS.mcAssets,
       STEP_IDS.modsCheck,
@@ -138,7 +139,7 @@ describe('useIntegrityCheck', () => {
     await check.handleCheck()
 
     expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.modsCheck)
-    expect(check.steps.value).toHaveLength(5)
+    expect(check.steps.value).toHaveLength(6)
   })
 
   it('prefills only the vanilla plan while the project config is missing', async () => {
@@ -149,7 +150,33 @@ describe('useIntegrityCheck', () => {
     await check.handleCheck()
 
     expect(check.steps.value.map((step) => step.key)).not.toContain(STEP_IDS.modsCheck)
-    expect(check.steps.value).toHaveLength(5)
+    expect(check.steps.value).toHaveLength(6)
+  })
+
+  it('applies natives events to the planned step instead of appending it untracked', async () => {
+    useCoreStore().projectConfig = makeProjectConfig({ online: false })
+    const { release } = deferredReport()
+    const { check } = await setupCheck()
+
+    const pending = check.handleCheck()
+    emitStep?.({ type: 'started', id: STEP_IDS.mcNatives, label: 'Нативные библиотеки' })
+    emitStep?.({ type: 'progress', id: STEP_IDS.mcNatives, current: 2, total: 3 })
+    emitStep?.({ type: 'finished', id: STEP_IDS.mcNatives, skipped: false })
+
+    expect(check.steps.value.map((step) => step.key)).toEqual([
+      STEP_IDS.mcManifest,
+      STEP_IDS.mcJar,
+      STEP_IDS.mcLibs,
+      STEP_IDS.mcNatives,
+      STEP_IDS.mcAssetsIndex,
+      STEP_IDS.mcAssets,
+    ])
+    const natives = check.steps.value.find((step) => step.key === STEP_IDS.mcNatives)
+    expect(natives?.status).toBe('done')
+    expect(natives?.untracked).toBe(false)
+
+    release()
+    await pending
   })
 
   it('applies step events while the check is running', async () => {
@@ -187,7 +214,7 @@ describe('useIntegrityCheck', () => {
     expect(check.steps.value.find((step) => step.key === STEP_IDS.mcJar)?.status).toBe('pending')
   })
 
-  it('does not apply the report or step events after the project switches mid-check', async () => {
+  it('aborts with a toast and a clean state when the project switches mid-check', async () => {
     const core = useCoreStore()
     core.projectConfig = makeProjectConfig({ online: true })
     core.currentProject = 'alpha'
@@ -203,9 +230,34 @@ describe('useIntegrityCheck', () => {
     release()
     await pending
 
+    expect(useNotificationStore().message).toBe('Проверка целостности прервана: проект переключён')
     expect(check.report.value).toBeNull()
     expect(check.errorMessage.value).toBe('')
+    expect(check.steps.value).toHaveLength(0)
+    expect(check.hasResult.value).toBe(false)
     expect(check.isChecking.value).toBe(false)
+  })
+
+  it('shares the running progress and the final result with a second composable instance', async () => {
+    useCoreStore().projectConfig = makeProjectConfig({ online: true })
+    const { release } = deferredReport()
+    const first = await setupCheck()
+
+    const pending = first.check.handleCheck()
+    const second = await setupCheck()
+
+    expect(second.check.isChecking.value).toBe(true)
+    expect(second.check.isCheckingNow.value).toBe(true)
+    expect(second.check.steps.value).toHaveLength(7)
+    emitStep?.({ type: 'started', id: STEP_IDS.mcJar, label: 'Клиент игры' })
+    expect(second.check.steps.value.find((step) => step.key === STEP_IDS.mcJar)?.status).toBe('active')
+
+    release()
+    await pending
+
+    expect(second.check.report.value).toEqual(makeReport())
+    expect(second.check.hasResult.value).toBe(true)
+    expect(second.check.isChecking.value).toBe(false)
   })
 
   it('applies step events and the report on a rerun after the project switches between checks', async () => {
@@ -266,7 +318,7 @@ describe('useIntegrityCheck', () => {
     const pending = check.handleCheck()
     check.closeResult()
     expect(check.isPopupHidden.value).toBe(true)
-    expect(check.steps.value).toHaveLength(6)
+    expect(check.steps.value).toHaveLength(7)
 
     await pending
 

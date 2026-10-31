@@ -48,6 +48,7 @@ use commands::profile::{
     create_offline_profile, create_server_profile, delete_project, get_loader_versions,
     get_minecraft_versions, get_server_connect_url, refresh_manifests, save_current_project,
 };
+use commands::settings_project::available_cpu_cores;
 use commands::settings_project::clear_minecraft_config;
 use commands::settings_project::load_settings_project;
 use commands::settings_project::probe_java_version;
@@ -263,6 +264,7 @@ pub fn run() {
             save_settings_project,
             load_settings_project,
             probe_java_version,
+            available_cpu_cores,
             clear_minecraft_config,
             get_game_options,
             save_game_options,

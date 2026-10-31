@@ -11,7 +11,10 @@ use crate::{
         mod_loader::{
             config::loader_version_jar_name,
             download::library_targets,
-            manifest::{loader_libraries, loader_manifest_path, loader_version_or_err, Manifest},
+            manifest::{
+                installer_artifacts_missing, loader_libraries, loader_manifest_path,
+                loader_version_or_err, Manifest,
+            },
         },
         structs::{LibraryMod, VersionMod},
     },
@@ -191,7 +194,11 @@ pub async fn move_version_jar(base_url: &Path, mc_version: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn find_manifest_json_in_dir(dir: &Path, inherits_from: &str) -> Result<Option<PathBuf>> {
+pub async fn find_manifest_json_in_dir(
+    dir: &Path,
+    mc_version: &str,
+    loader_version: &str,
+) -> Result<Option<PathBuf>> {
     let mut inner = fs::read_dir(dir)
         .await
         .map_err(|e| LauncherError::DiskIo(format!("Не удалось прочитать {dir:?}: {e:#}")))?;
@@ -200,7 +207,7 @@ pub async fn find_manifest_json_in_dir(dir: &Path, inherits_from: &str) -> Resul
     })? {
         let p = entry.path();
         if p.extension().and_then(|e| e.to_str()) == Some("json")
-            && is_manifest_with_parent(&p, inherits_from).await?
+            && is_manifest_for_version(&p, mc_version, loader_version).await?
         {
             return Ok(Some(p));
         }
@@ -208,7 +215,11 @@ pub async fn find_manifest_json_in_dir(dir: &Path, inherits_from: &str) -> Resul
     Ok(None)
 }
 
-async fn is_manifest_with_parent(path: &Path, inherits_from: &str) -> Result<bool> {
+async fn is_manifest_for_version(
+    path: &Path,
+    mc_version: &str,
+    loader_version: &str,
+) -> Result<bool> {
     let content = match fs::read_to_string(path).await {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -221,22 +232,37 @@ async fn is_manifest_with_parent(path: &Path, inherits_from: &str) -> Result<boo
     let Ok(json) = serde_json::from_str::<Value>(&content) else {
         return Ok(false);
     };
-    Ok(json.get("inheritsFrom").and_then(|v| v.as_str()) == Some(inherits_from))
+    if json.get("inheritsFrom").and_then(|v| v.as_str()) != Some(mc_version) {
+        return Ok(false);
+    }
+    let loader_suffix = format!("-{loader_version}");
+    Ok(json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .is_some_and(|id| id.ends_with(&loader_suffix)))
 }
 
-pub async fn locate_installed_manifest(versions_dir: &Path, mc_version: &str) -> Result<PathBuf> {
-    if let Some(json_path) = find_manifest_json_in_dir(versions_dir, mc_version).await? {
+pub async fn locate_installed_manifest(
+    versions_dir: &Path,
+    mc_version: &str,
+    loader_version: &str,
+) -> Result<PathBuf> {
+    if let Some(json_path) =
+        find_manifest_json_in_dir(versions_dir, mc_version, loader_version).await?
+    {
         return Ok(json_path);
     }
 
     for path in version_subdirs(versions_dir).await? {
-        if let Some(json_path) = find_manifest_json_in_dir(&path, mc_version).await? {
+        if let Some(json_path) =
+            find_manifest_json_in_dir(&path, mc_version, loader_version).await?
+        {
             return Ok(json_path);
         }
     }
 
     Err(LauncherError::LoaderSetup(format!(
-        "Манифест лоадера не найден в {versions_dir:?} (inheritsFrom: {mc_version})"
+        "Манифест лоадера {loader_version} для игры {mc_version} не найден в {versions_dir:?}"
     ))
     .into())
 }
@@ -260,8 +286,10 @@ pub async fn start_installer(
 
     let (loader_manifest, base_url) = manifest_paths(state_project, manifest_prefix)?;
     let versions_dir = base_url.join("versions");
+    let loader_version = loader_version_or_err(state_project)?;
 
-    let source = locate_installed_manifest(&versions_dir, &state_project.mc_version).await?;
+    let source =
+        locate_installed_manifest(&versions_dir, &state_project.mc_version, loader_version).await?;
 
     move_version_jar(&base_url, &state_project.mc_version).await?;
 
@@ -373,10 +401,16 @@ pub async fn setup_loader(
         .unwrap_or(false)
     {
         let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
-        let library = loader_libraries(version_manifest.libraries, maven_base)?;
-        install_version_files(state, version_info, &library, label.clone()).await?;
-        log_info!("{} уже установлен, проверка файлов завершена", loader_name);
-        return Ok(());
+        if !installer_artifacts_missing(&base_url, &version_manifest.libraries).await? {
+            let library = loader_libraries(version_manifest.libraries, maven_base)?;
+            install_version_files(state, version_info, &library, label.clone()).await?;
+            log_info!("{} уже установлен, проверка файлов завершена", loader_name);
+            return Ok(());
+        }
+        log_info!(
+            "{} требует повторной установки: отсутствуют локальные артефакты",
+            loader_name
+        );
     }
 
     let step = StepHandle::start("loader", label);
@@ -468,11 +502,14 @@ mod loader_install_tests {
             .create_async()
             .await;
 
+        let maven_base = format!("{}/maven", server.url());
         let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
         fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
         fs::write(
             &manifest_path,
             loader_manifest_json(
+                &format!("{maven_base}/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar"),
+                &format!("{maven_base}/org/ow2/asm/asm/9.7/asm-9.7.jar"),
                 &sha1_hex(b"loader jar bytes"),
                 &sha1_hex(b"asm lib bytes"),
                 b"loader jar bytes".len() as i64,
@@ -489,7 +526,6 @@ mod loader_install_tests {
             main_class: String::new(),
             library: Vec::new(),
         }];
-        let maven_base = format!("{}/maven", server.url());
 
         SetupLoaderEnv {
             dir,
@@ -533,6 +569,8 @@ mod loader_install_tests {
     }
 
     fn loader_manifest_json(
+        lib_url: &str,
+        extra_url: &str,
         lib_hash: &str,
         extra_hash: &str,
         lib_size: i64,
@@ -548,11 +586,11 @@ mod loader_install_tests {
             "libraries": [
                 {
                     "name": "net.fabricmc:fabric-loader:0.16.9",
-                    "downloads": { "artifact": { "path": "", "url": "", "sha1": lib_hash, "size": lib_size } }
+                    "downloads": { "artifact": { "path": "", "url": lib_url, "sha1": lib_hash, "size": lib_size } }
                 },
                 {
                     "name": "org.ow2.asm:asm:9.7",
-                    "downloads": { "artifact": { "path": "", "url": "", "sha1": extra_hash, "size": extra_size } }
+                    "downloads": { "artifact": { "path": "", "url": extra_url, "sha1": extra_hash, "size": extra_size } }
                 }
             ]
         })
@@ -713,7 +751,7 @@ mod loader_install_tests {
         );
     }
 
-    fn neoforge_manifest_json() -> serde_json::Value {
+    fn neoforge_manifest_json(mergetool_url: &str) -> serde_json::Value {
         let mergetool_sha1 = sha1_hex(b"mergetool bytes");
         json!({
             "id": "1.20.1-neoforge-21.1.80",
@@ -728,7 +766,7 @@ mod loader_install_tests {
                     "downloads": {
                         "artifact": {
                             "path": "net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar",
-                            "url": "",
+                            "url": mergetool_url,
                             "sha1": mergetool_sha1,
                             "size": b"mergetool bytes".len() as i64
                         }
@@ -762,9 +800,17 @@ mod loader_install_tests {
             .create_async()
             .await;
 
+        let maven_base = format!("{}/maven", server.url());
         let manifest_path = dir.root().join("manifest").join("neoforge_21.1.80.json");
         fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-        fs::write(&manifest_path, neoforge_manifest_json().to_string()).unwrap();
+        fs::write(
+            &manifest_path,
+            neoforge_manifest_json(&format!(
+                "{maven_base}/net/neoforged/mergetool/2.0.3/mergetool-2.0.3-api.jar"
+            ))
+            .to_string(),
+        )
+        .unwrap();
 
         let state = ProjectConfig {
             project_name: "NeoProj".to_string(),
@@ -778,7 +824,6 @@ mod loader_install_tests {
             main_class: String::new(),
             library: Vec::new(),
         }];
-        let maven_base = format!("{}/maven", server.url());
 
         setup_loader("NeoForge", "neoforge", &state, &manifest, &maven_base)
             .await
@@ -889,11 +934,11 @@ mod loader_install_tests {
         fs::create_dir_all(&versions).unwrap();
         fs::write(
             versions.join("1.20.1-forge.json"),
-            r#"{"inheritsFrom": "1.20.1"}"#,
+            r#"{"id": "1.20.1-forge-0.16.9", "inheritsFrom": "1.20.1"}"#,
         )
         .unwrap();
 
-        let found = locate_installed_manifest(&versions, "1.20.1")
+        let found = locate_installed_manifest(&versions, "1.20.1", "0.16.9")
             .await
             .expect("поиск манифеста");
 
@@ -909,16 +954,16 @@ mod loader_install_tests {
             fs::create_dir_all(versions.join("aaa-fresh")).unwrap();
             fs::write(
                 versions.join("zzz-stale/old-1.20.1.json"),
-                r#"{"inheritsFrom": "1.20.1"}"#,
+                r#"{"id": "1.20.1-forge-0.16.9", "inheritsFrom": "1.20.1"}"#,
             )
             .unwrap();
             fs::write(
                 versions.join("aaa-fresh/new-1.20.1.json"),
-                r#"{"inheritsFrom": "1.20.1"}"#,
+                r#"{"id": "1.20.1-forge-0.16.9", "inheritsFrom": "1.20.1"}"#,
             )
             .unwrap();
 
-            let found = locate_installed_manifest(&versions, "1.20.1")
+            let found = locate_installed_manifest(&versions, "1.20.1", "0.16.9")
                 .await
                 .expect("поиск манифеста среди stale-каталогов");
 
@@ -932,17 +977,122 @@ mod loader_install_tests {
     }
 
     #[tokio::test]
+    async fn locate_installed_manifest_skips_foreign_loader_version() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_foreign").await;
+        let versions = dir.root().join("game/versions");
+        fs::create_dir_all(versions.join("aaa-stale")).unwrap();
+        fs::create_dir_all(versions.join("zzz-fresh")).unwrap();
+        fs::write(
+            versions.join("aaa-stale/1.20.1-forge.json"),
+            r#"{"id": "1.20.1-forge-0.17.0", "inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+        fs::write(
+            versions.join("zzz-fresh/1.20.1-forge.json"),
+            r#"{"id": "1.20.1-forge-0.16.9", "inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+
+        let found = locate_installed_manifest(&versions, "1.20.1", "0.16.9")
+            .await
+            .expect("поиск манифеста своей версии среди чужих остатков");
+
+        assert_eq!(
+            found,
+            versions.join("zzz-fresh/1.20.1-forge.json"),
+            "остаток чужой версии лоадера, даже отсортированный первым, не должен подменять манифест запрошенной версии"
+        );
+    }
+
+    #[tokio::test]
+    async fn locate_installed_manifest_rejects_foreign_version_manifest() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_foreign_only").await;
+        let versions = dir.root().join("game/versions");
+        fs::create_dir_all(&versions).unwrap();
+        fs::write(
+            versions.join("1.20.1-forge.json"),
+            r#"{"id": "1.20.1-forge-0.17.0", "inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(versions.join("stale-loader")).unwrap();
+        fs::write(
+            versions.join("stale-loader/1.20.1-forge.json"),
+            r#"{"id": "1.20.1-forge-0.17.0", "inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+
+        let error = locate_installed_manifest(&versions, "1.20.1", "0.16.9")
+            .await
+            .expect_err("чужой манифест не должен выдаваться за манифест запрошенной версии");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Манифест лоадера 0.16.9 для игры 1.20.1"),
+            "ошибка должна называть запрошенные версии: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn locate_installed_manifest_rejects_manifest_without_id() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_no_id").await;
+        let versions = dir.root().join("game/versions/forge");
+        fs::create_dir_all(&versions).unwrap();
+        fs::write(
+            versions.join("1.20.1-forge.json"),
+            r#"{"inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+
+        let error = locate_installed_manifest(&versions, "1.20.1", "0.16.9")
+            .await
+            .expect_err("манифест без id не может доказать принадлежность версии лоадера");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Манифест лоадера 0.16.9 для игры 1.20.1"),
+            "ошибка должна называть запрошенные версии: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn locate_installed_manifest_matches_version_on_dash_boundary() {
+        let dir = LauncherDirGuard::acquire("locate_manifest_boundary").await;
+        let versions = dir.root().join("game/versions/forge");
+        fs::create_dir_all(&versions).unwrap();
+        fs::write(
+            versions.join("1.20.1-forge.json"),
+            r#"{"id": "1.20.1-forge-47.2.0", "inheritsFrom": "1.20.1"}"#,
+        )
+        .unwrap();
+
+        let error = locate_installed_manifest(&versions, "1.20.1", "2.0")
+            .await
+            .expect_err("версия 47.2.0 не должна считаться версией 2.0 без границы по дефису");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Манифест лоадера 2.0 для игры 1.20.1"),
+            "ошибка должна называть запрошенные версии: {error}"
+        );
+    }
+
+    #[tokio::test]
     async fn locate_installed_manifest_errors_when_manifest_missing() {
         let dir = LauncherDirGuard::acquire("locate_manifest_missing").await;
         let versions = dir.root().join("game/versions");
         fs::create_dir_all(&versions).unwrap();
 
-        let error = locate_installed_manifest(&versions, "1.20.1")
+        let error = locate_installed_manifest(&versions, "1.20.1", "0.16.9")
             .await
             .expect_err("ненайденный манифест должен давать явную ошибку, а не фейковый путь");
 
         assert!(
-            error.to_string().contains("Манифест лоадера не найден"),
+            error
+                .to_string()
+                .contains("Манифест лоадера 0.16.9 для игры 1.20.1"),
             "ошибка должна объяснять, что манифест не найден: {error}"
         );
     }

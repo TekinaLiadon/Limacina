@@ -8,7 +8,7 @@ use uuid::{Builder, Variant, Version};
 use crate::{
     log_info,
     utils::errors::LauncherError,
-    utils::http::{http_client, request_json, with_launcher_id},
+    utils::http::{bounded_error_body, http_client, request_json, with_launcher_id},
 };
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -216,11 +216,11 @@ pub async fn invalidate(server_url: &str, refresh_token: &str) -> Result<()> {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().await.unwrap_or_default();
+            let body = crate::utils::http::read_error_body_text(response, &url).await;
             anyhow::bail!(
                 "Сервер авторизации вернул {} при инвалидации токена: {}",
                 status,
-                body
+                bounded_error_body(&body)
             );
         }
 
@@ -382,6 +382,32 @@ mod auth_http_tests {
             .await
             .expect_err("должна быть ошибка");
         assert!(error.to_string().contains("500"), "{}", error);
+    }
+
+    #[tokio::test]
+    async fn invalidate_error_bounds_reflected_body() {
+        let mut server = Server::new_async().await;
+        let padding = "y".repeat(4096);
+        server
+            .mock("POST", "/v1/common/auth/invalidate")
+            .with_status(500)
+            .with_body(format!("refresh_token=leaked-{padding}"))
+            .create_async()
+            .await;
+
+        let error = invalidate(&server.url(), "refresh-1")
+            .await
+            .expect_err("должна быть ошибка");
+        let rendered = format!("{error:#}");
+
+        assert!(
+            !rendered.contains(&padding),
+            "тело ответа не должно попадать в ошибку целиком: {rendered}"
+        );
+        assert!(
+            rendered.contains("leaked-"),
+            "начало тела должно сохраняться для понятности: {rendered}"
+        );
     }
 
     #[test]

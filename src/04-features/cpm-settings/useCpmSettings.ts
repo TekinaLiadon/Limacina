@@ -18,6 +18,11 @@ import { cpmConfigToLinkBytes, cpmProjectToLinkBase64 } from '@/04-features/cpm-
 import { parseBbmodel } from '@/04-features/cpm-convert/bbmodelParser'
 import { useModelUserContent, type ModelUserContent } from '@/04-features/user-content/useUserContent'
 import { useUserContentFile } from '@/04-features/user-content/useUserContentFile'
+import { createPreviewBlobHolder } from '@/04-features/user-content/previewUrls'
+import {
+  createConfirmedContentActions,
+  createTextureErrorSetter,
+} from '@/04-features/user-content/contentSettingsActions'
 import { parseCpmProjectFile } from './cpmProjectParser'
 
 export interface CpmLayer {
@@ -155,9 +160,7 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
     }
   }
 
-  const setTextureError = (): void => {
-    content.errorMessage.value = TEXTURE_LOAD_ERROR
-  }
+  const setTextureError = createTextureErrorSetter(content.errorMessage, TEXTURE_LOAD_ERROR)
 
   watch(cpmData, (data): void => {
     if (!data) {
@@ -171,6 +174,12 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
     hiddenLayerIds.value = new Set([...hiddenLayerIds.value].filter((id) => known.has(id)))
   })
 
+  const previews = createPreviewBlobHolder({
+    getCurrentUrl: (): string | null => cpmData.value?.textureUrl ?? null,
+  })
+
+  let isDisposed = false
+
   function applyModel(
     config: CPMConfig,
     textureBlob: Blob,
@@ -179,8 +188,9 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
     bytes: Uint8Array,
     name: string,
   ): void {
+    if (isDisposed) return
     const textureUrl = URL.createObjectURL(textureBlob)
-    if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
+    previews.releaseCurrent()
     cpmData.value = { config, textureUrl, animations, animEnc }
     cpmFileBytes.value = bytes
     cpmFileName.value = name
@@ -220,7 +230,7 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
   }, { immediate: true })
 
   function resetCpmState(): void {
-    if (cpmData.value?.textureUrl) URL.revokeObjectURL(cpmData.value.textureUrl)
+    previews.releaseCurrent()
 
     cpmData.value = null
     cpmFileBytes.value = null
@@ -231,14 +241,14 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
     content.errorMessage.value = ''
   }
 
-  const resetCpm = (): Promise<void> =>
-    notification.runConfirmed('Сбросить текущую модель?', (): void => {
-      resetCpmState()
-    })
+  const confirmedActions = createConfirmedContentActions(notification, content, {
+    reset: 'Сбросить текущую модель?',
+    delete: 'Удалить модель из списка загруженных?',
+  })
 
-  const handleDeleteModel = (id: number): Promise<void> =>
-    notification.runConfirmed('Удалить модель из списка загруженных?', (): Promise<void> =>
-      content.handleDelete(id))
+  const resetCpm = (): Promise<void> => confirmedActions.runReset(resetCpmState)
+
+  const handleDeleteModel = (id: number): Promise<void> => confirmedActions.runDelete(id)
 
   const rollbackUploadedModel = async (item: UserContentItem): Promise<void> => {
     if (item.id === null || item.id === undefined) return
@@ -294,6 +304,7 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
   void content.loadItems()
 
   onScopeDispose((): void => {
+    isDisposed = true
     resetCpmState()
   })
 

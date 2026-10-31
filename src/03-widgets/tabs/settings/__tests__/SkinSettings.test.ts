@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import SkinSettings from '../SkinSettings.vue'
 import SkinViewer from '../SkinViewer.vue'
@@ -95,5 +95,21 @@ describe('SkinSettings', () => {
 
     expect(modelMode.value).toBe('slim')
     expect(wrapper.find('.skin-settings__mode-btn--active').text()).toBe('Слим')
+  })
+
+  it('marks the active model mode with aria-pressed', async () => {
+    skinUrl.value = 'blob:skin'
+    const wrapper = mountSettings()
+
+    const buttons = wrapper.findAll('.skin-settings__mode-btn')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]?.attributes('aria-pressed')).toBe('true')
+    expect(buttons[1]?.attributes('aria-pressed')).toBe('false')
+
+    modelMode.value = 'slim'
+    await nextTick()
+
+    expect(buttons[0]?.attributes('aria-pressed')).toBe('false')
+    expect(buttons[1]?.attributes('aria-pressed')).toBe('true')
   })
 })

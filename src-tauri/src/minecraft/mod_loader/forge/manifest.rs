@@ -41,27 +41,11 @@ fn forge_installer_url(v: &str, _loader_version: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::group_forge_versions;
-    use crate::minecraft::mod_loader::manifest::{Metadata, VersionList, Versioning};
-
-    fn forge_metadata(versions: &[&str]) -> Metadata {
-        let latest = versions
-            .last()
-            .map(|v| (*v).to_string())
-            .unwrap_or_default();
-        Metadata {
-            versioning: Versioning {
-                latest: latest.clone(),
-                release: latest,
-                versions: VersionList {
-                    version_list: versions.iter().map(|v| (*v).to_string()).collect(),
-                },
-            },
-        }
-    }
+    use crate::test_support::loader_metadata;
 
     #[test]
     fn group_forge_versions_groups_by_mc_and_skips_unsuffixed() {
-        let index = group_forge_versions(forge_metadata(&[
+        let index = group_forge_versions(loader_metadata(&[
             "1.20.1-47.2.0",
             "1.20.1-47.1.3",
             "1.19.4-45.0.0",

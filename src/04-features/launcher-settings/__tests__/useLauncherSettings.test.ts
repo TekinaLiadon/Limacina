@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { saveLauncherSettings, getAppInitData } from '@/06-shared/api'
+import { saveLauncherSettings, saveLauncherConfig, getAppInitData } from '@/06-shared/api'
 import { isAutostartEnabled, enableAutostart, disableAutostart, selectDirectory } from '@/06-shared'
 import { useCoreStore, useNotificationStore, useSettingsDirtyStore, type AppInitData, type LauncherBehaviorForm, type LauncherConfig, type LauncherSettingsPayload } from '@/05-entities'
 import { useLauncherSettings } from '../useLauncherSettings'
@@ -224,6 +224,82 @@ describe('useLauncherSettings', () => {
 
     expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
     expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('keeps an edit made during the save dirty and persists it on the next save', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+    let resolveSave: (config: LauncherConfig) => void = () => {}
+    vi.mocked(saveLauncherSettings).mockImplementationOnce(
+      () =>
+        new Promise<LauncherConfig>((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.behaviorForm.value.debugMode = true
+    const savePromise = settings.handleSave()
+    settings.behaviorForm.value.keepOldConfigs = true
+
+    resolveSave(makeLauncherConfig(false))
+    await savePromise
+    await flushPromises()
+
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
+    expect(core.launcherConfig?.keepOldConfigs).toBe(false)
+    expect(core.launcherConfig?.debugMode).toBe(true)
+    expect(settings.isDirty.value).toBe(true)
+    expect(useNotificationStore().message).toBe('Настройки сохранены')
+
+    vi.mocked(saveLauncherSettings).mockResolvedValueOnce(makeLauncherConfig(false))
+    await settings.handleSave()
+
+    const { calls } = vi.mocked(saveLauncherSettings).mock
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall).toBeDefined()
+    if (lastCall === undefined) return
+    expect(lastCall[0].keepOldConfigs).toBe(true)
+    expect(lastCall[0].debugMode).toBe(true)
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('keeps edits made during a failed save dirty without capturing a baseline', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+    let rejectSave: (error: Error) => void = () => {}
+    vi.mocked(saveLauncherSettings).mockImplementationOnce(
+      () =>
+        new Promise<LauncherConfig>((_, reject) => {
+          rejectSave = reject
+        }),
+    )
+    vi.mocked(getAppInitData).mockResolvedValueOnce(makeAppInitData(makeLauncherConfig(false)))
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    settings.behaviorForm.value.debugMode = true
+    const savePromise = settings.handleSave()
+    settings.behaviorForm.value.keepOldConfigs = true
+
+    rejectSave(new Error('disk full'))
+    await savePromise
+    await flushPromises()
+
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
+    expect(core.launcherConfig?.debugMode).toBe(false)
+    expect(core.launcherConfig?.keepOldConfigs).toBe(false)
+    expect(settings.isDirty.value).toBe(true)
+    expect(useNotificationStore().message).toBe('disk full')
 
     unmount()
   })
@@ -538,6 +614,84 @@ describe('useLauncherSettings', () => {
     vi.mocked(selectDirectory).mockResolvedValue('/games')
     await settings.selectLauncherFolder()
     expect(settings.launcherPath.value).toBe('/games/Limacina')
+
+    unmount()
+  })
+
+  it('requires a confirmation to save a changed launcher path and restores the previous value on decline', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+    core.launcherName = 'Limacina'
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const confirmSpy = vi.spyOn(useNotificationStore(), 'confirm').mockResolvedValue(false)
+    settings.launcherPath.value = '/other/Limacina'
+    await settings.handleSave()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Сменить папку установки? Файлы игры, Java и профили останутся в прежней папке и будут скачаны заново',
+    )
+    expect(saveLauncherSettings).not.toHaveBeenCalled()
+    expect(saveLauncherConfig).not.toHaveBeenCalled()
+    expect(settings.launcherPath.value).toBe('/launcher')
+    expect(core.launcherConfig?.launcherPath).toBe('/launcher')
+    expect(settings.isDirty.value).toBe(false)
+
+    unmount()
+  })
+
+  it('saves the changed launcher path after the confirmation', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    vi.mocked(saveLauncherConfig).mockResolvedValue({
+      ...makeLauncherConfig(false),
+      launcherPath: '/other/Limacina',
+    })
+    const core = useCoreStore()
+    core.launcherConfig = makeLauncherConfig(false)
+    core.launcherName = 'Limacina'
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const confirmSpy = vi.spyOn(useNotificationStore(), 'confirm').mockResolvedValue(true)
+    settings.launcherPath.value = '/other/Limacina'
+    await settings.handleSave()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Сменить папку установки? Файлы игры, Java и профили останутся в прежней папке и будут скачаны заново',
+    )
+    expect(saveLauncherConfig).toHaveBeenCalledWith('/other')
+    expect(core.launcherConfig?.launcherPath).toBe('/other/Limacina')
+    expect(settings.launcherPath.value).toBe('/other/Limacina')
+    expect(settings.isDirty.value).toBe(false)
+    expect(useNotificationStore().message).toBe('Настройки сохранены')
+
+    unmount()
+  })
+
+  it('saves without a confirmation dialog when the launcher path is unchanged', async () => {
+    vi.mocked(isAutostartEnabled).mockResolvedValue(false)
+    vi.mocked(saveLauncherSettings).mockResolvedValue(makeLauncherConfig(false))
+    useCoreStore().launcherConfig = makeLauncherConfig(false)
+
+    const { result: settings, unmount } = withSetup(() => useLauncherSettings())
+    await flushPromises()
+
+    const confirmSpy = vi.spyOn(useNotificationStore(), 'confirm').mockResolvedValue(true)
+    settings.behaviorForm.value.debugMode = true
+    await settings.handleSave()
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1)
+    expect(saveLauncherConfig).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).toBe('Настройки сохранены')
 
     unmount()
   })

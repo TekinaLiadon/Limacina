@@ -1,11 +1,11 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use crate::log_err;
 
@@ -16,6 +16,9 @@ const BLOCKLIST_PATH: &str = "/privacy/blocklist";
 const NOT_FOUND_BODY: &[u8] = br#"{"error":"NotFoundException","errorMessage":"Not found"}"#;
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const MAX_CONNECTIONS: usize = 32;
+const REQUEST_DEADLINE: Duration = Duration::from_secs(5);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(3);
 
 type Skin = Option<(Vec<u8>, Option<String>)>;
 
@@ -36,6 +39,9 @@ impl SkinServer {
     pub fn start(skin: Skin, uuid: String, username: String) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")
             .context("Не удалось занять порт для локального Yggdrasil-шима")?;
+        listener
+            .set_nonblocking(true)
+            .context("Не удалось подготовить локальный Yggdrasil-шим")?;
         let port = listener.local_addr()?.port();
         let url = format!("http://127.0.0.1:{port}");
         let state = Arc::new(SkinState {
@@ -46,7 +52,10 @@ impl SkinServer {
         });
         let shutdown = Arc::new(AtomicBool::new(false));
         let worker_shutdown = Arc::clone(&shutdown);
-        let worker = thread::spawn(move || run_server(listener, state, worker_shutdown));
+        let worker = thread::Builder::new()
+            .name("limacina-skin-shim".to_string())
+            .spawn(move || run_server(listener, state, worker_shutdown))
+            .map_err(|e| anyhow!("Не удалось запустить поток Yggdrasil-шима: {e}"))?;
         Ok(Self {
             url,
             shutdown,
@@ -71,25 +80,31 @@ impl Drop for SkinServer {
 }
 
 fn run_server(listener: TcpListener, state: Arc<SkinState>, shutdown: Arc<AtomicBool>) {
-    if let Err(e) = listener.set_nonblocking(true) {
-        log_err!("Офлайн-шим: не удалось включить nonblocking: {}", e);
-        return;
-    }
+    let live = Arc::new(AtomicUsize::new(0));
     loop {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
         match listener.accept() {
             Ok((stream, _)) => {
+                if live.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                    live.fetch_sub(1, Ordering::SeqCst);
+                    drop(stream);
+                    continue;
+                }
                 let state = Arc::clone(&state);
+                let thread_live = Arc::clone(&live);
                 let spawn_result = thread::Builder::new()
                     .name("limacina-skin-shim-conn".to_string())
                     .spawn(move || {
-                        if let Err(e) = handle_connection(stream, &state) {
+                        let result = handle_connection(stream, &state);
+                        thread_live.fetch_sub(1, Ordering::SeqCst);
+                        if let Err(e) = result {
                             log_err!("Офлайн-шим: ошибка обработки запроса: {}", e);
                         }
                     });
                 if let Err(e) = spawn_result {
+                    live.fetch_sub(1, Ordering::SeqCst);
                     log_err!("Офлайн-шим: не удалось запустить поток соединения: {}", e);
                 }
             }
@@ -105,10 +120,11 @@ fn run_server(listener: TcpListener, state: Arc<SkinState>, shutdown: Arc<Atomic
 }
 
 fn handle_connection(mut stream: TcpStream, state: &SkinState) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
-    let Some(path) = read_request_path(&mut stream) else {
+    let deadline = Instant::now() + REQUEST_DEADLINE;
+    let Some(path) = read_request_path(&mut stream, deadline) else {
         return Ok(());
     };
+    stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
     let path = path.split('?').next().unwrap_or_default();
 
     if path == "/" {
@@ -161,10 +177,15 @@ fn respond_not_found(stream: &mut TcpStream) -> std::io::Result<()> {
     )
 }
 
-fn read_request_path(stream: &mut TcpStream) -> Option<String> {
+fn read_request_path(stream: &mut TcpStream, deadline: Instant) -> Option<String> {
     let mut buffer = [0u8; 2048];
     let mut request = Vec::new();
     loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return None;
+        }
+        stream.set_read_timeout(Some(remaining)).ok()?;
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Ok(n) => {
@@ -310,6 +331,8 @@ mod tests {
     use super::{base64_encode, normalize_uuid, profile_uuid};
     use std::io::{Read, Write};
     use std::net::TcpStream;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn base64_encodes_known_vectors() {
@@ -547,6 +570,93 @@ mod tests {
             response.is_empty(),
             "мусорный запрос должен закрываться без ответа: {}",
             String::from_utf8_lossy(&response)
+        );
+
+        server.stop();
+    }
+
+    #[test]
+    fn skin_server_closes_slow_client_within_deadline() {
+        let (server, port) = start_shim("Steve");
+
+        let mut stream =
+            TcpStream::connect(("127.0.0.1", port)).expect("шим должен принимать соединения");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("клиентский таймаут чтения");
+        let mut writer = stream.try_clone().expect("клон сокета для записи");
+        let trickler = thread::spawn(move || loop {
+            if writer.write_all(b"G").is_err() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
+        });
+        let started = Instant::now();
+        let mut response = Vec::new();
+        stream
+            .read_to_end(&mut response)
+            .expect("соединение должно закрыться по дедлайну чтения");
+        let elapsed = started.elapsed();
+        trickler.join().expect("поток записи должен завершиться");
+
+        assert!(
+            response.is_empty(),
+            "медленный клиент не должен получать ответ: {}",
+            String::from_utf8_lossy(&response)
+        );
+        assert!(
+            elapsed < Duration::from_secs(9),
+            "соединение с медленным клиентом не должно удерживаться неограниченно: {elapsed:?}"
+        );
+
+        server.stop();
+    }
+
+    #[test]
+    fn skin_server_closes_connections_over_the_cap() {
+        let (server, port) = start_shim("Steve");
+
+        let holders: Vec<TcpStream> = (0..super::MAX_CONNECTIONS)
+            .map(|_| {
+                TcpStream::connect(("127.0.0.1", port)).expect("держатель должен подключиться")
+            })
+            .collect();
+        thread::sleep(Duration::from_millis(300));
+
+        let mut extra =
+            TcpStream::connect(("127.0.0.1", port)).expect("лишний клиент должен подключиться");
+        extra
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("клиентский таймаут чтения");
+        extra
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .expect("запрос должен отправиться");
+        let mut response = Vec::new();
+        match extra.read_to_end(&mut response) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
+            Err(e) => panic!("сверхлимитное соединение должно закрыться: {e}"),
+        }
+        assert!(
+            response.is_empty(),
+            "соединение сверх лимита должно закрываться без ответа: {}",
+            String::from_utf8_lossy(&response)
+        );
+
+        drop(holders);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut recovered = false;
+        while Instant::now() < deadline {
+            let response = send_request(port, "/");
+            if String::from_utf8_lossy(&response).contains("200 OK") {
+                recovered = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(
+            recovered,
+            "шим должен вернуться к работе после снижения нагрузки"
         );
 
         server.stop();

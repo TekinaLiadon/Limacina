@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { useCoreStore, useLaunchStore, useNotificationStore, type IntegrityReport, type StepEvent, type StepProgressItem } from '@/05-entities'
 import { checkFilesIntegrity, getErrorMessage, listenIntegritySteps, type UnlistenFn } from '@/06-shared/api'
 import { applyStepEvent, captureProjectScope, computeStepProgress, createStepItem, formatCount, reportError, STEP_IDS, stepPlanItems, type PluralForms, type ProjectScope, type StepPlanItem } from '@/06-shared'
@@ -7,6 +7,7 @@ const INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.mcManifest,
   STEP_IDS.mcJar,
   STEP_IDS.mcLibs,
+  STEP_IDS.mcNatives,
   STEP_IDS.mcAssetsIndex,
   STEP_IDS.mcAssets,
 ])
@@ -16,6 +17,14 @@ const SERVER_INTEGRITY_STEPS: StepPlanItem[] = stepPlanItems([STEP_IDS.modsCheck
 const FILE_FORMS: PluralForms = { one: 'файл', few: 'файла', many: 'файлов' }
 
 const isCheckRunning = ref<boolean>(false)
+const steps = ref<StepProgressItem[]>([])
+const isChecking = ref<boolean>(false)
+const isPopupHidden = ref<boolean>(false)
+const report = ref<IntegrityReport | null>(null)
+const errorMessage = ref<string>('')
+
+let unlisten: UnlistenFn | null = null
+let activeScope: ProjectScope | null = null
 
 export function isIntegrityCheckRunning(): boolean {
   return isCheckRunning.value
@@ -36,12 +45,6 @@ export function useIntegrityCheck(): {
   handleCheck: () => Promise<void>
   closeResult: () => void
 } {
-  const steps = ref<StepProgressItem[]>([])
-  const isChecking = ref<boolean>(false)
-  const isPopupHidden = ref<boolean>(false)
-  const report = ref<IntegrityReport | null>(null)
-  const errorMessage = ref<string>('')
-
   const coreStore = useCoreStore()
   const launch = useLaunchStore()
   const notification = useNotificationStore()
@@ -68,16 +71,6 @@ export function useIntegrityCheck(): {
     return parts.join(', ')
   })
 
-  let unlisten: UnlistenFn | null = null
-  let activeScope: ProjectScope | null = null
-  let isUnmounted = false
-
-  onBeforeUnmount(() => {
-    isUnmounted = true
-    unlisten?.()
-    unlisten = null
-  })
-
   const apply = (event: StepEvent): void => {
     applyStepEvent(steps.value, event)
   }
@@ -91,9 +84,15 @@ export function useIntegrityCheck(): {
     }))
   }
 
+  const resetResult = (): void => {
+    steps.value = []
+    report.value = null
+    errorMessage.value = ''
+  }
+
   const handleCheck = async (): Promise<void> => {
     if (isCheckRunning.value) {
-      if (!isChecking.value) notification.show('Проверка целостности уже выполняется')
+      notification.show('Проверка целостности уже выполняется')
       return
     }
     if (launch.isLaunching) {
@@ -109,19 +108,21 @@ export function useIntegrityCheck(): {
     report.value = null
     errorMessage.value = ''
 
+    const abortOnProjectSwitch = (): boolean => {
+      if (scope.isCurrent()) return false
+      notification.show('Проверка целостности прервана: проект переключён')
+      resetResult()
+      return true
+    }
+
     try {
       if (unlisten === null) {
-        const fn = await listenIntegritySteps((event: StepEvent) => {
+        unlisten = await listenIntegritySteps((event: StepEvent) => {
           if (isChecking.value && activeScope !== null && activeScope.isCurrent()) apply(event)
         })
-        if (isUnmounted) {
-          fn()
-          return
-        }
-        unlisten = fn
       }
       const result = await checkFilesIntegrity()
-      if (isUnmounted || !scope.isCurrent()) return
+      if (abortOnProjectSwitch()) return
       report.value = result
       if (isPopupHidden.value) {
         notification.show(
@@ -131,7 +132,7 @@ export function useIntegrityCheck(): {
         )
       }
     } catch (e: unknown) {
-      if (isUnmounted || !scope.isCurrent()) return
+      if (abortOnProjectSwitch()) return
       reportError('Проверка целостности файлов завершилась с ошибкой', e)
       errorMessage.value = getErrorMessage(e)
       if (isPopupHidden.value) notification.show(`Проверка целостности не удалась: ${errorMessage.value}`)
@@ -145,9 +146,7 @@ export function useIntegrityCheck(): {
   const closeResult = (): void => {
     isPopupHidden.value = true
     if (isChecking.value) return
-    report.value = null
-    errorMessage.value = ''
-    steps.value = []
+    resetResult()
   }
 
   return {

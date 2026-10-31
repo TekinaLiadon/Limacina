@@ -1,6 +1,6 @@
 use crate::log_info;
 use crate::utils::errors::LauncherError;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::env;
 use std::env::consts;
 use std::path::{Component, PathBuf};
@@ -189,12 +189,25 @@ pub fn get_arch_label() -> &'static str {
     consts::ARCH
 }
 
+pub fn available_cpu_cores() -> Result<u16> {
+    let cores = std::thread::available_parallelism()
+        .map_err(|e| anyhow!("Не удалось определить число логических ядер CPU: {e}"))?
+        .get();
+    Ok(cores.min(usize::from(u16::MAX)) as u16)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_parent_path, ensure_safe_relative_path, is_safe_relative_path,
-        normalize_server_url,
+        available_cpu_cores, canonicalize_parent_path, ensure_safe_relative_path,
+        is_safe_relative_path, normalize_server_url,
     };
+
+    #[test]
+    fn available_cpu_cores_is_positive() {
+        let cores = available_cpu_cores().expect("число ядер хоста");
+        assert!(cores >= 1, "число ядер должно быть положительным: {cores}");
+    }
 
     #[test]
     fn ensure_safe_relative_path_rejects_traversal_and_accepts_plain() {

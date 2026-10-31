@@ -11,9 +11,11 @@ import {
 import { authLogins, getErrorMessage, loadSettingsProject, saveCurrentProject } from '@/06-shared/api'
 import { reportError, runScopedAction, type DropdownOption } from '@/06-shared'
 import { finalizeSession } from '@/04-features/accounts/finalizeSession'
+import { isIntegrityCheckRunning } from '@/04-features/integrity-check/useIntegrityCheck'
 import { useLaunchStepsStream } from '@/04-features/game-launch/useLaunchStepsStream'
 
 const isProjectSwitching = ref<boolean>(false)
+export const isProjectDeleting = ref<boolean>(false)
 
 export function useProjectSwitch() {
   const coreStore = useCoreStore()
@@ -42,6 +44,8 @@ export function useProjectSwitch() {
   const switchBlockReason = (): string | null => {
     if (launchStore.gameUsernames.length > 0) return 'Нельзя переключить проект, пока запущена игра'
     if (launchStore.isLaunching) return 'Дождитесь завершения запуска игры'
+    if (isProjectDeleting.value) return 'Дождитесь завершения удаления проекта'
+    if (isIntegrityCheckRunning()) return 'Дождитесь завершения проверки целостности'
     if (accountsStore.authLoading || accountsStore.isLoading) return 'Дождитесь завершения авторизации'
     return null
   }
@@ -55,14 +59,20 @@ export function useProjectSwitch() {
   }
 
   const applyProjectSwitch = async (projectName: string): Promise<void> => {
-    const projectConfig = await loadSettingsProject(projectName)
-    const logins = await authLogins(projectName)
-    await finalizeSession()
+    const ownsGuard = !isProjectSwitching.value
+    if (ownsGuard) isProjectSwitching.value = true
+    try {
+      const projectConfig = await loadSettingsProject(projectName)
+      const logins = await authLogins(projectName)
+      await finalizeSession()
 
-    coreStore.applyProjectSwitch(projectName, projectConfig)
-    projectSettingsStore.adoptLoaded(projectName, projectSettingsFormFromConfig(projectConfig))
-    resetAccountsState()
-    accountsStore.logins = logins
+      coreStore.applyProjectSwitch(projectName, projectConfig)
+      projectSettingsStore.adoptLoaded(projectName, projectSettingsFormFromConfig(projectConfig))
+      resetAccountsState()
+      accountsStore.logins = logins
+    } finally {
+      if (ownsGuard) isProjectSwitching.value = false
+    }
   }
 
   const restoreSavedProject = async (projectName: string): Promise<boolean> => {

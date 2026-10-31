@@ -77,13 +77,15 @@ export function useAppInit() {
 
         if (updateInfo) {
           preloaderText.value = `Скачивание обновления до v${updateInfo.version}...`
+          let isUpdated = true
           try {
             await applyUpdateCmd()
           } catch (e: unknown) {
+            isUpdated = false
             showStartupError('Не удалось обновить лаунчер', e)
           }
 
-          preloaderText.value = 'Обновление завершено, загрузка...'
+          preloaderText.value = isUpdated ? 'Обновление завершено, загрузка...' : 'Загрузка...'
           const freshData = await getAppInitData()
           applyInitData(freshData)
           targetProject = coreStore.currentProject || targetProject

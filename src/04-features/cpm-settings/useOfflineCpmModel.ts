@@ -36,7 +36,7 @@ export function useOfflineCpmModel(source: OfflineCpmModelSource): {
         url: null,
         modelId: null,
         slim: source.cpmData.value.config.skinType === 'slim',
-        data: Array.from(bytes),
+        data: bytes,
       })
       if (!scope.isCurrent()) return
       notification.show('Модель сохранена в игру')

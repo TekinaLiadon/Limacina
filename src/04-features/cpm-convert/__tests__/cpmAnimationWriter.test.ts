@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import JSZip from 'jszip'
 import { writeAnimationParts, type CpmAnimationElement } from '../cpmAnimationWriter'
+import { parseCpmAnimations } from '@/04-features/cpm-settings/cpmAnimationParser'
+import { createZipReadBudget } from '../cpmProjectZip'
 import type { CPMAnimation, CPMAnimationFrameComponent, CPMAnimEnc } from '@/05-entities'
 
 const reportError = vi.hoisted(() => vi.fn())
@@ -231,6 +234,73 @@ describe('writeAnimationParts', () => {
     expect(i16(scale, 2)).toBe(1364)
   })
 
+  it('writes in-range rotation frames as unsigned angle fractions', () => {
+    const parts = writeAnimationParts({
+      animations: [animation({ frames: [{ components: [component({ rotation: { x: 90, y: 180, z: 270 } })] }] })],
+      animEnc: null,
+      elements: elements(),
+    })
+
+    const blocks = readBlocks(parts[0] ?? new Uint8Array())
+    expect(blockTypes(blocks)).toContain('ANIMATION_DATA_ROTATION')
+
+    const rot = findBlock(blocks, BLOCK.ANIMATION_DATA_ROTATION)?.data ?? new Uint8Array()
+    expect(rot[0]).toBe(0)
+    expect(rot[1]).toBe(0)
+    expect(u16(rot, 2)).toBe(16383)
+    expect(u16(rot, 4)).toBe(32767)
+    expect(u16(rot, 6)).toBe(49151)
+  })
+
+  it('wraps negative and over-360 rotation frames into the 0-360 range', () => {
+    const parts = writeAnimationParts({
+      animations: [animation({
+        frames: [
+          { components: [component({ rotation: { x: -45, y: 405, z: 720 } })] },
+          { components: [component({ rotation: { x: -405, y: 765, z: 360 } })] },
+        ],
+      })],
+      animEnc: null,
+      elements: elements(),
+    })
+
+    const rot = findBlock(readBlocks(parts[0] ?? new Uint8Array()), BLOCK.ANIMATION_DATA_ROTATION)?.data ?? new Uint8Array()
+    expect(u16(rot, 2)).toBe(57343)
+    expect(u16(rot, 4)).toBe(8191)
+    expect(u16(rot, 6)).toBe(0)
+    expect(u16(rot, 8)).toBe(57343)
+    expect(u16(rot, 10)).toBe(8191)
+    expect(u16(rot, 12)).toBe(0)
+  })
+
+  it('exports cpmproject frames with negative and over-360 angles as equivalent rotations', async () => {
+    const zip = new JSZip()
+    zip.file('animations/g_turn.json', JSON.stringify({
+      name: 'Turn',
+      layerControlled: false,
+      frames: [{
+        components: [{
+          storeID: 555,
+          pos: { x: 0, y: 0, z: 0 },
+          rotation: { x: -45, y: 405, z: 720 },
+          scale: { x: 1, y: 1, z: 1 },
+          show: true,
+        }],
+      }],
+    }))
+
+    const animations = await parseCpmAnimations(zip, createZipReadBudget())
+    expect(animations).toHaveLength(1)
+
+    const parts = writeAnimationParts({ animations, animEnc: null, elements: elements() })
+    expect(reportError).not.toHaveBeenCalled()
+
+    const rot = findBlock(readBlocks(parts[0] ?? new Uint8Array()), BLOCK.ANIMATION_DATA_ROTATION)?.data ?? new Uint8Array()
+    expect(u16(rot, 2) / 65535 * 360).toBeCloseTo(315, 1)
+    expect(u16(rot, 4) / 65535 * 360).toBeCloseTo(45, 1)
+    expect(u16(rot, 6) / 65535 * 360).toBe(0)
+  })
+
   it('writes hidden frames as packed visibility bits', () => {
     const frames = Array.from({ length: 3 }, (_, index) => ({ components: [component({ show: index !== 1 })] }))
 
@@ -284,6 +354,25 @@ describe('writeAnimationParts', () => {
       .filter((block) => block.type === BLOCK.ANIMATION_DATA_ENC)
       .map((block) => [...block.data])
     expect(duplicates).toEqual([[1, 19]])
+  })
+
+  it('keeps duplicate gesture names on one fallback encoding id', () => {
+    const parts = writeAnimationParts({
+      animations: [
+        animation({ name: 'Same', layerControlled: true }),
+        animation({ id: 'g_same.json', name: 'Same', layerControlled: true }),
+        animation({ id: 'g_other.json', name: 'Other', layerControlled: true }),
+      ],
+      animEnc: null,
+      elements: elements(),
+    })
+
+    const blocks = readBlocks(parts[0] ?? new Uint8Array())
+    const encodings = blocks
+      .filter((block) => block.type === BLOCK.ANIMATION_DATA_ENC)
+      .map((block) => [...block.data])
+    expect(encodings).toEqual([[0, 1], [1, 0], [2, 2]])
+    expect(reportError).toHaveBeenCalledWith(expect.stringContaining('anim_enc.json'))
   })
 
   it('falls back to plain gestures when the encoding is unusable', () => {
@@ -343,6 +432,34 @@ describe('writeAnimationParts', () => {
     expect(second.filter((block) => block.type === BLOCK.ANIMATION_INFO)).toHaveLength(1)
     const info = findBlock(second, BLOCK.ANIMATION_INFO)?.data ?? new Uint8Array()
     expect(info[0]).toBe(0)
+  })
+
+  it('assigns fallback encoding ids across the full one-byte range', () => {
+    const animations = Array.from({ length: 255 }, (_, index) => animation({
+      id: `g_${index}.json`,
+      name: `Wave ${index}`,
+    }))
+
+    const parts = writeAnimationParts({ animations, animEnc: null, elements: elements() })
+    expect(parts).toHaveLength(2)
+
+    const encodings = parts.flatMap((part) =>
+      readBlocks(part)
+        .filter((block) => block.type === BLOCK.ANIMATION_DATA_ENC)
+        .map((block) => [...block.data]),
+    )
+    expect(encodings).toHaveLength(255)
+    expect(encodings[encodings.length - 1]).toEqual([3, 255])
+  })
+
+  it('fails when fallback encoding ids exceed the one-byte range', () => {
+    const animations = Array.from({ length: 256 }, (_, index) => animation({
+      id: `g_${index}.json`,
+      name: `Wave ${index}`,
+    }))
+
+    expect(() => writeAnimationParts({ animations, animEnc: null, elements: elements() }))
+      .toThrow('Контрольный id 256 не помещается в однобайтовый диапазон')
   })
 
   it('drops components missing from the model', () => {

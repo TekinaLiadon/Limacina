@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ModrinthCatalogList, ModrinthInstalled, ModrinthModsetPopup, ModrinthPagination, ModrinthProjectPopup, ModrinthSearch, ModrinthViews } from '@/03-widgets'
 import { useModrinth, useModrinthModset } from '@/04-features'
 import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05-entities'
@@ -114,10 +114,6 @@ const handlePopupInstallVersion = async (versionId: string): Promise<void> => {
   if (hit === null) return
   await install(hit.project_id, versionId)
 }
-
-watch([sort, categories], () => {
-  void loadPage(1)
-})
 
 onMounted(() => {
   void loadInstalled()

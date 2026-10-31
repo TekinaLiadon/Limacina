@@ -14,8 +14,8 @@ mod config_tests {
     use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::{GameConfig, LibraryMod, ModLoader, VersionMod};
     use crate::test_support::{
-        loader_manifest, loader_project, loader_vanilla_config, loader_version_mod, sha1_hex,
-        write_loader_manifest, LauncherDirGuard,
+        assert_loader_config_common, loader_manifest, loader_project, loader_vanilla_config,
+        loader_version_mod, sha1_hex, write_loader_manifest, LauncherDirGuard,
     };
     use crate::utils::get_classpath_separator;
     use mockito::Server;
@@ -184,6 +184,7 @@ mod config_tests {
             .create_async()
             .await;
 
+        let maven_base = format!("{}/maven", server.url());
         let manifest_json = loader_manifest(
             "1.20.1-forge-47.2.0",
             "net.minecraftforge.bootstrap.Bootstrap",
@@ -195,11 +196,11 @@ mod config_tests {
             json!([
                 {
                     "name": "net.fabricmc:fabric-loader:47.2.0",
-                    "downloads": { "artifact": { "path": "", "url": "", "sha1": sha1_hex(b"loader jar bytes"), "size": 15 } }
+                    "downloads": { "artifact": { "path": "", "url": format!("{maven_base}/net/fabricmc/fabric-loader/47.2.0/fabric-loader-47.2.0.jar"), "sha1": sha1_hex(b"loader jar bytes"), "size": 15 } }
                 },
                 {
                     "name": "org.ow2.asm:asm:9.7",
-                    "downloads": { "artifact": { "path": "", "url": "", "sha1": sha1_hex(b"asm lib bytes"), "size": 13 } }
+                    "downloads": { "artifact": { "path": "", "url": format!("{maven_base}/org/ow2/asm/asm/9.7/asm-9.7.jar"), "sha1": sha1_hex(b"asm lib bytes"), "size": 13 } }
                 }
             ]),
         );
@@ -212,7 +213,6 @@ mod config_tests {
             main_class: "net.minecraftforge.bootstrap.Bootstrap".to_string(),
             library: Vec::new(),
         };
-        let maven_base = format!("{}/maven", server.url());
 
         setup_loader(
             "Forge",
@@ -289,20 +289,12 @@ mod config_tests {
             &"-DignoreList=bootstraplauncher,securejarhandler,client-extra,forge-,1.20.1.jar"
                 .to_string()
         ));
-        assert!(config
-            .jvm_args
-            .contains(&format!("-DlibraryDirectory={}", libraries_dir.display())));
+        assert_loader_config_common(&config, &libraries_dir);
         assert!(config.jvm_args.contains(&format!(
             "{}/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar{sep}{}/cpw/mods/securejarhandler/2.1.10/securejarhandler-2.1.10.jar",
             libraries_dir.display(),
             libraries_dir.display()
         )));
-        assert!(config
-            .jvm_args
-            .contains(&"-Djava.net.preferIPv6Addresses=system".to_string()));
-        assert!(!config.jvm_args.contains(&"-cp".to_string()));
-        assert!(config.game_args.contains(&"--launchTarget".to_string()));
-        assert!(config.game_args.contains(&"forgeclient".to_string()));
         assert!(config.game_args.contains(&"--fml.forgeVersion".to_string()));
         assert!(config.game_args.contains(&"47.2.0".to_string()));
         assert!(!config

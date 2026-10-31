@@ -17,6 +17,7 @@ describe('useLaunchStore', () => {
     expect(launch.isLaunching).toBe(false)
     expect(launch.launchInterrupted).toBe(false)
     expect(launch.isCancelPending).toBe(false)
+    expect(launch.isLaunchCommitted).toBe(false)
     expect(launch.launchGeneration).toBe(0)
     expect(launch.launchSteps).toEqual([])
     expect(launch.activeProgress).toBe(0)
@@ -91,12 +92,11 @@ describe('useLaunchStore', () => {
     expect(launch.activeProgress).toBe(0)
   })
 
-  it('reflects a failure after all steps in the progress state', () => {
+  it('keeps the derived progress when finalization fails after all steps', () => {
     setActivePinia(createPinia())
     const launch = useLaunchStore()
     launch.prefillSteps(PLAN)
     for (const step of launch.launchSteps) step.status = 'done'
-    launch.recomputeProgress()
     expect(launch.activeProgress).toBe(100)
 
     launch.failActiveStep('finalization failed')
@@ -104,8 +104,23 @@ describe('useLaunchStore', () => {
     expect(launch.loginError).toBe('finalization failed')
     expect(launch.isLaunching).toBe(false)
     expect(launch.launchInterrupted).toBe(false)
-    expect(launch.activeProgress).toBe(0)
+    expect(launch.activeProgress).toBe(100)
     expect(launch.launchSteps.every((item) => item.status === 'done')).toBe(true)
+  })
+
+  it('derives the progress from applied stream events without a manual recompute', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.prefillSteps(PLAN)
+    launch.applyStreamEvent({
+      type: 'started',
+      id: STEP_IDS.javaCheck,
+      label: 'Проверка Java',
+    })
+
+    launch.applyStreamEvent({ type: 'finished', id: STEP_IDS.javaCheck, skipped: false })
+
+    expect(launch.activeProgress).toBe(50)
   })
 
   it('finishes the launch without clearing the error', () => {
@@ -119,6 +134,42 @@ describe('useLaunchStore', () => {
     expect(launch.isLaunching).toBe(false)
     expect(launch.loginError).toBe('kept')
     void generation
+  })
+
+  it('commits the launch and drops the pending cancel', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.beginLaunch()
+    launch.isCancelPending = true
+
+    launch.commitLaunch()
+
+    expect(launch.isLaunchCommitted).toBe(true)
+    expect(launch.isCancelPending).toBe(false)
+    expect(launch.isLaunching).toBe(true)
+  })
+
+  it('clears the committed flag when the next launch begins', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.beginLaunch()
+    launch.commitLaunch()
+
+    const generation = launch.beginLaunch()
+
+    expect(launch.isLaunchCommitted).toBe(false)
+    expect(launch.isCurrent(generation)).toBe(true)
+  })
+
+  it('clears the committed flag on reset', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.beginLaunch()
+    launch.commitLaunch()
+
+    launch.reset()
+
+    expect(launch.isLaunchCommitted).toBe(false)
   })
 
   it('cancels the launch and clears the error', () => {
@@ -190,7 +241,7 @@ describe('useLaunchStore', () => {
     expect(launch.loginError).toBe('')
   })
 
-  it('marks journal steps skipped and recomputes the progress', () => {
+  it('marks journal steps skipped and derives the progress', () => {
     setActivePinia(createPinia())
     const launch = useLaunchStore()
     launch.prefillSteps(PLAN)
@@ -241,6 +292,20 @@ describe('useLaunchStore', () => {
     launch.reset()
 
     expect(launch.gameUsernames).toEqual([])
+  })
+
+  it('reconciles the session set through the tracked actions without duplicates', () => {
+    setActivePinia(createPinia())
+    const launch = useLaunchStore()
+    launch.gameUsernames = ['ghost']
+
+    launch.setGameSessions(['alice', 'alice', 'bob'])
+
+    expect(launch.gameUsernames).toEqual(['alice', 'bob'])
+
+    launch.setGameSessions(['bob', 'carol'])
+
+    expect(launch.gameUsernames).toEqual(['bob', 'carol'])
   })
 
   it('tracks concurrent game sessions per account', () => {

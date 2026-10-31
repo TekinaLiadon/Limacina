@@ -1,4 +1,4 @@
-import { watch, type WatchSource } from 'vue'
+import { effectScope, onScopeDispose, watch, type EffectScope, type WatchSource } from 'vue'
 import { reportError } from './reportError'
 
 interface BackoffPollerConfig<T> {
@@ -17,6 +17,7 @@ interface BackoffPollerConfig<T> {
 
 export interface BackoffPoller {
   startSync: () => void
+  stop: () => void
 }
 
 const guardApply = (run: () => void): void => {
@@ -47,12 +48,20 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
   let currentDelayMs = okIntervalMs
   let consecutiveFailures = 0
   let syncStarted = false
+  let watchScope: EffectScope | null = null
 
   const stopPolling = (): void => {
     pollGeneration += 1
     if (pollTimeout === null) return
     clearTimeout(pollTimeout)
     pollTimeout = null
+  }
+
+  const stop = (): void => {
+    stopPolling()
+    watchScope?.stop()
+    watchScope = null
+    syncStarted = false
   }
 
   const schedule = (delayMs: number): void => {
@@ -116,9 +125,13 @@ export function createBackoffPoller<T>(config: BackoffPollerConfig<T>): BackoffP
   const startSync = (): void => {
     if (syncStarted) return
     syncStarted = true
-    watch(watchSource, syncWithProject)
+    watchScope = effectScope(true)
+    watchScope.run((): void => {
+      watch(watchSource, syncWithProject)
+    })
+    onScopeDispose(stop, true)
     syncWithProject()
   }
 
-  return { startSync }
+  return { startSync, stop }
 }

@@ -5,6 +5,7 @@ defineProps<{
   label: string
   modelValue: string
   placeholder?: string
+  hint?: string
 }>()
 
 const emit = defineEmits<{
@@ -25,10 +26,13 @@ const emit = defineEmits<{
         Обзор
       </Button>
     </div>
+    <span v-if="hint" class="path-picker__hint">{{ hint }}</span>
   </div>
 </template>
 
 <style lang="scss">
+@use '@/01-app/assets/mixins';
+
 .path-picker {
   display: flex;
   flex-direction: column;
@@ -48,6 +52,10 @@ const emit = defineEmits<{
     min-height: var(--control-height);
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  &__hint {
+    @include mixins.caption-hint(left);
   }
 }
 </style>
