@@ -355,15 +355,16 @@ mod tests {
     use super::*;
     use crate::modrinth::client::clear_response_cache_for_tests as clear_cache;
     use crate::modrinth::structs::ModrinthProject;
-    use crate::test_support::LauncherDirGuard;
+    use crate::test_support::MockEnv;
     use crate::utils::http::USER_AGENT;
-    use mockito::Server;
     use serde_json::json;
 
     #[tokio::test]
     async fn get_project_maps_published_dates() {
-        let _dir = LauncherDirGuard::acquire("modrinth_project_dates").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_project_dates").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 
@@ -397,8 +398,10 @@ mod tests {
 
     #[tokio::test]
     async fn schema_invalid_response_is_not_cached() {
-        let _dir = LauncherDirGuard::acquire("modrinth_cache_parse_fail").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_cache_parse_fail").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 
@@ -426,8 +429,10 @@ mod tests {
 
     #[tokio::test]
     async fn schema_valid_response_is_cached() {
-        let _dir = LauncherDirGuard::acquire("modrinth_cache_parse_ok").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_cache_parse_ok").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 
@@ -454,8 +459,10 @@ mod tests {
 
     #[tokio::test]
     async fn metadata_retries_rate_limit_with_retry_after() {
-        let _dir = LauncherDirGuard::acquire("modrinth_retry_after").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_retry_after").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 
@@ -489,8 +496,10 @@ mod tests {
 
     #[tokio::test]
     async fn metadata_retries_transient_without_header_by_backoff() {
-        let _dir = LauncherDirGuard::acquire("modrinth_retry_backoff").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_retry_backoff").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 
@@ -529,8 +538,10 @@ mod tests {
 
     #[tokio::test]
     async fn metadata_does_not_retry_permanent_errors() {
-        let _dir = LauncherDirGuard::acquire("modrinth_retry_permanent").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_retry_permanent").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 
@@ -558,8 +569,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_projects_cache_key_ignores_id_order() {
-        let _dir = LauncherDirGuard::acquire("modrinth_projects_cache_key").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("modrinth_projects_cache_key").await;
         override_api_base_for_tests(format!("{}/v2", server.url()));
         clear_cache();
 

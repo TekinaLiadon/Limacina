@@ -6,7 +6,10 @@ use std::env::consts;
 use std::path::{Component, PathBuf};
 
 pub fn get_launcher_name() -> String {
-    let raw = env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string());
+    normalize_launcher_name(&env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string()))
+}
+
+fn normalize_launcher_name(raw: &str) -> String {
     let mut chars = raw.chars();
 
     match chars.next() {
@@ -200,8 +203,30 @@ pub fn available_cpu_cores() -> Result<u16> {
 mod tests {
     use super::{
         available_cpu_cores, canonicalize_parent_path, ensure_safe_relative_path,
-        is_safe_relative_path, normalize_server_url,
+        get_launcher_name, is_safe_relative_path, normalize_launcher_name, normalize_server_url,
     };
+
+    #[test]
+    fn launcher_name_is_normalized_to_capitalized_form() {
+        assert_eq!(normalize_launcher_name("limacina"), "Limacina");
+        assert_eq!(normalize_launcher_name("LIMACINA"), "Limacina");
+        assert_eq!(normalize_launcher_name("LiMaCiNa"), "Limacina");
+        assert_eq!(normalize_launcher_name("лимацина"), "Лимацина");
+        assert_eq!(
+            normalize_launcher_name(" Limacina "),
+            " limacina ",
+            "первый символ любой, хвост приводится к нижнему регистру"
+        );
+        assert_eq!(normalize_launcher_name(""), "");
+    }
+
+    #[test]
+    fn get_launcher_name_falls_back_to_env_or_default() {
+        let expected = std::env::var("LAUNCHER_NAME")
+            .map(|raw| normalize_launcher_name(&raw))
+            .unwrap_or_else(|_| "Limacina".to_string());
+        assert_eq!(get_launcher_name(), expected);
+    }
 
     #[test]
     fn available_cpu_cores_is_positive() {

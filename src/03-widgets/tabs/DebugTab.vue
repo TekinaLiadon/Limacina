@@ -6,7 +6,7 @@ import type { ConsoleLog } from '@/05-entities'
 import { Icon, formatCount, type PluralForms } from '@/06-shared'
 import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 
-const { logs, filteredLogs, searchQuery, onlyErrors, linesCount, streamError, startConsoleStream, handleCopy } = useDebugConsole()
+const { logs, sessionTabs, activeSession, activeLogs, filteredLogs, searchQuery, onlyErrors, linesCount, streamError, startConsoleStream, handleCopy, closeSession } = useDebugConsole()
 const { isGameRunning, isKilling, killGame } = useKillGame()
 
 const LINE_FORMS: PluralForms = { one: 'строка', few: 'строки', many: 'строк' }
@@ -74,6 +74,48 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
 
 <template>
   <div class="debug-tab">
+    <div class="debug-tab__sessions" role="tablist" aria-label="Потоки консоли">
+      <div
+        class="debug-tab__session"
+        :class="{ 'debug-tab__session--active': activeSession === null }"
+      >
+        <button
+          type="button"
+          role="tab"
+          class="debug-tab__session-name"
+          :aria-selected="activeSession === null"
+          @click="activeSession = null"
+        >
+          Все
+        </button>
+      </div>
+      <div
+        v-for="session in sessionTabs"
+        :key="session.name"
+        class="debug-tab__session"
+        :class="{ 'debug-tab__session--active': activeSession === session.name }"
+      >
+        <button
+          type="button"
+          role="tab"
+          class="debug-tab__session-name"
+          :aria-selected="activeSession === session.name"
+          @click="activeSession = session.name"
+        >
+          {{ session.name }}
+        </button>
+        <button
+          v-if="!session.isLive"
+          type="button"
+          class="debug-tab__session-close"
+          :aria-label="`Закрыть лог сессии ${session.name}`"
+          @click="closeSession(session.name)"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+
     <div class="debug-tab__filters">
       <input
         v-model="searchQuery"
@@ -99,7 +141,7 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
       @retry="retryStream"
     />
 
-    <div v-if="filteredLogs.length === 0" class="debug-tab__empty">
+    <div v-if="activeLogs.length === 0" class="debug-tab__empty">
       {{ logs.length === 0 ? 'Логов пока нет' : 'Под фильтр ничего не подошло' }}
     </div>
     <div
@@ -189,6 +231,52 @@ watch(() => filteredLogs.value.length, async (): Promise<void> => {
   background: var(--debug-bg);
   border-radius: var(--radius-card);
   overflow: hidden;
+
+  &__sessions {
+    @extend %debug-band;
+
+    gap: var(--space-8);
+    border-bottom: 1px solid var(--debug-border);
+    flex-wrap: wrap;
+  }
+
+  &__session {
+    display: flex;
+    align-items: center;
+    background: var(--debug-btn-bg);
+    border: 1px solid var(--debug-btn-border);
+    border-radius: var(--debug-radius);
+    overflow: hidden;
+
+    &--active {
+      background: var(--debug-btn-active-bg);
+      border-color: var(--debug-accent);
+
+      .debug-tab__session-name {
+        color: var(--debug-accent);
+      }
+    }
+  }
+
+  &__session-name {
+    padding: var(--space-4) var(--space-12);
+    color: var(--debug-text);
+    font-size: var(--text-caption);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  &__session-close {
+    padding: var(--space-4) var(--space-8);
+    color: var(--debug-line-num);
+    font-size: var(--text-caption);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--debug-error);
+    }
+  }
 
   &__filters {
     @extend %debug-band;

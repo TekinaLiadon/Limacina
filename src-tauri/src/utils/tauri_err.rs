@@ -242,6 +242,23 @@ mod tests {
         }
     }
 
+    fn assert_capped_message(command: &CommandError, body: &str, prefix: Option<&str>) {
+        assert_eq!(
+            command.message.chars().count(),
+            401,
+            "400 символов плюс многоточие: {}",
+            command.message
+        );
+        assert!(
+            !command.message.contains(body),
+            "тело не должно попадать целиком"
+        );
+        assert!(command.message.ends_with('…'));
+        if let Some(prefix) = prefix {
+            assert!(command.message.starts_with(prefix));
+        }
+    }
+
     #[test]
     fn command_error_caps_typed_message_length() {
         let body = "с".repeat(2000);
@@ -252,17 +269,7 @@ mod tests {
 
         let command = CommandError::from(error);
 
-        assert_eq!(
-            command.message.chars().count(),
-            401,
-            "400 символов плюс многоточие: {}",
-            command.message
-        );
-        assert!(
-            !command.message.contains(&body),
-            "тело не должно попадать целиком"
-        );
-        assert!(command.message.ends_with('…'));
+        assert_capped_message(&command, &body, None);
     }
 
     #[test]
@@ -272,17 +279,7 @@ mod tests {
 
         let command = CommandError::from(error);
 
-        assert_eq!(
-            command.message.chars().count(),
-            401,
-            "400 символов плюс многоточие: {}",
-            command.message
-        );
-        assert!(
-            !command.message.contains(&body),
-            "тело не должно попадать целиком"
-        );
-        assert!(command.message.starts_with("Не удалось выполнить запрос: "));
+        assert_capped_message(&command, &body, Some("Не удалось выполнить запрос: "));
         assert_eq!(command.code, "internal");
     }
 

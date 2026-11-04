@@ -409,11 +409,10 @@ async fn apply_entry(ctx: &InstallContext, mut entry: ModsetEntry) -> ModsetEntr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modrinth::client::{clear_response_cache_for_tests, override_api_base_for_tests};
     use crate::modrinth::install::{load_manifest, save_manifest};
     use crate::modrinth::structs::{ManifestEntry, ModrinthManifest};
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
-    use mockito::{Matcher, Server, ServerGuard};
+    use crate::test_support::{sha1_hex, LauncherDirGuard, MockEnv};
+    use mockito::{Matcher, ServerGuard};
 
     fn record(
         source: &str,
@@ -624,10 +623,7 @@ mod tests {
 
     impl Env {
         async fn acquire(label: &str) -> Self {
-            let dir = LauncherDirGuard::acquire(label).await;
-            let server = Server::new_async().await;
-            override_api_base_for_tests(format!("{}/v2", server.url()));
-            clear_response_cache_for_tests();
+            let MockEnv { dir, server } = MockEnv::acquire_v2(label).await;
             let project_dir = dir.project_dir("Test");
             let ctx = InstallContext {
                 loaders: vec!["fabric".to_string()],
@@ -747,6 +743,39 @@ mod tests {
         serde_json::json!({"format_version": 1, "mods": mods}).to_string()
     }
 
+    async fn mock_single_mod_import(env: &mut Env, jar_a: &[u8]) {
+        let version_a = env.version_json(
+            "verA",
+            "AAA",
+            "1.0.0",
+            "A.jar",
+            jar_a,
+            serde_json::json!([]),
+        );
+        env.mock_get("/v2/version/verA", version_a).await;
+        env.mock_get(
+            "/v2/projects",
+            serde_json::json!([project_json("AAA", "Mod A")]),
+        )
+        .await;
+        env.mock_cdn("A.jar", jar_a, 1).await;
+    }
+
+    async fn import_apply_records(env: &Env, mods: serde_json::Value) -> Vec<ModsetEntry> {
+        let content = import_content(mods).await;
+        import_apply(&env.ctx, &content)
+            .await
+            .expect("импорт набора")
+    }
+
+    async fn import_single(env: &Env) -> Vec<ModsetEntry> {
+        import_apply_records(
+            env,
+            serde_json::json!([{"source": "modrinth", "project_id": "AAA", "version_id": "verA"}]),
+        )
+        .await
+    }
+
     #[tokio::test]
     async fn import_installs_pinned_and_latest_with_dependencies() {
         let mut env = Env::acquire("modset_import_happy").await;
@@ -798,28 +827,27 @@ mod tests {
         env.mock_cdn("B.jar", &jar_b, 1).await;
         env.mock_cdn("C.jar", &jar_c, 1).await;
 
-        let content = import_content(serde_json::json!([
-            {
-                "source": "modrinth",
-                "project_id": "AAA",
-                "version_id": "verA",
-                "version_number": "1.0.0",
-                "title": "Mod A",
-                "filename": "A-1.0.0.jar"
-            },
-            {
-                "source": "modrinth",
-                "slug": "b-slug",
-                "version_number": "2.0.0",
-                "title": "Mod B",
-                "filename": "B.jar"
-            }
-        ]))
+        let entries = import_apply_records(
+            &env,
+            serde_json::json!([
+                {
+                    "source": "modrinth",
+                    "project_id": "AAA",
+                    "version_id": "verA",
+                    "version_number": "1.0.0",
+                    "title": "Mod A",
+                    "filename": "A-1.0.0.jar"
+                },
+                {
+                    "source": "modrinth",
+                    "slug": "b-slug",
+                    "version_number": "2.0.0",
+                    "title": "Mod B",
+                    "filename": "B.jar"
+                }
+            ]),
+        )
         .await;
-
-        let entries = import_apply(&env.ctx, &content)
-            .await
-            .expect("импорт набора");
 
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].status, ModsetStatus::Installed);
@@ -850,35 +878,12 @@ mod tests {
     async fn import_second_run_reports_already_installed_without_redownloads() {
         let mut env = Env::acquire("modset_import_repeat").await;
         let jar_a = b"mod a jar".to_vec();
-        let version_a = env.version_json(
-            "verA",
-            "AAA",
-            "1.0.0",
-            "A.jar",
-            &jar_a,
-            serde_json::json!([]),
-        );
-        env.mock_get("/v2/version/verA", version_a).await;
-        env.mock_get(
-            "/v2/projects",
-            serde_json::json!([project_json("AAA", "Mod A")]),
-        )
-        .await;
-        env.mock_cdn("A.jar", &jar_a, 1).await;
+        mock_single_mod_import(&mut env, &jar_a).await;
 
-        let content = import_content(serde_json::json!([
-            {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
-        ]))
-        .await;
-
-        let first = import_apply(&env.ctx, &content)
-            .await
-            .expect("первый импорт");
+        let first = import_single(&env).await;
         assert_eq!(first[0].status, ModsetStatus::Installed);
 
-        let second = import_apply(&env.ctx, &content)
-            .await
-            .expect("повторный импорт");
+        let second = import_single(&env).await;
         assert_eq!(second[0].status, ModsetStatus::AlreadyInstalled);
     }
 
@@ -886,37 +891,22 @@ mod tests {
     async fn import_continues_after_failed_records() {
         let mut env = Env::acquire("modset_import_partial").await;
         let jar_a = b"mod a jar".to_vec();
-        let version_a = env.version_json(
-            "verA",
-            "AAA",
-            "1.0.0",
-            "A.jar",
-            &jar_a,
-            serde_json::json!([]),
-        );
         env.server
             .mock("GET", "/v2/project/gone-slug")
             .match_query(Matcher::Any)
             .with_status(404)
             .create_async()
             .await;
-        env.mock_get("/v2/version/verA", version_a).await;
-        env.mock_get(
-            "/v2/projects",
-            serde_json::json!([project_json("AAA", "Mod A")]),
+        mock_single_mod_import(&mut env, &jar_a).await;
+
+        let entries = import_apply_records(
+            &env,
+            serde_json::json!([
+                {"source": "modrinth", "slug": "gone-slug"},
+                {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
+            ]),
         )
         .await;
-        env.mock_cdn("A.jar", &jar_a, 1).await;
-
-        let content = import_content(serde_json::json!([
-            {"source": "modrinth", "slug": "gone-slug"},
-            {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
-        ]))
-        .await;
-
-        let entries = import_apply(&env.ctx, &content)
-            .await
-            .expect("импорт с частичным сбоем");
 
         assert_eq!(entries[0].status, ModsetStatus::Failed);
         assert!(
@@ -949,33 +939,18 @@ mod tests {
         );
         version_old["game_versions"] = serde_json::json!(["1.20.1"]);
         let jar_a = b"mod a jar".to_vec();
-        let version_a = env.version_json(
-            "verA",
-            "AAA",
-            "1.0.0",
-            "A.jar",
-            &jar_a,
-            serde_json::json!([]),
-        );
 
         env.mock_get("/v2/version/verOld", version_old).await;
-        env.mock_get("/v2/version/verA", version_a).await;
-        env.mock_get(
-            "/v2/projects",
-            serde_json::json!([project_json("AAA", "Mod A")]),
+        mock_single_mod_import(&mut env, &jar_a).await;
+
+        let entries = import_apply_records(
+            &env,
+            serde_json::json!([
+                {"source": "modrinth", "project_id": "OLD", "version_id": "verOld"},
+                {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
+            ]),
         )
         .await;
-        env.mock_cdn("A.jar", &jar_a, 1).await;
-
-        let content = import_content(serde_json::json!([
-            {"source": "modrinth", "project_id": "OLD", "version_id": "verOld"},
-            {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
-        ]))
-        .await;
-
-        let entries = import_apply(&env.ctx, &content)
-            .await
-            .expect("импорт с несовместимым пином");
 
         assert_eq!(entries[0].status, ModsetStatus::Failed);
         assert!(
@@ -994,15 +969,14 @@ mod tests {
     async fn import_does_not_touch_network_for_skipped_records() {
         let env = Env::acquire("modset_import_skipped_no_net").await;
 
-        let content = import_content(serde_json::json!([
-            {"source": "curseforge", "project_id": "AAA"},
-            {"source": "modrinth", "project_id": "../../etc/passwd"}
-        ]))
+        let entries = import_apply_records(
+            &env,
+            serde_json::json!([
+                {"source": "curseforge", "project_id": "AAA"},
+                {"source": "modrinth", "project_id": "../../etc/passwd"}
+            ]),
+        )
         .await;
-
-        let entries = import_apply(&env.ctx, &content)
-            .await
-            .expect("отбракованные записи не ломают импорт");
 
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].status, ModsetStatus::Skipped);
@@ -1062,14 +1036,7 @@ mod tests {
         .await;
         env.write_mod("A-1.0.0.jar", &jar_a).await;
 
-        let content = import_content(serde_json::json!([
-            {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
-        ]))
-        .await;
-
-        let entries = import_apply(&env.ctx, &content)
-            .await
-            .expect("импорт с уже стоящим модом");
+        let entries = import_single(&env).await;
 
         assert_eq!(entries[0].status, ModsetStatus::Installed);
         assert_eq!(
@@ -1085,20 +1052,6 @@ mod tests {
     async fn import_retries_rate_limited_download() {
         let mut env = Env::acquire("modset_import_retry_429").await;
         let jar_a = b"mod a jar".to_vec();
-        let version_a = env.version_json(
-            "verA",
-            "AAA",
-            "1.0.0",
-            "A.jar",
-            &jar_a,
-            serde_json::json!([]),
-        );
-        env.mock_get("/v2/version/verA", version_a).await;
-        env.mock_get(
-            "/v2/projects",
-            serde_json::json!([project_json("AAA", "Mod A")]),
-        )
-        .await;
         let throttled = env
             .server
             .mock("GET", "/cdn/A.jar")
@@ -1106,16 +1059,9 @@ mod tests {
             .expect(1)
             .create_async()
             .await;
-        env.mock_cdn("A.jar", &jar_a, 1).await;
+        mock_single_mod_import(&mut env, &jar_a).await;
 
-        let content = import_content(serde_json::json!([
-            {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
-        ]))
-        .await;
-
-        let entries = import_apply(&env.ctx, &content)
-            .await
-            .expect("429 должен ретраиться, а не валить импорт");
+        let entries = import_single(&env).await;
 
         throttled.assert_async().await;
         assert_eq!(entries[0].status, ModsetStatus::Installed);

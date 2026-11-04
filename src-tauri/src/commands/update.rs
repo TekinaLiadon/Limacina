@@ -29,12 +29,70 @@ const APPLY_DOWNLOAD_TIMEOUT_MESSAGE: &str =
 
 static APPLY_UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+#[derive(Debug)]
 struct UpdateApplyGuard;
 
 impl Drop for UpdateApplyGuard {
     fn drop(&mut self) {
         APPLY_UPDATE_IN_PROGRESS.store(false, Ordering::Relaxed);
     }
+}
+
+fn begin_apply_update() -> Result<UpdateApplyGuard> {
+    if APPLY_UPDATE_IN_PROGRESS.swap(true, Ordering::Relaxed) {
+        return Err(LauncherError::Update(
+            "Обновление уже устанавливается, дождитесь завершения".to_string(),
+        )
+        .into());
+    }
+    Ok(UpdateApplyGuard)
+}
+
+fn ensure_not_current(requested: &str, current_version: &str) -> Result<()> {
+    if requested == current_version {
+        log_info!("Версия v{} уже установлена", requested);
+        bail!(LauncherError::Update(format!(
+            "Версия v{} уже установлена",
+            requested
+        )));
+    }
+    Ok(())
+}
+
+fn resolve_target_version(requested: &str, releases: &[UpdateRelease]) -> Result<String> {
+    if !releases.iter().any(|release| release.version == requested) {
+        log_info!("Версия v{} отсутствует на сервере", requested);
+        return Err(anyhow::Error::new(LauncherError::UpdateVersionMissing(
+            requested.to_string(),
+        )));
+    }
+    Ok(requested.to_string())
+}
+
+enum AutoDecision {
+    NoUpdate,
+    NotNewer(String),
+    Target(String),
+}
+
+fn decide_auto_target(offered: Option<&str>, current_version: &str) -> AutoDecision {
+    let Some(offered) = offered else {
+        return AutoDecision::NoUpdate;
+    };
+    if !compare_with_current(offered, current_version) {
+        return AutoDecision::NotNewer(offered.to_string());
+    }
+    AutoDecision::Target(offered.to_string())
+}
+
+fn ensure_server_release_matches(actual: &str, expected: &str) -> Result<()> {
+    if actual != expected {
+        bail!(LauncherError::Update(format!(
+            "Сервер вернул релиз v{} вместо v{}",
+            actual, expected
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -166,35 +224,17 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
         log_info!("Режим разработки, скачивание и применение обновления пропущено");
         return Ok(());
     }
-    if APPLY_UPDATE_IN_PROGRESS.swap(true, Ordering::Relaxed) {
-        return Err(LauncherError::Update(
-            "Обновление уже устанавливается, дождитесь завершения".to_string(),
-        )
-        .into());
-    }
-    let _apply_guard = UpdateApplyGuard;
+    let _apply_guard = begin_apply_update()?;
 
     let current_version = app.package_info().version.to_string();
 
     let result = async {
         let target_version = match version {
             Some(v) => {
-                if v == current_version {
-                    log_info!("Версия v{} уже установлена", v);
-                    bail!(LauncherError::Update(format!(
-                        "Версия v{} уже установлена",
-                        v
-                    )));
-                }
+                ensure_not_current(&v, &current_version)?;
                 let mut releases = fetch_launcher_versions().await?;
                 retain_current_platform(&mut releases)?;
-                if !releases.iter().any(|release| release.version == v) {
-                    log_info!("Версия v{} отсутствует на сервере", v);
-                    return Err(anyhow::Error::new(LauncherError::UpdateVersionMissing(
-                        v.clone(),
-                    )));
-                }
-                v
+                resolve_target_version(&v, &releases)?
             }
             None => {
                 log_info!("Текущая версия: v{}", current_version);
@@ -207,20 +247,21 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
                     async { updater.check().await.context("Не удалось проверить обновления") },
                 )
                 .await?;
-                match check {
-                    Some(update) => {
-                        if !compare_with_current(&update.version, &current_version) {
-                            log_info!(
-                                "Сервер предлагает v{}, но она не новее текущей v{}, обновление пропущено",
-                                update.version,
-                                current_version
-                            );
-                            return Ok(());
-                        }
-                        log_info!("Сервер предлагает обновление до v{}", update.version);
-                        update.version
+                match decide_auto_target(check.map(|update| update.version).as_deref(), &current_version)
+                {
+                    AutoDecision::Target(target) => {
+                        log_info!("Сервер предлагает обновление до v{}", target);
+                        target
                     }
-                    None => {
+                    AutoDecision::NotNewer(offered) => {
+                        log_info!(
+                            "Сервер предлагает v{}, но она не новее текущей v{}, обновление пропущено",
+                            offered,
+                            current_version
+                        );
+                        return Ok(());
+                    }
+                    AutoDecision::NoUpdate => {
                         log_info!("Обновление не требуется");
                         return Ok(());
                     }
@@ -246,12 +287,7 @@ pub async fn apply_update_cmd(app: AppHandle, version: Option<String>) -> Comman
         .await?
         .ok_or_else(|| anyhow::anyhow!("Сервер не отдал релиз v{target_version}"))?;
 
-        if update.version != target_version {
-            bail!(LauncherError::Update(format!(
-                "Сервер вернул релиз v{} вместо v{}",
-                update.version, target_version
-            )));
-        }
+        ensure_server_release_matches(&update.version, &target_version)?;
 
         log_info!("Скачивание обновления v{}...", update.version);
         let bytes = with_timeout(
@@ -288,13 +324,127 @@ mod tests {
     use mockito::Server;
 
     use super::{
-        with_timeout, UpdateApplyGuard, APPLY_CHECK_TIMEOUT_MESSAGE,
-        APPLY_DOWNLOAD_TIMEOUT_MESSAGE, APPLY_UPDATE_IN_PROGRESS,
+        begin_apply_update, decide_auto_target, ensure_not_current, ensure_server_release_matches,
+        resolve_target_version, with_timeout, AutoDecision, UpdateApplyGuard,
+        APPLY_CHECK_TIMEOUT_MESSAGE, APPLY_DOWNLOAD_TIMEOUT_MESSAGE, APPLY_UPDATE_IN_PROGRESS,
     };
+    use crate::updater::UpdateRelease;
+    use crate::utils::errors::LauncherError;
     use crate::utils::http::http_client;
+
+    static APPLY_FLAG_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn releases(versions: &[&str]) -> Vec<UpdateRelease> {
+        versions
+            .iter()
+            .map(|v| UpdateRelease {
+                version: (*v).to_string(),
+                platforms: Vec::new(),
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn begin_apply_update_rejects_reentry_and_releases_on_drop() {
+        let _flag_lock = APPLY_FLAG_LOCK.lock().await;
+
+        let guard = begin_apply_update().expect("первый запуск должен захватывать флаг");
+        let error = begin_apply_update()
+            .expect_err("повторный запуск во время установки должен отклоняться");
+        assert!(
+            error.to_string().contains("уже устанавливается"),
+            "ошибка должна объяснять повторный запуск: {error}"
+        );
+        drop(guard);
+
+        let second = begin_apply_update().expect("после снятия guard запуск снова возможен");
+        drop(second);
+        assert!(
+            !APPLY_UPDATE_IN_PROGRESS.load(Ordering::Relaxed),
+            "флаг должен сниматься guard'ом"
+        );
+    }
+
+    #[test]
+    fn ensure_not_current_rejects_current_version() {
+        let error = ensure_not_current("1.2.3", "1.2.3")
+            .expect_err("уже установленная версия должна отклоняться");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::Update(_))
+            ),
+            "ожидается ошибка Update: {error:#}"
+        );
+        assert!(
+            error.to_string().contains("уже установлена"),
+            "ошибка должна называть причину: {error}"
+        );
+    }
+
+    #[test]
+    fn resolve_target_version_rejects_version_missing_on_server() {
+        let error = resolve_target_version("9.9.9", &releases(&["1.2.3"]))
+            .expect_err("версия вне списка сервера должна отклоняться");
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::UpdateVersionMissing(v)) if v == "9.9.9"
+            ),
+            "ожидается UpdateVersionMissing: {error:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_target_version_accepts_listed_version() {
+        let target = resolve_target_version("1.2.3", &releases(&["1.2.3", "1.1.0"]))
+            .expect("версия из списка принимается");
+        assert_eq!(target, "1.2.3");
+    }
+
+    #[test]
+    fn decide_auto_target_skips_missing_and_not_newer_offers() {
+        assert!(
+            matches!(decide_auto_target(None, "1.0.0"), AutoDecision::NoUpdate),
+            "без предложения сервера обновление не требуется"
+        );
+        assert!(
+            matches!(
+                decide_auto_target(Some("1.0.0"), "1.0.0"),
+                AutoDecision::NotNewer(v) if v == "1.0.0"
+            ),
+            "равная версия не новее текущей"
+        );
+        assert!(
+            matches!(
+                decide_auto_target(Some("0.9.0"), "1.0.0"),
+                AutoDecision::NotNewer(v) if v == "0.9.0"
+            ),
+            "старшая предложенная версия не новее текущей"
+        );
+        assert!(
+            matches!(
+                decide_auto_target(Some("1.1.0"), "1.0.0"),
+                AutoDecision::Target(v) if v == "1.1.0"
+            ),
+            "более новая версия должна становиться целью"
+        );
+    }
+
+    #[test]
+    fn ensure_server_release_matches_requires_exact_version() {
+        ensure_server_release_matches("1.2.3", "1.2.3").expect("совпадающий релиз принимается");
+        let error = ensure_server_release_matches("1.2.4", "1.2.3")
+            .expect_err("релиз не той версии должен отклоняться");
+        assert!(
+            error.to_string().contains("вместо"),
+            "ошибка должна называть обе версии: {error}"
+        );
+    }
 
     #[tokio::test]
     async fn hung_server_times_out_releases_guard_and_allows_retry() {
+        let _flag_lock = APPLY_FLAG_LOCK.lock().await;
         let mut server = Server::new_async().await;
         server
             .mock("GET", "/hang")

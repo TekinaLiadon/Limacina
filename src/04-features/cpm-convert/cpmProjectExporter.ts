@@ -137,20 +137,23 @@ function flatten(config: CPMConfig): FlatModel {
   const animationElements: CpmAnimationElementIndex = new Map()
   let nextId = 10
 
+  const pushAnimationEntry = (el: CPMElement, key: number | undefined, id: number): void => {
+    if (key === undefined) return
+    animationElements.set(key, {
+      id,
+      pos: el.pos ?? { x: 0, y: 0, z: 0 },
+      rotation: el.rotation ?? { x: 0, y: 0, z: 0 },
+      hidden: el.show === false,
+      texture: true,
+      recolor: false,
+      rgb: 0,
+    })
+  }
+
   const pushPivotCube = (root: CPMElement, parentId: number): number => {
     const fakeId = nextId++
     elementIds.set(root, fakeId)
-    if (typeof root.storeID === 'number') {
-      animationElements.set(root.storeID, {
-        id: fakeId,
-        pos: root.pos ?? { x: 0, y: 0, z: 0 },
-        rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
-        hidden: root.show === false,
-        texture: true,
-        recolor: false,
-        rgb: 0,
-      })
-    }
+    pushAnimationEntry(root, root.storeID, fakeId)
     cubes.push({
       name: root.name,
       size: { x: 0, y: 0, z: 0 },
@@ -183,15 +186,7 @@ function flatten(config: CPMConfig): FlatModel {
           continue
         }
         elementIds.set(root, ordinal)
-        animationElements.set(ordinal, {
-          id: ordinal,
-          pos: root.pos ?? { x: 0, y: 0, z: 0 },
-          rotation: root.rotation ?? { x: 0, y: 0, z: 0 },
-          hidden: root.show === false,
-          texture: true,
-          recolor: false,
-          rgb: 0,
-        })
+        pushAnimationEntry(root, ordinal, ordinal)
         walk(root.children ?? [], ordinal)
         continue
       }

@@ -584,13 +584,14 @@ mod tests {
     use std::time::Duration;
 
     use crate::minecraft::process::{lock_game_registry_tests, TestGameSessionGuard};
-    use crate::state::config::{load_config, project_config_write_lock, update_project_config};
+    use crate::state::config::{
+        load_config, project_config_write_lock, seed_broken_project_config, slow_java_path_update,
+    };
     use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
     use crate::state::launch_state::{lock_launch_step_tests, try_acquire_launch_step};
     use crate::state::launcher_config::LauncherConfig;
-    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard, MockEnv};
     use crate::utils::errors::LauncherError;
-    use mockito::Server;
     use tokio::sync::Mutex;
 
     use super::{
@@ -603,6 +604,17 @@ mod tests {
             launcher_config: Some(LauncherConfig::default()),
             ..GlobalState::default()
         })
+    }
+
+    fn assert_project_exists_error(error: anyhow::Error, path: &std::path::Path) {
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ProjectExists(_))
+            ),
+            "ожидается ProjectExists: {error:#}"
+        );
+        assert!(!path.exists(), "файлов быть не должно: {}", path.display());
     }
 
     #[tokio::test]
@@ -659,6 +671,114 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn offline_profile_requires_minecraft_version() {
+        let state = empty_state();
+
+        let error = add_offline_profile(&state, "Solo", "   ", ModLoader::Vanilla, None)
+            .await
+            .expect_err("пустая версия Minecraft должна отклоняться");
+
+        assert!(
+            error.to_string().contains("Выберите версию Minecraft"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn offline_profile_requires_loader_version_for_loaders() {
+        let state = empty_state();
+
+        for loader in [ModLoader::Fabric, ModLoader::Forge, ModLoader::NeoForge] {
+            let error = add_offline_profile(
+                &state,
+                "Solo",
+                "1.20.1",
+                loader.clone(),
+                Some("   ".to_string()),
+            )
+            .await
+            .expect_err("лоадер без версии должен отклоняться");
+            assert!(
+                matches!(
+                    error.downcast_ref::<LauncherError>(),
+                    Some(LauncherError::LoaderNotSelected)
+                ),
+                "ожидается LoaderNotSelected для {loader:?}: {error:#}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn add_server_profile_creates_registered_active_profile() {
+        let MockEnv { dir, mut server } = MockEnv::acquire("profile_server_create").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        std::fs::create_dir_all(dir.root().join("project").join("config"))
+            .expect("создание папок проекта");
+        let body = r#"{"projectName":"Remote","mcVersion":"1.20.1","modLoader":"vanilla",
+            "loaderVersion":null,"javaPath":null,"jvmArgs":[],
+            "minMemory":"-Xms512M","maxMemory":"-Xmx4G"}"#;
+        server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+        let state = empty_state();
+
+        let config = add_server_profile(&state, &server.url())
+            .await
+            .expect("профиль сервера создаётся");
+
+        assert_eq!(config.project_name, "Remote");
+        assert!(config.online, "профиль сервера должен быть онлайн");
+        assert!(
+            !config.initialized,
+            "новый профиль не должен считаться установленным"
+        );
+        assert_eq!(
+            config.server_url.as_deref(),
+            Some(server.url().as_str()),
+            "адрес сервера нормализуется и сохраняется"
+        );
+        assert_eq!(config.mc_version, "1.20.1");
+        assert_eq!(config.max_memory, "-Xmx4G");
+
+        let saved = load_config("Remote")
+            .await
+            .expect("конфиг профиля персистится");
+        assert!(saved.online);
+        assert_eq!(saved.server_url.as_deref(), Some(server.url().as_str()));
+
+        let guard = state.lock().await;
+        let launcher_config = guard.launcher_config.as_ref().expect("конфиг лаунчера");
+        assert!(
+            launcher_config.has_project("Remote"),
+            "профиль регистрируется в конфиге лаунчера"
+        );
+        assert_eq!(
+            guard.project_config.project_name, "Remote",
+            "созданный профиль становится текущим"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_server_profile_rejects_empty_url() {
+        let state = empty_state();
+
+        let error = add_server_profile(&state, "   ")
+            .await
+            .expect_err("пустой адрес сервера должен отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::ServerUrlMissing)
+            ),
+            "ожидается ServerUrlMissing: {error:#}"
+        );
+    }
+
+    #[tokio::test]
     async fn create_waits_until_inflight_config_write_releases() {
         let guard = LauncherDirGuard::acquire("profile_create_waits_lock").await;
         let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
@@ -689,11 +809,8 @@ mod tests {
 
     #[tokio::test]
     async fn create_over_corrupt_toml_backs_up_broken_file() {
-        let guard = LauncherDirGuard::acquire("profile_create_corrupt_bak").await;
+        let (guard, config_dir) = seed_broken_project_config("Dup").await;
         let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
-        let config_dir = guard.root().join("project").join("config");
-        std::fs::create_dir_all(&config_dir).expect("создание config");
-        std::fs::write(config_dir.join("Dup.toml"), "not [valid toml").expect("битый toml");
 
         let state = empty_state();
         let config = add_offline_profile(&state, "Dup", "1.20.1", ModLoader::Vanilla, None)
@@ -726,17 +843,7 @@ mod tests {
             .await
             .expect_err("зарегистрированное имя должно отклоняться");
 
-        assert!(
-            matches!(
-                error.downcast_ref::<LauncherError>(),
-                Some(LauncherError::ProjectExists(_))
-            ),
-            "ожидается ProjectExists: {error:#}"
-        );
-        assert!(
-            !guard.root().join("project").join("Reg").exists(),
-            "файлов быть не должно"
-        );
+        assert_project_exists_error(error, &guard.root().join("project").join("Reg"));
     }
 
     fn seed_project_mods(root: &std::path::Path, name: &str) -> std::path::PathBuf {
@@ -774,12 +881,8 @@ mod tests {
         let state = Mutex::new(state_with_current("Starter"));
 
         let (save_result, activate_result) = tokio::join!(
-            update_project_config(&state, async |config: &mut ProjectConfig| {
-                tokio::time::sleep(Duration::from_millis(80)).await;
-                config.java_path = Some("java-path".to_string());
-                Ok(())
-            }),
-            activate_project(&state, &activated),
+            slow_java_path_update(&state),
+            activate_project(&state, &activated)
         );
         save_result.expect("параллельное сохранение настроек");
         activate_result.expect("активация профиля");
@@ -820,12 +923,8 @@ mod tests {
         let state = Mutex::new(state);
 
         let (save_result, delete_result) = tokio::join!(
-            update_project_config(&state, async |config: &mut ProjectConfig| {
-                tokio::time::sleep(Duration::from_millis(80)).await;
-                config.java_path = Some("java-path".to_string());
-                Ok(())
-            }),
-            delete_named_project(&state, "Old"),
+            slow_java_path_update(&state),
+            delete_named_project(&state, "Old")
         );
         save_result.expect("параллельное сохранение настроек");
         delete_result.expect("удаление проекта");
@@ -1036,21 +1135,9 @@ mod tests {
             .await
             .expect_err("повторная регистрация должна падать");
 
-        assert!(
-            matches!(
-                error.downcast_ref::<LauncherError>(),
-                Some(LauncherError::ProjectExists(_))
-            ),
-            "ожидается ProjectExists: {error:#}"
-        );
-        assert!(
-            !guard
-                .root()
-                .join("project")
-                .join("config")
-                .join("Dup.toml")
-                .exists(),
-            "сбой регистрации должен откатывать записанный TOML"
+        assert_project_exists_error(
+            error,
+            &guard.root().join("project").join("config").join("Dup.toml"),
         );
         assert!(
             !guard.root().join("project").join("Dup").exists(),
@@ -1067,11 +1154,10 @@ mod tests {
     async fn server_profile_register_failure_rolls_back_and_name_is_reusable() {
         use std::os::unix::fs::PermissionsExt;
 
-        let guard = LauncherDirGuard::acquire("profile_server_rollback").await;
-        let _config_guard = ConfigFileGuard::acquire(guard.root(), "config.json");
-        std::fs::create_dir_all(guard.root().join("project").join("config"))
+        let MockEnv { dir, mut server } = MockEnv::acquire("profile_server_rollback").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        std::fs::create_dir_all(dir.root().join("project").join("config"))
             .expect("создание папок проекта");
-        let mut server = Server::new_async().await;
         let body = r#"{"projectName":"Rollback","mcVersion":"1.20.1","modLoader":"vanilla",
             "loaderVersion":null,"javaPath":null,"jvmArgs":[],
             "minMemory":"-Xms512M","maxMemory":"-Xmx4G"}"#;
@@ -1084,17 +1170,16 @@ mod tests {
             .await;
         let state = empty_state();
 
-        std::fs::set_permissions(guard.root(), std::fs::Permissions::from_mode(0o555))
+        std::fs::set_permissions(dir.root(), std::fs::Permissions::from_mode(0o555))
             .expect("запрет записи конфига лаунчера");
         let first = add_server_profile(&state, &server.url()).await;
-        std::fs::set_permissions(guard.root(), std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(dir.root(), std::fs::Permissions::from_mode(0o755))
             .expect("возврат прав");
 
         first.expect_err("сбой регистрации должен падать");
 
         assert!(
-            !guard
-                .root()
+            !dir.root()
                 .join("project")
                 .join("config")
                 .join("Rollback.toml")

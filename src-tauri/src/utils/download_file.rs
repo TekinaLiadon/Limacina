@@ -641,9 +641,8 @@ mod download_and_verify_tests {
 #[cfg(test)]
 mod tests {
     use super::{download_file_limited, write_stream_to_atomic};
-    use crate::test_support::{part_files_in, LauncherDirGuard};
+    use crate::test_support::{part_files_in, MockEnv};
     use crate::utils::http::http_client;
-    use mockito::Server;
 
     const MAX_SEND_ATTEMPTS: usize = 10;
 
@@ -665,8 +664,7 @@ mod tests {
 
     #[tokio::test]
     async fn broken_stream_deletes_part_and_keeps_dest_absent() {
-        let dir = LauncherDirGuard::acquire("broken_stream").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("broken_stream").await;
         server
             .mock("GET", "/big-file")
             .with_status(200)
@@ -697,8 +695,7 @@ mod tests {
 
     #[tokio::test]
     async fn full_stream_writes_file_without_part_leftover() {
-        let dir = LauncherDirGuard::acquire("full_stream").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("full_stream").await;
         server
             .mock("GET", "/small-file")
             .with_status(200)
@@ -733,8 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_stream_errors_without_dest() {
-        let dir = LauncherDirGuard::acquire("size_limited").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("size_limited").await;
         server
             .mock("GET", "/oversized.bin")
             .with_status(200)
@@ -757,8 +753,7 @@ mod tests {
 
     #[tokio::test]
     async fn undeletable_dest_fails_instead_of_ok() {
-        let dir = LauncherDirGuard::acquire("undeletable_dest").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("undeletable_dest").await;
         server
             .mock("GET", "/blocked.bin")
             .with_status(200)
@@ -787,8 +782,7 @@ mod tests {
 
     #[tokio::test]
     async fn existing_dest_file_is_replaced_not_skipped() {
-        let dir = LauncherDirGuard::acquire("dest_replace").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("dest_replace").await;
         server
             .mock("GET", "/replaced.bin")
             .with_status(200)
@@ -813,8 +807,7 @@ mod tests {
 
     #[tokio::test]
     async fn stalled_stream_errors_by_read_timeout() {
-        let dir = LauncherDirGuard::acquire("stalled_stream").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("stalled_stream").await;
         server
             .mock("GET", "/stalled-file")
             .with_status(200)
@@ -894,6 +887,65 @@ mod part_cleanup_tests {
             cleanup_part_files(&std::env::temp_dir().join("limacina-missing-part-root")),
             0
         );
+    }
+}
+
+#[cfg(test)]
+mod write_atomic_tests {
+    use super::{write_atomic, write_atomic_sync};
+    use crate::test_support::{part_files_in, TempDir};
+
+    #[tokio::test]
+    async fn async_write_creates_file_without_part_leftover() {
+        let dir = TempDir::new("write_atomic_async");
+        let dest = dir.0.join("data.bin");
+
+        write_atomic(&dest, b"payload")
+            .await
+            .expect("атомарная запись");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
+        assert!(part_files_in(dir.0.as_path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn async_write_replaces_existing_content() {
+        let dir = TempDir::new("write_atomic_replace");
+        let dest = dir.0.join("data.bin");
+        std::fs::write(&dest, b"old").unwrap();
+
+        write_atomic(&dest, b"new").await.expect("перезапись");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"new");
+        assert!(part_files_in(dir.0.as_path()).is_empty());
+    }
+
+    #[test]
+    fn sync_write_creates_file_without_part_leftover() {
+        let dir = TempDir::new("write_atomic_sync");
+        let dest = dir.0.join("data.bin");
+
+        write_atomic_sync(&dest, b"sync payload").expect("синхронная атомарная запись");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"sync payload");
+        assert!(part_files_in(dir.0.as_path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn write_into_missing_dir_fails_without_part_leftover() {
+        let dir = TempDir::new("write_atomic_missing_dir");
+        let dest = dir.0.join("no/such/dir/data.bin");
+
+        let error = write_atomic(&dest, b"data")
+            .await
+            .expect_err("запись в несуществующий каталог должна падать");
+
+        assert!(
+            error.to_string().contains("Не удалось"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+        assert!(part_files_in(dir.0.as_path()).is_empty());
+        assert!(!dest.exists());
     }
 }
 

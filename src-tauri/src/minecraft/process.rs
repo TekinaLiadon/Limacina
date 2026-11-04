@@ -69,41 +69,42 @@ const MODULE_VALUE_OPTIONS: &[&str] = &[
 const EXTRA_JDK_VALUE_OPTIONS: &[&str] = &["--sun-misc-unsafe-memory-access"];
 
 const ALLOWED_XX_VALUE_KEYS: &[&str] = &[
-    "MaxHeapSize",
-    "MinHeapSize",
-    "InitialHeapSize",
-    "SoftMaxHeapSize",
-    "MaxHeapFreeRatio",
-    "MinHeapFreeRatio",
-    "NewSize",
-    "MaxNewSize",
-    "NewRatio",
-    "SurvivorRatio",
-    "TargetSurvivorRatio",
-    "MaxTenuringThreshold",
-    "MetaspaceSize",
-    "MaxMetaspaceSize",
-    "CompressedClassSpaceSize",
-    "ReservedCodeCacheSize",
-    "MaxDirectMemorySize",
-    "MaxRAMPercentage",
-    "InitialRAMPercentage",
-    "MinRAMPercentage",
-    "MaxGCPauseMillis",
-    "InitiatingHeapOccupancyPercent",
-    "G1NewSizePercent",
-    "G1MaxNewSizePercent",
-    "G1HeapRegionSize",
-    "G1ReservePercent",
-    "G1HeapWastePercent",
-    "G1MixedGCCountTarget",
-    "G1MixedGCLiveThresholdPercent",
-    "G1RSetUpdatingPauseTimePercent",
-    "G1PeriodicGCInterval",
-    "ParallelGCThreads",
-    "ConcGCThreads",
     "ActiveProcessorCount",
     "CompileThreshold",
+    "CompressedClassSpaceSize",
+    "ConcGCThreads",
+    "G1HeapRegionSize",
+    "G1HeapWastePercent",
+    "G1MaxNewSizePercent",
+    "G1MixedGCCountTarget",
+    "G1MixedGCLiveThresholdPercent",
+    "G1NewSizePercent",
+    "G1PeriodicGCInterval",
+    "G1ReservePercent",
+    "G1RSetUpdatingPauseTimePercent",
+    "InitialHeapSize",
+    "InitialRAMPercentage",
+    "InitiatingHeapOccupancyPercent",
+    "MaxDirectMemorySize",
+    "MaxGCPauseMillis",
+    "MaxHeapFreeRatio",
+    "MaxHeapSize",
+    "MaxMetaspaceSize",
+    "MaxNewSize",
+    "MaxRAMPercentage",
+    "MaxTenuringThreshold",
+    "MetaspaceSize",
+    "MinHeapFreeRatio",
+    "MinHeapSize",
+    "MinRAMPercentage",
+    "NewRatio",
+    "NewSize",
+    "ParallelGCThreads",
+    "ReservedCodeCacheSize",
+    "SoftMaxHeapSize",
+    "StackShadowPages",
+    "SurvivorRatio",
+    "TargetSurvivorRatio",
     "TrimNativeHeapInterval",
 ];
 
@@ -597,6 +598,16 @@ pub struct GameProcess {
 }
 
 impl GameProcess {
+    fn new(game_pid: u32) -> Self {
+        Self {
+            window_opened: Arc::new(AtomicBool::new(false)),
+            game_pid,
+            exited: Arc::new(AtomicBool::new(false)),
+            exit_status: Arc::new(StdMutex::new(None)),
+            last_output: Arc::new(StdMutex::new(VecDeque::new())),
+        }
+    }
+
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.exited)
     }
@@ -873,13 +884,7 @@ pub fn spawn_game_process(
             }
         };
 
-    let process = GameProcess {
-        window_opened: Arc::new(AtomicBool::new(false)),
-        game_pid,
-        exited: Arc::new(AtomicBool::new(false)),
-        exit_status: Arc::new(StdMutex::new(None)),
-        last_output: Arc::new(StdMutex::new(VecDeque::new())),
-    };
+    let process = GameProcess::new(game_pid);
 
     let stdout_reader = spawn_output_reader(
         stdout,
@@ -1909,16 +1914,13 @@ mod process_helpers_tests {
 
     fn process_with_output(lines: &[&str]) -> GameProcess {
         GameProcess {
-            window_opened: Arc::new(AtomicBool::new(false)),
-            game_pid: 0,
-            exited: Arc::new(AtomicBool::new(false)),
-            exit_status: Arc::new(StdMutex::new(None)),
             last_output: Arc::new(StdMutex::new(
                 lines
                     .iter()
                     .map(|line| line.to_string())
                     .collect::<VecDeque<String>>(),
             )),
+            ..GameProcess::new(0)
         }
     }
 
@@ -2105,9 +2107,6 @@ mod process_helpers_tests {
 #[cfg(all(test, target_os = "windows"))]
 mod window_detection_tests {
     use super::{has_visible_game_window, GameProcess};
-    use std::collections::VecDeque;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -2117,13 +2116,7 @@ mod window_detection_tests {
     };
 
     fn game_process(game_pid: u32) -> GameProcess {
-        GameProcess {
-            window_opened: Arc::new(AtomicBool::new(false)),
-            game_pid,
-            exited: Arc::new(AtomicBool::new(false)),
-            exit_status: Arc::new(StdMutex::new(None)),
-            last_output: Arc::new(StdMutex::new(VecDeque::new())),
-        }
+        GameProcess::new(game_pid)
     }
 
     fn spawn_visible_test_window() -> HWND {

@@ -486,8 +486,8 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::dto::{ProjectConfig, SessionTokens};
-    use crate::test_support::LauncherDirGuard;
+    use crate::state::dto::online_global_state;
+    use crate::test_support::{LauncherDirGuard, MockEnv};
     use tauri::http::{HeaderMap, HeaderValue};
 
     #[test]
@@ -507,21 +507,9 @@ mod tests {
     const SYNC_PROJECT: &str = "Cordelia";
 
     fn sync_state(server_url: &str, online: bool, with_session: bool) -> Mutex<GlobalState> {
-        Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: SYNC_PROJECT.to_string(),
-                online,
-                server_url: Some(server_url.to_string()),
-                ..ProjectConfig::default()
-            },
-            session: with_session.then(|| SessionTokens {
-                access_token: "token-1".to_string(),
-                uuid: "uuid-1".to_string(),
-                username: "Cordelia".to_string(),
-                project_name: SYNC_PROJECT.to_string(),
-            }),
-            ..GlobalState::default()
-        })
+        let mut state = online_global_state(SYNC_PROJECT, SYNC_PROJECT, server_url, with_session);
+        state.get_mut().project_config.online = online;
+        state
     }
 
     fn online_entry(id: i64, file: &str, url: &str) -> CpmModelEntry {
@@ -588,6 +576,19 @@ mod tests {
         .await
     }
 
+    async fn displaced_model_env() {
+        seed_manifest(vec![online_entry(
+            7,
+            "old.cpmmodel",
+            "https://cdn.example.com/m/7",
+        )])
+        .await;
+        write_model_file("old.cpmmodel", b"old").await;
+        set_selected_model(SYNC_PROJECT, "old.cpmmodel")
+            .await
+            .unwrap();
+    }
+
     #[cfg(unix)]
     struct ReadOnlyDir(std::path::PathBuf);
 
@@ -636,8 +637,10 @@ mod tests {
 
     #[tokio::test]
     async fn sync_player_models_adds_server_models_and_selects_newest() {
-        let _guard = LauncherDirGuard::acquire("cpm_sync_add").await;
-        let mut server = mockito::Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_sync_add").await;
         mock_models_endpoint(
             &mut server,
             models_mock_body(&[serde_json::json!({
@@ -672,8 +675,10 @@ mod tests {
 
     #[tokio::test]
     async fn sync_player_models_removes_gone_models_and_rebinds_selection() {
-        let _guard = LauncherDirGuard::acquire("cpm_sync_remove").await;
-        let mut server = mockito::Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_sync_remove").await;
         mock_models_endpoint(
             &mut server,
             models_mock_body(&[serde_json::json!({
@@ -721,8 +726,10 @@ mod tests {
 
     #[tokio::test]
     async fn sync_player_models_rewrites_stub_when_url_changes() {
-        let _guard = LauncherDirGuard::acquire("cpm_sync_url").await;
-        let mut server = mockito::Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_sync_url").await;
         mock_models_endpoint(
             &mut server,
             models_mock_body(&[serde_json::json!({
@@ -756,8 +763,10 @@ mod tests {
 
     #[tokio::test]
     async fn sync_player_models_keeps_offline_entries_without_server_id() {
-        let _guard = LauncherDirGuard::acquire("cpm_sync_offline_entry").await;
-        let mut server = mockito::Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_sync_offline_entry").await;
         mock_models_endpoint(&mut server, models_mock_body(&[])).await;
         let state = sync_state(&server.url(), true, true);
 
@@ -984,16 +993,7 @@ mod tests {
     #[tokio::test]
     async fn save_player_model_failure_at_selection_keeps_previous_selection_valid() {
         let _guard = LauncherDirGuard::acquire("cpm_save_select_fail").await;
-        seed_manifest(vec![online_entry(
-            7,
-            "old.cpmmodel",
-            "https://cdn.example.com/m/7",
-        )])
-        .await;
-        write_model_file("old.cpmmodel", b"old").await;
-        set_selected_model(SYNC_PROJECT, "old.cpmmodel")
-            .await
-            .unwrap();
+        displaced_model_env().await;
 
         let _read_only = ReadOnlyDir::lock(
             cpm_config_path(SYNC_PROJECT)
@@ -1027,16 +1027,7 @@ mod tests {
     #[tokio::test]
     async fn save_player_model_keeps_displaced_file_when_manifest_save_fails() {
         let _guard = LauncherDirGuard::acquire("cpm_save_manifest_fail").await;
-        seed_manifest(vec![online_entry(
-            7,
-            "old.cpmmodel",
-            "https://cdn.example.com/m/7",
-        )])
-        .await;
-        write_model_file("old.cpmmodel", b"old").await;
-        set_selected_model(SYNC_PROJECT, "old.cpmmodel")
-            .await
-            .unwrap();
+        displaced_model_env().await;
 
         let _read_only = ReadOnlyDir::lock(
             manifest_path(SYNC_PROJECT)
@@ -1070,8 +1061,10 @@ mod tests {
 
     #[tokio::test]
     async fn manifest_survives_concurrent_save_and_sync() {
-        let _guard = LauncherDirGuard::acquire("cpm_manifest_race").await;
-        let mut server = mockito::Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_manifest_race").await;
         let mut items = vec![serde_json::json!({
             "id": 1,
             "url": "https://cdn.example.com/m/1"
@@ -1130,8 +1123,10 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_save_and_sync_keeps_the_saved_selection() {
-        let _guard = LauncherDirGuard::acquire("cpm_save_sync_race").await;
-        let mut server = mockito::Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_save_sync_race").await;
         let mut items = vec![serde_json::json!({
             "id": 1,
             "url": "https://cdn.example.com/m/1"

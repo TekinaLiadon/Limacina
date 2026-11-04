@@ -68,8 +68,16 @@ pub fn repair_java_path(path: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+pub(crate) fn write_fake_java_binary(root: &Path, relative: &str) -> PathBuf {
+    let java = root.join(relative);
+    std::fs::create_dir_all(java.parent().expect("папка java")).expect("создание папки java");
+    std::fs::write(&java, b"").expect("создание файла java");
+    java
+}
+
+#[cfg(test)]
 mod tests {
-    use super::{find_java, repair_java_path};
+    use super::{find_java, repair_java_path, write_fake_java_binary};
     use crate::test_support::LauncherDirGuard;
     use std::path::{Path, PathBuf};
 
@@ -85,15 +93,7 @@ mod tests {
     #[tokio::test]
     async fn repair_java_path_replaces_stale_launcher_root() {
         let guard = LauncherDirGuard::acquire("java_repair").await;
-        let java = guard
-            .root()
-            .join("java")
-            .join("21")
-            .join("eclipse")
-            .join("bin")
-            .join("java");
-        std::fs::create_dir_all(java.parent().expect("папка java")).expect("создание папки java");
-        std::fs::write(&java, b"").expect("создание файла java");
+        let java = write_fake_java_binary(guard.root(), "java/21/eclipse/bin/java");
 
         let stale = PathBuf::from("/home/old-launcher/java/21/eclipse/bin/java");
         assert_eq!(repair_java_path(&stale), Some(java));

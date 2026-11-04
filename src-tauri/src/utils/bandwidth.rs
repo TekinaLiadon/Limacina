@@ -89,10 +89,22 @@ mod tests {
     use super::*;
     use crate::test_support::lock_bandwidth_tests;
 
+    async fn lock_with_limit(kbps: Option<u64>) -> tokio::sync::MutexGuard<'static, ()> {
+        let guard = lock_bandwidth_tests().await;
+        set_limit(kbps);
+        guard
+    }
+
+    async fn assert_throttled_1024kb() {
+        let start = Instant::now();
+        acquire(1024 * BYTES_PER_KB).await;
+        assert!(start.elapsed() >= Duration::from_millis(100));
+        set_limit(None);
+    }
+
     #[tokio::test]
     async fn unlimited_acquire_is_instant() {
-        let _guard = lock_bandwidth_tests().await;
-        set_limit(None);
+        let _guard = lock_with_limit(None).await;
 
         let start = Instant::now();
         acquire(100_000_000).await;
@@ -103,22 +115,16 @@ mod tests {
 
     #[tokio::test]
     async fn acquire_blocks_after_bucket_drained() {
-        let _guard = lock_bandwidth_tests().await;
-        set_limit(Some(8192));
+        let _guard = lock_with_limit(Some(8192)).await;
 
         acquire(8192 * BYTES_PER_KB).await;
 
-        let start = Instant::now();
-        acquire(1024 * BYTES_PER_KB).await;
-        assert!(start.elapsed() >= Duration::from_millis(100));
-
-        set_limit(None);
+        assert_throttled_1024kb().await;
     }
 
     #[tokio::test]
     async fn oversized_acquire_does_not_hang() {
-        let _guard = lock_bandwidth_tests().await;
-        set_limit(Some(32));
+        let _guard = lock_with_limit(Some(32)).await;
 
         let start = Instant::now();
         tokio::time::timeout(Duration::from_secs(5), acquire(64 * BYTES_PER_KB))
@@ -131,24 +137,18 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_acquire_drains_bucket_for_next_acquire() {
-        let _guard = lock_bandwidth_tests().await;
-        set_limit(Some(8192));
+        let _guard = lock_with_limit(Some(8192)).await;
 
         tokio::time::timeout(Duration::from_secs(5), acquire(16_384 * BYTES_PER_KB))
             .await
             .expect("acquire превысил таймаут");
 
-        let start = Instant::now();
-        acquire(1024 * BYTES_PER_KB).await;
-        assert!(start.elapsed() >= Duration::from_millis(100));
-
-        set_limit(None);
+        assert_throttled_1024kb().await;
     }
 
     #[tokio::test]
     async fn zero_limit_disables_throttling() {
-        let _guard = lock_bandwidth_tests().await;
-        set_limit(Some(1024));
+        let _guard = lock_with_limit(Some(1024)).await;
         set_limit(Some(0));
 
         let start = Instant::now();

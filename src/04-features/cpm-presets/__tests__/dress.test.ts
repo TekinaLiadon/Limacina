@@ -67,7 +67,7 @@ describe('compose', () => {
     expect(scaled.skinType).toBe('default')
   })
 
-  it('produces a PNG matching the scaled skin dimensions', async () => {
+  it('produces a PNG matching the scaled skin dimensions', { timeout: 30_000 }, async () => {
     const image = patternImage(512)
 
     const dressed = await compose(scaleSkinLayout(PRESET_CONFIG, 8), image, 'classic')

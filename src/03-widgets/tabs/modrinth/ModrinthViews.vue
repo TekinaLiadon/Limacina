@@ -70,7 +70,7 @@ const { handleKeydown } = useRovingTabs<ModsView>({
     font-size: var(--text-body-sm);
     font-weight: var(--weight-medium);
     cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+    @include mixins.interactive-transition;
   }
 
   &__view-count {

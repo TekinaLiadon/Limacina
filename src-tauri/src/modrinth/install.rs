@@ -1028,9 +1028,9 @@ async fn sync_locked(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modrinth::client::{clear_response_cache_for_tests, override_api_base_for_tests};
-    use crate::test_support::{part_files_in, sha1_hex, LauncherDirGuard};
-    use mockito::{Matcher, Mock, Server, ServerGuard};
+    use crate::modrinth::client::clear_response_cache_for_tests;
+    use crate::test_support::{part_files_in, sha1_hex, LauncherDirGuard, MockEnv};
+    use mockito::{Matcher, Mock, ServerGuard};
     use serde_json::json;
 
     struct ModrinthEnv {
@@ -1040,10 +1040,7 @@ mod tests {
 
     impl ModrinthEnv {
         async fn acquire(label: &str) -> Self {
-            let dir = LauncherDirGuard::acquire(label).await;
-            let server = Server::new_async().await;
-            override_api_base_for_tests(format!("{}/v2", server.url()));
-            clear_response_cache_for_tests();
+            let MockEnv { dir, server } = MockEnv::acquire_v2(label).await;
             Self { dir, server }
         }
 
@@ -1126,6 +1123,7 @@ mod tests {
                     .collect::<Vec<_>>())
                 .to_string(),
             )
+            .expect(1)
             .create_async()
             .await
     }
@@ -1160,15 +1158,42 @@ mod tests {
         jar_b2: &[u8],
         jar_a: &[u8],
     ) {
-        let version_b2 = with_filename(
-            jar_version(env, "verB2", "B", "2.0.0", "b-2.0.0.jar", jar_b2, json!([])),
-            "B-2.0.0.jar",
-        );
+        let version_b2 = named_b_jar_version(env, "verB2", "2.0.0", jar_b2);
         mock_project_versions(env, "A", &[version_a]).await;
         mock_single_version(env, pinned_id, pinned_version).await;
         mock_project_versions(env, "B", &[version_b2]).await;
         mock_projects_list(env, &[("A", "Mod A"), ("B", "Mod B")]).await;
         mock_cdn_jar(env, "/cdn/a.jar", jar_a).await;
+        mock_cdn_jar(env, "/cdn/b-2.0.0.jar", jar_b2).await;
+    }
+
+    struct DependencyChainMocks {
+        versions_a: Mock,
+        versions_b: Mock,
+        projects: Mock,
+        jar_a: Mock,
+        jar_b: Mock,
+    }
+
+    async fn mock_dependency_chain(
+        env: &mut ModrinthEnv,
+        jar_a: &[u8],
+        jar_b: &[u8],
+    ) -> DependencyChainMocks {
+        let version_a = a_version(env, jar_a, required_dep("B", None));
+        let version_b = jar_version(env, "verB", "B", "0.2.0", "b.jar", jar_b, json!([]));
+        let versions_a = mock_project_versions(env, "A", &[version_a]).await;
+        let versions_b = mock_project_versions(env, "B", &[version_b]).await;
+        let projects = mock_projects_list(env, &[("A", "Mod A"), ("B", "Mod B")]).await;
+        let jar_a = mock_cdn_jar(env, "/cdn/a.jar", jar_a).await;
+        let jar_b = mock_cdn_jar(env, "/cdn/b.jar", jar_b).await;
+        DependencyChainMocks {
+            versions_a,
+            versions_b,
+            projects,
+            jar_a,
+            jar_b,
+        }
     }
 
     async fn install_first_version(
@@ -1219,17 +1244,59 @@ mod tests {
         }])
     }
 
+    fn a_version(env: &ModrinthEnv, jar_a: &[u8], deps: serde_json::Value) -> serde_json::Value {
+        jar_version(env, "verA", "A", "1.0.0", "a.jar", jar_a, deps)
+    }
+
+    fn named_b_jar_version(
+        env: &ModrinthEnv,
+        id: &str,
+        version_number: &str,
+        jar: &[u8],
+    ) -> serde_json::Value {
+        with_filename(
+            jar_version(
+                env,
+                id,
+                "B",
+                version_number,
+                &format!("b-{version_number}.jar"),
+                jar,
+                json!([]),
+            ),
+            &format!("B-{version_number}.jar"),
+        )
+    }
+
+    fn incompatible_b_version(env: &ModrinthEnv, jar: &[u8]) -> serde_json::Value {
+        let mut version = version_json(
+            "verBOld",
+            "B",
+            "0.9.0",
+            format!("{}/cdn/b-0.9.0.jar", env.server.url()),
+            sha1_hex(jar),
+            jar.len() as u64,
+            json!([]),
+        );
+        version["game_versions"] = json!(["1.20.1"]);
+        version["files"][0]["filename"] = json!("B-0.9.0.jar");
+        version
+    }
+
+    fn version_jar_path(env: &ModrinthEnv, version: &serde_json::Value) -> String {
+        let url = version["files"][0]["url"].as_str().unwrap().to_string();
+        url.strip_prefix(env.server.url().as_str())
+            .unwrap()
+            .to_string()
+    }
+
     async fn mock_install_env(
         env: &mut ModrinthEnv,
         version: serde_json::Value,
         jar_body: &[u8],
         cdn_expect: usize,
     ) {
-        let url = version["files"][0]["url"].as_str().unwrap().to_string();
-        let path = url
-            .strip_prefix(env.server.url().as_str())
-            .unwrap()
-            .to_string();
+        let path = version_jar_path(env, &version);
         mock_version_list(env, version).await;
         env.server
             .mock("GET", path.as_str())
@@ -1322,56 +1389,7 @@ mod tests {
         let jar_a = b"mod a jar".to_vec();
         let jar_b = b"mod b jar".to_vec();
 
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            &jar_a,
-            required_dep("B", None),
-        );
-        let version_b = jar_version(&env, "verB", "B", "0.2.0", "b.jar", &jar_b, json!([]));
-
-        let va_mock = env
-            .server
-            .mock("GET", "/v2/project/A/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version_a]).to_string())
-            .create_async()
-            .await;
-        let projects_mock = env
-            .server
-            .mock("GET", "/v2/projects")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([project_json("A", "Mod A"), project_json("B", "Mod B")]).to_string())
-            .expect(1)
-            .create_async()
-            .await;
-        let vb_mock = env
-            .server
-            .mock("GET", "/v2/project/B/version")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!([version_b]).to_string())
-            .create_async()
-            .await;
-        let jar_a_mock = env
-            .server
-            .mock("GET", "/cdn/a.jar")
-            .with_status(200)
-            .with_body(jar_a.clone())
-            .create_async()
-            .await;
-        let jar_b_mock = env
-            .server
-            .mock("GET", "/cdn/b.jar")
-            .with_status(200)
-            .with_body(jar_b.clone())
-            .create_async()
-            .await;
+        let mocks = mock_dependency_chain(&mut env, &jar_a, &jar_b).await;
 
         let ctx = env.install_ctx();
 
@@ -1390,11 +1408,11 @@ mod tests {
         assert_eq!(manifest.mods.get("A").unwrap().title, "Mod A");
         assert_eq!(manifest.mods.get("B").unwrap().version_number, "0.2.0");
 
-        va_mock.assert_async().await;
-        projects_mock.assert_async().await;
-        vb_mock.assert_async().await;
-        jar_a_mock.assert_async().await;
-        jar_b_mock.assert_async().await;
+        mocks.versions_a.assert_async().await;
+        mocks.projects.assert_async().await;
+        mocks.versions_b.assert_async().await;
+        mocks.jar_a.assert_async().await;
+        mocks.jar_b.assert_async().await;
     }
 
     #[tokio::test]
@@ -1404,27 +1422,8 @@ mod tests {
         let jar_a = b"mod a jar".to_vec();
         let jar_b1 = b"mod b v1".to_vec();
         let jar_b2 = b"mod b v2".to_vec();
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            &jar_a,
-            required_dep("B", Some("verB1")),
-        );
-        let version_b1 = with_filename(
-            jar_version(
-                &env,
-                "verB1",
-                "B",
-                "1.0.0",
-                "b-1.0.0.jar",
-                &jar_b1,
-                json!([]),
-            ),
-            "B-1.0.0.jar",
-        );
+        let version_a = a_version(&env, &jar_a, required_dep("B", Some("verB1")));
+        let version_b1 = named_b_jar_version(&env, "verB1", "1.0.0", &jar_b1);
 
         mock_pinned_dependency_env(&mut env, version_a, "verB1", &version_b1, &jar_b2, &jar_a)
             .await;
@@ -1444,13 +1443,7 @@ mod tests {
             !ctx.mods_dir.join("B-2.0.0.jar").exists(),
             "свежий релиз не должен подменять закреплённую версию зависимости"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
-        assert_eq!(
-            manifest.mods.get("B").expect("запись B").version_number,
-            "1.0.0"
-        );
+        assert_eq!(manifest_entry_of(&ctx, "B").await.version_number, "1.0.0");
     }
 
     #[tokio::test]
@@ -1458,26 +1451,8 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_dep_pinned_fallback").await;
 
         let jar_b2 = b"mod b v2".to_vec();
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            b"mod a jar",
-            required_dep("B", Some("verBOld")),
-        );
-        let mut version_b_old = version_json(
-            "verBOld",
-            "B",
-            "0.9.0",
-            format!("{}/cdn/b-0.9.0.jar", env.server.url()),
-            sha1_hex(b"mod b old"),
-            10,
-            json!([]),
-        );
-        version_b_old["game_versions"] = json!(["1.20.1"]);
-        version_b_old["files"][0]["filename"] = json!("B-0.9.0.jar");
+        let version_a = a_version(&env, b"mod a jar", required_dep("B", Some("verBOld")));
+        let version_b_old = incompatible_b_version(&env, b"mod b old");
 
         mock_pinned_dependency_env(
             &mut env,
@@ -1488,7 +1463,6 @@ mod tests {
             b"mod a jar",
         )
         .await;
-        mock_cdn_jar(&mut env, "/cdn/b-2.0.0.jar", &jar_b2).await;
 
         let ctx = env.install_ctx();
         install_project(&ctx, "A", None)
@@ -1500,13 +1474,7 @@ mod tests {
             jar_b2,
             "фолбэк должен выбрать свежий совместимый релиз"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
-        assert_eq!(
-            manifest.mods.get("B").expect("запись B").version_number,
-            "2.0.0"
-        );
+        assert_eq!(manifest_entry_of(&ctx, "B").await.version_number, "2.0.0");
     }
 
     #[tokio::test]
@@ -1517,46 +1485,11 @@ mod tests {
         let jar_b1 = b"mod b v1".to_vec();
         let jar_b2 = b"mod b v2".to_vec();
 
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            &jar_a,
-            required_dep("B", None),
-        );
-        let version_b1 = with_filename(
-            jar_version(
-                &env,
-                "verB1",
-                "B",
-                "1.0.0",
-                "b-1.0.0.jar",
-                &jar_b1,
-                json!([]),
-            ),
-            "B-1.0.0.jar",
-        );
-        let version_b2 = with_filename(
-            jar_version(
-                &env,
-                "verB2",
-                "B",
-                "2.0.0",
-                "b-2.0.0.jar",
-                &jar_b2,
-                json!([]),
-            ),
-            "B-2.0.0.jar",
-        );
+        let version_a = a_version(&env, &jar_a, required_dep("B", None));
+        let version_b1 = named_b_jar_version(&env, "verB1", "1.0.0", &jar_b1);
 
-        mock_project_versions(&mut env, "A", &[version_a]).await;
-        mock_single_version(&mut env, "verB1", &version_b1).await;
-        mock_project_versions(&mut env, "B", &[version_b2]).await;
-        mock_projects_list(&mut env, &[("A", "Mod A"), ("B", "Mod B")]).await;
-        mock_cdn_jar(&mut env, "/cdn/a.jar", &jar_a).await;
-        mock_cdn_jar(&mut env, "/cdn/b-2.0.0.jar", &jar_b2).await;
+        mock_pinned_dependency_env(&mut env, version_a, "verB1", &version_b1, &jar_b2, &jar_a)
+            .await;
 
         let ctx = seed_installed_dependency(&env, "B-1.0.0.jar", "verB1", "1.0.0", &jar_b1).await;
 
@@ -1583,10 +1516,7 @@ mod tests {
             !ctx.mods_dir.join("B-2.0.0.jar").exists(),
             "свежий релиз зависимости не должен ставиться поверх совместимой"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
-        let entry = manifest.mods.get("B").expect("запись B");
+        let entry = manifest_entry_of(&ctx, "B").await;
         assert_eq!(entry.version_id, "verB1");
         assert_eq!(entry.version_number, "1.0.0");
         assert_eq!(entry.filename, "B-1.0.0.jar");
@@ -1601,45 +1531,18 @@ mod tests {
         let jar_b_old = b"mod b old".to_vec();
         let jar_b2 = b"mod b v2".to_vec();
 
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            &jar_a,
-            required_dep("B", None),
-        );
-        let mut version_b_old = version_json(
-            "verBOld",
-            "B",
-            "0.9.0",
-            format!("{}/cdn/b-0.9.0.jar", env.server.url()),
-            sha1_hex(&jar_b_old),
-            jar_b_old.len() as u64,
-            json!([]),
-        );
-        version_b_old["game_versions"] = json!(["1.20.1"]);
-        version_b_old["files"][0]["filename"] = json!("B-0.9.0.jar");
-        let version_b2 = with_filename(
-            jar_version(
-                &env,
-                "verB2",
-                "B",
-                "2.0.0",
-                "b-2.0.0.jar",
-                &jar_b2,
-                json!([]),
-            ),
-            "B-2.0.0.jar",
-        );
+        let version_a = a_version(&env, &jar_a, required_dep("B", None));
+        let version_b_old = incompatible_b_version(&env, &jar_b_old);
 
-        mock_project_versions(&mut env, "A", &[version_a]).await;
-        mock_single_version(&mut env, "verBOld", &version_b_old).await;
-        mock_project_versions(&mut env, "B", &[version_b2]).await;
-        mock_projects_list(&mut env, &[("A", "Mod A"), ("B", "Mod B")]).await;
-        mock_cdn_jar(&mut env, "/cdn/a.jar", &jar_a).await;
-        mock_cdn_jar(&mut env, "/cdn/b-2.0.0.jar", &jar_b2).await;
+        mock_pinned_dependency_env(
+            &mut env,
+            version_a,
+            "verBOld",
+            &version_b_old,
+            &jar_b2,
+            &jar_a,
+        )
+        .await;
 
         let ctx =
             seed_installed_dependency(&env, "B-0.9.0.jar", "verBOld", "0.9.0", &jar_b_old).await;
@@ -1656,13 +1559,7 @@ mod tests {
             !ctx.mods_dir.join("B-0.9.0.jar").exists(),
             "несовместимая версия зависимости вытесняется"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
-        assert_eq!(
-            manifest.mods.get("B").expect("запись B").version_number,
-            "2.0.0"
-        );
+        assert_eq!(manifest_entry_of(&ctx, "B").await.version_number, "2.0.0");
     }
 
     #[tokio::test]
@@ -1670,12 +1567,8 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_install_incompatible").await;
 
         let jar_a = b"mod a jar".to_vec();
-        let version_a = jar_version(
+        let version_a = a_version(
             &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
             &jar_a,
             json!([{
                 "version_id": null,
@@ -1721,12 +1614,8 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_dep_optional_ignored").await;
 
         let jar_a = b"mod a jar".to_vec();
-        let version_a = jar_version(
+        let version_a = a_version(
             &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
             &jar_a,
             json!([{
                 "version_id": null,
@@ -1926,7 +1815,7 @@ mod tests {
     async fn install_falls_back_to_version_name_when_projects_fail() {
         let mut env = ModrinthEnv::acquire("modrinth_install_projects_fail").await;
 
-        let version_a = jar_version(&env, "verA", "A", "1.0.0", "a.jar", b"mod a jar", json!([]));
+        let version_a = a_version(&env, b"mod a jar", json!([]));
         mock_project_versions(&mut env, "A", &[version_a]).await;
         env.server
             .mock("GET", "/v2/projects")
@@ -1942,13 +1831,7 @@ mod tests {
             .await
             .expect("сбой данных проекта не должен ронять установку");
 
-        let entry = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста")
-            .mods
-            .get("A")
-            .expect("запись A")
-            .clone();
+        let entry = manifest_entry_of(&ctx, "A").await;
         assert_eq!(
             entry.title, "Mod A",
             "без данных проекта используется имя версии, а не пустая строка"
@@ -2024,7 +1907,7 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_install_skip").await;
 
         let jar_a = b"already installed".to_vec();
-        let version_a = jar_version(&env, "verA", "A", "1.0.0", "a.jar", &jar_a, json!([]));
+        let version_a = a_version(&env, &jar_a, json!([]));
         mock_install_env(&mut env, version_a, &jar_a, 0).await;
 
         let ctx = env.install_ctx();
@@ -2148,18 +2031,9 @@ mod tests {
     }
 
     async fn mock_pinned_version(env: &mut ModrinthEnv, version: serde_json::Value, jar: &[u8]) {
-        let version_path = format!("/v2/version/{}", version["id"].as_str().unwrap());
-        env.server
-            .mock("GET", version_path.as_str())
-            .with_status(200)
-            .with_body(version.to_string())
-            .create_async()
-            .await;
-        let url = version["files"][0]["url"].as_str().unwrap().to_string();
-        let path = url
-            .strip_prefix(env.server.url().as_str())
-            .unwrap()
-            .to_string();
+        let version_id = version["id"].as_str().unwrap().to_string();
+        mock_single_version(env, &version_id, &version).await;
+        let path = version_jar_path(env, &version);
         env.server
             .mock("GET", path.as_str())
             .with_status(200)
@@ -2285,13 +2159,7 @@ mod tests {
             jar_v1,
             "должен скачаться jar запиненной версии, а не последней release"
         );
-        let entry = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста")
-            .mods
-            .get("A")
-            .expect("запись A")
-            .clone();
+        let entry = manifest_entry_of(&ctx, "A").await;
         assert_eq!(entry.version_id, "ver1");
         assert_eq!(entry.version_number, "1.0.0");
     }
@@ -2333,13 +2201,7 @@ mod tests {
             std::fs::read(ctx.mods_dir.join("A-1.0.0.jar")).expect("jar v1"),
             jar_v1
         );
-        let entry = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста")
-            .mods
-            .get("A")
-            .expect("запись A")
-            .clone();
+        let entry = manifest_entry_of(&ctx, "A").await;
         assert_eq!(entry.version_id, "ver1");
         assert_eq!(entry.version_number, "1.0.0");
     }
@@ -2439,6 +2301,30 @@ mod tests {
             version_id: version_id.to_string(),
             version_number: version_number.to_string(),
         }
+    }
+
+    async fn manifest_entry_of(ctx: &InstallContext, project: &str) -> ManifestEntry {
+        load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста")
+            .mods
+            .get(project)
+            .expect("запись мода в манифесте")
+            .clone()
+    }
+
+    async fn mock_foreign_version_files(
+        env: &mut ModrinthEnv,
+        lookup: serde_json::Value,
+        expected_hits: usize,
+    ) -> Mock {
+        env.server
+            .mock("POST", "/v2/version_files")
+            .with_status(200)
+            .with_body(lookup.to_string())
+            .expect(expected_hits)
+            .create_async()
+            .await
     }
 
     async fn seed_mod_manifest(ctx: &InstallContext, entries: Vec<(&str, ManifestEntry)>) {
@@ -2631,17 +2517,12 @@ mod tests {
         )
         .await;
 
-        let batch_mock = env
-            .server
-            .mock("POST", "/v2/version_files")
-            .with_status(200)
-            .with_body(
-                json!({"hash-f": {"id": "verF1", "project_id": "A", "name": "Dup", "version_number": "9.9.9", "version_type": "release", "dependencies": [], "files": []}})
-                    .to_string(),
-            )
-            .expect(1)
-            .create_async()
-            .await;
+        let batch_mock = mock_foreign_version_files(
+            &mut env,
+            json!({"hash-f": {"id": "verF1", "project_id": "A", "name": "Dup", "version_number": "9.9.9", "version_type": "release", "dependencies": [], "files": []}}),
+            1,
+        )
+        .await;
 
         let local_hashes: HashMap<String, String> = HashMap::from([
             ("A.jar".to_string(), "hash-a".to_string()),
@@ -2681,15 +2562,12 @@ mod tests {
         )
         .await;
 
-        env.server
-            .mock("POST", "/v2/version_files")
-            .with_status(200)
-            .with_body(
-                json!({"hash-f": {"id": "verF1", "project_id": "F", "name": "Foreign", "version_number": "0.5.0", "version_type": "release", "dependencies": [], "files": []}})
-                    .to_string(),
-            )
-            .create_async()
-            .await;
+        mock_foreign_version_files(
+            &mut env,
+            json!({"hash-f": {"id": "verF1", "project_id": "F", "name": "Foreign", "version_number": "0.5.0", "version_type": "release", "dependencies": [], "files": []}}),
+            1,
+        )
+        .await;
         env.server
             .mock("GET", "/v2/projects")
             .match_query(Matcher::Any)
@@ -2737,15 +2615,12 @@ mod tests {
         let ctx = env.install_ctx();
         seed_mod_manifest(&ctx, vec![]).await;
 
-        env.server
-            .mock("POST", "/v2/version_files")
-            .with_status(200)
-            .with_body(
-                json!({"hash-f": {"id": "verF1", "project_id": "F", "name": "Foreign jar", "version_number": "0.5.0", "version_type": "release", "dependencies": [], "files": []}})
-                    .to_string(),
-            )
-            .create_async()
-            .await;
+        mock_foreign_version_files(
+            &mut env,
+            json!({"hash-f": {"id": "verF1", "project_id": "F", "name": "Foreign jar", "version_number": "0.5.0", "version_type": "release", "dependencies": [], "files": []}}),
+            1,
+        )
+        .await;
         env.server
             .mock("GET", "/v2/projects")
             .match_query(Matcher::Any)
@@ -2811,15 +2686,12 @@ mod tests {
         )
         .await;
 
-        env.server
-            .mock("POST", "/v2/version_files")
-            .with_status(200)
-            .with_body(
-                json!({"hash-f": {"id": "verF1", "project_id": "A", "name": "Dup", "version_number": "9.9.9", "version_type": "release", "dependencies": [], "files": []}})
-                    .to_string(),
-            )
-            .create_async()
-            .await;
+        mock_foreign_version_files(
+            &mut env,
+            json!({"hash-f": {"id": "verF1", "project_id": "A", "name": "Dup", "version_number": "9.9.9", "version_type": "release", "dependencies": [], "files": []}}),
+            1,
+        )
+        .await;
 
         let manifest = sync_installed_from_hashes(
             &ctx,
@@ -2957,7 +2829,7 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_race_manifest").await;
 
         let jar_a = b"mod a jar".to_vec();
-        let version_a = jar_version(&env, "verA", "A", "1.0.0", "a.jar", &jar_a, json!([]));
+        let version_a = a_version(&env, &jar_a, json!([]));
         mock_version_env(&mut env, version_a, &jar_a).await;
 
         let ctx = env.install_ctx();
@@ -2999,7 +2871,7 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_install_parallel_same_file").await;
 
         let jar_a = b"mod a jar".to_vec();
-        let version_a = jar_version(&env, "verA", "A", "1.0.0", "a.jar", &jar_a, json!([]));
+        let version_a = a_version(&env, &jar_a, json!([]));
         mock_version_list(&mut env, version_a).await;
         mock_cdn_jar(&mut env, "/cdn/a.jar", &jar_a).await;
 
@@ -3050,7 +2922,7 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_rename_fail_cleanup").await;
 
         let jar_a = b"mod a jar".to_vec();
-        let version_a = jar_version(&env, "verA", "A", "1.0.0", "a.jar", &jar_a, json!([]));
+        let version_a = a_version(&env, &jar_a, json!([]));
         mock_version_env(&mut env, version_a, &jar_a).await;
 
         let ctx = env.install_ctx();
@@ -3078,22 +2950,7 @@ mod tests {
 
         let jar_a = b"mod a jar".to_vec();
         let jar_b = b"mod b jar".to_vec();
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            &jar_a,
-            required_dep("B", None),
-        );
-        let version_b = jar_version(&env, "verB", "B", "0.2.0", "b.jar", &jar_b, json!([]));
-
-        mock_project_versions(&mut env, "A", &[version_a]).await;
-        mock_project_versions(&mut env, "B", &[version_b]).await;
-        mock_projects_list(&mut env, &[("A", "Mod A"), ("B", "Mod B")]).await;
-        mock_cdn_jar(&mut env, "/cdn/a.jar", &jar_a).await;
-        mock_cdn_jar(&mut env, "/cdn/b.jar", &jar_b).await;
+        mock_dependency_chain(&mut env, &jar_a, &jar_b).await;
 
         let ctx = env.install_ctx();
         tokio::fs::create_dir_all(&ctx.mods_dir).await.unwrap();
@@ -3234,11 +3091,8 @@ mod tests {
             jar_v1,
             "обрыв сети после precheck не должен оставлять пользователя без работавшего jar"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
         assert_eq!(
-            manifest.mods.get("A").expect("запись A").version_number,
+            manifest_entry_of(&ctx, "A").await.version_number,
             "1.0.0",
             "манифест остаётся на старой версии"
         );
@@ -3249,7 +3103,7 @@ mod tests {
         let mut env = ModrinthEnv::acquire("modrinth_install_retry").await;
 
         let jar_a = b"mod a jar".to_vec();
-        let version_a = jar_version(&env, "verA", "A", "1.0.0", "a.jar", &jar_a, json!([]));
+        let version_a = a_version(&env, &jar_a, json!([]));
         mock_version_list(&mut env, version_a).await;
 
         let transient_mock = env
@@ -3327,15 +3181,7 @@ mod tests {
 
         let jar_a = b"mod a jar".to_vec();
         let jar_c = b"mod c jar".to_vec();
-        let version_a = jar_version(
-            &env,
-            "verA",
-            "A",
-            "1.0.0",
-            "a.jar",
-            &jar_a,
-            required_dep("B", None),
-        );
+        let version_a = a_version(&env, &jar_a, required_dep("B", None));
         let version_b = jar_version(
             &env,
             "verB",
@@ -3426,11 +3272,8 @@ mod tests {
             part_files_in(&ctx.mods_dir).is_empty(),
             "staging-файлы неудавшейся установки должны быть убраны"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
         assert_eq!(
-            manifest.mods.get("A").expect("запись A").version_number,
+            manifest_entry_of(&ctx, "A").await.version_number,
             "1.0.0",
             "манифест остаётся в состоянии до установки"
         );
@@ -3465,11 +3308,8 @@ mod tests {
             jar_v1,
             "при сбое сохранения манифеста файл мода должен остаться прежним: rename-коммит идёт после записи манифеста"
         );
-        let manifest = load_manifest(&ctx.manifest_path)
-            .await
-            .expect("чтение манифеста");
         assert_eq!(
-            manifest.mods.get("A").expect("запись A").version_number,
+            manifest_entry_of(&ctx, "A").await.version_number,
             "1.0.0",
             "манифест на диске остаётся прежним"
         );

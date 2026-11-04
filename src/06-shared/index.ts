@@ -36,7 +36,7 @@ export { isAutostartEnabled, enableAutostart, disableAutostart } from './utils/a
 export { isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification } from './utils/notifications'
 export type { NotificationOptions } from './utils/notifications'
 export { useThreeScene } from './utils/useThreeScene'
-export { createManagedTextureLoader, removeGroupFromScene } from './utils/three'
+export { createManagedTextureLoader, removeGroupFromScene, setFaceQuad } from './utils/three'
 export { applyStepEvent, computeStepProgress, createStepItem } from './utils/stepEvents'
 export type { StepProgressItem } from './utils/stepEvents'
 export { STEP_IDS, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, stepPlanItems } from './utils/stepIds'

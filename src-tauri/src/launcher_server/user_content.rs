@@ -249,7 +249,7 @@ mod tests {
     use crate::auth::storage;
     use crate::commands::auth::wipe_project_credentials;
     use crate::state::dto::{ProjectConfig, SessionTokens};
-    use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
+    use crate::test_support::{rotation_payload, seed_online_project, MockEnv};
     use mockito::{Matcher, Server};
 
     fn state_with(server_url: &str) -> Mutex<GlobalState> {
@@ -474,8 +474,10 @@ mod tests {
 
     #[tokio::test]
     async fn list_skins_retries_after_401_with_rotated_token() {
-        let _dir = LauncherDirGuard::acquire("user_content_auth_retry").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("user_content_auth_retry").await;
 
         let items = serde_json::json!([
             {"id": 3, "url": "https://cdn.example.com/skin.png", "active": true}

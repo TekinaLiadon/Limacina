@@ -1,0 +1,367 @@
+import * as THREE from 'three'
+import { DEFAULT_RGB, parseHexColor, setFaceQuad } from '@/06-shared'
+import type { CPMConfig, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
+import { PLAYER_PART_ORDINALS, ROOT_PIVOTS } from './playerParts'
+
+const FACE_MAP: Record<string, number> = {
+  east: 0,
+  west: 1,
+  up: 2,
+  down: 3,
+  north: 4,
+  south: 5,
+}
+
+function applyFaceUVs(geo: THREE.BoxGeometry, faceUV: Record<string, CPMFaceUV>, skinW: number, skinH: number): void {
+  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+
+  Object.entries(faceUV).forEach(([face, uv]) => {
+    const faceIndex = FACE_MAP[face]
+    if (faceIndex === undefined) return
+
+    const base = faceIndex * 4
+    const u0 = uv.sx / skinW
+    const v0 = 1 - uv.sy / skinH
+    const u1 = uv.ex / skinW
+    const v1 = 1 - uv.ey / skinH
+
+    let quad: Array<[number, number]>
+    switch (uv.rot || '0') {
+      case '90':
+        quad = [[u0, v1], [u0, v0], [u1, v1], [u1, v0]]
+        break
+      case '180':
+        quad = [[u1, v1], [u0, v1], [u1, v0], [u0, v0]]
+        break
+      case '270':
+        quad = [[u1, v0], [u1, v1], [u0, v0], [u0, v1]]
+        break
+      default:
+        quad = [[u0, v0], [u1, v0], [u0, v1], [u1, v1]]
+    }
+
+    setFaceQuad(uvAttr, base, quad)
+  })
+
+  uvAttr.needsUpdate = true
+}
+
+function applyBoxUVs(
+    geo: THREE.BoxGeometry,
+    u: number, v: number,
+    w: number, h: number, d: number,
+    texSize: number,
+    skinW: number, skinH: number,
+    singleTex: boolean,
+    mirror: boolean,
+): void {
+  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+  const ts = Math.abs(texSize)
+  const dx = Math.ceil(w * ts)
+  const dy = Math.ceil(h * ts)
+  const dz = Math.ceil(d * ts)
+  const tu = u * ts
+  const tv = v * ts
+
+  const s = (px: number, py: number): [number, number] => [px / skinW, 1 - py / skinH]
+
+  let faces: Array<[number, number, number, number]>
+  if (singleTex) {
+    const side = Math.max(dx, dy, dz)
+    faces = Array.from({ length: 6 }, () => [tu, tv, tu + side, tv + side])
+  } else {
+    const x1 = tu + dz
+    const x2 = tu + dz + dx
+    const x3 = tu + dz + dx + dx
+    const x4 = tu + dz + dx + dz
+    const x5 = tu + dz + dx + dz + dx
+    const y1 = tv + dz
+    const y2 = tv + dz + dy
+    faces = [
+      [tu, y1, x1, y2],
+      [x2, y1, x4, y2],
+      [x1, tv, x2, y1],
+      [x2, y1, x3, tv],
+      [x4, y1, x5, y2],
+      [x1, y1, x2, y2],
+    ]
+  }
+
+  const quads = faces.map((rect) => {
+    const [fu1, fv1, fu2, fv2] = rect
+    return [s(fu1, fv1), s(fu2, fv1), s(fu1, fv2), s(fu2, fv2)]
+  })
+
+  if (mirror) {
+    quads.forEach((quad, i) => {
+      const fallback: [number, number] = [0, 0]
+      const [q0 = fallback, q1 = fallback, q2 = fallback, q3 = fallback] = quad
+      quads[i] = [q1, q0, q3, q2]
+    })
+    const [east, west] = quads
+    if (east !== undefined && west !== undefined) {
+      quads[0] = west
+      quads[1] = east
+    }
+  }
+
+  quads.forEach((quad, threeFace) => {
+    setFaceQuad(uvAttr, threeFace * 4, quad)
+  })
+  uvAttr.needsUpdate = true
+}
+
+function pushQuad(
+    positions: number[],
+    normals: number[],
+    uvs: number[],
+    corners: Array<[number, number, number, number, number]>,
+    normal: [number, number, number],
+): void {
+  const indices = [0, 1, 2, 0, 2, 3]
+  indices.forEach((i) => {
+    const [x = 0, y = 0, z = 0, u = 0, v = 0] = corners[i] ?? []
+    positions.push(x, y, z)
+    normals.push(normal[0], normal[1], normal[2])
+    uvs.push(u, v)
+  })
+}
+
+function buildExtrudedGeometry(
+    child: CPMChild,
+    mcScale: number,
+    skinW: number, skinH: number,
+): THREE.BufferGeometry {
+  const {size} = child
+  const meshScale = child.scale || { x: 1, y: 1, z: 1 }
+  const w = size.x * meshScale.x + mcScale * 2
+  const h = size.y * meshScale.y + mcScale * 2
+  const d = size.z * meshScale.z + mcScale * 2
+
+  const ts = Math.abs(child.textureSize ?? 1)
+  const dx = Math.ceil(size.x * ts)
+  const dy = Math.ceil(size.y * ts)
+  const uLeft = (child.u || 0) * ts
+  const uRight = uLeft + dx
+  const vTopImg = (child.v || 0) * ts
+  const vBottomImg = vTopImg + dy
+
+  const mirror = !!child.mirror
+  const uAtMinX = mirror ? uRight : uLeft
+  const uAtMaxX = mirror ? uLeft : uRight
+  const inset = (u: number, toward: number): number => u + (toward > u ? 0.5 : -0.5)
+  const uWallMinX = inset(uAtMinX, uAtMaxX)
+  const uWallMaxX = inset(uAtMaxX, uAtMinX)
+
+  const sv = (py: number): number => 1 - py / skinH
+  const su = (pu: number): number => pu / skinW
+  const vTop = sv(vTopImg)
+  const vBottom = sv(vBottomImg)
+
+  const hw = w / 2
+  const hh = h / 2
+  const hd = d / 2
+  const positions: number[] = []
+  const normals: number[] = []
+  const uvs: number[] = []
+
+  pushQuad(positions, normals, uvs, [
+    [-hw, hh, hd, su(uAtMinX), vTop],
+    [hw, hh, hd, su(uAtMaxX), vTop],
+    [hw, -hh, hd, su(uAtMaxX), vBottom],
+    [-hw, -hh, hd, su(uAtMinX), vBottom],
+  ], [0, 0, 1])
+  pushQuad(positions, normals, uvs, [
+    [-hw, hh, -hd, su(uAtMinX), vTop],
+    [hw, hh, -hd, su(uAtMaxX), vTop],
+    [hw, -hh, -hd, su(uAtMaxX), vBottom],
+    [-hw, -hh, -hd, su(uAtMinX), vBottom],
+  ], [0, 0, -1])
+  pushQuad(positions, normals, uvs, [
+    [hw, hh, hd, su(uWallMaxX), vTop],
+    [hw, hh, -hd, su(uWallMaxX), vTop],
+    [hw, -hh, -hd, su(uWallMaxX), vBottom],
+    [hw, -hh, hd, su(uWallMaxX), vBottom],
+  ], [1, 0, 0])
+  pushQuad(positions, normals, uvs, [
+    [-hw, hh, hd, su(uWallMinX), vTop],
+    [-hw, hh, -hd, su(uWallMinX), vTop],
+    [-hw, -hh, -hd, su(uWallMinX), vBottom],
+    [-hw, -hh, hd, su(uWallMinX), vBottom],
+  ], [-1, 0, 0])
+  pushQuad(positions, normals, uvs, [
+    [-hw, hh, hd, su(uAtMinX), vTop],
+    [hw, hh, hd, su(uAtMaxX), vTop],
+    [hw, hh, -hd, su(uAtMaxX), vTop],
+    [-hw, hh, -hd, su(uAtMinX), vTop],
+  ], [0, 1, 0])
+  pushQuad(positions, normals, uvs, [
+    [-hw, -hh, hd, su(uAtMinX), vBottom],
+    [hw, -hh, hd, su(uAtMaxX), vBottom],
+    [hw, -hh, -hd, su(uAtMaxX), vBottom],
+    [-hw, -hh, -hd, su(uAtMinX), vBottom],
+  ], [0, -1, 0])
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  return geo
+}
+
+export function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.Group {
+  const rootGroup = new THREE.Group()
+  const skinW = config.skinSize.x
+  const skinH = config.skinSize.y
+
+  function buildNode(node: CPMElement | CPMChild, isRoot: boolean, rootId?: string): THREE.Group {
+    const group = new THREE.Group()
+
+    const pivot = isRoot ? (ROOT_PIVOTS[rootId as string] ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 }
+    group.position.set(
+        pivot.x + (node.pos?.x || 0),
+        pivot.y - (node.pos?.y || 0),
+        -(pivot.z + (node.pos?.z || 0)),
+    )
+
+    if (node.rotation) {
+      group.rotation.set(
+          THREE.MathUtils.degToRad(node.rotation.x),
+          THREE.MathUtils.degToRad(-node.rotation.y),
+          THREE.MathUtils.degToRad(-node.rotation.z),
+          'ZYX'
+      )
+    }
+
+    if (!isRoot) {
+      const renderScale = (node as CPMChild).rscale
+      if (renderScale) group.scale.set(renderScale.x, renderScale.y, renderScale.z)
+    }
+    group.name = 'id' in node ? node.id : node.name
+
+    if (isRoot) {
+      const element = node as CPMElement
+      const isVanillaRoot = element.customPart !== true && element.dup !== true
+      group.userData.storeID = isVanillaRoot
+        ? (PLAYER_PART_ORDINALS[element.id] ?? element.storeID)
+        : element.storeID
+      group.userData.isRoot = true
+      group.userData.isVanillaPart = isVanillaRoot
+      if (!isVanillaRoot) {
+        const defaultVisible = element.show !== false
+        group.visible = defaultVisible
+        group.userData.defaultVisible = defaultVisible
+      }
+    } else {
+      const child = node as CPMChild
+      group.userData.storeID = child.storeID
+      const defaultVisible = child.hidden !== true && child.show !== false
+      group.visible = defaultVisible
+      group.userData.defaultVisible = defaultVisible
+
+      const {size} = child
+      const hasSize = size && (size.x > 0 || size.y > 0 || size.z > 0)
+
+      if (hasSize) {
+        const mcScale = child.mcScale || 0
+        const meshScale = child.scale || { x: 1, y: 1, z: 1 }
+        const geo = new THREE.BoxGeometry(
+            size.x * meshScale.x + mcScale * 2,
+            size.y * meshScale.y + mcScale * 2,
+            size.z * meshScale.z + mcScale * 2,
+        )
+        const position = new THREE.Vector3(
+            child.offset.x + size.x * meshScale.x / 2,
+            -child.offset.y - size.y * meshScale.y / 2,
+            -child.offset.z - size.z * meshScale.z / 2
+        )
+
+        let mat: THREE.MeshLambertMaterial
+        let mesh: THREE.Mesh
+        if (child.texture === false) {
+          const rgb = parseHexColor(child.color)
+          mat = new THREE.MeshLambertMaterial({
+            color: rgb ?? DEFAULT_RGB,
+            side: THREE.DoubleSide,
+          })
+          mesh = new THREE.Mesh(geo, mat)
+        } else {
+          const texSize = child.textureSize ?? 1
+          const singleTex = !!child.singleTex
+          let meshGeo: THREE.BufferGeometry = geo
+          if (!singleTex && child.extrude) {
+            meshGeo = buildExtrudedGeometry(child, mcScale, skinW, skinH)
+            geo.dispose()
+          } else {
+            const effTexSize = child.mirror ? -Math.abs(texSize) : texSize
+            if (!singleTex && child.faceUV && Object.keys(child.faceUV).length > 0) {
+              applyFaceUVs(geo, child.faceUV, skinW, skinH)
+            } else {
+              applyBoxUVs(
+                  geo,
+                  child.u || 0, child.v || 0,
+                  size.x, size.y, size.z,
+                  effTexSize,
+                  skinW, skinH,
+                  singleTex,
+                  !!child.mirror,
+              )
+            }
+          }
+
+          mat = new THREE.MeshLambertMaterial({
+            map: texture,
+            transparent: true,
+            alphaTest: 0.3,
+            side: THREE.DoubleSide,
+          })
+          mesh = new THREE.Mesh(meshGeo, mat)
+        }
+
+        mesh.position.copy(position)
+        mesh.userData.layerId = child.storeID
+        mesh.userData.defaultVisible = defaultVisible
+        mesh.userData.animVisible = defaultVisible
+
+        group.add(mesh)
+      }
+    }
+
+    if (node.children && Array.isArray(node.children)) {
+      node.children.forEach((childNode) => {
+        group.add(buildNode(childNode, false))
+      })
+    }
+
+    return group
+  }
+
+  const seenVanilla = new Set<string>()
+  config.elements.forEach((element) => {
+    if (!element.customPart && !element.dup) {
+      seenVanilla.add(element.id)
+    }
+  })
+
+  const dupIndex: Record<string, number> = {}
+  config.elements.forEach((element) => {
+    if (element.customPart) {
+      rootGroup.add(buildNode(element, true, element.id))
+      return
+    }
+    if (element.dup) {
+      dupIndex[element.id] = (dupIndex[element.id] ?? 0) + 1
+      if (seenVanilla.has(element.id) || (dupIndex[element.id] ?? 0) > 1) return
+    }
+    rootGroup.add(buildNode(element, true, element.id))
+  })
+
+  const scale = config.scaling || 1
+  rootGroup.scale.set(scale, scale, scale)
+
+  const box = new THREE.Box3().setFromObject(rootGroup)
+  const center = box.getCenter(new THREE.Vector3())
+  rootGroup.position.set(-center.x, -center.y, -center.z)
+
+  return rootGroup
+}

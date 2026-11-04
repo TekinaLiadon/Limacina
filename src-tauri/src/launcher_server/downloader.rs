@@ -645,7 +645,9 @@ mod mock_server_tests {
     use crate::auth::storage;
     use crate::commands::auth::wipe_project_credentials;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
-    use crate::test_support::{rotation_payload, seed_online_project, sha1_hex, LauncherDirGuard};
+    use crate::test_support::{
+        rotation_payload, seed_online_project, sha1_hex, step_event_id, LauncherDirGuard, MockEnv,
+    };
     use crate::utils::http::http_client;
     use mockito::{Matcher, Server};
     use serde_json::json;
@@ -674,10 +676,28 @@ mod mock_server_tests {
         })
     }
 
+    async fn mock_mods_list(server: &mut Server, mods: &[(&str, &str)]) {
+        let body: HashMap<&str, &str> = mods.iter().copied().collect();
+        server
+            .mock("GET", "/v1/launcher/files/mods")
+            .with_status(200)
+            .with_body(json!(body).to_string())
+            .create_async()
+            .await;
+    }
+
+    fn seed_mods_dir(dir: &LauncherDirGuard, files: &[(&str, &[u8])]) -> PathBuf {
+        let mods_dir = dir.project_dir("Cordelia").join("mods");
+        std::fs::create_dir_all(&mods_dir).expect("создание папки модов");
+        for (name, content) in files {
+            std::fs::write(mods_dir.join(name), content).expect("запись тестового мода");
+        }
+        mods_dir
+    }
+
     #[tokio::test]
     async fn sync_downloads_missing_and_changed_files_and_skips_intact() {
-        let dir = LauncherDirGuard::acquire("files_sync").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_sync").await;
 
         let alpha = b"alpha config".to_vec();
         let beta = b"beta jar".to_vec();
@@ -740,8 +760,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn sync_reports_error_when_downloaded_hash_mismatches() {
-        let dir = LauncherDirGuard::acquire("files_sync_bad_hash").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_sync_bad_hash").await;
         server
             .mock("POST", "/v1/launcher/files/download")
             .with_status(200)
@@ -801,29 +820,20 @@ mod mock_server_tests {
         use crate::utils::step_events::{StepChannel, StepEvent};
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = LauncherDirGuard::acquire("mods_clean_fail").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("mods_clean_fail").await;
         let _capture = test_capture::CaptureGuard::new();
-        let mut server = Server::new_async().await;
 
         let intact = b"intact mod".to_vec();
-        server
-            .mock("GET", "/v1/launcher/files/mods")
-            .with_status(200)
-            .with_body(json!({ "mods/a.jar": sha1_hex(&intact) }).to_string())
-            .create_async()
-            .await;
+        mock_mods_list(&mut server, &[("mods/a.jar", &sha1_hex(&intact))]).await;
 
-        let base = dir.project_dir("Cordelia");
-        std::fs::create_dir_all(base.join("mods")).expect("каталог модов");
-        std::fs::write(base.join("mods/a.jar"), &intact).expect("целый мод");
-        std::fs::write(base.join("mods/extra.jar"), b"stale").expect("лишний мод");
-        std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o500))
+        let mods_dir = seed_mods_dir(&dir, &[("a.jar", &intact), ("extra.jar", b"stale")]);
+        std::fs::set_permissions(&mods_dir, std::fs::Permissions::from_mode(0o500))
             .expect("каталог без права на запись");
 
         let state = state_with_server(&server.url(), "test-token");
 
         let result = download_mods("Cordelia".to_string(), &state).await;
-        std::fs::set_permissions(base.join("mods"), std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(&mods_dir, std::fs::Permissions::from_mode(0o755))
             .expect("восстановление прав");
 
         let error = result
@@ -854,24 +864,10 @@ mod mock_server_tests {
         );
     }
 
-    fn step_event_id(event: &crate::utils::step_events::StepEvent) -> &str {
-        use crate::utils::step_events::StepEvent;
-        match event {
-            StepEvent::Started { id, .. }
-            | StepEvent::Progress { id, .. }
-            | StepEvent::Detail { id, .. }
-            | StepEvent::Finished { id, .. }
-            | StepEvent::Failed { id, .. } => id,
-        }
-    }
-
     #[tokio::test]
     async fn cleanup_extra_mods_keeps_local_mods_when_server_list_empty() {
         let dir = LauncherDirGuard::acquire("mods_clean_empty_list").await;
-        let mods_dir = dir.project_dir("Cordelia").join("mods");
-        std::fs::create_dir_all(&mods_dir).unwrap();
-        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
-        std::fs::write(mods_dir.join("b.jar"), b"beta").unwrap();
+        let mods_dir = seed_mods_dir(&dir, &[("a.jar", b"alpha"), ("b.jar", b"beta")]);
 
         cleanup_extra_mods(&mods_dir, &HashSet::new())
             .await
@@ -886,10 +882,7 @@ mod mock_server_tests {
     #[tokio::test]
     async fn cleanup_extra_mods_removes_only_files_missing_from_nonempty_list() {
         let dir = LauncherDirGuard::acquire("mods_clean_nonempty_list").await;
-        let mods_dir = dir.project_dir("Cordelia").join("mods");
-        std::fs::create_dir_all(&mods_dir).unwrap();
-        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
-        std::fs::write(mods_dir.join("extra.jar"), b"stale").unwrap();
+        let mods_dir = seed_mods_dir(&dir, &[("a.jar", b"alpha"), ("extra.jar", b"stale")]);
 
         cleanup_extra_mods(&mods_dir, &HashSet::from(["a.jar"]))
             .await
@@ -907,19 +900,10 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_mods_empty_server_list_keeps_local_mods() {
-        let dir = LauncherDirGuard::acquire("mods_sync_empty_list").await;
-        let mut server = Server::new_async().await;
-        server
-            .mock("GET", "/v1/launcher/files/mods")
-            .with_status(200)
-            .with_body(json!({}).to_string())
-            .create_async()
-            .await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("mods_sync_empty_list").await;
+        mock_mods_list(&mut server, &[]).await;
 
-        let mods_dir = dir.project_dir("Cordelia").join("mods");
-        std::fs::create_dir_all(&mods_dir).unwrap();
-        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
-        std::fs::write(mods_dir.join("b.jar"), b"beta").unwrap();
+        let mods_dir = seed_mods_dir(&dir, &[("a.jar", b"alpha"), ("b.jar", b"beta")]);
 
         let state = state_with_server(&server.url(), "test-token");
 
@@ -938,10 +922,7 @@ mod mock_server_tests {
     #[tokio::test]
     async fn download_mods_offline_profile_skips_sync_and_keeps_local_mods() {
         let dir = LauncherDirGuard::acquire("mods_sync_offline").await;
-
-        let mods_dir = dir.project_dir("Cordelia").join("mods");
-        std::fs::create_dir_all(&mods_dir).unwrap();
-        std::fs::write(mods_dir.join("a.jar"), b"alpha").unwrap();
+        let mods_dir = seed_mods_dir(&dir, &[("a.jar", b"alpha")]);
 
         let state = Mutex::new(GlobalState {
             project_config: ProjectConfig {
@@ -966,21 +947,12 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_mods_removes_local_mods_missing_from_server_list() {
-        let dir = LauncherDirGuard::acquire("mods_sync_extra_cleanup").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("mods_sync_extra_cleanup").await;
 
         let intact = b"intact mod".to_vec();
-        server
-            .mock("GET", "/v1/launcher/files/mods")
-            .with_status(200)
-            .with_body(json!({ "mods/a.jar": sha1_hex(&intact) }).to_string())
-            .create_async()
-            .await;
+        mock_mods_list(&mut server, &[("mods/a.jar", &sha1_hex(&intact))]).await;
 
-        let mods_dir = dir.project_dir("Cordelia").join("mods");
-        std::fs::create_dir_all(&mods_dir).unwrap();
-        std::fs::write(mods_dir.join("a.jar"), &intact).unwrap();
-        std::fs::write(mods_dir.join("extra.jar"), b"stale").unwrap();
+        let mods_dir = seed_mods_dir(&dir, &[("a.jar", &intact), ("extra.jar", b"stale")]);
 
         let state = state_with_server(&server.url(), "test-token");
 
@@ -1002,8 +974,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_all_files_redownloads_changed_server_file() {
-        let dir = LauncherDirGuard::acquire("files_entry_changed").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_entry_changed").await;
 
         let fresh = b"fresh config v2".to_vec();
         let intact = b"intact bytes".to_vec();
@@ -1157,8 +1128,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_file_error_body_is_bounded() {
-        let dir = LauncherDirGuard::acquire("files_error_body").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_error_body").await;
         let padding = "x".repeat(2 * 1024 * 1024);
         server
             .mock("POST", "/v1/launcher/files/download")
@@ -1208,8 +1178,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_all_files_retries_after_401_with_rotated_token() {
-        let dir = LauncherDirGuard::acquire("files_auth_retry").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_auth_retry").await;
 
         let fresh = b"fresh config".to_vec();
 
@@ -1291,8 +1260,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_file_overwrites_existing_content() {
-        let dir = LauncherDirGuard::acquire("files_overwrite").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_overwrite").await;
         server
             .mock("POST", "/v1/launcher/files/download")
             .with_status(200)
@@ -1340,8 +1308,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_and_verify_keeps_file_with_matching_hash() {
-        let dir = LauncherDirGuard::acquire("files_hash_ok").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_hash_ok").await;
         let body = b"good bytes".to_vec();
         mock_download_body(&mut server, body.clone()).await;
 
@@ -1355,8 +1322,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_and_verify_deletes_file_with_mismatched_hash() {
-        let dir = LauncherDirGuard::acquire("files_hash_bad").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_hash_bad").await;
         mock_download_body(&mut server, b"corrupt bytes".to_vec()).await;
 
         let result = verify_download(
@@ -1375,8 +1341,7 @@ mod mock_server_tests {
 
     #[tokio::test]
     async fn download_and_verify_skips_check_without_expected_hash() {
-        let dir = LauncherDirGuard::acquire("files_no_hash").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("files_no_hash").await;
         mock_download_body(&mut server, b"any bytes".to_vec()).await;
 
         verify_download(&server, &dir, None)

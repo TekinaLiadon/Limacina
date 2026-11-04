@@ -44,7 +44,7 @@ pub async fn set_initialized(state: State<'_, Mutex<GlobalState>>) -> CommandRes
 #[cfg(test)]
 mod initialize_tests {
     use super::initialize_project_inner;
-    use crate::state::config::load_config;
+    use crate::state::config::{load_config, seed_broken_project_config};
     use crate::state::dto::GlobalState;
     use crate::test_support::{offline_project_config, LauncherDirGuard};
     use tokio::sync::Mutex;
@@ -74,10 +74,7 @@ mod initialize_tests {
 
     #[tokio::test]
     async fn initialize_recovers_corrupt_profile_with_backup() {
-        let guard = LauncherDirGuard::acquire("initialize_corrupt_offline").await;
-        let config_dir = guard.root().join("project").join("config");
-        std::fs::create_dir_all(&config_dir).expect("создание config");
-        std::fs::write(config_dir.join("Solo.toml"), "not [valid toml").expect("битый toml");
+        let (_guard, config_dir) = seed_broken_project_config("Solo").await;
         let state = Mutex::new(GlobalState {
             project_config: offline_project_config("Solo"),
             ..GlobalState::default()
@@ -103,10 +100,7 @@ mod initialize_tests {
 
     #[tokio::test]
     async fn unknown_corrupt_profile_never_falls_back_to_empty_default() {
-        let guard = LauncherDirGuard::acquire("initialize_corrupt_unknown").await;
-        let config_dir = guard.root().join("project").join("config");
-        std::fs::create_dir_all(&config_dir).expect("создание config");
-        std::fs::write(config_dir.join("Solo.toml"), "not [valid toml").expect("битый toml");
+        let (guard, config_dir) = seed_broken_project_config("Solo").await;
         let state = Mutex::new(GlobalState::default());
 
         let result = initialize_project_inner(&state, "Solo").await;

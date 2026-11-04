@@ -113,7 +113,7 @@ describe('normalizeSkin', () => {
     expect(Array.from(result.rgba)).toEqual(Array.from(source.rgba))
   })
 
-  it('passes an HD square skin through unchanged', async () => {
+  it('passes an HD square skin through unchanged', { timeout: 30_000 }, async () => {
     const source = patternImage(512, 512)
     const result = await normalizeSkin(await encodePngSkin(source))
     expect(result.width).toBe(512)

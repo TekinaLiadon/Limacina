@@ -483,6 +483,164 @@ mod skin_origin_tests {
 }
 
 #[cfg(test)]
+mod profile_skin_tests {
+    use super::{get_profile_skin_inner, skin_cache_name, SKIN_MAX_BYTES};
+    use crate::state::dto::{online_global_state, GlobalState};
+    use crate::test_support::MockEnv;
+    use crate::utils::errors::LauncherError;
+    use tokio::sync::Mutex;
+
+    fn online_state(server_url: &str, with_session: bool) -> Mutex<GlobalState> {
+        online_global_state("Cordelia", "Steve", server_url, with_session)
+    }
+
+    #[tokio::test]
+    async fn profile_skin_downloads_then_serves_from_cache() {
+        let mut env = MockEnv::acquire("profile_skin_flow").await;
+        let url = format!("{}/skins/1.png", env.server.url());
+        let state = online_state(&env.server.url(), true);
+
+        let fresh = env
+            .server
+            .mock("GET", "/skins/1.png")
+            .with_status(200)
+            .with_body("fresh bytes")
+            .expect(1)
+            .create_async()
+            .await;
+
+        let bytes = get_profile_skin_inner(&state, &url)
+            .await
+            .expect("первое получение скачивает скин");
+        assert_eq!(bytes, b"fresh bytes");
+        fresh.assert_async().await;
+
+        let cache_dir = env.dir.project_dir("Cordelia").join("profile_skins");
+        let cache_file = cache_dir.join(skin_cache_name("uuid-1", &url).expect("имя кэша"));
+        assert_eq!(
+            std::fs::read(&cache_file).expect("кэш-файл"),
+            b"fresh bytes",
+            "скин должен кэшироваться"
+        );
+
+        let stale = env
+            .server
+            .mock("GET", "/skins/1.png")
+            .with_status(200)
+            .with_body("newer bytes")
+            .expect(0)
+            .create_async()
+            .await;
+
+        let bytes = get_profile_skin_inner(&state, &url)
+            .await
+            .expect("повторное получение берёт скин из кэша");
+        assert_eq!(
+            bytes, b"fresh bytes",
+            "кэш должен иметь приоритет над сервером"
+        );
+        stale.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn profile_skin_cleans_stale_cache_entries_for_the_uuid() {
+        let mut env = MockEnv::acquire("profile_skin_cleanup").await;
+        let url = format!("{}/skins/1.png", env.server.url());
+        let state = online_state(&env.server.url(), true);
+        env.server
+            .mock("GET", "/skins/1.png")
+            .with_status(200)
+            .with_body("bytes")
+            .create_async()
+            .await;
+
+        let cache_dir = env.dir.project_dir("Cordelia").join("profile_skins");
+        std::fs::create_dir_all(&cache_dir).expect("создание каталога кэша");
+        std::fs::write(cache_dir.join("uuid-1_old.png"), b"stale").expect("запись старого кэша");
+        std::fs::write(cache_dir.join("uuid-2_keep.png"), b"other").expect("запись чужого кэша");
+
+        get_profile_skin_inner(&state, &url)
+            .await
+            .expect("получение скина");
+
+        assert!(
+            !cache_dir.join("uuid-1_old.png").exists(),
+            "старый кэш того же uuid должен удаляться"
+        );
+        assert!(
+            cache_dir.join("uuid-2_keep.png").exists(),
+            "кэш другого uuid не должен трогаться"
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_skin_requires_session() {
+        let env = MockEnv::acquire("profile_skin_no_session").await;
+        let url = format!("{}/skins/1.png", env.server.url());
+        let state = online_state(&env.server.url(), false);
+
+        let error = get_profile_skin_inner(&state, &url)
+            .await
+            .expect_err("без сессии получение скина невозможно");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::NoSession)
+            ),
+            "ожидается NoSession: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_skin_rejects_foreign_origin_url() {
+        let env = MockEnv::acquire("profile_skin_foreign").await;
+        let state = online_state(&env.server.url(), true);
+
+        let error = get_profile_skin_inner(&state, "https://evil.example/skins/1.png")
+            .await
+            .expect_err("чужой origin должен отклоняться");
+
+        assert!(
+            error.to_string().contains("только с сервера профиля"),
+            "ошибка должна объяснять причину: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn oversized_skin_download_fails_without_cache() {
+        let mut env = MockEnv::acquire("skin_download_oversize").await;
+        let body = vec![0x89u8; SKIN_MAX_BYTES as usize + 1];
+        env.server
+            .mock("GET", "/skins/a.png")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let url = format!("{}/skins/a.png", env.server.url());
+        let error = get_profile_skin_inner(&online_state(&env.server.url(), true), &url)
+            .await
+            .expect_err("скин сверх лимита должен отклоняться");
+
+        assert!(
+            error.chain().any(|cause| matches!(
+                cause.downcast_ref::<LauncherError>(),
+                Some(LauncherError::SizeLimit(_))
+            )),
+            "ожидался SizeLimit: {error}"
+        );
+        let cache_dir = env.dir.project_dir("Cordelia").join("profile_skins");
+        assert!(
+            std::fs::read_dir(&cache_dir)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(true),
+            "перекачанный сверх лимита скин не должен попадать в кэш"
+        );
+    }
+}
+
+#[cfg(test)]
 mod offline_skin_tests {
     use super::{save_offline_skin_inner, SKIN_MAX_BYTES};
     use crate::test_support::LauncherDirGuard;
@@ -525,14 +683,7 @@ mod offline_skin_tests {
         );
     }
 
-    #[tokio::test]
-    async fn save_offline_skin_rejects_unknown_model() {
-        let guard = LauncherDirGuard::acquire("offline_skin_invalid_model").await;
-
-        let error = save_offline_skin_inner("Alpha", "hd", vec![1])
-            .await
-            .expect_err("неизвестная модель должна отклоняться");
-
+    fn assert_invalid_input_no_dir(guard: &LauncherDirGuard, error: anyhow::Error, project: &str) {
         assert!(
             matches!(
                 error.downcast_ref::<LauncherError>(),
@@ -541,9 +692,20 @@ mod offline_skin_tests {
             "ожидается InvalidInput: {error:#}"
         );
         assert!(
-            !guard.project_dir("Alpha").exists(),
+            !guard.project_dir(project).exists(),
             "файлов быть не должно"
         );
+    }
+
+    #[tokio::test]
+    async fn save_offline_skin_rejects_unknown_model() {
+        let guard = LauncherDirGuard::acquire("offline_skin_invalid_model").await;
+
+        let error = save_offline_skin_inner("Alpha", "hd", vec![1])
+            .await
+            .expect_err("неизвестная модель должна отклоняться");
+
+        assert_invalid_input_no_dir(&guard, error, "Alpha");
     }
 
     #[tokio::test]
@@ -555,127 +717,6 @@ mod offline_skin_tests {
                 .await
                 .expect_err("превышение лимита должно отклоняться");
 
-        assert!(
-            matches!(
-                error.downcast_ref::<LauncherError>(),
-                Some(LauncherError::InvalidInput(_))
-            ),
-            "ожидается InvalidInput: {error:#}"
-        );
-        assert!(
-            !guard.project_dir("Alpha").exists(),
-            "файлов быть не должно"
-        );
-    }
-}
-
-#[cfg(test)]
-mod profile_skin_download_tests {
-    use super::{get_profile_skin_inner, skin_cache_name, SKIN_MAX_BYTES};
-    use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
-    use crate::test_support::LauncherDirGuard;
-    use crate::utils::errors::LauncherError;
-    use mockito::Server;
-    use tokio::sync::Mutex;
-
-    fn state_with_session(server_url: &str) -> Mutex<GlobalState> {
-        Mutex::new(GlobalState {
-            project_config: ProjectConfig {
-                project_name: "Cordelia".to_string(),
-                server_url: Some(server_url.to_string()),
-                ..ProjectConfig::default()
-            },
-            session: Some(SessionTokens {
-                access_token: "token".to_string(),
-                uuid: "uuid-1".to_string(),
-                username: "tester".to_string(),
-                project_name: "Cordelia".to_string(),
-            }),
-            ..GlobalState::default()
-        })
-    }
-
-    #[tokio::test]
-    async fn fresh_skin_download_writes_cache() {
-        let dir = LauncherDirGuard::acquire("skin_download_fresh").await;
-        let mut server = Server::new_async().await;
-        server
-            .mock("GET", "/skins/a.png")
-            .with_status(200)
-            .with_body(b"skin bytes" as &[u8])
-            .create_async()
-            .await;
-
-        let url = format!("{}/skins/a.png", server.url());
-        let bytes = get_profile_skin_inner(&state_with_session(&server.url()), &url)
-            .await
-            .expect("скачивание скина в лимите");
-
-        assert_eq!(bytes, b"skin bytes".to_vec());
-        let cache_dir = dir.project_dir("Cordelia").join("profile_skins");
-        let cache_path = cache_dir.join(skin_cache_name("uuid-1", &url).expect("имя кэша"));
-        assert_eq!(
-            std::fs::read(&cache_path).expect("кэш скина"),
-            b"skin bytes"
-        );
-    }
-
-    #[tokio::test]
-    async fn cached_skin_skips_download() {
-        let dir = LauncherDirGuard::acquire("skin_download_cache").await;
-        let mut server = Server::new_async().await;
-        let mock = server
-            .mock("GET", "/skins/a.png")
-            .expect(0)
-            .with_status(200)
-            .with_body(b"downloaded" as &[u8])
-            .create_async()
-            .await;
-
-        let url = format!("{}/skins/a.png", server.url());
-        let cache_dir = dir.project_dir("Cordelia").join("profile_skins");
-        std::fs::create_dir_all(&cache_dir).expect("каталог кэша");
-        let cache_path = cache_dir.join(skin_cache_name("uuid-1", &url).expect("имя кэша"));
-        std::fs::write(&cache_path, b"cached bytes").expect("заготовленный кэш");
-
-        let bytes = get_profile_skin_inner(&state_with_session(&server.url()), &url)
-            .await
-            .expect("скин из кэша");
-
-        assert_eq!(bytes, b"cached bytes".to_vec());
-        mock.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn oversized_skin_download_fails_without_cache() {
-        let dir = LauncherDirGuard::acquire("skin_download_oversize").await;
-        let mut server = Server::new_async().await;
-        let body = vec![0x89u8; SKIN_MAX_BYTES as usize + 1];
-        server
-            .mock("GET", "/skins/a.png")
-            .with_status(200)
-            .with_body(body)
-            .create_async()
-            .await;
-
-        let url = format!("{}/skins/a.png", server.url());
-        let error = get_profile_skin_inner(&state_with_session(&server.url()), &url)
-            .await
-            .expect_err("скин сверх лимита должен отклоняться");
-
-        assert!(
-            error.chain().any(|cause| matches!(
-                cause.downcast_ref::<LauncherError>(),
-                Some(LauncherError::SizeLimit(_))
-            )),
-            "ожидался SizeLimit: {error}"
-        );
-        let cache_dir = dir.project_dir("Cordelia").join("profile_skins");
-        assert!(
-            std::fs::read_dir(&cache_dir)
-                .map(|mut entries| entries.next().is_none())
-                .unwrap_or(true),
-            "перекачанный сверх лимита скин не должен попадать в кэш"
-        );
+        assert_invalid_input_no_dir(&guard, error, "Alpha");
     }
 }

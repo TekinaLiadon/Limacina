@@ -1,6 +1,6 @@
 import { watch, type Ref } from 'vue'
 import * as THREE from 'three'
-import type { ViewerControls } from '@/06-shared'
+import { setFaceQuad, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitToView } from '@/04-features/viewer/useViewerCamera'
 
@@ -60,7 +60,8 @@ function createParts(slim: boolean): BodyPart[] {
 
 function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
   const group = new THREE.Group()
-  const img = texture.image as HTMLImageElement
+  const img = texture.image
+  if (!(img instanceof HTMLImageElement)) return group
   const texW = img.width
   const texH = img.height
   const s = texW / 64
@@ -110,17 +111,10 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
       const uLeft = flipU ? u1 : u0
       const uRight = flipU ? u0 : u1
 
-      if (i === 2 || i === 3) {
-        uvAttr.setXY(base + 0, uLeft, v1)
-        uvAttr.setXY(base + 1, uRight, v1)
-        uvAttr.setXY(base + 2, uLeft, v0)
-        uvAttr.setXY(base + 3, uRight, v0)
-      } else {
-        uvAttr.setXY(base + 0, uLeft, v0)
-        uvAttr.setXY(base + 1, uRight, v0)
-        uvAttr.setXY(base + 2, uLeft, v1)
-        uvAttr.setXY(base + 3, uRight, v1)
-      }
+      const quad: Array<[number, number]> = i === 2 || i === 3
+        ? [[uLeft, v1], [uRight, v1], [uLeft, v0], [uRight, v0]]
+        : [[uLeft, v0], [uRight, v0], [uLeft, v1], [uRight, v1]]
+      setFaceQuad(uvAttr, base, quad)
     }
     uvAttr.needsUpdate = true
 

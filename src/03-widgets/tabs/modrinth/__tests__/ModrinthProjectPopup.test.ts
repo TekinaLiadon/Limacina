@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ModrinthProjectPopup from '../ModrinthProjectPopup.vue'
-import type { ModrinthProjectDetails, ModrinthSearchHit } from '@/05-entities'
+import type { ModrinthProjectDetails, ModrinthSearchHit, ModrinthVersion } from '@/05-entities'
 
 const makeHit = (): ModrinthSearchHit => ({
   project_id: 'p-1',
@@ -21,6 +21,22 @@ const makeHit = (): ModrinthSearchHit => ({
   license: null,
   client_side: null,
   server_side: null,
+})
+
+const makeVersion = (index: number): ModrinthVersion => ({
+  id: `v-${index + 1}`,
+  project_id: 'p-1',
+  name: `Sodium ${index + 1}`,
+  version_number: `${index + 1}.0`,
+  changelog: index === 0 ? 'Исправлена утечка памяти' : null,
+  dependencies: [],
+  game_versions: ['1.20.1'],
+  loaders: ['fabric'],
+  version_type: 'release',
+  date_published: null,
+  downloads: 10,
+  featured: false,
+  files: [],
 })
 
 const makeDetails = (): ModrinthProjectDetails => ({
@@ -45,42 +61,11 @@ const makeDetails = (): ModrinthProjectDetails => ({
     wiki_url: null,
     discord_url: null,
   },
-  versions: [
-    {
-      id: 'v-1',
-      project_id: 'p-1',
-      name: 'Sodium 1.0',
-      version_number: '1.0',
-      changelog: 'Исправлена утечка памяти',
-      dependencies: [],
-      game_versions: ['1.20.1'],
-      loaders: ['fabric'],
-      version_type: 'release',
-      date_published: null,
-      downloads: 10,
-      featured: false,
-      files: [],
-    },
-    {
-      id: 'v-2',
-      project_id: 'p-1',
-      name: 'Sodium 0.9',
-      version_number: '0.9',
-      changelog: null,
-      dependencies: [],
-      game_versions: ['1.20.1'],
-      loaders: ['fabric'],
-      version_type: 'beta',
-      date_published: null,
-      downloads: 5,
-      featured: false,
-      files: [],
-    },
-  ],
+  versions: [makeVersion(0), makeVersion(1)],
   versions_failed: false,
 })
 
-type PopupOverrides = Partial<{ isBusyAny: boolean; actionError: string }>
+type PopupOverrides = Partial<{ isBusyAny: boolean; actionError: string; details: ModrinthProjectDetails }>
 
 const mountPopup = (visible: boolean, overrides: PopupOverrides = {}) =>
   mount(ModrinthProjectPopup, {
@@ -150,6 +135,55 @@ describe('ModrinthProjectPopup', () => {
     await wrapper.setProps({ isBusyAny: false, actionError: 'Версия несовместима с профилем' })
     expect(wrapper.text()).toContain('Версия несовместима с профилем')
     expect(wrapper.find('.modrinth-popup__action-error').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('renders the first chunk of versions and reveals the rest via «Показать ещё»', async () => {
+    const details = makeDetails()
+    details.versions = Array.from({ length: 25 }, (_, index) => makeVersion(index))
+    const wrapper = mountPopup(true, { details })
+
+    expect(wrapper.findAll('.modrinth-popup__version')).toHaveLength(20)
+    expect(wrapper.text()).toContain('Версии (25)')
+
+    const moreButton = wrapper.findAll('button').find((button) => button.text().includes('Показать ещё'))
+    expect(moreButton).toBeDefined()
+    expect(moreButton?.text()).toContain('5')
+
+    await moreButton?.trigger('click')
+
+    expect(wrapper.findAll('.modrinth-popup__version')).toHaveLength(25)
+    expect(wrapper.findAll('button').some((button) => button.text().includes('Показать ещё'))).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('shows no «Показать ещё» button when all versions fit the first chunk', () => {
+    const details = makeDetails()
+    details.versions = Array.from({ length: 20 }, (_, index) => makeVersion(index))
+    const wrapper = mountPopup(true, { details })
+
+    expect(wrapper.findAll('.modrinth-popup__version')).toHaveLength(20)
+    expect(wrapper.findAll('button').some((button) => button.text().includes('Показать ещё'))).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('resets the version limit when the same popup reopens', async () => {
+    const details = makeDetails()
+    details.versions = Array.from({ length: 25 }, (_, index) => makeVersion(index))
+    const wrapper = mountPopup(true, { details })
+
+    const moreButton = wrapper.findAll('button').find((button) => button.text().includes('Показать ещё'))
+    await moreButton?.trigger('click')
+    expect(wrapper.findAll('.modrinth-popup__version')).toHaveLength(25)
+
+    await wrapper.setProps({ visible: false })
+    await wrapper.setProps({ visible: true })
+
+    expect(wrapper.findAll('.modrinth-popup__version')).toHaveLength(20)
+    expect(wrapper.findAll('button').some((button) => button.text().includes('Показать ещё'))).toBe(true)
 
     wrapper.unmount()
   })

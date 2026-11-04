@@ -3,6 +3,12 @@ import type { Ref } from 'vue'
 import { useAsyncRaceGuard } from './useAsyncRaceGuard'
 import { reportError } from './reportError'
 
+export function setFaceQuad(uvAttr: THREE.BufferAttribute, base: number, quad: Array<[number, number]>): void {
+  quad.forEach(([u, v], i) => {
+    uvAttr.setXY(base + i, u, v)
+  })
+}
+
 function configurePixelTexture(texture: THREE.Texture): THREE.Texture {
   texture.magFilter = THREE.NearestFilter
   texture.minFilter = THREE.NearestFilter

@@ -3,6 +3,22 @@ import { useCoreStore, useNotificationStore, type UpdateInfo } from '@/05-entiti
 import { applyUpdateCmd, getErrorMessage, getLauncherVersions } from '@/06-shared/api'
 import { reportError, runScopedAction, useAsyncRaceGuard } from '@/06-shared'
 
+const isVersionNewer = (target: string, current: string): boolean => {
+  const targetParts = target.split(/[+-]/)
+  const currentParts = current.split(/[+-]/)
+  const targetBase = (targetParts[0] ?? '').split('.').map((part) => Number(part) || 0)
+  const currentBase = (currentParts[0] ?? '').split('.').map((part) => Number(part) || 0)
+  const length = Math.max(targetBase.length, currentBase.length)
+  for (let i = 0; i < length; i += 1) {
+    const diff = (targetBase[i] ?? 0) - (currentBase[i] ?? 0)
+    if (diff !== 0) return diff > 0
+  }
+  const targetIsRelease = targetParts.length === 1
+  const currentIsRelease = currentParts.length === 1
+  if (targetIsRelease !== currentIsRelease) return targetIsRelease
+  return false
+}
+
 export function useLauncherUpdate(): {
   versions: Ref<UpdateInfo[]>
   selectedVersion: Ref<string>
@@ -63,8 +79,9 @@ export function useLauncherUpdate(): {
     const target = selectedVersion.value
     if (!target || target === currentVersion.value || isApplying.value) return
 
+    const action = isVersionNewer(target, currentVersion.value) ? 'Обновить' : 'Откатить'
     const confirmed = await notification.confirm(
-      `Откатить лаунчер на версию v${target}? Лаунчер перезапустится.`
+      `${action} лаунчер на версию v${target}? Лаунчер перезапустится.`
     )
     if (!confirmed) return
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref, shallowRef } from 'vue'
 import * as THREE from 'three'
-import { createManagedTextureLoader, removeGroupFromScene } from '../three'
+import { createManagedTextureLoader, removeGroupFromScene, setFaceQuad } from '../three'
 
 const textureLoads = vi.hoisted(() => [] as Array<{
   url: string
@@ -113,6 +113,41 @@ describe('createManagedTextureLoader', () => {
 
     expect(currentDispose).toHaveBeenCalledOnce()
     expect(staleDispose).toHaveBeenCalledOnce()
+  })
+})
+
+describe('setFaceQuad', () => {
+  it('пишет четыре пары UV начиная с базового индекса', () => {
+    const uvAttr = new THREE.BufferAttribute(new Float32Array(6 * 4 * 2), 2)
+
+    setFaceQuad(uvAttr, 8, [
+      [0.1, 0.2],
+      [0.3, 0.2],
+      [0.1, 0.4],
+      [0.3, 0.4],
+    ])
+
+    expect(uvAttr.getX(8)).toBeCloseTo(0.1)
+    expect(uvAttr.getY(8)).toBeCloseTo(0.2)
+    expect(uvAttr.getX(9)).toBeCloseTo(0.3)
+    expect(uvAttr.getX(11)).toBeCloseTo(0.3)
+    expect(uvAttr.getY(10)).toBeCloseTo(0.4)
+  })
+
+  it('не трогает вершины вне квада', () => {
+    const uvAttr = new THREE.BufferAttribute(new Float32Array(6 * 4 * 2), 2)
+
+    setFaceQuad(uvAttr, 0, [
+      [0.5, 0.5],
+      [0.5, 0.5],
+      [0.5, 0.5],
+      [0.5, 0.5],
+    ])
+
+    expect(uvAttr.getX(4)).toBe(0)
+    expect(uvAttr.getY(4)).toBe(0)
+    expect(uvAttr.getX(23)).toBe(0)
+    expect(uvAttr.getY(23)).toBe(0)
   })
 })
 

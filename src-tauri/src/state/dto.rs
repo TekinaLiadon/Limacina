@@ -105,6 +105,30 @@ pub struct GlobalState {
 }
 
 #[cfg(test)]
+pub(crate) fn online_global_state(
+    project: &str,
+    username: &str,
+    server_url: &str,
+    with_session: bool,
+) -> tokio::sync::Mutex<GlobalState> {
+    tokio::sync::Mutex::new(GlobalState {
+        project_config: ProjectConfig {
+            project_name: project.to_string(),
+            online: true,
+            server_url: Some(server_url.to_string()),
+            ..ProjectConfig::default()
+        },
+        session: with_session.then(|| SessionTokens {
+            access_token: "token-1".to_string(),
+            uuid: "uuid-1".to_string(),
+            username: username.to_string(),
+            project_name: project.to_string(),
+        }),
+        ..GlobalState::default()
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

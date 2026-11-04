@@ -126,9 +126,121 @@ pub(crate) async fn request_json<T: DeserializeOwned>(
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_error_body, http_client, read_body_capped, require_success};
+    use super::{bounded_error_body, http_client, read_body_capped, request_json, require_success};
     use crate::utils::errors::LauncherError;
     use mockito::Server;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Payload {
+        value: u32,
+    }
+
+    #[tokio::test]
+    async fn request_json_parses_success_body() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/data")
+            .with_status(200)
+            .with_body(r#"{"value": 7}"#)
+            .create_async()
+            .await;
+
+        let payload: Payload = request_json(
+            http_client().get(format!("{}/data", server.url())),
+            "Не удалось подключиться",
+            "Не удалось разобрать ответ",
+        )
+        .await
+        .expect("успешный JSON разбирается");
+
+        assert_eq!(payload, Payload { value: 7 });
+    }
+
+    #[tokio::test]
+    async fn request_json_reports_connect_failure_with_context() {
+        let error = request_json::<Payload>(
+            http_client().get("http://127.0.0.1:1/data"),
+            "Не удалось подключиться",
+            "Не удалось разобрать ответ",
+        )
+        .await
+        .expect_err("недоступный сервер должен давать ошибку");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::Http(_))
+            ),
+            "ожидается Http: {error:#}"
+        );
+        assert!(
+            error.to_string().contains("Не удалось подключиться"),
+            "ошибка должна нести connect-контекст: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_json_propagates_http_status() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/data")
+            .with_status(503)
+            .with_body(r#"{"message": "техработы"}"#)
+            .create_async()
+            .await;
+
+        let error = request_json::<Payload>(
+            http_client().get(format!("{}/data", server.url())),
+            "Не удалось подключиться",
+            "Не удалось разобрать ответ",
+        )
+        .await
+        .expect_err("некорректный статус должен давать ошибку");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::HttpStatus { status: 503, .. })
+            ),
+            "ожидается HttpStatus 503: {error:#}"
+        );
+        assert!(
+            error.to_string().contains("техработы"),
+            "ошибка должна нести сообщение сервера: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_json_reports_parse_failure_with_context() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/data")
+            .with_status(200)
+            .with_body("не json")
+            .create_async()
+            .await;
+
+        let error = request_json::<Payload>(
+            http_client().get(format!("{}/data", server.url())),
+            "Не удалось подключиться",
+            "Не удалось разобрать ответ",
+        )
+        .await
+        .expect_err("некорректный JSON должен давать ошибку");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::Http(_))
+            ),
+            "ожидается Http: {error:#}"
+        );
+        assert!(
+            error.to_string().contains("Не удалось разобрать ответ"),
+            "ошибка должна нести parse-контекст: {error}"
+        );
+    }
 
     #[test]
     fn bounded_error_body_keeps_short_text() {
@@ -146,21 +258,25 @@ mod tests {
         assert!(!bounded.contains(&text), "тело не должно попадать целиком");
     }
 
-    #[tokio::test]
-    async fn require_success_bounds_reflected_body() {
+    async fn get_error(status: usize, body: String) -> anyhow::Error {
         let mut server = Server::new_async().await;
-        let padding = "x".repeat(4096);
         server
             .mock("GET", "/")
-            .with_status(502)
-            .with_body(format!("refresh_token=leaked-{padding}"))
+            .with_status(status)
+            .with_body(body)
             .create_async()
             .await;
 
         let response = http_client().get(server.url()).send().await.expect("ответ");
-        let error = require_success(response)
+        require_success(response)
             .await
-            .expect_err("неуспешный статус должен давать ошибку");
+            .expect_err("неуспешный статус должен давать ошибку")
+    }
+
+    #[tokio::test]
+    async fn require_success_bounds_reflected_body() {
+        let padding = "x".repeat(4096);
+        let error = get_error(502, format!("refresh_token=leaked-{padding}")).await;
         let message = error.to_string();
 
         assert!(
@@ -175,19 +291,8 @@ mod tests {
 
     #[tokio::test]
     async fn require_success_bounds_long_server_message() {
-        let mut server = Server::new_async().await;
         let message = "м".repeat(4096);
-        server
-            .mock("GET", "/")
-            .with_status(500)
-            .with_body(serde_json::json!({ "message": message }).to_string())
-            .create_async()
-            .await;
-
-        let response = http_client().get(server.url()).send().await.expect("ответ");
-        let error = require_success(response)
-            .await
-            .expect_err("неуспешный статус должен давать ошибку");
+        let error = get_error(500, serde_json::json!({ "message": message }).to_string()).await;
         let rendered = error.to_string();
 
         assert!(
@@ -202,18 +307,11 @@ mod tests {
 
     #[tokio::test]
     async fn require_success_keeps_short_server_message() {
-        let mut server = Server::new_async().await;
-        server
-            .mock("GET", "/")
-            .with_status(404)
-            .with_body(serde_json::json!({ "message": "Ничего не найдено" }).to_string())
-            .create_async()
-            .await;
-
-        let response = http_client().get(server.url()).send().await.expect("ответ");
-        let error = require_success(response)
-            .await
-            .expect_err("неуспешный статус должен давать ошибку");
+        let error = get_error(
+            404,
+            serde_json::json!({ "message": "Ничего не найдено" }).to_string(),
+        )
+        .await;
 
         assert_eq!(error.to_string(), "Ничего не найдено");
     }
@@ -274,19 +372,8 @@ mod tests {
 
     #[tokio::test]
     async fn require_success_preserves_status_for_oversized_error_body() {
-        let mut server = Server::new_async().await;
         let padding = "x".repeat(128 * 1024);
-        server
-            .mock("GET", "/")
-            .with_status(401)
-            .with_body(format!("token expired {padding}"))
-            .create_async()
-            .await;
-
-        let response = http_client().get(server.url()).send().await.expect("ответ");
-        let error = require_success(response)
-            .await
-            .expect_err("неуспешный статус должен давать ошибку");
+        let error = get_error(401, format!("token expired {padding}")).await;
 
         assert!(
             matches!(

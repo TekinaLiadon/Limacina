@@ -641,7 +641,7 @@ mod scan_targets_tests {
 #[cfg(test)]
 mod ensure_files_tests {
     use super::*;
-    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard};
+    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard, MockEnv};
     use crate::utils::install_manifest::InstallManifest;
     use mockito::Server;
 
@@ -688,8 +688,7 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn downloads_missing_file_without_recording_source_hash() {
-        let dir = LauncherDirGuard::acquire("ensure_ok").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("ensure_ok").await;
         let body = b"library bytes".to_vec();
 
         let report = mock_and_ensure(&mut server, "/libs/a.jar", &body, &dir, "libraries/a.jar")
@@ -713,8 +712,7 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn prunes_stale_entries_for_source_hashed_targets() {
-        let dir = LauncherDirGuard::acquire("ensure_prune").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("ensure_prune").await;
         let body = b"library bytes".to_vec();
         let base = dir.project_dir("Cordelia");
         std::fs::create_dir_all(base.join("libraries")).expect("каталог libraries");
@@ -766,8 +764,7 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn flags_and_deletes_file_with_mismatched_hash() {
-        let dir = LauncherDirGuard::acquire("ensure_bad_hash").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("ensure_bad_hash").await;
         server
             .mock("GET", "/libs/a.jar")
             .with_status(200)
@@ -816,8 +813,7 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn records_hash_when_source_has_no_hash() {
-        let dir = LauncherDirGuard::acquire("ensure_no_hash").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("ensure_no_hash").await;
         let body = b"installer bytes".to_vec();
         server
             .mock("GET", "/installer.jar")
@@ -913,9 +909,8 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn broken_manifest_does_not_block_ensure_files() {
-        let dir = LauncherDirGuard::acquire("ensure_broken_manifest").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("ensure_broken_manifest").await;
         dir.write_broken_install_manifest("Cordelia");
-        let mut server = Server::new_async().await;
         let body = b"library bytes".to_vec();
 
         let report = mock_and_ensure(&mut server, "/libs/a.jar", &body, &dir, "libraries/a.jar")
@@ -963,8 +958,7 @@ mod ensure_files_tests {
     async fn persist_failure_with_failed_files_keeps_report() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = LauncherDirGuard::acquire("ensure_persist_fail").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("ensure_persist_fail").await;
         let body = b"good bytes".to_vec();
         server
             .mock("GET", "/libs/good.jar")
@@ -1024,8 +1018,7 @@ mod ensure_files_tests {
 
     #[tokio::test]
     async fn parallel_writers_keep_all_hashes_and_manifest_valid() {
-        let dir = LauncherDirGuard::acquire("manifest_race").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("manifest_race").await;
         let base = dir.project_dir("Cordelia");
         std::fs::create_dir_all(base.join("libraries")).expect("каталог libraries");
         std::fs::create_dir_all(base.join("mods")).expect("каталог mods");
@@ -1115,13 +1108,9 @@ mod ensure_files_tests {
     #[tokio::test]
     async fn ensure_files_emits_no_terminal_events() {
         use crate::utils::step_events::test_capture;
-        use crate::utils::step_events::StepEvent;
 
-        let dir = LauncherDirGuard::acquire("ensure_no_terminal").await;
-        let _capture = test_capture::CaptureGuard::new();
-        let base = dir.project_dir("Cordelia");
-        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
-        std::fs::write(base.join("libraries/a.jar"), b"content").expect("целый файл");
+        let (_dir, _capture, base) =
+            test_capture::seed_intact_project_file("ensure_no_terminal").await;
 
         let intact_report = ensure_files(
             &StepHandle::start("install", "Тест"),
@@ -1157,24 +1146,18 @@ mod ensure_files_tests {
             vec!["libraries/a.jar".to_string()]
         );
 
-        let terminals = test_capture::captured()
-            .into_iter()
-            .filter(|(_, event)| match event {
-                StepEvent::Finished { id, .. } | StepEvent::Failed { id, .. } => id == "install",
-                _ => false,
-            })
-            .count();
-        assert_eq!(
-            terminals, 0,
+        assert!(
+            test_capture::captured_terminals("install", None).is_empty(),
             "ensure_files не должен эмитить терминальные события — они за владельцем шага"
         );
     }
 
     #[tokio::test]
     async fn settle_install_step_fails_on_failed_and_finishes_as_skipped_when_intact() {
-        use crate::test_support::step_event_id;
         use crate::utils::step_events::test_capture;
-        use crate::utils::step_events::StepEvent;
+        use crate::utils::step_events::test_capture::{
+            assert_single_terminal, TerminalExpectation,
+        };
 
         let _capture = test_capture::CaptureGuard::new();
 
@@ -1199,46 +1182,18 @@ mod ensure_files_tests {
         settle_install_step(StepHandle::start("settle.done", "Тест"), &repaired_report)
             .expect("отремонтированные файлы финишируют шаг");
 
-        let events = crate::utils::step_events::test_capture::captured();
         for (id, expected) in [
-            ("settle.failed", false),
-            ("settle.skipped", true),
-            ("settle.done", false),
+            ("settle.failed", TerminalExpectation::Failed),
+            (
+                "settle.skipped",
+                TerminalExpectation::Finished { skipped: true },
+            ),
+            (
+                "settle.done",
+                TerminalExpectation::Finished { skipped: false },
+            ),
         ] {
-            let terminals: Vec<_> = events
-                .iter()
-                .filter(|(_, event)| step_event_id(event) == id)
-                .filter(|(_, event)| {
-                    matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
-                })
-                .collect();
-            assert_eq!(
-                terminals.len(),
-                1,
-                "для шага {id} ожидается ровно одно терминальное событие"
-            );
-            if expected {
-                assert!(
-                    matches!(
-                        terminals.first(),
-                        Some((_, StepEvent::Finished { skipped: true, .. }))
-                    ),
-                    "шаг {id} должен финишировать как пропущенный"
-                );
-            } else if id == "settle.failed" {
-                assert!(
-                    matches!(terminals.first(), Some((_, StepEvent::Failed { .. }))),
-                    "шаг {id} должен фейлиться"
-                );
-            } else {
-                assert!(
-                    matches!(
-                        terminals.first(),
-                        Some((_, StepEvent::Finished { skipped: false, .. }))
-                    ),
-                    "шаг {id} должен финишировать без пропуска"
-                );
-            }
+            assert_single_terminal(id, None, expected);
         }
     }
 }
@@ -1253,6 +1208,35 @@ mod check_integrity_tests {
     async fn write_file(base: &Path, name: &str, content: &[u8]) {
         tokio::fs::create_dir_all(base).await.unwrap();
         tokio::fs::write(base.join(name), content).await.unwrap();
+    }
+
+    async fn check_integrity_case<F, Fut>(
+        label: &str,
+        download_fn: F,
+    ) -> (LauncherDirGuard, PathBuf, IntegrityReport)
+    where
+        F: Fn(String, PathBuf) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), anyhow::Error>> + Send + 'static,
+    {
+        let dir = LauncherDirGuard::acquire(label).await;
+        let base = dir.project_dir("Cordelia");
+        write_file(&base, "a.txt", b"corrupted").await;
+
+        let report = check_integrity(
+            &base,
+            vec![integrity_url_target(
+                "a.txt",
+                &sha1_hex(b"good a"),
+                "http://127.0.0.1:1/a".to_string(),
+            )],
+            "files.check",
+            "Файлы сервера",
+            download_fn,
+        )
+        .await
+        .expect("отчёт проверки целостности");
+
+        (dir, base, report)
     }
 
     #[tokio::test]
@@ -1364,23 +1348,11 @@ mod check_integrity_tests {
 
     #[tokio::test]
     async fn failed_downloads_are_reported_in_failed_list() {
-        let dir = LauncherDirGuard::acquire("integrity_failed").await;
-        let base = dir.project_dir("Cordelia");
-        write_file(&base, "a.txt", b"corrupted").await;
-
-        let report = check_integrity(
-            &base,
-            vec![integrity_url_target(
-                "a.txt",
-                &sha1_hex(b"good a"),
-                "http://127.0.0.1:1/a".to_string(),
-            )],
-            "files.check",
-            "Файлы сервера",
-            |_url, _dest| async move { Err(anyhow::anyhow!("сервер недоступен")) },
-        )
-        .await
-        .expect("сбой восстановления не должен ронять отчёт");
+        let (_dir, base, report) =
+            check_integrity_case("integrity_failed", |_url, _dest| async move {
+                Err(anyhow::anyhow!("сервер недоступен"))
+            })
+            .await;
 
         assert_eq!(report.broken, 1);
         assert_eq!(report.repaired, 0);
@@ -1393,26 +1365,12 @@ mod check_integrity_tests {
 
     #[tokio::test]
     async fn restored_file_with_wrong_hash_is_reported_failed() {
-        let dir = LauncherDirGuard::acquire("integrity_bad_restore").await;
-        let base = dir.project_dir("Cordelia");
-        write_file(&base, "a.txt", b"corrupted").await;
-
-        let report = check_integrity(
-            &base,
-            vec![integrity_url_target(
-                "a.txt",
-                &sha1_hex(b"good a"),
-                "http://127.0.0.1:1/a".to_string(),
-            )],
-            "files.check",
-            "Файлы сервера",
-            move |_url, dest| async move {
+        let (_dir, _base, report) =
+            check_integrity_case("integrity_bad_restore", move |_url, dest| async move {
                 tokio::fs::write(&dest, b"still wrong").await.unwrap();
                 Ok(())
-            },
-        )
-        .await
-        .expect("плохое восстановление не должно ронять отчёт");
+            })
+            .await;
 
         assert_eq!(report.broken, 1);
         assert_eq!(report.repaired, 0);
@@ -1422,7 +1380,9 @@ mod check_integrity_tests {
     #[tokio::test]
     async fn unreadable_files_fail_step_when_nothing_to_repair() {
         use crate::utils::step_events::test_capture;
-        use crate::utils::step_events::StepEvent;
+        use crate::utils::step_events::test_capture::{
+            assert_single_terminal, TerminalExpectation,
+        };
 
         let dir = LauncherDirGuard::acquire("integrity_unreadable_early").await;
         let _capture = test_capture::CaptureGuard::new();
@@ -1446,23 +1406,6 @@ mod check_integrity_tests {
         assert_eq!(report.failed, vec!["libraries/a.jar".to_string()]);
         assert_eq!(report.broken, 0);
 
-        let terminals: Vec<_> = test_capture::captured()
-            .into_iter()
-            .filter(|(_, event)| match event {
-                StepEvent::Finished { id, .. } | StepEvent::Failed { id, .. } => {
-                    id == "files.check"
-                }
-                _ => false,
-            })
-            .collect();
-        assert_eq!(
-            terminals.len(),
-            1,
-            "ожидается ровно одно терминальное событие: {terminals:?}"
-        );
-        assert!(
-            matches!(terminals.first(), Some((_, StepEvent::Failed { .. }))),
-            "нечитаемые файлы должны фейлить шаг, а не помечать его пропущенным"
-        );
+        assert_single_terminal("files.check", None, TerminalExpectation::Failed);
     }
 }

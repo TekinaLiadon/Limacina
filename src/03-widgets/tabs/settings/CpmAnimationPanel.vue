@@ -120,21 +120,11 @@ const clearSelection = (): void => {
   }
 
   &__clear {
+    @include mixins.ghost-button(var(--radius-badge));
+
     flex-shrink: 0;
     padding: var(--space-4) var(--space-8);
-    border: none;
-    border-radius: var(--radius-badge);
-    background: transparent;
-    color: var(--login-text-muted);
-    font-family: inherit;
     font-size: var(--text-caption);
-    cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
-
-    &:hover:not(:disabled) {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
-    }
 
     &:disabled {
       opacity: 0.5;
