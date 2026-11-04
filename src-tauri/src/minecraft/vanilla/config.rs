@@ -17,7 +17,7 @@ use crate::{
     state::dto::ProjectConfig,
     utils::{
         compare_versions,
-        env_info::{get_launcher_name, launcher_path},
+        env_info::{ensure_safe_relative_path, get_launcher_name, launcher_path},
         get_classpath_separator,
     },
 };
@@ -157,6 +157,7 @@ pub async fn get_classpath(libraries: &[Library], config: &LaunchConfig) -> Resu
 
         let (lib_path, rel_path, required) = if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
+                ensure_safe_relative_path(&artifact.path, "пути библиотеки в манифесте")?;
                 (
                     config.libraries_dir.join(&artifact.path),
                     artifact.path.clone(),
@@ -565,6 +566,45 @@ mod tests {
 
         drop(dir);
         assert!(!_libraries_dir.exists(), "временная директория не удалена");
+    }
+
+    #[tokio::test]
+    async fn get_classpath_rejects_traversal_in_artifact_path() {
+        let libs: Vec<Library> = serde_json::from_value(serde_json::json!([{
+            "name": "com.example:evil:1.0",
+            "downloads": {
+                "artifact": {
+                    "path": "../../evil.jar",
+                    "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "size": 1,
+                    "url": "https://example.test/evil.jar"
+                }
+            }
+        }]))
+        .unwrap();
+
+        let dir = TempDir::new("classpath_traversal");
+        let root = dir.0.clone();
+        let libraries_dir = root.join("libraries");
+        fs::create_dir_all(&libraries_dir).unwrap();
+        let config = test_launch_config(&root);
+
+        let error = get_classpath(&libs, &config)
+            .await
+            .expect_err("traversal в artifact.path должен быть отклонён");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("пути библиотеки в манифесте"),
+            "ошибка должна называть контекст: {message}"
+        );
+        assert!(
+            message.contains("../"),
+            "ошибка должна содержать traversal-путь: {message}"
+        );
+
+        drop(dir);
+        assert!(!root.exists(), "временная директория не удалена");
     }
 }
 
