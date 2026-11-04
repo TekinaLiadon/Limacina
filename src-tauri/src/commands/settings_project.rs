@@ -248,7 +248,7 @@ mod available_cores_tests {
 #[cfg(test)]
 mod load_settings_tests {
     use super::load_settings_project_inner;
-    use crate::state::config::load_config;
+    use crate::state::config::{load_config, seed_broken_project_config};
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::{offline_project_config, LauncherDirGuard};
     use tokio::sync::Mutex;
@@ -295,10 +295,7 @@ mod load_settings_tests {
 
     #[tokio::test]
     async fn load_settings_recovers_corrupt_profile_with_backup() {
-        let guard = LauncherDirGuard::acquire("load_settings_corrupt_offline").await;
-        let config_dir = guard.root().join("project").join("config");
-        std::fs::create_dir_all(&config_dir).expect("создание config");
-        std::fs::write(config_dir.join("Solo.toml"), "not [valid toml").expect("битый toml");
+        let (_guard, config_dir) = seed_broken_project_config("Solo").await;
         let state = Mutex::new(GlobalState {
             project_config: offline_config("Solo"),
             ..GlobalState::default()
@@ -451,11 +448,10 @@ mod save_settings_tests {
         clear_minecraft_config_inner, extract_java_major, load_settings_project_inner,
         save_project_settings,
     };
-    use crate::state::config::{load_config, update_project_config};
+    use crate::state::config::{load_config, slow_java_path_update};
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::{seeded_global_state, LauncherDirGuard};
     use crate::utils::errors::LauncherError;
-    use std::time::Duration;
     use tokio::sync::Mutex;
 
     #[tokio::test]
@@ -557,11 +553,7 @@ mod save_settings_tests {
         };
 
         let (update_result, save_result) = tokio::join!(
-            update_project_config(&state, async |config: &mut ProjectConfig| {
-                tokio::time::sleep(Duration::from_millis(80)).await;
-                config.java_path = Some("java-path".to_string());
-                Ok(())
-            }),
+            slow_java_path_update(&state),
             save_project_settings(&state, payload),
         );
         update_result.expect("мутация java_path");
@@ -595,11 +587,7 @@ mod save_settings_tests {
         });
 
         let (save_result, switch_result) = tokio::join!(
-            update_project_config(&state, async |config: &mut ProjectConfig| {
-                tokio::time::sleep(Duration::from_millis(80)).await;
-                config.java_path = Some("java-path".to_string());
-                Ok(())
-            }),
+            slow_java_path_update(&state),
             load_settings_project_inner(&state, "SwitchTo"),
         );
         save_result.expect("сохранение настроек");
@@ -691,19 +679,20 @@ mod save_settings_tests {
         assert_eq!(saved.cpu_cores, Some(available));
     }
 
+    fn java_version_project() -> ProjectConfig {
+        ProjectConfig {
+            project_name: "JavaVer".to_string(),
+            mc_version: "1.20.1".to_string(),
+            java_path: Some("/old/java".to_string()),
+            java_version: Some(17),
+            ..ProjectConfig::default()
+        }
+    }
+
     #[tokio::test]
     async fn settings_save_keeps_java_version_only_while_path_unchanged() {
-        let (_guard, state) = seeded_global_state(
-            "settings_java_version",
-            ProjectConfig {
-                project_name: "JavaVer".to_string(),
-                mc_version: "1.20.1".to_string(),
-                java_path: Some("/old/java".to_string()),
-                java_version: Some(17),
-                ..ProjectConfig::default()
-            },
-        )
-        .await;
+        let (_guard, state) =
+            seeded_global_state("settings_java_version", java_version_project()).await;
 
         let same_path = ProjectConfig {
             project_name: "JavaVer".to_string(),
@@ -738,17 +727,8 @@ mod save_settings_tests {
 
     #[tokio::test]
     async fn settings_save_uses_probed_java_version_when_path_changes() {
-        let (_guard, state) = seeded_global_state(
-            "settings_java_version_probed",
-            ProjectConfig {
-                project_name: "JavaVer".to_string(),
-                mc_version: "1.20.1".to_string(),
-                java_path: Some("/old/java".to_string()),
-                java_version: Some(17),
-                ..ProjectConfig::default()
-            },
-        )
-        .await;
+        let (_guard, state) =
+            seeded_global_state("settings_java_version_probed", java_version_project()).await;
 
         let new_path = ProjectConfig {
             project_name: "JavaVer".to_string(),

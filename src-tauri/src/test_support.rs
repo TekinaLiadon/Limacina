@@ -5,6 +5,7 @@ use sha1::{Digest, Sha1};
 
 use crate::minecraft::mod_loader::manifest::{Metadata, VersionList, Versioning};
 use crate::minecraft::structs::{GameConfig, LaunchConfig, LibraryMod, VersionMod};
+use crate::modrinth::client::{clear_response_cache_for_tests, override_api_base_for_tests};
 use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
 use crate::utils::integrity::{HashKind, IntegrityTarget, TargetDownload};
@@ -234,6 +235,54 @@ pub static BANDWIDTH_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::con
 
 pub async fn lock_bandwidth_tests() -> tokio::sync::MutexGuard<'static, ()> {
     BANDWIDTH_TEST_LOCK.lock().await
+}
+
+pub struct MockEnv {
+    pub dir: LauncherDirGuard,
+    pub server: mockito::ServerGuard,
+}
+
+impl MockEnv {
+    pub async fn acquire(label: &str) -> Self {
+        Self {
+            dir: LauncherDirGuard::acquire(label).await,
+            server: mockito::Server::new_async().await,
+        }
+    }
+
+    pub async fn acquire_v2(label: &str) -> Self {
+        let env = Self::acquire(label).await;
+        override_api_base_for_tests(format!("{}/v2", env.server.url()));
+        clear_response_cache_for_tests();
+        env
+    }
+}
+
+pub fn assert_no_loader_placeholders(config: &GameConfig) {
+    assert!(
+        !config
+            .jvm_args
+            .iter()
+            .chain(config.game_args.iter())
+            .any(|arg| arg.contains("${")),
+        "плейсхолдеры лоадера должны быть раскрыты: {:?} / {:?}",
+        config.jvm_args,
+        config.game_args
+    );
+}
+
+pub fn assert_user_jvm_args_survive_validation(config: &GameConfig) {
+    assert!(
+        config.jvm_args.contains(&"-Xdebug".to_string()),
+        "пользовательский аргумент должен пройти через конфиг лоадера: {:?}",
+        config.jvm_args
+    );
+    let error = crate::minecraft::process::validate_jvm_args(&config.jvm_args)
+        .expect_err("пользовательский debug-аргумент должен быть отклонён");
+    assert!(
+        error.to_string().contains("-Xdebug"),
+        "ошибка должна называть аргумент: {error}"
+    );
 }
 
 pub static LAUNCHER_DIR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

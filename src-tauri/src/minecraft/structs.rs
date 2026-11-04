@@ -72,6 +72,23 @@ impl GameConfig {
     }
 }
 
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use super::GameConfig;
+    use std::path::Path;
+
+    pub(crate) fn test_game_config(game_dir: &Path) -> GameConfig {
+        GameConfig::new(
+            game_dir.join("java"),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "net.minecraft.client.main.Main".to_string(),
+            game_dir.to_path_buf(),
+        )
+    }
+}
+
 pub fn new_launch_config(
     username: &str,
     uuid: &str,
@@ -211,18 +228,21 @@ mod launch_config_tests {
         );
     }
 
-    #[test]
-    fn game_config_builder_replaces_only_own_fields() {
-        let config = GameConfig::new(
+    fn base_config() -> GameConfig {
+        GameConfig::new(
             PathBuf::from("java"),
             vec!["-Xmx1G".to_string()],
             vec!["--game".to_string()],
             vec!["a.jar".to_string()],
             "net.minecraft.client.main.Main".to_string(),
             PathBuf::from("game"),
-        );
+        )
+    }
 
-        let with_args = config.with_args(vec!["-Xmx2G".to_string()], vec!["--server".to_string()]);
+    #[test]
+    fn game_config_builder_replaces_only_own_fields() {
+        let with_args =
+            base_config().with_args(vec!["-Xmx2G".to_string()], vec!["--server".to_string()]);
         assert_eq!(with_args.jvm_args, vec!["-Xmx2G".to_string()]);
         assert_eq!(with_args.game_args, vec!["--server".to_string()]);
         assert_eq!(
@@ -235,15 +255,8 @@ mod launch_config_tests {
             "with_args не должен трогать main_class"
         );
 
-        let config = GameConfig::new(
-            PathBuf::from("java"),
-            vec!["-Xmx1G".to_string()],
-            vec!["--game".to_string()],
-            vec!["a.jar".to_string()],
-            "net.minecraft.client.main.Main".to_string(),
-            PathBuf::from("game"),
-        );
-        let with_loader = config.with_loader(vec!["b.jar".to_string()], "cpw.mods.App".to_string());
+        let with_loader =
+            base_config().with_loader(vec!["b.jar".to_string()], "cpw.mods.App".to_string());
         assert_eq!(with_loader.classpath, vec!["b.jar".to_string()]);
         assert_eq!(with_loader.main_class, "cpw.mods.App");
         assert_eq!(

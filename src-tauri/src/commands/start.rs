@@ -57,7 +57,7 @@ async fn start_minecraft_inner(
 ) -> CommandResult<()> {
     let config_step = StepHandle::start("launch.config", "Подготовка конфигурации");
     let (ctx, mut project_config) = read_launch_context(&state, config_step.clone()).await?;
-    project_config = repair_stale_java_path(&state, project_config).await;
+    project_config = repair_stale_java_path(state.inner(), project_config).await;
 
     let authlib = offline::AuthlibLaunch::resolve(&project_config, &ctx.username, &ctx.uuid).await;
     if project_config.online {
@@ -432,7 +432,7 @@ pub async fn kill_game_process() -> CommandResult<()> {
 }
 
 async fn repair_stale_java_path(
-    state: &tauri::State<'_, Mutex<GlobalState>>,
+    state: &Mutex<GlobalState>,
     mut config: ProjectConfig,
 ) -> ProjectConfig {
     let Some(stored) = config.java_path.clone() else {
@@ -491,6 +491,105 @@ async fn prepare_options_file(game_dir: &Path) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("Не удалось записать {:?}", path))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod repair_java_path_tests {
+    use super::repair_stale_java_path;
+    use crate::state::config::load_config;
+    use crate::state::dto::{GlobalState, ProjectConfig};
+    use crate::test_support::LauncherDirGuard;
+    use crate::utils::java::write_fake_java_binary;
+    use tokio::sync::Mutex;
+
+    fn config_with_java(java_path: Option<&str>) -> ProjectConfig {
+        ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            java_path: java_path.map(str::to_string),
+            ..ProjectConfig::default()
+        }
+    }
+
+    async fn seeded_state(java_path: &str) -> Mutex<GlobalState> {
+        let base = config_with_java(Some(java_path));
+        base.save_config()
+            .await
+            .expect("сохранение базового конфига");
+        Mutex::new(GlobalState {
+            project_config: base,
+            ..GlobalState::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn keeps_untouched_config_when_java_path_exists() {
+        let guard = LauncherDirGuard::acquire("repair_java_kept").await;
+        let java = write_fake_java_binary(&guard.project_dir("Cordelia"), "runtime/bin/java");
+        let state = seeded_state(java.to_string_lossy().as_ref()).await;
+
+        let result = repair_stale_java_path(
+            &state,
+            config_with_java(Some(java.to_string_lossy().as_ref())),
+        )
+        .await;
+
+        assert_eq!(
+            result.java_path.as_deref(),
+            Some(java.to_string_lossy().as_ref()),
+            "существующий путь не должен трогаться"
+        );
+        let stored = load_config("Cordelia").await.expect("конфиг читается");
+        assert_eq!(
+            stored.java_path.as_deref(),
+            Some(java.to_string_lossy().as_ref())
+        );
+    }
+
+    #[tokio::test]
+    async fn replaces_stale_launcher_root_path_once() {
+        let guard = LauncherDirGuard::acquire("repair_java_stale").await;
+        let java = write_fake_java_binary(guard.root(), "java/21/bin/java");
+        let stale = "/old-launcher-root/java/21/bin/java";
+        let state = seeded_state(stale).await;
+
+        let result = repair_stale_java_path(&state, config_with_java(Some(stale))).await;
+
+        assert_eq!(
+            result.java_path.as_deref(),
+            Some(java.to_string_lossy().as_ref()),
+            "путь должен переезжать на актуальный корень лаунчера"
+        );
+        let stored = load_config("Cordelia").await.expect("конфиг читается");
+        assert_eq!(
+            stored.java_path.as_deref(),
+            Some(java.to_string_lossy().as_ref()),
+            "исправленный путь должен персиститься"
+        );
+    }
+
+    #[tokio::test]
+    async fn keeps_config_when_repair_has_no_candidate() {
+        let _guard = LauncherDirGuard::acquire("repair_java_none").await;
+        let state = seeded_state("placeholder").await;
+
+        let result = repair_stale_java_path(&state, config_with_java(Some("/usr/bin/java"))).await;
+
+        assert_eq!(
+            result.java_path.as_deref(),
+            Some("/usr/bin/java"),
+            "путь без java-хвоста внутри лаунчера не чинится"
+        );
+    }
+
+    #[tokio::test]
+    async fn keeps_config_without_saved_java_path() {
+        let _guard = LauncherDirGuard::acquire("repair_java_absent").await;
+        let state = seeded_state("").await;
+
+        let result = repair_stale_java_path(&state, config_with_java(None)).await;
+
+        assert!(result.java_path.is_none());
+    }
 }
 
 #[cfg(test)]
@@ -581,22 +680,10 @@ mod options_file_tests {
 #[cfg(test)]
 mod auto_join_tests {
     use super::apply_auto_join;
-    use crate::minecraft::structs::GameConfig;
+    use crate::minecraft::structs::test_helpers::test_game_config;
     use crate::state::dto::ProjectConfig;
     use crate::test_support::{write_servers_dat, ServersDatContainer, TempDir};
     use crate::utils::step_events::StepHandle;
-    use std::path::Path;
-
-    fn game_config(game_dir: &Path) -> GameConfig {
-        GameConfig::new(
-            game_dir.join("java"),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            "net.minecraft.client.main.Main".to_string(),
-            game_dir.to_path_buf(),
-        )
-    }
 
     fn project_config(mc_version: &str, auto_join: bool) -> ProjectConfig {
         ProjectConfig {
@@ -610,7 +697,7 @@ mod auto_join_tests {
     async fn appends_quick_play_args_for_modern_version() {
         let dir = TempDir::new("autojoin_quickplay");
         write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
-        let mut game = game_config(&dir.0);
+        let mut game = test_game_config(&dir.0);
 
         apply_auto_join(
             &project_config("1.20.4", true),
@@ -635,7 +722,7 @@ mod auto_join_tests {
     async fn appends_legacy_server_args_for_old_version() {
         let dir = TempDir::new("autojoin_legacy");
         write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
-        let mut game = game_config(&dir.0);
+        let mut game = test_game_config(&dir.0);
 
         apply_auto_join(
             &project_config("1.16.5", true),
@@ -659,7 +746,7 @@ mod auto_join_tests {
     async fn disabled_flag_leaves_args_untouched() {
         let dir = TempDir::new("autojoin_disabled");
         write_servers_dat(&dir.0, "play.example.com:25565", ServersDatContainer::Raw);
-        let mut game = game_config(&dir.0);
+        let mut game = test_game_config(&dir.0);
 
         apply_auto_join(
             &project_config("1.20.4", false),
@@ -675,7 +762,7 @@ mod auto_join_tests {
     #[tokio::test]
     async fn missing_servers_dat_is_input_error() {
         let dir = TempDir::new("autojoin_missing");
-        let mut game = game_config(&dir.0);
+        let mut game = test_game_config(&dir.0);
 
         let error = apply_auto_join(
             &project_config("1.20.4", true),
@@ -696,7 +783,7 @@ mod auto_join_tests {
     async fn garbage_servers_dat_keeps_manifest_parse_error() {
         let dir = TempDir::new("autojoin_garbage");
         std::fs::write(dir.0.join("servers.dat"), b"PK\x03\x04fake zip").expect("запись мусора");
-        let mut game = game_config(&dir.0);
+        let mut game = test_game_config(&dir.0);
 
         let error = apply_auto_join(
             &project_config("1.20.4", true),

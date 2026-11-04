@@ -111,19 +111,7 @@ const errorTexts = computed((): string[] => {
     @include mixins.caption-hint(left);
   }
 
-  &__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  &__empty {
-    @include mixins.caption-hint(left);
-  }
-
-  &__error {
-    @include mixins.error-box;
-  }
+  @include mixins.content-list;
 
   &__versions-hint {
     @include mixins.caption-hint(left);

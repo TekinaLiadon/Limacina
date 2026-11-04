@@ -60,6 +60,8 @@ fn emit_step_event(channel: StepChannel, event: &StepEvent) {
 #[cfg(test)]
 pub(crate) mod test_capture {
     use super::{StepChannel, StepEvent};
+    use crate::test_support::{step_event_id, LauncherDirGuard};
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
@@ -98,6 +100,63 @@ pub(crate) mod test_capture {
 
     pub(crate) fn captured() -> Vec<(StepChannel, StepEvent)> {
         EVENTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(crate) fn captured_terminals(id: &str, channel: Option<StepChannel>) -> Vec<StepEvent> {
+        captured()
+            .into_iter()
+            .filter(|(event_channel, event)| {
+                channel.is_none_or(|c| *event_channel == c) && step_event_id(event) == id
+            })
+            .filter(|(_, event)| {
+                matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+            })
+            .map(|(_, event)| event)
+            .collect()
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum TerminalExpectation {
+        Failed,
+        Finished { skipped: bool },
+    }
+
+    pub(crate) fn assert_single_terminal(
+        id: &str,
+        channel: Option<StepChannel>,
+        expected: TerminalExpectation,
+    ) {
+        let terminals = captured_terminals(id, channel);
+        assert_eq!(
+            terminals.len(),
+            1,
+            "для шага {id} ожидается ровно одно терминальное событие: {terminals:?}"
+        );
+        let matched = match (terminals.first(), expected) {
+            (Some(StepEvent::Failed { .. }), TerminalExpectation::Failed) => true,
+            (
+                Some(StepEvent::Finished { skipped, .. }),
+                TerminalExpectation::Finished {
+                    skipped: expected_skipped,
+                },
+            ) => *skipped == expected_skipped,
+            _ => false,
+        };
+        assert!(
+            matched,
+            "терминальное событие шага {id} должно быть {expected:?}, получено: {terminals:?}"
+        );
+    }
+
+    pub(crate) async fn seed_intact_project_file(
+        label: &str,
+    ) -> (LauncherDirGuard, CaptureGuard, PathBuf) {
+        let dir = LauncherDirGuard::acquire(label).await;
+        let capture = CaptureGuard::new();
+        let base = dir.project_dir("Cordelia");
+        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
+        std::fs::write(base.join("libraries/a.jar"), b"content").expect("целый файл");
+        (dir, capture, base)
     }
 }
 

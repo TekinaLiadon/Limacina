@@ -644,18 +644,23 @@ async fn resolve_mc_version(project_name: &str) -> String {
         .unwrap_or_default()
 }
 
-#[tauri::command]
-pub async fn get_game_options(project_name: String) -> CommandResult<GameOptionsData> {
-    Ok(get_game_options_inner(&project_name).await?)
-}
-
-async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
+async fn options_file_state(project_name: &str) -> Result<(PathBuf, Option<String>, bool)> {
     ensure_project_selected(project_name)?;
     let path = options_file_path(project_name)?;
     let content = read_to_string_opt(&path).await?;
     let version_ready = content
         .as_deref()
         .is_some_and(|content| parse_options_version(content).is_some());
+    Ok((path, content, version_ready))
+}
+
+#[tauri::command]
+pub async fn get_game_options(project_name: String) -> CommandResult<GameOptionsData> {
+    Ok(get_game_options_inner(&project_name).await?)
+}
+
+async fn get_game_options_inner(project_name: &str) -> Result<GameOptionsData> {
+    let (_, content, version_ready) = options_file_state(project_name).await?;
     let normalized_fov = uses_normalized_fov(&resolve_mc_version(project_name).await);
     let pending = if version_ready {
         None
@@ -700,12 +705,7 @@ async fn write_options_file(path: &PathBuf, content: &str) -> Result<()> {
 }
 
 async fn save_game_options_inner(project_name: &str, options: &GameOptions) -> Result<()> {
-    ensure_project_selected(project_name)?;
-    let path = options_file_path(project_name)?;
-    let content = read_to_string_opt(&path).await?;
-    let version_ready = content
-        .as_deref()
-        .is_some_and(|content| parse_options_version(content).is_some());
+    let (path, content, version_ready) = options_file_state(project_name).await?;
 
     if !version_ready {
         write_pending_options(project_name, options).await?;
@@ -772,11 +772,79 @@ async fn import_global_game_options_inner() -> Result<Option<GameOptions>> {
 mod tests {
     use super::{
         apply_options_version, clear_pending_after_install, clear_pending_options,
-        client_data_version, get_game_options_inner, install_game_options,
-        install_options_for_project, merge_options, parse_options, parse_options_version,
-        read_pending_options, save_game_options_inner, write_options_file, write_pending_options,
+        client_data_version, get_game_options_inner, import_global_game_options_inner,
+        install_game_options, install_options_for_project, merge_options, parse_options,
+        parse_options_version, read_pending_options, save_game_options_inner,
+        save_global_game_options_inner, write_options_file, write_pending_options, GameOptions,
+        GLOBAL_OPTIONS_FILE, SETTINGS_DIR_NAME,
     };
     use crate::test_support::{part_files_in, write_test_zip, LauncherDirGuard, TempDir};
+
+    #[tokio::test]
+    async fn global_options_save_then_import_roundtrip() {
+        let guard = LauncherDirGuard::acquire("game_options_global_roundtrip").await;
+        let options = GameOptions {
+            fov: 105.0,
+            ..GameOptions::default()
+        };
+
+        save_global_game_options_inner(&options)
+            .await
+            .expect("сохранение общих настроек");
+
+        let path = guard
+            .root()
+            .join(SETTINGS_DIR_NAME)
+            .join(GLOBAL_OPTIONS_FILE);
+        assert!(
+            path.exists(),
+            "файл общих настроек должен создаваться: {}",
+            path.display()
+        );
+
+        let imported = import_global_game_options_inner()
+            .await
+            .expect("чтение общих настроек")
+            .expect("сохранённый файл должен импортироваться");
+        assert_eq!(
+            imported, options,
+            "импорт должен возвращать сохранённые настройки"
+        );
+    }
+
+    #[tokio::test]
+    async fn global_options_import_without_file_returns_none() {
+        let _guard = LauncherDirGuard::acquire("game_options_global_missing").await;
+
+        let imported = import_global_game_options_inner()
+            .await
+            .expect("чтение общих настроек без файла");
+
+        assert!(
+            imported.is_none(),
+            "без файла импорт должен возвращать None"
+        );
+    }
+
+    #[tokio::test]
+    async fn global_options_import_rejects_corrupt_file() {
+        let guard = LauncherDirGuard::acquire("game_options_global_corrupt").await;
+        let dir = guard.root().join(SETTINGS_DIR_NAME);
+        std::fs::create_dir_all(&dir).expect("создание каталога настроек");
+        std::fs::write(dir.join(GLOBAL_OPTIONS_FILE), "{ сломанный json")
+            .expect("запись битого файла");
+
+        let error = import_global_game_options_inner()
+            .await
+            .expect_err("битый файл общих настроек должен отклоняться");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Повреждён файл общих настроек игры"),
+            "ошибка должна объяснять проблему: {error}"
+        );
+    }
 
     #[test]
     fn merge_replaces_owned_keys_and_keeps_others() {

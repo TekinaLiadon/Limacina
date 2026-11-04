@@ -176,24 +176,31 @@ mod tests {
     use super::*;
     use crate::test_support::cpm_model_entry;
 
+    fn parsed_selected(
+        merged: Result<Option<String>>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::from_str(&merged.unwrap().unwrap()).unwrap()
+    }
+
+    fn two_entry_manifest() -> CpmModelManifest {
+        CpmModelManifest {
+            models: vec![
+                cpm_model_entry(Some(1), "a.cpmmodel", false),
+                cpm_model_entry(Some(2), "b.cpmmodel", false),
+            ],
+        }
+    }
+
     #[test]
     fn merge_creates_config_with_selection_when_missing() {
-        let merged = merge_selected_model(None, "limacina_local_test.cpmmodel")
-            .unwrap()
-            .unwrap();
-        let root: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&merged).unwrap();
+        let root = parsed_selected(merge_selected_model(None, "limacina_local_test.cpmmodel"));
         assert_eq!(root["selectedModel"], "limacina_local_test.cpmmodel");
     }
 
     #[test]
     fn merge_preserves_existing_keys() {
         let existing = r#"{"keybinds": {"glide": "KEY_G"}, "selectedModel": "old.cpmmodel"}"#;
-        let merged = merge_selected_model(Some(existing), "new.cpmmodel")
-            .unwrap()
-            .unwrap();
-        let root: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&merged).unwrap();
+        let root = parsed_selected(merge_selected_model(Some(existing), "new.cpmmodel"));
         assert_eq!(root["selectedModel"], "new.cpmmodel");
         assert_eq!(root["keybinds"]["glide"], "KEY_G");
     }
@@ -208,20 +215,14 @@ mod tests {
 
     #[test]
     fn merge_recovers_from_corrupt_config() {
-        let merged = merge_selected_model(Some("{ not json"), "new.cpmmodel")
-            .unwrap()
-            .unwrap();
-        let root: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&merged).unwrap();
+        let root = parsed_selected(merge_selected_model(Some("{ not json"), "new.cpmmodel"));
         assert_eq!(root["selectedModel"], "new.cpmmodel");
     }
 
     #[test]
     fn remove_selected_model_keeps_other_keys() {
         let existing = r#"{"keybinds": {"glide": "KEY_G"}, "selectedModel": "old.cpmmodel"}"#;
-        let updated = remove_selected_model(Some(existing)).unwrap().unwrap();
-        let root: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&updated).unwrap();
+        let root = parsed_selected(remove_selected_model(Some(existing)));
         assert!(root.get("selectedModel").is_none());
         assert!(root.get("keybinds").is_some());
     }
@@ -245,12 +246,7 @@ mod tests {
 
     #[test]
     fn rebind_keeps_existing_valid_selection() {
-        let manifest = CpmModelManifest {
-            models: vec![
-                cpm_model_entry(Some(1), "a.cpmmodel", false),
-                cpm_model_entry(Some(2), "b.cpmmodel", false),
-            ],
-        };
+        let manifest = two_entry_manifest();
         assert_eq!(
             rebind_selection(&manifest, Some("a.cpmmodel"), true, true),
             RebindDecision::Keep
@@ -263,12 +259,7 @@ mod tests {
 
     #[test]
     fn rebind_selects_newest_when_nothing_selected_and_models_added() {
-        let manifest = CpmModelManifest {
-            models: vec![
-                cpm_model_entry(Some(1), "a.cpmmodel", false),
-                cpm_model_entry(Some(2), "b.cpmmodel", false),
-            ],
-        };
+        let manifest = two_entry_manifest();
         assert_eq!(
             rebind_selection(&manifest, None, false, true),
             RebindDecision::Select("b.cpmmodel".to_string())
@@ -288,12 +279,7 @@ mod tests {
 
     #[test]
     fn rebind_selects_newest_when_selection_stale() {
-        let manifest = CpmModelManifest {
-            models: vec![
-                cpm_model_entry(Some(1), "a.cpmmodel", false),
-                cpm_model_entry(Some(2), "b.cpmmodel", false),
-            ],
-        };
+        let manifest = two_entry_manifest();
         assert_eq!(
             rebind_selection(&manifest, Some("gone.cpmmodel"), false, false),
             RebindDecision::Select("b.cpmmodel".to_string())

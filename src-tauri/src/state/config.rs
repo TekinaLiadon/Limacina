@@ -229,10 +229,34 @@ async fn recover_corrupt_config(
 }
 
 #[cfg(test)]
+use crate::test_support::LauncherDirGuard;
+
+#[cfg(test)]
+pub(crate) async fn seed_broken_project_config(
+    name: &str,
+) -> (LauncherDirGuard, std::path::PathBuf) {
+    let guard = LauncherDirGuard::acquire(name).await;
+    let config_dir = guard.root().join("project").join("config");
+    std::fs::create_dir_all(&config_dir).expect("создание config");
+    std::fs::write(config_dir.join(format!("{name}.toml")), "not [valid toml").expect("битый toml");
+    (guard, config_dir)
+}
+
+#[cfg(test)]
+pub(crate) async fn slow_java_path_update(state: &Mutex<GlobalState>) -> Result<ProjectConfig> {
+    update_project_config(state, async |config: &mut ProjectConfig| {
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        config.java_path = Some("java-path".to_string());
+        Ok(())
+    })
+    .await
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
         config_file_path, current_project_config, load_config, load_config_or_default,
-        update_project_config, validate_project_name,
+        seed_broken_project_config, update_project_config, validate_project_name,
     };
     use crate::state::dto::{GlobalState, ProjectConfig};
     use crate::test_support::{part_files_in, seeded_global_state, LauncherDirGuard};
@@ -347,11 +371,8 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_errors_on_corrupt_toml_without_side_effects() {
-        let guard = LauncherDirGuard::acquire("config_corrupt_strict").await;
-        let config_dir = guard.root().join("project").join("config");
-        std::fs::create_dir_all(&config_dir).expect("создание config");
+        let (_guard, config_dir) = seed_broken_project_config("Broken").await;
         let toml_path = config_dir.join("Broken.toml");
-        std::fs::write(&toml_path, "not [valid toml").expect("запись битого toml");
 
         assert!(load_config("Broken").await.is_err());
         assert!(toml_path.exists(), "load_config не трогает файл");
@@ -359,11 +380,8 @@ mod tests {
 
     #[tokio::test]
     async fn corrupt_toml_is_backed_up_and_profile_falls_back_to_default() {
-        let guard = LauncherDirGuard::acquire("config_corrupt_recovery").await;
-        let config_dir = guard.root().join("project").join("config");
-        std::fs::create_dir_all(&config_dir).expect("создание config");
+        let (_guard, config_dir) = seed_broken_project_config("Broken").await;
         let toml_path = config_dir.join("Broken.toml");
-        std::fs::write(&toml_path, "not [valid toml").expect("запись битого toml");
 
         let config = load_config_or_default("Broken")
             .await
@@ -491,8 +509,7 @@ mod tests {
 mod recovery_tests {
     use crate::state::config::{load_config, load_repaired_project_config};
     use crate::state::dto::{GlobalState, ModLoader};
-    use crate::test_support::LauncherDirGuard;
-    use mockito::Server;
+    use crate::test_support::{LauncherDirGuard, MockEnv};
     use std::path::PathBuf;
     use tokio::sync::Mutex;
 
@@ -546,8 +563,10 @@ mod recovery_tests {
 
     #[tokio::test]
     async fn empty_online_version_is_refetched_and_user_fields_kept() {
-        let guard = LauncherDirGuard::acquire("config_repair_empty_version").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_repair_empty_version").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")
             .with_status(200)

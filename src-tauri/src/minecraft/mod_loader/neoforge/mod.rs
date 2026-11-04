@@ -10,16 +10,39 @@ pub(crate) static LOADER: InstallerLoader = InstallerLoader {
 #[cfg(test)]
 mod tests {
     use super::LOADER;
-    use crate::minecraft::process::validate_jvm_args;
-    use crate::minecraft::structs::{GameConfig, ModLoader};
+    use crate::minecraft::structs::{GameConfig, ModLoader, VersionMod};
+    use crate::state::dto::ProjectConfig;
     use crate::test_support::{
-        assert_loader_config_common, loader_manifest, loader_project, loader_vanilla_config,
-        loader_version_mod, write_loader_manifest, LauncherDirGuard,
+        assert_loader_config_common, assert_no_loader_placeholders,
+        assert_user_jvm_args_survive_validation, loader_manifest, loader_project,
+        loader_vanilla_config, loader_version_mod, write_loader_manifest, LauncherDirGuard,
     };
     use crate::utils::get_classpath_separator;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
+
+    fn vanilla_config_with_classpath(game_root: PathBuf, classpath: Vec<String>) -> GameConfig {
+        GameConfig::new(
+            PathBuf::from("java"),
+            vec![],
+            vec![],
+            classpath,
+            "net.minecraft.client.main.Main".to_string(),
+            game_root,
+        )
+    }
+
+    async fn loader_config(
+        state: &ProjectConfig,
+        vanilla_config: GameConfig,
+        version: &VersionMod,
+    ) -> GameConfig {
+        LOADER
+            .config(state, vanilla_config, version)
+            .await
+            .expect("конфиг NeoForge")
+    }
 
     #[tokio::test]
     async fn neoforge_config_expands_jvm_placeholders() {
@@ -56,10 +79,7 @@ mod tests {
         let vanilla_config =
             loader_vanilla_config(&game_root, &game_root.join("1.20.4.jar").to_string_lossy());
 
-        let config = LOADER
-            .config(&state, vanilla_config, &version)
-            .await
-            .expect("конфиг NeoForge");
+        let config = loader_config(&state, vanilla_config, &version).await;
 
         let libraries_dir = game_root.join("libraries");
         let sep = get_classpath_separator();
@@ -75,11 +95,7 @@ mod tests {
         assert!(config
             .game_args
             .contains(&"--fml.neoForgeVersion".to_string()));
-        assert!(!config
-            .jvm_args
-            .iter()
-            .chain(config.game_args.iter())
-            .any(|arg| arg.contains("${")));
+        assert_no_loader_placeholders(&config);
         assert_eq!(
             config.main_class,
             "cpw.mods.bootstraplauncher.BootstrapLauncher"
@@ -117,19 +133,12 @@ mod tests {
         fs::create_dir_all(lib_path.parent().unwrap()).unwrap();
         fs::write(&lib_path, b"asm").unwrap();
 
-        let vanilla_config = GameConfig::new(
-            PathBuf::from("java"),
-            vec![],
-            vec![],
-            vec![game_root.join("1.20.4.jar").to_string_lossy().to_string()],
-            "net.minecraft.client.main.Main".to_string(),
+        let vanilla_config = vanilla_config_with_classpath(
             game_root.clone(),
+            vec![game_root.join("1.20.4.jar").to_string_lossy().to_string()],
         );
 
-        let config = LOADER
-            .config(&state, vanilla_config, &version)
-            .await
-            .expect("конфиг NeoForge");
+        let config = loader_config(&state, vanilla_config, &version).await;
 
         assert!(
             !config
@@ -179,22 +188,15 @@ mod tests {
         let client_jar = game_root.join("1.20.4.jar");
         fs::write(&client_jar, b"client").unwrap();
 
-        let vanilla_config = GameConfig::new(
-            PathBuf::from("java"),
-            vec![],
-            vec![],
+        let vanilla_config = vanilla_config_with_classpath(
+            game_root.clone(),
             vec![
                 client_jar.to_string_lossy().into_owned(),
                 suffixed_lib.to_string_lossy().into_owned(),
             ],
-            "net.minecraft.client.main.Main".to_string(),
-            game_root.clone(),
         );
 
-        let config = LOADER
-            .config(&state, vanilla_config, &version)
-            .await
-            .expect("конфиг NeoForge");
+        let config = loader_config(&state, vanilla_config, &version).await;
 
         assert!(
             !config
@@ -240,21 +242,8 @@ mod tests {
             game_root,
         );
 
-        let config = LOADER
-            .config(&state, vanilla_config, &version)
-            .await
-            .expect("конфиг NeoForge");
+        let config = loader_config(&state, vanilla_config, &version).await;
 
-        assert!(
-            config.jvm_args.contains(&"-Xdebug".to_string()),
-            "пользовательский аргумент должен пройти через конфиг лоадера: {:?}",
-            config.jvm_args
-        );
-        let error = validate_jvm_args(&config.jvm_args)
-            .expect_err("пользовательский debug-аргумент должен быть отклонён");
-        assert!(
-            error.to_string().contains("-Xdebug"),
-            "ошибка должна называть аргумент: {error}"
-        );
+        assert_user_jvm_args_survive_validation(&config);
     }
 }

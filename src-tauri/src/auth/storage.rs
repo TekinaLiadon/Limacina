@@ -591,7 +591,7 @@ pub async fn find_credential(
 fn find_credential_sync(project: &str, username: &str, key_suffix: &str) -> Result<Option<String>> {
     let key_names = credential_key_names(project, username, key_suffix);
     let canonical_key = &key_names[0];
-    let mut keyring_error: Option<anyhow::Error> = None;
+    let mut storage_error: Option<anyhow::Error> = None;
 
     for key_name in &key_names {
         match keyring_load(key_name, key_suffix) {
@@ -602,17 +602,24 @@ fn find_credential_sync(project: &str, username: &str, key_suffix: &str) -> Resu
             Ok(None) => {}
             Err(e) => {
                 log_err!("Keyring load {}: ошибка {}", key_suffix, e);
-                keyring_error.get_or_insert(e);
+                storage_error.get_or_insert(e);
             }
         }
 
-        if let Some(value) = find_fallback_key(key_name)? {
-            migrate_legacy_credential(canonical_key, key_name, &value, key_suffix);
-            return Ok(Some(value));
+        match find_fallback_key(key_name) {
+            Ok(Some(value)) => {
+                migrate_legacy_credential(canonical_key, key_name, &value, key_suffix);
+                return Ok(Some(value));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log_err!("Fallback load {}: ошибка {}", key_suffix, e);
+                storage_error.get_or_insert(e);
+            }
         }
     }
 
-    match keyring_error {
+    match storage_error {
         Some(e) => Err(e.context("Не удалось прочитать сохранённые учётные данные")),
         None => Ok(None),
     }
@@ -778,6 +785,92 @@ mod tests {
                 .expect("чтение после переноса"),
             Some("legacy-token".to_string()),
             "после переноса регистр ника не должен влиять на чтение"
+        );
+    }
+
+    fn foreign_key_store_entry(key_name: &str) -> String {
+        let obfuscated = to_hex(&xor_crypt(b"foreign-key-ciphertext", &[0xA5; 8]));
+        format!(
+            "{{\"username\":\"{key_name}\",\"obfuscated\":\"{obfuscated}\",\"scheme\":\"xor_secret\"}}"
+        )
+    }
+
+    #[tokio::test]
+    async fn unreadable_canonical_fallback_does_not_block_legacy_keyring_entry() {
+        let _dir = LauncherDirGuard::acquire("credentials_fallback_error_keyring").await;
+
+        write_store(
+            &_dir,
+            &format!(
+                "{{\"entries\":[{}]}}",
+                foreign_key_store_entry("Cordelia_steve_refresh_token")
+            ),
+        );
+        super::test_keyring()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                super::stub_key("Cordelia_Steve_refresh_token"),
+                "legacy-token".to_string(),
+            );
+
+        assert_eq!(
+            find_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .expect("сбой канонической fallback-записи не должен прерывать поиск"),
+            Some("legacy-token".to_string()),
+            "валидный legacy-keyring должен находиться"
+        );
+        assert!(
+            test_keyring_contains("Cordelia_steve_refresh_token"),
+            "найденная legacy-запись должна переехать под нормализованный ключ"
+        );
+    }
+
+    #[tokio::test]
+    async fn unreadable_canonical_fallback_does_not_block_legacy_fallback_entry() {
+        let dir = LauncherDirGuard::acquire("credentials_fallback_error_legacy_fallback").await;
+
+        write_store(
+            &dir,
+            &format!(
+                "{{\"entries\":[{}]}}",
+                foreign_key_store_entry("Cordelia_steve_refresh_token")
+            ),
+        );
+        save_fallback("Cordelia", "Steve", "refresh_token", "legacy-token")
+            .expect("сохранение legacy fallback-записи");
+
+        assert_eq!(
+            find_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .expect("сбой канонической fallback-записи не должен прерывать поиск"),
+            Some("legacy-token".to_string()),
+            "валидная legacy fallback-запись должна находиться"
+        );
+    }
+
+    #[tokio::test]
+    async fn unreadable_fallback_error_is_returned_when_nothing_found() {
+        let dir = LauncherDirGuard::acquire("credentials_fallback_error_summary").await;
+
+        write_store(
+            &dir,
+            &format!(
+                "{{\"entries\":[{}]}}",
+                foreign_key_store_entry("Cordelia_steve_refresh_token")
+            ),
+        );
+
+        let error = find_credential("Cordelia", "Steve", "refresh_token")
+            .await
+            .expect_err("сбой fallback при отсутствии записей — ошибка хранилища");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Не удалось прочитать сохранённые учётные данные"),
+            "ожидается сводная ошибка хранилища: {error}"
         );
     }
 

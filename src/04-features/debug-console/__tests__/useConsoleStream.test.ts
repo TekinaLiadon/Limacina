@@ -14,9 +14,11 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 
 interface ConsoleApi {
   logs: { value: { line: string; isError: boolean; session: string | null }[] }
+  sessionLogs: { value: Record<string, { line: string; isError: boolean; session: string | null }[]> }
   streamError: { value: string }
   startConsoleStream: () => Promise<void>
   setConsoleActive: (active: boolean) => void
+  closeSession: (name: string) => void
 }
 
 describe('useConsoleStream', () => {
@@ -270,6 +272,114 @@ describe('useConsoleStream', () => {
 
     expect(api.listenGameConsole).toHaveBeenCalledTimes(2)
     expect(stream.streamError.value).toBe('')
+  })
+
+  it('routes lines into per-session buffers alongside the combined stream', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    ingest?.({ line: 'steve line', isError: false, session: 'Steve' })
+    ingest?.({ line: 'alex line', isError: true, session: 'Alex' })
+    ingest?.({ line: 'launcher line', isError: false, session: null })
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['steve line', 'alex line', 'launcher line'])
+    expect(stream.sessionLogs.value['Steve']?.map((log) => log.line)).toEqual(['steve line'])
+    expect(stream.sessionLogs.value['Alex']?.map((log) => log.isError)).toEqual([true])
+    expect(stream.sessionLogs.value['launcher line']).toBeUndefined()
+  })
+
+  it('caps each session buffer independently while the game outpaces the flush', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    for (let i = 0; i < 2100; i += 1) {
+      ingest?.({ line: `steve ${i}`, isError: false, session: 'Steve' })
+    }
+    await vi.advanceTimersByTimeAsync(500 * 25)
+
+    expect(stream.sessionLogs.value['Steve']).toHaveLength(2000)
+    expect(stream.sessionLogs.value['Steve']?.[0]?.line).toBe('steve 100')
+
+    ingest?.({ line: 'alex line', isError: false, session: 'Alex' })
+    await vi.advanceTimersByTimeAsync(500)
+
+    for (let i = 2100; i < 4200; i += 1) {
+      ingest?.({ line: `steve ${i}`, isError: false, session: 'Steve' })
+    }
+    await vi.advanceTimersByTimeAsync(500 * 25)
+
+    expect(stream.sessionLogs.value['Steve']).toHaveLength(2000)
+    expect(stream.sessionLogs.value['Steve']?.[0]?.line).toBe('steve 2200')
+    expect(stream.sessionLogs.value['Steve']?.[1999]?.line).toBe('steve 4199')
+    expect(stream.sessionLogs.value['Alex']?.map((log) => log.line)).toEqual(['alex line'])
+  })
+
+  it('restores session buffers separately from the startup logs', async () => {
+    api.getStartupLogs.mockResolvedValue([
+      { line: 'steve old', isError: false, session: 'Steve' },
+      { line: 'alex old', isError: false, session: 'Alex' },
+      { line: 'launcher old', isError: false, session: null },
+    ])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    expect(stream.sessionLogs.value['Steve']?.map((log) => log.line)).toEqual(['steve old'])
+    expect(stream.sessionLogs.value['Alex']?.map((log) => log.line)).toEqual(['alex old'])
+    expect(stream.sessionLogs.value).not.toHaveProperty('launcher old')
+  })
+
+  it('keeps the backlog lines out of the session buffers until the console opens', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+
+    ingest?.({ line: 'steve idle', isError: false, session: 'Steve' })
+    expect(stream.sessionLogs.value).toEqual({})
+
+    stream.setConsoleActive(true)
+
+    expect(stream.sessionLogs.value['Steve']?.map((log) => log.line)).toEqual(['steve idle'])
+  })
+
+  it('closes a session tab by purging its lines and recreates the buffer on later lines', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    ingest?.({ line: 'steve first', isError: false, session: 'Steve' })
+    ingest?.({ line: 'launcher line', isError: false, session: null })
+    await vi.advanceTimersByTimeAsync(500)
+
+    stream.closeSession('Steve')
+
+    expect(stream.sessionLogs.value['Steve']).toBeUndefined()
+    expect(stream.logs.value.map((log) => log.line)).toEqual(['launcher line'])
+
+    ingest?.({ line: 'steve second', isError: false, session: 'Steve' })
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(stream.sessionLogs.value['Steve']?.map((log) => log.line)).toEqual(['steve second'])
+  })
+
+  it('drops the pending session lines from the buffers on close', async () => {
+    api.getStartupLogs.mockResolvedValue([])
+    const stream = await loadStream()
+    await stream.startConsoleStream()
+    stream.setConsoleActive(true)
+
+    ingest?.({ line: 'steve pending', isError: false, session: 'Steve' })
+    stream.closeSession('Steve')
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(stream.logs.value).toEqual([])
+    expect(stream.sessionLogs.value['Steve']).toBeUndefined()
   })
 
   it('loads the startup logs only once across restarts', async () => {

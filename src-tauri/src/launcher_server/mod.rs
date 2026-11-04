@@ -116,10 +116,9 @@ mod session_retry_tests {
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{
-        rotation_payload, seed_offline_project, seed_online_project, LauncherDirGuard,
+        rotation_payload, seed_offline_project, seed_online_project, LauncherDirGuard, MockEnv,
     };
     use crate::utils::errors::LauncherError;
-    use mockito::Server;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex;
 
@@ -179,8 +178,10 @@ mod session_retry_tests {
 
     #[tokio::test]
     async fn unauthorized_online_session_restores_and_retries_request() {
-        let _guard = LauncherDirGuard::acquire("session_retry_online").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("session_retry_online").await;
         let refresh = server
             .mock("POST", "/v1/common/auth/refresh")
             .with_status(200)

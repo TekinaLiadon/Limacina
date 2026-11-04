@@ -216,23 +216,10 @@ mod step_event_tests {
     use crate::minecraft::vanilla::download::PHASE_ASSET_INDEX;
     use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
     use crate::state::dto::ProjectConfig;
-    use crate::test_support::{integrity_url_target, sha1_hex, step_event_id, LauncherDirGuard};
+    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard, MockEnv};
     use crate::utils::step_events::test_capture;
-    use crate::utils::step_events::{StepChannel, StepEvent};
-    use mockito::Server;
-
-    fn integrity_terminals(id: &str) -> Vec<StepEvent> {
-        test_capture::captured()
-            .into_iter()
-            .filter(|(channel, event)| {
-                matches!(channel, StepChannel::Integrity) && step_event_id(event) == id
-            })
-            .filter(|(_, event)| {
-                matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
-            })
-            .map(|(_, event)| event)
-            .collect()
-    }
+    use crate::utils::step_events::test_capture::{assert_single_terminal, TerminalExpectation};
+    use crate::utils::step_events::StepChannel;
 
     fn seed_vanilla_index_cache(dir: &LauncherDirGuard) {
         let manifest_dir = dir.root().join("manifest");
@@ -263,23 +250,17 @@ mod step_event_tests {
             error.to_string().contains("Версия не найдена"),
             "неожиданная ошибка: {error}"
         );
-        let step_terminals = integrity_terminals("mc.manifest");
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "шаг манифеста не должен оставаться активным после ошибки: {step_terminals:?}"
-        );
-        assert!(
-            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
-            "ошибка загрузки манифеста должна фейлить шаг: {step_terminals:?}"
+        assert_single_terminal(
+            "mc.manifest",
+            Some(StepChannel::Integrity),
+            TerminalExpectation::Failed,
         );
     }
 
     #[tokio::test]
     async fn asset_index_download_failure_surfaces_original_error_and_keeps_report() {
-        let dir = LauncherDirGuard::acquire("integrity_index_fail").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("integrity_index_fail").await;
         let _capture = test_capture::CaptureGuard::new();
-        let mut server = Server::new_async().await;
         server
             .mock("GET", "/index.json")
             .with_status(404)
@@ -310,24 +291,18 @@ mod step_event_tests {
             vec!["assets/indexes/5.json".to_string()],
             "накопленный отчёт не должен теряться при сбое фазы"
         );
-        let step_terminals = integrity_terminals(PHASE_ASSET_INDEX.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "ровно одно терминальное событие: {step_terminals:?}"
-        );
-        assert!(
-            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
-            "шаг должен фейлиться: {step_terminals:?}"
+        assert_single_terminal(
+            PHASE_ASSET_INDEX.id,
+            Some(StepChannel::Integrity),
+            TerminalExpectation::Failed,
         );
     }
 
     #[tokio::test]
     async fn check_integrity_returns_partial_report_when_asset_index_download_fails() {
-        let dir = LauncherDirGuard::acquire("integrity_partial_report").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("integrity_partial_report").await;
         let _capture = test_capture::CaptureGuard::new();
         seed_vanilla_index_cache(&dir);
-        let mut server = Server::new_async().await;
 
         let client_jar = b"client jar bytes".to_vec();
         server
@@ -383,15 +358,10 @@ mod step_event_tests {
             report.failed
         );
         assert!(report.repaired >= 1, "успешные фазы должны попасть в отчёт");
-        let step_terminals = integrity_terminals(PHASE_ASSET_INDEX.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "ровно одно терминальное событие: {step_terminals:?}"
-        );
-        assert!(
-            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
-            "шаг индекса должен фейлиться: {step_terminals:?}"
+        assert_single_terminal(
+            PHASE_ASSET_INDEX.id,
+            Some(StepChannel::Integrity),
+            TerminalExpectation::Failed,
         );
     }
 }

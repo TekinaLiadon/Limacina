@@ -18,6 +18,7 @@ use crate::minecraft::structs::MinecraftLoader;
 use crate::state::config::{current_project_config, update_project_config};
 use crate::state::dto::ModLoader as ConfigModLoader;
 use crate::state::dto::{GlobalState, ProjectConfig};
+use crate::state::launch_state::{try_acquire_launch_step, LaunchStepGuard};
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
 use crate::{log_info, minecraft::vanilla::Vanilla, utils::tauri_err::CommandResult};
@@ -28,7 +29,7 @@ pub async fn download_minecraft(
     state: tauri::State<'_, Mutex<GlobalState>>,
     options: Option<GameOptions>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
+    let _guard = try_acquire_launch_step()?;
     download_minecraft_inner(state.inner(), options.as_ref()).await
 }
 
@@ -136,20 +137,26 @@ async fn download_minecraft_inner(
     Ok(())
 }
 
+async fn launch_step_project(
+    state: &Mutex<GlobalState>,
+) -> Result<(LaunchStepGuard, ProjectConfig)> {
+    let guard = try_acquire_launch_step()?;
+    let project_config = current_project_config(state).await?;
+    Ok((guard, project_config))
+}
+
 #[tauri::command]
 pub async fn download_server_file(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    download_all_files(project_name, &state).await?;
+    let (_guard, project_config) = launch_step_project(state.inner()).await?;
+    download_all_files(project_config.project_name, &state).await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
-    let project_config = current_project_config(state.inner()).await?;
+    let (_guard, project_config) = launch_step_project(state.inner()).await?;
     let (java_path, java_version) =
         LauncherError::classify(install_java(&project_config).await, LauncherError::Java)?;
     let java_major = parse_java_major(&java_version)?;
@@ -173,9 +180,8 @@ pub async fn download_java(state: tauri::State<'_, Mutex<GlobalState>>) -> Comma
 pub async fn download_server_mods(
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<()> {
-    let _guard = crate::state::launch_state::try_acquire_launch_step()?;
-    let project_name = current_project_config(state.inner()).await?.project_name;
-    download_mods(project_name, &state).await?;
+    let (_guard, project_config) = launch_step_project(state.inner()).await?;
+    download_mods(project_config.project_name, &state).await?;
     Ok(())
 }
 
@@ -269,11 +275,11 @@ mod project_config_write_tests {
         }
     }
 
-    async fn seeded_projects(
+    async fn seeded_with_target(
         label: &str,
         alpha: ProjectConfig,
         beta: ProjectConfig,
-    ) -> (LauncherDirGuard, Mutex<GlobalState>) {
+    ) -> (LauncherDirGuard, Mutex<GlobalState>, ProjectConfig) {
         let guard = LauncherDirGuard::acquire(label).await;
         alpha.save_config().await.expect("сохранение конфига Alpha");
         beta.save_config().await.expect("сохранение конфига Beta");
@@ -281,18 +287,31 @@ mod project_config_write_tests {
             project_config: alpha,
             ..GlobalState::default()
         });
-        (guard, state)
+        let target = current_project_config(&state).await.expect("проект Alpha");
+        (guard, state, target)
+    }
+
+    async fn switched_projects(
+        label: &str,
+        alpha: ProjectConfig,
+        beta: ProjectConfig,
+        switch: ProjectConfig,
+    ) -> (LauncherDirGuard, Mutex<GlobalState>, ProjectConfig) {
+        let (guard, state, target) = seeded_with_target(label, alpha, beta).await;
+        set_project_config(&state, switch)
+            .await
+            .expect("переключение активного проекта до конца записи");
+        (guard, state, target)
     }
 
     #[tokio::test]
     async fn java_install_write_lands_in_target_project() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = seeded_with_target(
             "download_java_write_happy",
             sample_config("Alpha", "1.20.1", ModLoader::Vanilla, None),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
         )
         .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
 
         let written = store_java_install(&state, &target, "/java/bin/java".to_string(), 17)
             .await
@@ -311,19 +330,13 @@ mod project_config_write_tests {
 
     #[tokio::test]
     async fn java_install_write_skips_when_active_project_switched() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = switched_projects(
             "download_java_write_switch",
             sample_config("Alpha", "1.20.1", ModLoader::Vanilla, None),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
-        )
-        .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
-        set_project_config(
-            &state,
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
         )
-        .await
-        .expect("переключение на Beta до конца записи");
+        .await;
 
         let written = store_java_install(&state, &target, "/java/bin/java".to_string(), 17)
             .await
@@ -351,13 +364,12 @@ mod project_config_write_tests {
 
     #[tokio::test]
     async fn loader_version_write_lands_in_target_project() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = seeded_with_target(
             "download_loader_write_happy",
             sample_config("Alpha", "1.20.1", ModLoader::Fabric, None),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
         )
         .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
 
         let written = store_loader_version(&state, &target, "0.16.9".to_string())
             .await
@@ -374,19 +386,13 @@ mod project_config_write_tests {
 
     #[tokio::test]
     async fn loader_version_write_skips_when_active_project_switched() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = switched_projects(
             "download_loader_write_switch",
             sample_config("Alpha", "1.20.1", ModLoader::Fabric, None),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
-        )
-        .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
-        set_project_config(
-            &state,
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
         )
-        .await
-        .expect("переключение на Beta до конца записи");
+        .await;
 
         let written = store_loader_version(&state, &target, "0.16.9".to_string())
             .await
@@ -406,13 +412,12 @@ mod project_config_write_tests {
 
     #[tokio::test]
     async fn loader_version_write_keeps_explicit_choice() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = seeded_with_target(
             "download_loader_write_kept",
             sample_config("Alpha", "1.20.1", ModLoader::Fabric, Some("0.14.21")),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
         )
         .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
 
         let written = store_loader_version(&state, &target, "0.16.9".to_string())
             .await
@@ -430,19 +435,13 @@ mod project_config_write_tests {
 
     #[tokio::test]
     async fn loader_version_write_skips_when_mc_version_changed() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = switched_projects(
             "download_loader_write_mc_changed",
             sample_config("Alpha", "1.20.1", ModLoader::Fabric, None),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
-        )
-        .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
-        set_project_config(
-            &state,
             sample_config("Alpha", "1.21.4", ModLoader::Fabric, None),
         )
-        .await
-        .expect("смена версии Minecraft в активном проекте");
+        .await;
 
         let written = store_loader_version(&state, &target, "0.16.9".to_string())
             .await
@@ -460,19 +459,13 @@ mod project_config_write_tests {
 
     #[tokio::test]
     async fn loader_version_write_skips_when_loader_changed() {
-        let (_guard, state) = seeded_projects(
+        let (_guard, state, target) = switched_projects(
             "download_loader_write_loader_changed",
             sample_config("Alpha", "1.20.1", ModLoader::Fabric, None),
             sample_config("Beta", "1.21.4", ModLoader::Vanilla, None),
-        )
-        .await;
-        let target = current_project_config(&state).await.expect("проект Alpha");
-        set_project_config(
-            &state,
             sample_config("Alpha", "1.20.1", ModLoader::Forge, None),
         )
-        .await
-        .expect("смена лоадера в активном проекте");
+        .await;
 
         let written = store_loader_version(&state, &target, "0.16.9".to_string())
             .await

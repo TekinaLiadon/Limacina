@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -9,7 +9,8 @@ static GLOBAL_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 const LOG_BUFFER_LIMIT: usize = 500;
 
-static LOG_BUFFER: OnceLock<Mutex<VecDeque<ConsolePayload>>> = OnceLock::new();
+static LOG_BUFFER: OnceLock<Mutex<BTreeMap<Option<String>, VecDeque<ConsolePayload>>>> =
+    OnceLock::new();
 static CONSOLE_EMIT_ENABLED: AtomicBool = AtomicBool::new(true);
 static GAME_OUTPUT_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -25,8 +26,8 @@ pub fn init_logger(app: AppHandle) {
     let _ = GLOBAL_APP_HANDLE.set(app);
 }
 
-fn log_buffer() -> &'static Mutex<VecDeque<ConsolePayload>> {
-    LOG_BUFFER.get_or_init(|| Mutex::new(VecDeque::new()))
+fn log_buffer() -> &'static Mutex<BTreeMap<Option<String>, VecDeque<ConsolePayload>>> {
+    LOG_BUFFER.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 pub fn global_app_handle() -> Option<&'static AppHandle> {
@@ -60,10 +61,11 @@ fn send_log_payload(payload: ConsolePayload) {
     }
 
     if let Ok(mut buf) = log_buffer().lock() {
-        if buf.len() >= LOG_BUFFER_LIMIT {
-            buf.pop_front();
+        let stream = buf.entry(payload.session.clone()).or_default();
+        if stream.len() >= LOG_BUFFER_LIMIT {
+            stream.pop_front();
         }
-        buf.push_back(payload);
+        stream.push_back(payload);
     }
 }
 
@@ -90,7 +92,11 @@ pub fn drain_startup_logs() -> Vec<ConsolePayload> {
     log_buffer()
         .lock()
         .ok()
-        .map(|mut buf| buf.drain(..).collect())
+        .map(|mut buf| {
+            buf.values_mut()
+                .flat_map(|stream| stream.drain(..))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -221,6 +227,68 @@ mod session_payload_tests {
             !written.contains("10.6.6.6"),
             "адрес проекта не должен попадать в файловый лог: {written}"
         );
+    }
+
+    #[test]
+    fn startup_buffer_keys_streams_by_session() {
+        let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        set_game_output_enabled(true);
+
+        for i in 0..(LOG_BUFFER_LIMIT + 50) {
+            send_log(format!("launcher-overflow-{i}"), false);
+        }
+        send_game_output("session-buffer-keep-marker".to_string(), false, "Steve");
+
+        let drained = drain_startup_logs();
+        assert!(
+            payload_with(&drained, "session-buffer-keep-marker").is_some(),
+            "переполнение стрима лаунчера не вытесняет стрим сессии"
+        );
+        assert_eq!(
+            drained
+                .iter()
+                .filter(|payload| payload.line.contains("launcher-overflow-"))
+                .count(),
+            LOG_BUFFER_LIMIT,
+            "стрим лаунчера капится независимо"
+        );
+        set_game_output_enabled(false);
+    }
+
+    #[test]
+    fn startup_buffer_caps_each_session_independently() {
+        let _guard = PAYLOAD_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        set_game_output_enabled(true);
+
+        for i in 0..(LOG_BUFFER_LIMIT + 50) {
+            send_game_output(format!("steve-overflow-{i}"), false, "Steve");
+            send_game_output(format!("alex-overflow-{i}"), false, "Alex");
+        }
+
+        let drained = drain_startup_logs();
+        assert_eq!(
+            drained
+                .iter()
+                .filter(|payload| payload.line.contains("steve-overflow-"))
+                .count(),
+            LOG_BUFFER_LIMIT,
+            "стрим Steve капится независимо"
+        );
+        assert_eq!(
+            drained
+                .iter()
+                .filter(|payload| payload.line.contains("alex-overflow-"))
+                .count(),
+            LOG_BUFFER_LIMIT,
+            "стрим Alex капится независимо"
+        );
+        assert!(
+            !drained
+                .iter()
+                .any(|payload| payload.line == "steve-overflow-0"),
+            "самая старая строка сессии вытеснена"
+        );
+        set_game_output_enabled(false);
     }
 
     #[test]

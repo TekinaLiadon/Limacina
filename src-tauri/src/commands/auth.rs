@@ -527,7 +527,47 @@ async fn delete_account_flow(
 }
 
 #[cfg(test)]
+mod test_fixtures {
+    use crate::auth::storage;
+    use crate::test_support::{rotation_payload, seed_online_project};
+    use mockito::{Mock, ServerGuard};
+
+    pub(super) async fn seed_online_refresh_token(
+        server_url: &str,
+        project: &str,
+        username: &str,
+        token: &str,
+    ) {
+        seed_online_project(project, server_url).await;
+        storage::save_fallback(project, username, "refresh_token", token)
+            .expect("сохранение токена");
+    }
+
+    pub(super) async fn patch_password_mock(
+        server: &mut ServerGuard,
+        access: &str,
+        refresh: &str,
+    ) -> Mock {
+        server
+            .mock("PATCH", "/v1/common/auth/password")
+            .with_status(200)
+            .with_body(rotation_payload(access, refresh))
+            .create_async()
+            .await
+    }
+
+    pub(super) async fn invalidate_mock(server: &mut ServerGuard) -> Mock {
+        server
+            .mock("POST", "/v1/common/auth/invalidate")
+            .with_status(200)
+            .create_async()
+            .await
+    }
+}
+
+#[cfg(test)]
 mod account_flow_tests {
+    use super::test_fixtures::{invalidate_mock, patch_password_mock, seed_online_refresh_token};
     use super::{
         auth_refresh_flow, change_password_flow, change_password_session, delete_account_flow,
         login_account, register_account, restore_and_persist_session, wipe_project_credentials,
@@ -538,7 +578,7 @@ mod account_flow_tests {
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{
         offline_global_state, rotation_payload, seed_offline_project, seed_online_project,
-        ConfigFileGuard, LauncherDirGuard,
+        ConfigFileGuard, LauncherDirGuard, MockEnv,
     };
     use crate::utils::errors::LauncherError;
     use mockito::{Matcher, Server};
@@ -688,8 +728,10 @@ mod account_flow_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn concurrent_change_password_and_refresh_keep_valid_token() {
-        let _guard = LauncherDirGuard::acquire("auth_flow_concurrent_password").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("auth_flow_concurrent_password").await;
         let project = "FlowProj";
         let username = "Steve";
 
@@ -714,16 +756,9 @@ mod account_flow_tests {
             })
             .create_async()
             .await;
-        let password_change = server
-            .mock("PATCH", "/v1/common/auth/password")
-            .with_status(200)
-            .with_body(rotation_payload("access-new", "tok-new"))
-            .create_async()
-            .await;
+        let password_change = patch_password_mock(&mut server, "access-new", "tok-new").await;
 
-        seed_online_project(project, &server.url()).await;
-        storage::save_fallback(project, username, "refresh_token", "tok-old")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), project, username, "tok-old").await;
 
         let mut refresh_task = {
             let project = project.to_string();
@@ -785,9 +820,8 @@ mod account_flow_tests {
     }
 
     async fn password_change_env(label: &str) -> PasswordChangeEnv {
-        let dir = LauncherDirGuard::acquire(label).await;
+        let MockEnv { dir, mut server } = MockEnv::acquire(label).await;
         let config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
-        let mut server = Server::new_async().await;
         let project = "PwdProj";
         let username = "Steve";
 
@@ -800,12 +834,7 @@ mod account_flow_tests {
             .with_body(rotation_payload("access-1", "tok-old"))
             .create_async()
             .await;
-        let password_change = server
-            .mock("PATCH", "/v1/common/auth/password")
-            .with_status(200)
-            .with_body(rotation_payload("access-new", "tok-new"))
-            .create_async()
-            .await;
+        let password_change = patch_password_mock(&mut server, "access-new", "tok-new").await;
 
         seed_online_project(project, &server.url()).await;
         let state = state_with_session(username, project);
@@ -1025,9 +1054,8 @@ mod account_flow_tests {
 
     #[tokio::test]
     async fn register_rejects_blank_username_and_short_password_and_trims_login() {
-        let dir = LauncherDirGuard::acquire("auth_register_validation").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("auth_register_validation").await;
         let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
-        let mut server = Server::new_async().await;
         let registration = server
             .mock("POST", "/v1/common/auth/registration")
             .match_body(Matcher::PartialJsonString(
@@ -1083,9 +1111,8 @@ mod account_flow_tests {
 
     #[tokio::test]
     async fn register_stores_session_and_persists_credentials() {
-        let dir = LauncherDirGuard::acquire("auth_register_persist").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("auth_register_persist").await;
         let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
-        let mut server = Server::new_async().await;
         let registration = server
             .mock("POST", "/v1/common/auth/registration")
             .match_body(Matcher::PartialJsonString(
@@ -1158,18 +1185,11 @@ mod account_flow_tests {
 
     #[tokio::test]
     async fn delete_account_resets_session_and_saved_login_for_current_user() {
-        let dir = LauncherDirGuard::acquire("auth_flow_delete_current").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("auth_flow_delete_current").await;
         let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
-        let mut server = Server::new_async().await;
-        let invalidate = server
-            .mock("POST", "/v1/common/auth/invalidate")
-            .with_status(200)
-            .create_async()
-            .await;
+        let invalidate = invalidate_mock(&mut server).await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-del")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-del").await;
 
         let state = state_with_session("Steve", "TestProj");
         {
@@ -1211,18 +1231,11 @@ mod account_flow_tests {
 
     #[tokio::test]
     async fn delete_account_keeps_session_for_other_user() {
-        let dir = LauncherDirGuard::acquire("auth_flow_delete_other").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("auth_flow_delete_other").await;
         let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
-        let mut server = Server::new_async().await;
-        let invalidate = server
-            .mock("POST", "/v1/common/auth/invalidate")
-            .with_status(200)
-            .create_async()
-            .await;
+        let invalidate = invalidate_mock(&mut server).await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Alex", "refresh_token", "tok-alex")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Alex", "tok-alex").await;
 
         let state = state_with_session("Steve", "TestProj");
 
@@ -1314,10 +1327,11 @@ mod account_flow_tests {
 
 #[cfg(test)]
 mod restore_session_tests {
+    use super::test_fixtures::seed_online_refresh_token;
     use super::{restore_and_persist_session, restore_session, wipe_project_credentials};
     use crate::auth::storage;
-    use crate::test_support::{rotation_payload, seed_online_project, LauncherDirGuard};
-    use mockito::{Matcher, Server};
+    use crate::test_support::{rotation_payload, LauncherDirGuard, MockEnv};
+    use mockito::Matcher;
     use serde_json::json;
 
     #[tokio::test]
@@ -1327,9 +1341,13 @@ mod restore_session_tests {
         let port = listener.local_addr().expect("адрес").port();
         drop(listener);
 
-        seed_online_project("TestProj", &format!("http://127.0.0.1:{port}")).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
-            .expect("сохранение токена");
+        seed_online_refresh_token(
+            &format!("http://127.0.0.1:{port}"),
+            "TestProj",
+            "Steve",
+            "tok-keep",
+        )
+        .await;
 
         let error = restore_session("TestProj", "Steve", None)
             .await
@@ -1349,8 +1367,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn server_error_keeps_refresh_token() {
-        let _guard = LauncherDirGuard::acquire("restore_session_5xx").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_5xx").await;
         let mock = server
             .mock("POST", "/v1/common/auth/refresh")
             .with_status(503)
@@ -1358,9 +1378,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-keep").await;
 
         let error = restore_session("TestProj", "Steve", None)
             .await
@@ -1381,8 +1399,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn forbidden_refresh_keeps_refresh_token() {
-        let _guard = LauncherDirGuard::acquire("restore_session_403").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_403").await;
         let rejected = server
             .mock("POST", "/v1/common/auth/refresh")
             .with_status(403)
@@ -1395,9 +1415,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-keep").await;
 
         let error = restore_session("TestProj", "Steve", Some("secret1"))
             .await
@@ -1425,8 +1443,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn unauthorized_deletes_refresh_token_and_reports_no_saved_credentials() {
-        let _guard = LauncherDirGuard::acquire("restore_session_401").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_401").await;
         let mock = server
             .mock("POST", "/v1/common/auth/refresh")
             .with_status(401)
@@ -1434,9 +1454,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-dead")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-dead").await;
 
         let error = restore_session("TestProj", "Steve", None)
             .await
@@ -1457,8 +1475,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn unauthorized_falls_back_to_password_login() {
-        let _guard = LauncherDirGuard::acquire("restore_session_401_password").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_401_password").await;
         server
             .mock("POST", "/v1/common/auth/refresh")
             .with_status(401)
@@ -1475,9 +1495,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-dead")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-dead").await;
 
         let data = restore_session("TestProj", "Steve", Some("secret"))
             .await
@@ -1495,8 +1513,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn transient_read_failure_after_rejection_keeps_refresh_token() {
-        let _guard = LauncherDirGuard::acquire("restore_session_transient_read").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_transient_read").await;
         let rejected = server
             .mock("POST", "/v1/common/auth/refresh")
             .with_status(401)
@@ -1516,9 +1536,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-keep").await;
 
         restore_session("TestProj", "Steve", None)
             .await
@@ -1542,17 +1560,17 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn transient_read_failure_is_not_reported_as_missing_credentials() {
-        let _guard = LauncherDirGuard::acquire("restore_session_read_failure").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_read_failure").await;
         server
             .mock("POST", "/v1/common/auth/refresh")
             .expect(0)
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-keep").await;
         storage::arm_transient_read_failure();
 
         let error = restore_session("TestProj", "Steve", None)
@@ -1578,8 +1596,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn transient_read_failure_falls_back_to_password_login() {
-        let _guard = LauncherDirGuard::acquire("restore_session_read_failure_password").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_read_failure_password").await;
         let login = server
             .mock("POST", "/v1/common/auth/login")
             .with_status(200)
@@ -1587,9 +1607,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "Steve", "refresh_token", "tok-keep")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), "TestProj", "Steve", "tok-keep").await;
         storage::arm_transient_read_failure();
 
         let data = restore_session("TestProj", "Steve", Some("secret1"))
@@ -1602,8 +1620,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn username_case_difference_restores_and_persists_token() {
-        let _guard = LauncherDirGuard::acquire("restore_session_username_case").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_username_case").await;
         let refresh = server
             .mock("POST", "/v1/common/auth/refresh")
             .match_body(Matcher::PartialJsonString(
@@ -1615,9 +1635,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project("TestProj", &server.url()).await;
-        storage::save_fallback("TestProj", "steve", "refresh_token", "tok-case")
-            .expect("сохранение токена под введённым ником");
+        seed_online_refresh_token(&server.url(), "TestProj", "steve", "tok-case").await;
 
         restore_and_persist_session("TestProj", "Steve", None)
             .await
@@ -1634,8 +1652,10 @@ mod restore_session_tests {
 
     #[tokio::test]
     async fn concurrent_rotations_keep_valid_refresh_token() {
-        let _guard = LauncherDirGuard::acquire("restore_session_concurrent").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("restore_session_concurrent").await;
         let project = "RaceProj";
         let username = "Racer";
 
@@ -1669,9 +1689,7 @@ mod restore_session_tests {
             .create_async()
             .await;
 
-        seed_online_project(project, &server.url()).await;
-        storage::save_fallback(project, username, "refresh_token", "tok-old")
-            .expect("сохранение токена");
+        seed_online_refresh_token(&server.url(), project, username, "tok-old").await;
 
         let (first, second) = tokio::join!(
             restore_and_persist_session(project, username, None),

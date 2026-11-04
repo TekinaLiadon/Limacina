@@ -99,8 +99,9 @@ fn json_rule_to_core(rule: &Value) -> RuleCore {
 
 #[cfg(test)]
 mod tests {
-    use super::is_json_rules_allowed;
-    use crate::utils::env_info::get_arch_label;
+    use super::{is_json_rules_allowed, is_typed_rule_allowed};
+    use crate::minecraft::vanilla::structs::{OsRule, Rule};
+    use crate::utils::env_info::{get_arch_label, get_current_os};
     use serde_json::json;
 
     fn allow_with_os(os: serde_json::Value) -> bool {
@@ -132,5 +133,57 @@ mod tests {
             allow_with_os(json!({ "name": "osx" })),
             cfg!(target_os = "macos")
         );
+    }
+
+    #[test]
+    fn unknown_action_is_disallow() {
+        let os = json!({ "name": get_current_os() });
+        for action in ["deny", "Allow", "ALLOW", ""] {
+            assert!(
+                !is_json_rules_allowed(&[json!({ "action": action, "os": os })]),
+                "неизвестное действие {action:?} должно запрещать"
+            );
+        }
+        assert!(
+            !is_json_rules_allowed(&[json!({ "os": os })]),
+            "правило без действия должно запрещать"
+        );
+    }
+
+    #[test]
+    fn typed_rule_with_unknown_action_is_disallow() {
+        let rule = Rule {
+            action: "bogus".to_string(),
+            os: Some(OsRule {
+                name: Some(get_current_os().to_string()),
+                arch: None,
+            }),
+            features: None,
+        };
+        assert!(
+            !is_typed_rule_allowed(Some(&[rule])),
+            "неизвестное действие в типизированном правиле должно запрещать"
+        );
+    }
+
+    #[test]
+    fn os_and_arch_must_match_together() {
+        let arch = get_arch_label();
+        let other_arch = if arch == "x86" { "x86_64" } else { "x86" };
+
+        assert!(allow_with_os(
+            json!({ "name": get_current_os(), "arch": arch })
+        ));
+        assert!(
+            !allow_with_os(json!({ "name": get_current_os(), "arch": other_arch })),
+            "совпадающая os с чужой архитектурой не должна пропускаться"
+        );
+        assert!(
+            !allow_with_os(json!({ "name": "windows", "arch": arch })),
+            "чужая os с совпадающей архитектурой не должна пропускаться"
+        );
+        assert!(!allow_with_os(
+            json!({ "name": "windows", "arch": other_arch })
+        ));
     }
 }

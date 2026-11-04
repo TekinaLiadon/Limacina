@@ -258,7 +258,7 @@ mod tests {
         authlib_cache_fresh, authlib_scratch_path, ensure_authlib_jar_from, offline_skin_paths,
         parse_offline_skin_model, resolve_launch_jar_from, AUTHLIB_LATEST_TTL,
     };
-    use crate::test_support::{part_files_in, LauncherDirGuard};
+    use crate::test_support::{part_files_in, LauncherDirGuard, MockEnv};
     use crate::utils::hex::digest_hex;
     use mockito::Server;
     use serde_json::json;
@@ -385,8 +385,10 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_authlib_jar_replaces_outdated_jar() {
-        let guard = LauncherDirGuard::acquire("authlib_update").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("authlib_update").await;
         let game_dir = guard.root().join("project/AuthGame");
 
         let jar_v1 = b"authlib agent v1".to_vec();
@@ -440,8 +442,10 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_authlib_jar_uses_cached_jar_when_version_matches() {
-        let guard = LauncherDirGuard::acquire("authlib_cached").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("authlib_cached").await;
         let game_dir = guard.root().join("project/AuthGame");
 
         let jar_v1 = b"authlib agent v1".to_vec();
@@ -481,8 +485,10 @@ mod tests {
 
     #[tokio::test]
     async fn broken_latest_cache_is_refetched_once() {
-        let guard = LauncherDirGuard::acquire("authlib_broken_cache").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("authlib_broken_cache").await;
         let game_dir = guard.root().join("project/AuthGame");
 
         let jar = b"authlib agent fresh";
@@ -510,8 +516,10 @@ mod tests {
 
     #[tokio::test]
     async fn unparsable_latest_is_removed_after_single_retry() {
-        let guard = LauncherDirGuard::acquire("authlib_garbage_manifest").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("authlib_garbage_manifest").await;
         let game_dir = guard.root().join("project/AuthGame");
 
         let manifest_mock = server
@@ -582,8 +590,10 @@ mod tests {
 
     #[tokio::test]
     async fn failed_update_keeps_previous_jar() {
-        let guard = LauncherDirGuard::acquire("authlib_update_fail").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("authlib_update_fail").await;
         let game_dir = guard.root().join("project/AuthGame");
 
         let jar_v1 = b"authlib agent v1";

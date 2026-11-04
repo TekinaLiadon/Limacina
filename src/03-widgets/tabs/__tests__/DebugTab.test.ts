@@ -12,6 +12,11 @@ vi.mock('@/04-features', async () => {
   return {
     useDebugConsole: (): Record<string, unknown> => ({
       logs: ref<string[]>([]),
+      sessionTabs: ref<Array<{ name: string; isLive: boolean }>>([]),
+      activeSession: ref<string | null>(null),
+      activeLogs: ref<Array<{ line: string; isError: boolean; session: string | null }>>([
+        { line: 'log line', isError: false, session: null },
+      ]),
       filteredLogs: ref<Array<{ line: string; isError: boolean; session: string | null }>>([
         { line: 'log line', isError: false, session: null },
       ]),
@@ -21,6 +26,7 @@ vi.mock('@/04-features', async () => {
       streamError: ref<string | null>(null),
       startConsoleStream: vi.fn().mockResolvedValue(undefined),
       handleCopy: vi.fn(),
+      closeSession: vi.fn(),
     }),
     useKillGame: (): Record<string, unknown> => ({
       isGameRunning: ref(false),

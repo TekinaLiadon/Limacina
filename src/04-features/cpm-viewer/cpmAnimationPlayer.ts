@@ -92,6 +92,7 @@ function wrapIndex(index: number, length: number): number {
 }
 
 export type StepSampler = (step: number) => number
+type Interpolate = (t: number, a: number, b: number) => number
 
 export function animationStep(millis: number, duration: number, frames: number): number {
   const safeDuration = Math.max(duration, 1)
@@ -104,39 +105,21 @@ export function createStepSampler(values: number[]): StepSampler {
   return (step) => values[wrapIndex(Math.floor(step), len)] ?? 0
 }
 
-function createLinearLoopSampler(values: number[]): StepSampler {
+function createLoopSampler(values: number[], interpolate: Interpolate): StepSampler {
   const len = values.length
   return (step) => {
     const frm = Math.floor(step)
-    return lerp(step - frm, values[wrapIndex(frm, len)] ?? 0, values[wrapIndex(frm + 1, len)] ?? 0)
+    return interpolate(step - frm, values[wrapIndex(frm, len)] ?? 0, values[wrapIndex(frm + 1, len)] ?? 0)
   }
 }
 
-function createLinearSingleSampler(values: number[]): StepSampler {
+function createSingleSampler(values: number[], interpolate: Interpolate): StepSampler {
   const len = values.length
   const last = len - 1
   return (step) => {
     const v = (step / len) * last
     const frm = Math.min(Math.abs(Math.floor(v)), last)
-    return lerp(v - Math.floor(v), values[frm] ?? 0, values[Math.min(frm + 1, last)] ?? 0)
-  }
-}
-
-function createTrigLoopSampler(values: number[]): StepSampler {
-  const len = values.length
-  return (step) => {
-    const frm = Math.floor(step)
-    return trigInt(step - frm, values[wrapIndex(frm, len)] ?? 0, values[wrapIndex(frm + 1, len)] ?? 0)
-  }
-}
-
-function createTrigSingleSampler(values: number[]): StepSampler {
-  const len = values.length
-  const last = len - 1
-  return (step) => {
-    const v = (step / len) * last
-    const frm = Math.min(Math.abs(Math.floor(v)), last)
-    return trigInt(v - Math.floor(v), values[frm] ?? 0, values[Math.min(frm + 1, last)] ?? 0)
+    return interpolate(v - Math.floor(v), values[frm] ?? 0, values[Math.min(frm + 1, last)] ?? 0)
   }
 }
 
@@ -214,13 +197,13 @@ export function createChannelSampler(values: number[], interpolator: CPMAnimatio
   }
   switch (interpolator) {
     case 'linear_loop':
-      return createLinearLoopSampler(values)
+      return createLoopSampler(values, lerp)
     case 'linear_single':
-      return createLinearSingleSampler(values)
+      return createSingleSampler(values, lerp)
     case 'trig_loop':
-      return createTrigLoopSampler(values)
+      return createLoopSampler(values, trigInt)
     case 'trig_single':
-      return createTrigSingleSampler(values)
+      return createSingleSampler(values, trigInt)
     case 'poly_loop':
       return createPolynomialSampler(values, true)
     case 'poly_single':

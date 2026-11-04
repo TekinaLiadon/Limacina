@@ -100,21 +100,12 @@ function clear(): void {
   width: var(--icon-size-lg);
   height: var(--icon-size-lg);
   padding: 0;
-  border: none;
-  border-radius: var(--radius-badge);
-  background: transparent;
-  color: var(--login-text-muted);
-  cursor: pointer;
-  transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
+
+  @include mixins.ghost-button(var(--radius-badge), $hover-exclude-disabled: false);
 
   svg {
     width: var(--icon-size-sm);
     height: var(--icon-size-sm);
-  }
-
-  &:hover {
-    background: var(--surface-hover);
-    color: var(--login-text-primary);
   }
 }
 

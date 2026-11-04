@@ -28,7 +28,20 @@ const emit = defineEmits<{
 
 const notification = useNotificationStore()
 
+const VERSIONS_STEP = 20
+
 const expandedChangelogs = ref<Set<string>>(new Set())
+const visibleVersionsLimit = ref<number>(VERSIONS_STEP)
+
+const visibleVersions = computed((): ModrinthVersion[] =>
+  props.details?.versions.slice(0, visibleVersionsLimit.value) ?? [])
+
+const hiddenVersionsCount = computed((): number =>
+  (props.details?.versions.length ?? 0) - visibleVersions.value.length)
+
+function showMoreVersions(): void {
+  visibleVersionsLimit.value += VERSIONS_STEP
+}
 
 const sideLabels: Record<ModrinthSide, string> = {
   required: 'обязателен',
@@ -94,7 +107,10 @@ function toggleChangelog(versionId: string): void {
 }
 
 watch((): boolean => props.visible, (visible: boolean): void => {
-  if (visible) expandedChangelogs.value = new Set()
+  if (visible) {
+    expandedChangelogs.value = new Set()
+    visibleVersionsLimit.value = VERSIONS_STEP
+  }
 })
 
 async function handleLink(url: string): Promise<void> {
@@ -166,7 +182,7 @@ async function handleLink(url: string): Promise<void> {
         Список версий не загрузился, проверьте соединение и откройте мод ещё раз
       </p>
       <div v-if="details.versions.length > 0" class="modrinth-popup__versions">
-        <div v-for="version in details.versions" :key="version.id" class="modrinth-popup__version">
+        <div v-for="version in visibleVersions" :key="version.id" class="modrinth-popup__version">
           <div class="modrinth-popup__version-head">
             <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
             <Button
@@ -198,6 +214,13 @@ async function handleLink(url: string): Promise<void> {
             @link-error="notification.show"
           />
         </div>
+        <Button
+          v-if="hiddenVersionsCount > 0"
+          class="btn-secondary modrinth-popup__versions-more"
+          @click="showMoreVersions"
+        >
+          Показать ещё ({{ hiddenVersionsCount }})
+        </Button>
       </div>
     </div>
 
@@ -220,13 +243,7 @@ async function handleLink(url: string): Promise<void> {
 @use '@/01-app/assets/mixins';
 
 .modrinth-popup {
-  @include mixins.popup-card(none, var(--modrinth-popup-width));
-
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-  height: var(--modrinth-popup-height);
-  text-align: left;
+  @include mixins.popup-card-column;
 
   &__head {
     display: flex;
@@ -277,11 +294,7 @@ async function handleLink(url: string): Promise<void> {
   }
 
   &__info {
-    @include mixins.subtle-card(var(--space-8) var(--space-12));
-
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
+    @include mixins.subtle-card-column;
   }
 
   &__info-row {
@@ -343,13 +356,15 @@ async function handleLink(url: string): Promise<void> {
     gap: var(--space-4);
   }
 
-  &__version {
-    @include mixins.subtle-card(var(--space-8) var(--space-12));
+  &__versions-more {
+    min-height: var(--control-height-sm);
+    padding: var(--space-4) var(--space-12);
+  }
 
-    display: flex;
-    flex-direction: column;
+  &__version {
+    @include mixins.subtle-card-column;
+
     align-items: flex-start;
-    gap: var(--space-4);
     text-align: left;
   }
 

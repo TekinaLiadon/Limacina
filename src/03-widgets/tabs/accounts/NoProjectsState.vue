@@ -47,13 +47,9 @@ const emit = defineEmits<{
 }
 
 .no-projects-state__title {
+  @include mixins.heading-typography;
+
   margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--text-heading-sm);
-  line-height: var(--leading-heading);
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-heading);
-  color: var(--login-text-primary);
 }
 
 .no-projects-state__hint {

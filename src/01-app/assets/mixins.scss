@@ -99,24 +99,41 @@
   border-radius: var(--radius-card);
 }
 
+@mixin interactive-transition {
+  transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+}
+
+@mixin ghost-button($radius: var(--radius-button), $background: transparent, $color: var(--login-text-muted), $hover-bg: var(--surface-hover), $hover-color: var(--login-text-primary), $hover-exclude-disabled: true) {
+  border: none;
+  border-radius: $radius;
+  background: $background;
+  color: $color;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
+
+  @if $hover-exclude-disabled {
+    &:hover:not(:disabled) {
+      background: $hover-bg;
+      color: $hover-color;
+    }
+  } @else {
+    &:hover {
+      background: $hover-bg;
+      color: $hover-color;
+    }
+  }
+}
+
 @mixin tool-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: var(--control-height-sm);
   height: var(--control-height-sm);
-  border: none;
-  border-radius: var(--radius-button);
-  background: transparent;
-  color: var(--login-text-secondary);
-  cursor: pointer;
-  font-family: inherit;
-  transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+  @include ghost-button($color: var(--login-text-secondary));
 
-  &:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--login-text-primary);
-  }
+  transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
 
   &:active:not(:disabled) {
     transform: scale(0.96);
@@ -319,6 +336,15 @@
   width: $width;
 }
 
+@mixin heading-typography {
+  font-family: var(--font-display);
+  font-size: var(--text-heading-sm);
+  line-height: var(--leading-heading);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-heading);
+  color: var(--login-text-primary);
+}
+
 @mixin popup-title {
   font-family: var(--font-display);
   font-size: var(--text-subheading);
@@ -337,6 +363,40 @@
   #{$btn-class} {
     flex: 1;
     min-height: var(--control-height);
+  }
+}
+
+@mixin popup-card-column($max-width: none, $width: var(--modrinth-popup-width), $height: var(--modrinth-popup-height)) {
+  @include popup-card($max-width, $width);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--element-gap);
+  height: $height;
+  text-align: left;
+}
+
+@mixin subtle-card-column($padding: var(--space-8) var(--space-12)) {
+  @include subtle-card($padding);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@mixin content-list {
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  &__empty {
+    @include caption-hint(left);
+  }
+
+  &__error {
+    @include error-box;
   }
 }
 

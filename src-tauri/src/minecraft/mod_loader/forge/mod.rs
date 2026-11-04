@@ -11,22 +11,19 @@ pub(crate) static LOADER: InstallerLoader = InstallerLoader {
 mod config_tests {
     use super::LOADER;
     use crate::minecraft::mod_loader::installer::setup_loader;
-    use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::{GameConfig, LibraryMod, ModLoader, VersionMod};
     use crate::test_support::{
-        assert_loader_config_common, loader_manifest, loader_project, loader_vanilla_config,
-        loader_version_mod, sha1_hex, write_loader_manifest, LauncherDirGuard,
+        assert_loader_config_common, assert_no_loader_placeholders,
+        assert_user_jvm_args_survive_validation, loader_manifest, loader_project,
+        loader_vanilla_config, loader_version_mod, sha1_hex, write_loader_manifest,
+        LauncherDirGuard, MockEnv,
     };
     use crate::utils::get_classpath_separator;
-    use mockito::Server;
     use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    #[tokio::test]
-    async fn forge_config_merges_classpath_and_strips_cp_args() {
-        let dir = LauncherDirGuard::acquire("forge_config").await;
-
+    fn seed_forge_manifest(dir: &LauncherDirGuard) {
         let manifest_json = loader_manifest(
             "1.20.1-forge-0.16.9",
             "net.minecraftforge.bootstrap.Bootstrap",
@@ -38,6 +35,12 @@ mod config_tests {
             json!([]),
         );
         write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
+    }
+
+    #[tokio::test]
+    async fn forge_config_merges_classpath_and_strips_cp_args() {
+        let dir = LauncherDirGuard::acquire("forge_config").await;
+        seed_forge_manifest(&dir);
 
         let state = loader_project("ForgeProj", "1.20.1", "0.16.9");
 
@@ -159,8 +162,7 @@ mod config_tests {
 
     #[tokio::test]
     async fn classpath_after_install_has_no_missing_entries() {
-        let dir = LauncherDirGuard::acquire("forge_classpath_install").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("forge_classpath_install").await;
 
         server
             .mock(
@@ -297,11 +299,7 @@ mod config_tests {
         )));
         assert!(config.game_args.contains(&"--fml.forgeVersion".to_string()));
         assert!(config.game_args.contains(&"47.2.0".to_string()));
-        assert!(!config
-            .jvm_args
-            .iter()
-            .chain(config.game_args.iter())
-            .any(|arg| arg.contains("${")));
+        assert_no_loader_placeholders(&config);
         assert_eq!(
             config.main_class,
             "cpw.mods.bootstraplauncher.BootstrapLauncher"
@@ -461,18 +459,7 @@ mod config_tests {
     #[tokio::test]
     async fn forge_config_keeps_user_jvm_args_on_validated_spawn_path() {
         let dir = LauncherDirGuard::acquire("forge_args_guard").await;
-
-        let manifest_json = loader_manifest(
-            "1.20.1-forge-0.16.9",
-            "net.minecraftforge.bootstrap.Bootstrap",
-            "1.20.1",
-            json!({
-                "game": ["--fml.forgeVersion", "0.16.9"],
-                "jvm": ["-Dforge.keep=1", "-cp", "${classpath}"]
-            }),
-            json!([]),
-        );
-        write_loader_manifest(dir.root(), "forge_0.16.9", &manifest_json);
+        seed_forge_manifest(&dir);
 
         let state = loader_project("ForgeGuard", "1.20.1", "0.16.9");
         let version = loader_version_mod("1.20.1-0.16.9", "LoaderMain");
@@ -491,16 +478,6 @@ mod config_tests {
             .await
             .expect("конфиг Forge");
 
-        assert!(
-            config.jvm_args.contains(&"-Xdebug".to_string()),
-            "пользовательский аргумент должен пройти через конфиг лоадера: {:?}",
-            config.jvm_args
-        );
-        let error = validate_jvm_args(&config.jvm_args)
-            .expect_err("пользовательский debug-аргумент должен быть отклонён");
-        assert!(
-            error.to_string().contains("-Xdebug"),
-            "ошибка должна называть аргумент: {error}"
-        );
+        assert_user_jvm_args_survive_validation(&config);
     }
 }

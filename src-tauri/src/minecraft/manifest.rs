@@ -56,8 +56,7 @@ pub async fn get_manifest_version(
 mod version_validation_tests {
     use super::get_manifest_version;
     use crate::minecraft::structs::Versions;
-    use crate::test_support::LauncherDirGuard;
-    use mockito::Server;
+    use crate::test_support::{LauncherDirGuard, MockEnv};
 
     #[tokio::test]
     async fn traversal_version_is_rejected_before_lookup() {
@@ -102,8 +101,10 @@ mod version_validation_tests {
     }
 
     async fn mock_version_server() -> (LauncherDirGuard, mockito::ServerGuard) {
-        let guard = LauncherDirGuard::acquire("manifest_id_check").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("manifest_id_check").await;
         server
             .mock("GET", "/1.20.1.json")
             .with_status(200)
@@ -133,8 +134,10 @@ mod version_validation_tests {
 
     #[tokio::test]
     async fn manifest_with_matching_id_is_accepted() {
-        let _guard = LauncherDirGuard::acquire("manifest_id_match").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("manifest_id_match").await;
         server
             .mock("GET", "/1.20.1.json")
             .with_status(200)
@@ -158,13 +161,14 @@ mod version_validation_tests {
 mod manifest_index_tests {
     use super::get_manifest_index;
     use crate::minecraft::structs::Versions;
-    use crate::test_support::LauncherDirGuard;
-    use mockito::Server;
+    use crate::test_support::MockEnv;
 
     #[tokio::test]
     async fn get_manifest_index_downloads_once_then_reads_from_cache() {
-        let _guard = LauncherDirGuard::acquire("manifest_index_cache").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("manifest_index_cache").await;
         let mock = server
             .mock("GET", "/versions")
             .with_status(200)
@@ -192,8 +196,10 @@ mod manifest_index_tests {
 
     #[tokio::test]
     async fn get_manifest_index_errors_on_invalid_json() {
-        let _guard = LauncherDirGuard::acquire("manifest_index_bad").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("manifest_index_bad").await;
         server
             .mock("GET", "/versions")
             .with_status(200)

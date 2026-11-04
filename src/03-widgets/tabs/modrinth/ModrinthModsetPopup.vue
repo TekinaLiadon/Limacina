@@ -141,13 +141,7 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
 @use '@/01-app/assets/mixins';
 
 .modrinth-modset-popup {
-  @include mixins.popup-card(none, var(--modrinth-popup-width));
-
-  display: flex;
-  flex-direction: column;
-  gap: var(--element-gap);
-  height: var(--modrinth-popup-height);
-  text-align: left;
+  @include mixins.popup-card-column;
 
   &__title {
     margin: 0;
@@ -167,11 +161,7 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
   }
 
   &__row {
-    @include mixins.subtle-card(var(--space-8) var(--space-12));
-
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
+    @include mixins.subtle-card-column;
   }
 
   &__row-head {
@@ -214,11 +204,7 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
   }
 
   &__unresolved {
-    @include mixins.subtle-card(var(--space-8) var(--space-12));
-
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
+    @include mixins.subtle-card-column;
   }
 
   &__unresolved-title {

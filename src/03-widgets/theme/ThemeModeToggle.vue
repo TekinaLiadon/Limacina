@@ -72,7 +72,7 @@ const modes: ModeOption[] = [
     border: none;
     font-family: inherit;
     cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+    @include mixins.interactive-transition;
   }
 
   &--icons &__segment {

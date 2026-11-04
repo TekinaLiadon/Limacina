@@ -393,6 +393,8 @@ pub(crate) fn find_java_executable(base_dir: &Path) -> Result<PathBuf> {
 mod tests {
     use super::{adoptium_os, get_java_version};
     use crate::minecraft::vanilla::structs::VersionDetailsManifest;
+    #[cfg(not(target_os = "windows"))]
+    use crate::test_support::TempDir;
 
     #[cfg(not(target_os = "windows"))]
     fn write_test_tar_gz(archive_path: &std::path::Path, root: &str, entries: &[(&str, &[u8])]) {
@@ -438,34 +440,66 @@ mod tests {
     }
 
     #[cfg(not(target_os = "windows"))]
+    fn write_default_jdk_archive(archive_path: &std::path::Path) {
+        write_test_tar_gz(
+            archive_path,
+            "jdk-21-test",
+            &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn staged_java_env(tag: &str) -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = TempDir::new(tag);
+        let java_parent = dir.0.join("21");
+        std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
+        let archive_path = java_parent.join("archive.tar.gz");
+        write_default_jdk_archive(&archive_path);
+        (dir, java_parent, archive_path)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn assert_staged_install(java_parent: &std::path::Path, exe: &std::path::Path) {
+        assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
+        assert_eq!(
+            std::fs::read(java_parent.join("eclipse").join("release")).expect("чтение release"),
+            b"JAVA_HOME"
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn extract_env(tag: &str) -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = TempDir::new(tag);
+        let archive_path = dir.0.join("archive.tar.gz");
+        write_test_tar_gz(
+            &archive_path,
+            "",
+            &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
+        );
+        let target = dir.0.join("out");
+        std::fs::create_dir_all(&target).expect("создание целевой папки");
+        (dir, archive_path, target)
+    }
+
+    #[cfg(not(target_os = "windows"))]
     mod install_staging {
         use super::super::{
             find_java_executable, install_java_archive, remove_archive_best_effort,
         };
-        use super::write_test_tar_gz;
+        use super::{
+            assert_staged_install, staged_java_env, write_default_jdk_archive, write_test_tar_gz,
+        };
         use crate::test_support::TempDir;
 
         #[tokio::test]
         async fn extracts_into_staging_then_moves_to_vendor_dir() {
-            let dir = TempDir::new("java_stage_ok");
-            let java_parent = dir.0.join("21");
-            std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
-            let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(
-                &archive_path,
-                "jdk-21-test",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
+            let (_dir, java_parent, archive_path) = staged_java_env("java_stage_ok");
 
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("установка Java через staging");
 
-            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
-            assert_eq!(
-                std::fs::read(java_parent.join("eclipse").join("release")).expect("чтение release"),
-                b"JAVA_HOME"
-            );
+            assert_staged_install(&java_parent, &exe);
             assert!(
                 !java_parent.join("staging_eclipse").exists(),
                 "staging удаляется после установки"
@@ -475,8 +509,7 @@ mod tests {
 
         #[tokio::test]
         async fn interrupted_staging_is_redone_and_never_treated_as_installed() {
-            let dir = TempDir::new("java_stage_break");
-            let java_parent = dir.0.join("21");
+            let (_dir, java_parent, archive_path) = staged_java_env("java_stage_break");
             let partial = java_parent
                 .join("staging_eclipse")
                 .join("jdk-21-partial")
@@ -492,17 +525,11 @@ mod tests {
                 "частичная распаковка и чужие поставки не считаются установленной Java"
             );
 
-            let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(
-                &archive_path,
-                "jdk-21-test",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("повторная установка после обрыва");
 
-            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
+            assert_staged_install(&java_parent, &exe);
             assert!(
                 !java_parent.join("staging_eclipse").exists(),
                 "staging пересоздаётся с нуля"
@@ -536,23 +563,16 @@ mod tests {
 
         #[tokio::test]
         async fn reinstall_replaces_existing_vendor_tree() {
-            let dir = TempDir::new("java_stage_replace");
-            let java_parent = dir.0.join("21");
+            let (_dir, java_parent, archive_path) = staged_java_env("java_stage_replace");
             let broken = java_parent.join("eclipse");
             std::fs::create_dir_all(&broken).expect("создание битой установки");
             std::fs::write(broken.join("junk"), b"old").expect("запись мусора");
 
-            let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(
-                &archive_path,
-                "jdk-21-test",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("переустановка поверх битой Java");
 
-            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
+            assert_staged_install(&java_parent, &exe);
             assert!(
                 !broken.join("junk").exists(),
                 "старое дерево не должно оставаться"
@@ -561,15 +581,7 @@ mod tests {
 
         #[tokio::test]
         async fn corrupt_archive_is_removed_so_retry_downloads_again() {
-            let dir = TempDir::new("java_stage_corrupt");
-            let java_parent = dir.0.join("21");
-            std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
-            let archive_path = java_parent.join("archive.tar.gz");
-            write_test_tar_gz(
-                &archive_path,
-                "jdk-21-test",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
+            let (_dir, java_parent, archive_path) = staged_java_env("java_stage_corrupt");
             let mut bytes = std::fs::read(&archive_path).expect("чтение архива");
             bytes.truncate(20);
             std::fs::write(&archive_path, &bytes).expect("запись обрезанного архива");
@@ -582,23 +594,16 @@ mod tests {
                 "битый архив удаляется, чтобы повторная попытка скачала его заново"
             );
 
-            write_test_tar_gz(
-                &archive_path,
-                "jdk-21-test",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
+            write_default_jdk_archive(&archive_path);
             let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
                 .await
                 .expect("повторная установка после перекачки");
-            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
+            assert_staged_install(&java_parent, &exe);
         }
 
         #[tokio::test]
         async fn jdk_root_is_chosen_by_java_executable_not_alphabetical_order() {
-            let dir = TempDir::new("java_stage_multiroot");
-            let java_parent = dir.0.join("21");
-            std::fs::create_dir_all(&java_parent).expect("создание папки версии Java");
-            let archive_path = java_parent.join("archive.tar.gz");
+            let (_dir, java_parent, archive_path) = staged_java_env("java_stage_multiroot");
             write_test_tar_gz(
                 &archive_path,
                 "",
@@ -614,23 +619,15 @@ mod tests {
                 .await
                 .expect("корень с bin/java должен выбираться независимо от имени");
 
-            assert_eq!(exe, java_parent.join("eclipse").join("bin").join("java"));
-            assert_eq!(
-                std::fs::read(java_parent.join("eclipse").join("release")).expect("чтение release"),
-                b"JAVA_HOME",
-                "переносится каталог с bin/java, а не первый по алфавиту"
-            );
+            assert_staged_install(&java_parent, &exe);
         }
 
         #[tokio::test]
         async fn archive_without_java_fails_without_touching_existing_install() {
-            let dir = TempDir::new("java_stage_nojava");
-            let java_parent = dir.0.join("21");
+            let (_dir, java_parent, archive_path) = staged_java_env("java_stage_nojava");
             let installed = java_parent.join("eclipse").join("bin");
             std::fs::create_dir_all(&installed).expect("создание рабочей установки");
             std::fs::write(installed.join("java"), b"working").expect("запись java");
-
-            let archive_path = java_parent.join("archive.tar.gz");
             write_test_tar_gz(
                 &archive_path,
                 "",
@@ -701,20 +698,11 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     mod archive_limits {
         use super::super::extract_archive_with_limit;
-        use super::write_test_tar_gz;
-        use crate::test_support::TempDir;
+        use super::extract_env;
 
         #[test]
         fn tar_extract_writes_entries_within_limit() {
-            let dir = TempDir::new("ok");
-            let archive_path = dir.0.join("archive.tar.gz");
-            write_test_tar_gz(
-                &archive_path,
-                "",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
-            let target = dir.0.join("out");
-            std::fs::create_dir_all(&target).expect("создание целевой папки");
+            let (_dir, archive_path, target) = extract_env("ok");
 
             extract_archive_with_limit(&archive_path, &target, 1 << 20)
                 .expect("распаковка в лимите");
@@ -731,15 +719,7 @@ mod tests {
 
         #[test]
         fn tar_extract_stops_when_total_size_exceeds_limit() {
-            let dir = TempDir::new("limit");
-            let archive_path = dir.0.join("archive.tar.gz");
-            write_test_tar_gz(
-                &archive_path,
-                "",
-                &[("bin/java", &b"elf"[..]), ("release", &b"JAVA_HOME"[..])],
-            );
-            let target = dir.0.join("out");
-            std::fs::create_dir_all(&target).expect("создание целевой папки");
+            let (_dir, archive_path, target) = extract_env("limit");
 
             let result = extract_archive_with_limit(&archive_path, &target, 4);
             assert!(result.is_err(), "превышение лимита должно давать ошибку");
@@ -772,19 +752,27 @@ mod tests {
         assert_eq!(get_java_version("26.2"), "25");
     }
 
+    fn version_manifest_json(java_version: Option<&str>) -> String {
+        let java_version = java_version
+            .map(|value| format!(r#","javaVersion": {value}"#))
+            .unwrap_or_default();
+        format!(
+            r#"{{
+                "id": "26.2",
+                "downloads": {{"client": {{"sha1": "", "size": 0, "url": ""}}}},
+                "libraries": [],
+                "assetIndex": {{"id": "x", "sha1": "", "size": 0, "url": "", "totalSize": 0}},
+                "assets": "x",
+                "mainClass": "net.minecraft.client.main.Main"{java_version}
+            }}"#
+        )
+    }
+
     #[test]
     fn manifest_java_version_is_parsed() {
-        let manifest: VersionDetailsManifest = serde_json::from_str(
-            r#"{
-                "id": "26.2",
-                "downloads": {"client": {"sha1": "", "size": 0, "url": ""}},
-                "libraries": [],
-                "assetIndex": {"id": "x", "sha1": "", "size": 0, "url": "", "totalSize": 0},
-                "assets": "x",
-                "mainClass": "net.minecraft.client.main.Main",
-                "javaVersion": {"component": "java-runtime-epsilon", "majorVersion": 25}
-            }"#,
-        )
+        let manifest: VersionDetailsManifest = serde_json::from_str(&version_manifest_json(Some(
+            r#"{"component": "java-runtime-epsilon", "majorVersion": 25}"#,
+        )))
         .unwrap();
 
         let java_version = manifest.java_version.unwrap();
@@ -794,17 +782,8 @@ mod tests {
 
     #[test]
     fn manifest_without_java_version_defaults_to_none() {
-        let manifest: VersionDetailsManifest = serde_json::from_str(
-            r#"{
-                "id": "1.0",
-                "downloads": {"client": {"sha1": "", "size": 0, "url": ""}},
-                "libraries": [],
-                "assetIndex": {"id": "x", "sha1": "", "size": 0, "url": "", "totalSize": 0},
-                "assets": "x",
-                "mainClass": "net.minecraft.client.main.Main"
-            }"#,
-        )
-        .unwrap();
+        let manifest: VersionDetailsManifest =
+            serde_json::from_str(&version_manifest_json(None)).unwrap();
 
         assert!(manifest.java_version.is_none());
     }

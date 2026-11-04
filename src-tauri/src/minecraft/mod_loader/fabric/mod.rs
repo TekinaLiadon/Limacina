@@ -112,15 +112,29 @@ mod config_tests {
     use crate::minecraft::process::validate_jvm_args;
     use crate::minecraft::structs::{GameConfig, LibraryMod, ModLoader, VersionMod};
     use crate::state::dto::ProjectConfig;
-    use crate::test_support::{sha1_hex, LauncherDirGuard};
-    use mockito::Server;
+    use crate::test_support::{sha1_hex, LauncherDirGuard, MockEnv};
     use std::fs;
     use std::path::PathBuf;
 
+    async fn fabric_config_case(
+        project: &str,
+        vanilla_config: GameConfig,
+        version: &VersionMod,
+    ) -> GameConfig {
+        let state = ProjectConfig {
+            project_name: project.to_string(),
+            mc_version: "1.20.1".to_string(),
+            ..ProjectConfig::default()
+        };
+        Fabric
+            .config(&state, vanilla_config, version)
+            .await
+            .expect("конфиг Fabric")
+    }
+
     #[tokio::test]
     async fn fabric_setup_installs_loader_and_libraries() {
-        let dir = LauncherDirGuard::acquire("fabric_setup").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("fabric_setup").await;
 
         let loader_jar = b"fabric loader jar bytes".to_vec();
         let intermediary_jar = b"intermediary jar bytes".to_vec();
@@ -206,16 +220,7 @@ mod config_tests {
             main_class: "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string(),
             library: Vec::new(),
         };
-        let state = ProjectConfig {
-            project_name: "FabGuard".to_string(),
-            mc_version: "1.20.1".to_string(),
-            ..ProjectConfig::default()
-        };
-
-        let config = Fabric
-            .config(&state, vanilla_config, &version)
-            .await
-            .expect("конфиг Fabric");
+        let config = fabric_config_case("FabGuard", vanilla_config, &version).await;
 
         assert!(
             config.jvm_args.contains(&"-javaagent:evil.jar".to_string()),
@@ -261,16 +266,7 @@ mod config_tests {
                 size: 1,
             }],
         };
-        let state = ProjectConfig {
-            project_name: "FabFilter".to_string(),
-            mc_version: "1.20.1".to_string(),
-            ..ProjectConfig::default()
-        };
-
-        let config = Fabric
-            .config(&state, vanilla_config, &version)
-            .await
-            .expect("конфиг Fabric");
+        let config = fabric_config_case("FabFilter", vanilla_config, &version).await;
 
         assert!(
             config

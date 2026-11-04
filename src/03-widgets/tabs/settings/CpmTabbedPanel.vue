@@ -216,23 +216,13 @@ const toggle = (id: string): void => {
   }
 
   &__filter {
+    @include mixins.ghost-button($background: var(--surface-light), $hover-exclude-disabled: false);
+
     display: inline-flex;
     align-items: center;
     gap: var(--space-4);
     padding: var(--space-4) var(--space-8);
-    border: none;
-    border-radius: var(--radius-button);
-    background: var(--surface-light);
-    color: var(--login-text-muted);
-    font-family: inherit;
     font-size: var(--text-caption);
-    cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
-    }
 
     &[aria-pressed="true"] {
       background: var(--accent-active-bg);

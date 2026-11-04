@@ -46,7 +46,7 @@ const versionOptions = computed((): DropdownOption[] =>
         :is-disabled="isApplyDisabled"
         @click="handleApplyVersion"
       >
-        Откатить
+        Установить
       </Button>
     </div>
   </div>

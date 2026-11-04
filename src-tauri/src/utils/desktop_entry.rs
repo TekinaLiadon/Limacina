@@ -177,6 +177,21 @@ mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
+    fn icon_env(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "limacina-desktop-{tag}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let appdir = dir.join("app");
+        let data_home = dir.join("data");
+        std::fs::create_dir_all(&appdir).unwrap();
+        std::fs::create_dir_all(&data_home).unwrap();
+        (dir, appdir, data_home)
+    }
+
     #[test]
     fn desktop_entry_renders_required_fields() {
         let entry = render_desktop_entry(
@@ -310,15 +325,7 @@ mod tests {
 
     #[test]
     fn sync_icon_falls_back_to_256x256_for_corrupt_png() {
-        let dir = std::env::temp_dir().join(format!(
-            "limacina-desktop-sync-corrupt-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let appdir = dir.join("app");
-        let data_home = dir.join("data");
+        let (dir, appdir, data_home) = icon_env("sync-corrupt");
         std::fs::create_dir_all(appdir.join("usr/share/icons")).unwrap();
         std::fs::write(appdir.join("usr/share/icons/icon.png"), b"not a png").unwrap();
 
@@ -336,15 +343,7 @@ mod tests {
 
     #[test]
     fn sync_icon_copies_to_hicolor_apps_dir() {
-        let dir = std::env::temp_dir().join(format!(
-            "limacina-desktop-sync-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let appdir = dir.join("app");
-        let data_home = dir.join("data");
+        let (dir, appdir, data_home) = icon_env("sync");
         std::fs::create_dir_all(appdir.join("usr/share/icons")).unwrap();
         write_fake_png(&appdir.join("usr/share/icons/icon.png"), 128, 128);
 
@@ -360,16 +359,7 @@ mod tests {
 
     #[test]
     fn sync_icon_is_noop_without_icons() {
-        let dir = std::env::temp_dir().join(format!(
-            "limacina-desktop-sync-empty-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let appdir = dir.join("app");
-        let data_home = dir.join("data");
-        std::fs::create_dir_all(&appdir).unwrap();
+        let (dir, appdir, data_home) = icon_env("sync-empty");
 
         sync_icon(&appdir, &data_home, "com.tekina.limacina")
             .expect("отсутствие иконок — тихий no-op");

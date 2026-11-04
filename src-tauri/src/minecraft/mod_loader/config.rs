@@ -253,11 +253,10 @@ async fn build_mod_classpath(
 mod loader_config_tests {
     use super::{build_loader_config, LoaderConfigOptions, VanillaClientJar};
     use crate::minecraft::mod_loader::manifest::LoaderDef;
-    use crate::minecraft::structs::{GameConfig, VersionMod};
+    use crate::minecraft::structs::{test_helpers::test_game_config, VersionMod};
     use crate::state::dto::ProjectConfig;
     use crate::test_support::LauncherDirGuard;
     use crate::utils::errors::LauncherError;
-    use std::path::Path;
 
     fn forge_def() -> LoaderDef {
         LoaderDef {
@@ -269,17 +268,6 @@ mod loader_config_tests {
             group_versions: |_metadata| unreachable!("индекс не нужен для сборки конфига"),
             installer_url: |_mc, _loader| unreachable!("инсталлер не нужен для сборки конфига"),
         }
-    }
-
-    fn game_config(game_dir: &Path) -> GameConfig {
-        GameConfig::new(
-            game_dir.join("java"),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            "net.minecraft.client.main.Main".to_string(),
-            game_dir.to_path_buf(),
-        )
     }
 
     #[tokio::test]
@@ -301,7 +289,7 @@ mod loader_config_tests {
         let error = build_loader_config(
             &forge_def(),
             &state,
-            game_config(&dir.project_dir("CfgProj")),
+            test_game_config(&dir.project_dir("CfgProj")),
             &version,
             LoaderConfigOptions {
                 vanilla_client_jar: VanillaClientJar::Keep,

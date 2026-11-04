@@ -151,9 +151,8 @@ mod tests {
     use crate::commands::launcher_config::update_launcher_config;
     use crate::state::dto::GlobalState;
     use crate::state::launcher_config::LauncherConfig;
-    use crate::test_support::{ConfigFileGuard, LauncherDirGuard};
+    use crate::test_support::{ConfigFileGuard, LauncherDirGuard, MockEnv};
     use crate::utils::env_info::get_launcher_name;
-    use mockito::Server;
     use std::fs;
     use std::path::PathBuf;
     use tokio::sync::Mutex;
@@ -162,8 +161,10 @@ mod tests {
 
     #[tokio::test]
     async fn init_project_config_recreates_broken_toml_from_server() {
-        let guard = LauncherDirGuard::acquire("init_broken_toml").await;
-        let mut server = Server::new_async().await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("init_broken_toml").await;
         server
             .mock("GET", "/v1/launcher/config")
             .with_status(200)

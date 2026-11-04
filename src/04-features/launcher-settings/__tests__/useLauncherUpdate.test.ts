@@ -127,6 +127,82 @@ describe('useLauncherUpdate', () => {
     expect(update.isApplying.value).toBe(false)
   })
 
+  it('asks to update when the target is newer than the running version', async () => {
+    useCoreStore().version = '1.2.9'
+    vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.9'), makeVersion('1.2.10')])
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.2.10')
+
+    const pending = update.handleApplyVersion()
+    expect(useNotificationStore().popupMessage).toBe(
+      'Обновить лаунчер на версию v1.2.10? Лаунчер перезапустится.',
+    )
+    useNotificationStore().resolvePopup(false)
+    await pending
+
+    expect(applyUpdateCmd).not.toHaveBeenCalled()
+    expect(update.isApplying.value).toBe(false)
+  })
+
+  it('asks to roll back when the target is older than the running version', async () => {
+    useCoreStore().version = '1.2.3'
+    vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.2'), makeVersion('1.2.3')])
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.2.2')
+
+    const pending = update.handleApplyVersion()
+    expect(useNotificationStore().popupMessage).toBe(
+      'Откатить лаунчер на версию v1.2.2? Лаунчер перезапустится.',
+    )
+    useNotificationStore().resolvePopup(false)
+    await pending
+
+    expect(applyUpdateCmd).not.toHaveBeenCalled()
+    expect(update.isApplying.value).toBe(false)
+  })
+
+  it('asks to update when the target prerelease has a newer base version', async () => {
+    useCoreStore().version = '1.2.3'
+    vi.mocked(getLauncherVersions).mockResolvedValue([
+      makeVersion('1.2.3'),
+      makeVersion('1.2.4-rc.1'),
+    ])
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.2.4-rc.1')
+
+    const pending = update.handleApplyVersion()
+    expect(useNotificationStore().popupMessage).toBe(
+      'Обновить лаунчер на версию v1.2.4-rc.1? Лаунчер перезапустится.',
+    )
+    useNotificationStore().resolvePopup(false)
+    await pending
+
+    expect(applyUpdateCmd).not.toHaveBeenCalled()
+  })
+
+  it('asks to update when the target release succeeds the running prerelease', async () => {
+    useCoreStore().version = '1.2.4-rc.1'
+    vi.mocked(getLauncherVersions).mockResolvedValue([
+      makeVersion('1.2.4-rc.1'),
+      makeVersion('1.2.4'),
+    ])
+    const update = setupUpdate()
+    await vi.waitFor(() => expect(update.versions.value).toHaveLength(2))
+    update.selectVersion('1.2.4')
+
+    const pending = update.handleApplyVersion()
+    expect(useNotificationStore().popupMessage).toBe(
+      'Обновить лаунчер на версию v1.2.4? Лаунчер перезапустится.',
+    )
+    useNotificationStore().resolvePopup(false)
+    await pending
+
+    expect(applyUpdateCmd).not.toHaveBeenCalled()
+  })
+
   it('does not apply when the confirmation is declined', async () => {
     useCoreStore().version = '1.2.3'
     vi.mocked(getLauncherVersions).mockResolvedValue([makeVersion('1.2.3'), makeVersion('1.3.0')])

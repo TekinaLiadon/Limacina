@@ -5,7 +5,7 @@ pub mod pipeline;
 pub mod rules;
 pub mod structs;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use std::path::PathBuf;
 
@@ -167,6 +167,12 @@ impl MinecraftLoader for Vanilla {
         })?;
         let mut classpath = get_classpath(&manifest_version.libraries, config).await?;
         let client_jar = game_dir.join(format!("{}.jar", config.mc_version));
+        if !tokio::fs::try_exists(&client_jar).await.unwrap_or(false) {
+            bail!(LauncherError::GameProcess(format!(
+                "Клиент Minecraft не найден: {}. Запустите проверку целостности в настройках проекта",
+                client_jar.to_string_lossy()
+            )));
+        }
         classpath.push(client_jar.to_string_lossy().to_string());
 
         log_info!("Формирование аргументов");
@@ -197,34 +203,134 @@ impl MinecraftLoader for Vanilla {
 }
 
 #[cfg(test)]
+mod config_tests {
+    use super::Vanilla;
+    use crate::minecraft::structs::{LaunchConfig, MinecraftLoader};
+    use crate::state::dto::ProjectConfig;
+    use crate::test_support::{test_launch_config, LauncherDirGuard};
+    use std::fs;
+
+    const MC_VERSION: &str = "1.20.1";
+
+    fn project() -> ProjectConfig {
+        ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            mc_version: MC_VERSION.to_string(),
+            java_path: Some("java".to_string()),
+            ..ProjectConfig::default()
+        }
+    }
+
+    fn launch_config(dir: &LauncherDirGuard) -> LaunchConfig {
+        let mut config = test_launch_config(&dir.project_dir("Cordelia"));
+        config.mc_version = MC_VERSION.to_string();
+        config
+    }
+
+    async fn seeded_launcher_dir(tag: &str) -> LauncherDirGuard {
+        let dir = LauncherDirGuard::acquire(tag).await;
+        let manifest_dir = dir.root().join("manifest");
+        fs::create_dir_all(&manifest_dir).expect("директория манифестов");
+        let index = serde_json::json!({
+            "latest": { "release": MC_VERSION, "snapshot": MC_VERSION },
+            "versions": [
+                {
+                    "id": MC_VERSION,
+                    "url": format!("http://127.0.0.1:1/{MC_VERSION}.json"),
+                    "type": "release"
+                }
+            ]
+        });
+        fs::write(manifest_dir.join("vanilla_index.json"), index.to_string())
+            .expect("кеш индекса версий");
+        let details = serde_json::json!({
+            "id": MC_VERSION,
+            "downloads": {
+                "client": { "sha1": "abc", "size": 1, "url": "https://example.test/client.jar" }
+            },
+            "libraries": [],
+            "assetIndex": {
+                "id": "5",
+                "sha1": "def",
+                "size": 1,
+                "url": "https://example.test/5.json",
+                "totalSize": 1
+            },
+            "assets": "5",
+            "mainClass": "net.minecraft.client.main.Main",
+            "minecraftArguments": null,
+            "arguments": { "game": [], "jvm": [] },
+            "javaVersion": { "component": "java-runtime-gamma", "majorVersion": 17 }
+        });
+        fs::write(
+            manifest_dir.join(format!("{MC_VERSION}.json")),
+            details.to_string(),
+        )
+        .expect("кеш манифеста версии");
+        dir
+    }
+
+    #[tokio::test]
+    async fn config_errors_for_missing_client_jar() {
+        let dir = seeded_launcher_dir("vanilla_client_jar_missing").await;
+        let state = project();
+        let config = launch_config(&dir);
+
+        let error = Vanilla
+            .config(&state, &config)
+            .await
+            .expect_err("отсутствующий клиентский jar должен прерывать подготовку запуска");
+
+        let message = error.to_string();
+        assert!(
+            message.contains(&format!("{MC_VERSION}.jar")),
+            "ошибка должна называть файл клиента: {message}"
+        );
+        assert!(
+            message.contains("проверку целостности"),
+            "ошибка должна подсказать проверку целостности: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn config_includes_existing_client_jar_in_classpath() {
+        let dir = seeded_launcher_dir("vanilla_client_jar_present").await;
+        let state = project();
+        let base = dir.project_dir("Cordelia");
+        fs::create_dir_all(&base).expect("директория проекта");
+        fs::write(base.join(format!("{MC_VERSION}.jar")), b"client").expect("клиентский jar");
+        let config = launch_config(&dir);
+
+        let game_config = Vanilla
+            .config(&state, &config)
+            .await
+            .expect("подготовка запуска с целым клиентским jar");
+
+        let jar = base.join(format!("{MC_VERSION}.jar"));
+        assert!(
+            game_config
+                .classpath
+                .contains(&jar.to_string_lossy().into_owned()),
+            "клиентский jar должен попасть в classpath: {:?}",
+            game_config.classpath
+        );
+    }
+}
+
+#[cfg(test)]
 mod install_phases_tests {
     use super::InstallPhases;
     use crate::minecraft::vanilla::download::{PHASE_ASSET_INDEX, PHASE_CLIENT};
     use crate::minecraft::vanilla::pipeline::VanillaPhaseExecutor;
-    use crate::test_support::{integrity_url_target, sha1_hex, step_event_id, LauncherDirGuard};
+    use crate::test_support::{integrity_url_target, sha1_hex, LauncherDirGuard, MockEnv};
     use crate::utils::step_events::test_capture;
-    use crate::utils::step_events::StepEvent;
-    use mockito::Server;
+    use crate::utils::step_events::test_capture::{assert_single_terminal, TerminalExpectation};
     use std::path::PathBuf;
-
-    fn terminals(id: &str) -> Vec<StepEvent> {
-        test_capture::captured()
-            .into_iter()
-            .filter(|(_, event)| step_event_id(event) == id)
-            .filter(|(_, event)| {
-                matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
-            })
-            .map(|(_, event)| event)
-            .collect()
-    }
 
     #[tokio::test]
     async fn fetch_intact_files_finish_step_once_as_skipped() {
-        let dir = LauncherDirGuard::acquire("vanilla_fetch_intact").await;
-        let _capture = test_capture::CaptureGuard::new();
-        let base = dir.project_dir("Cordelia");
-        std::fs::create_dir_all(base.join("libraries")).expect("создание директории");
-        std::fs::write(base.join("libraries/a.jar"), b"content").expect("целый файл");
+        let (_dir, _capture, base) =
+            test_capture::seed_intact_project_file("vanilla_fetch_intact").await;
 
         let mut phases = InstallPhases {
             base_path: base,
@@ -243,26 +349,17 @@ mod install_phases_tests {
             .await
             .expect("фаза с целыми файлами");
 
-        let step_terminals = terminals(PHASE_CLIENT.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "ровно одно терминальное событие на шаг: {step_terminals:?}"
-        );
-        assert!(
-            matches!(
-                step_terminals.first(),
-                Some(StepEvent::Finished { skipped: true, .. })
-            ),
-            "шаг без скачиваний должен финишировать как пропущенный: {step_terminals:?}"
+        assert_single_terminal(
+            PHASE_CLIENT.id,
+            None,
+            TerminalExpectation::Finished { skipped: true },
         );
     }
 
     #[tokio::test]
     async fn fetch_failed_download_fails_step_once() {
-        let dir = LauncherDirGuard::acquire("vanilla_fetch_failed").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("vanilla_fetch_failed").await;
         let _capture = test_capture::CaptureGuard::new();
-        let mut server = Server::new_async().await;
         server
             .mock("GET", "/libs/a.jar")
             .with_status(404)
@@ -291,16 +388,7 @@ mod install_phases_tests {
             error.to_string().contains("Не удалось скачать файлы"),
             "неожиданная ошибка: {error}"
         );
-        let step_terminals = terminals(PHASE_CLIENT.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "ровно одно терминальное событие: {step_terminals:?}"
-        );
-        assert!(
-            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
-            "шаг должен фейлиться, а не финишировать: {step_terminals:?}"
-        );
+        assert_single_terminal(PHASE_CLIENT.id, None, TerminalExpectation::Failed);
     }
 
     fn phases(base: PathBuf) -> InstallPhases {
@@ -329,26 +417,17 @@ mod install_phases_tests {
             .await
             .expect("фаза индекса ассетов по целому файлу");
 
-        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "ровно одно терминальное событие на шаг: {step_terminals:?}"
-        );
-        assert!(
-            matches!(
-                step_terminals.first(),
-                Some(StepEvent::Finished { skipped: true, .. })
-            ),
-            "целый индекс должен финишировать как пропущенный: {step_terminals:?}"
+        assert_single_terminal(
+            PHASE_ASSET_INDEX.id,
+            None,
+            TerminalExpectation::Finished { skipped: true },
         );
     }
 
     #[tokio::test]
     async fn asset_index_failed_download_fails_step_once() {
-        let dir = LauncherDirGuard::acquire("vanilla_index_failed").await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("vanilla_index_failed").await;
         let _capture = test_capture::CaptureGuard::new();
-        let mut server = Server::new_async().await;
         server
             .mock("GET", "/index.json")
             .with_status(404)
@@ -368,16 +447,7 @@ mod install_phases_tests {
             error.to_string().contains("Не удалось скачать файлы"),
             "неожиданная ошибка: {error}"
         );
-        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "ровно одно терминальное событие: {step_terminals:?}"
-        );
-        assert!(
-            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
-            "шаг должен фейлиться: {step_terminals:?}"
-        );
+        assert_single_terminal(PHASE_ASSET_INDEX.id, None, TerminalExpectation::Failed);
     }
 
     #[tokio::test]
@@ -405,15 +475,6 @@ mod install_phases_tests {
                 .contains("Не удалось разобрать индекс ресурсов"),
             "неожиданная ошибка: {error}"
         );
-        let step_terminals = terminals(PHASE_ASSET_INDEX.id);
-        assert_eq!(
-            step_terminals.len(),
-            1,
-            "после успешного скачивания сбой чтения должен давать единственный Failed: {step_terminals:?}"
-        );
-        assert!(
-            matches!(step_terminals.first(), Some(StepEvent::Failed { .. })),
-            "шаг должен фейлиться, а не финишировать: {step_terminals:?}"
-        );
+        assert_single_terminal(PHASE_ASSET_INDEX.id, None, TerminalExpectation::Failed);
     }
 }

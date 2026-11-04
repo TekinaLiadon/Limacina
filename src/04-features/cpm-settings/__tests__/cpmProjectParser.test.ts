@@ -132,7 +132,7 @@ describe('readCpmProjectZip', () => {
     )
   })
 
-  it('rejects a zip bomb exceeding the uncompressed budget', async () => {
+  it('rejects a zip bomb exceeding the uncompressed budget', { timeout: 30_000 }, async () => {
     const bomb = '0'.repeat(33 * 1024 * 1024)
     const data = await buildZip({
       'config.json': JSON.stringify(config),

@@ -68,8 +68,25 @@ function createControls(): ViewerControls {
 
 function makeSkinTexture(): THREE.Texture {
   const texture = new THREE.Texture()
-  texture.image = { width: 64, height: 64 }
+  const img = new Image()
+  img.width = 64
+  img.height = 64
+  texture.image = img
   return texture
+}
+
+function makeTextureWithImage(image: unknown): THREE.Texture {
+  const texture = new THREE.Texture()
+  texture.image = image as HTMLImageElement
+  return texture
+}
+
+function sceneMeshes(): THREE.Mesh[] {
+  const meshes: THREE.Mesh[] = []
+  mountedScene.current?.value?.traverse((object) => {
+    if (object instanceof THREE.Mesh) meshes.push(object)
+  })
+  return meshes
 }
 
 function modelGroups(): THREE.Group[] {
@@ -190,5 +207,26 @@ describe('useSkinViewer', () => {
 
     expect(geometryDispose).toHaveBeenCalledOnce()
     expect(materialDispose).toHaveBeenCalled()
+  })
+
+  it('writes finite UVs for a valid HTMLImageElement texture', async () => {
+    const { skinUrl, unmount } = await mountViewer()
+    await loadSkin(skinUrl, makeSkinTexture())
+
+    const uv = firstModelMesh().geometry.getAttribute('uv') as THREE.BufferAttribute
+    for (let i = 0; i < uv.count; i++) {
+      expect(Number.isFinite(uv.getX(i))).toBe(true)
+      expect(Number.isFinite(uv.getY(i))).toBe(true)
+    }
+    unmount()
+  })
+
+  it('skips building the model when the texture image is not an HTMLImageElement', async () => {
+    const { skinUrl, unmount } = await mountViewer()
+    await loadSkin(skinUrl, makeTextureWithImage({ width: 64, height: 64 }))
+
+    expect(modelGroups()).toHaveLength(1)
+    expect(sceneMeshes()).toHaveLength(0)
+    unmount()
   })
 })

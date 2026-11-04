@@ -119,16 +119,28 @@ pub async fn run_loader_installer(
     }
 
     if !output.status.success() {
+        let details = if stderr.trim().is_empty() {
+            stdout_tail(&stdout)
+        } else {
+            stderr.into_owned()
+        };
         return Err(LauncherError::LoaderSetup(format!(
             "{} инсталлер завершился с ошибкой (код {:?}):\n{}",
             loader_name,
             output.status.code(),
-            stderr
+            details
         ))
         .into());
     }
 
     Ok(())
+}
+
+fn stdout_tail(stdout: &str) -> String {
+    const MAX_LINES: usize = 20;
+    let lines: Vec<&str> = stdout.lines().collect();
+    let start = lines.len().saturating_sub(MAX_LINES);
+    lines[start..].join("\n")
 }
 
 async fn version_subdirs(versions_dir: &Path) -> Result<Vec<PathBuf>> {
@@ -463,8 +475,7 @@ pub async fn setup_loader(
 #[cfg(test)]
 mod loader_install_tests {
     use super::*;
-    use crate::test_support::{sha1_hex, step_event_id, LauncherDirGuard};
-    use mockito::Server;
+    use crate::test_support::{sha1_hex, step_event_id, LauncherDirGuard, MockEnv};
     use serde_json::json;
     use std::fs;
 
@@ -477,8 +488,7 @@ mod loader_install_tests {
     }
 
     async fn setup_loader_env(label: &str) -> SetupLoaderEnv {
-        let dir = LauncherDirGuard::acquire(label).await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire(label).await;
 
         server
             .mock(
@@ -778,8 +788,7 @@ mod loader_install_tests {
 
     #[tokio::test]
     async fn setup_loader_fast_path_uses_manifest_paths_for_classified_libraries() {
-        let dir = LauncherDirGuard::acquire("loader_setup_neoforge").await;
-        let mut server = Server::new_async().await;
+        let MockEnv { dir, mut server } = MockEnv::acquire("loader_setup_neoforge").await;
 
         let mergetool_jar = b"mergetool bytes".to_vec();
         let installer_jar = b"installer bytes".to_vec();
@@ -1076,6 +1085,108 @@ mod loader_install_tests {
                 .to_string()
                 .contains("Манифест лоадера 2.0 для игры 1.20.1"),
             "ошибка должна называть запрошенные версии: {error}"
+        );
+    }
+
+    #[cfg(unix)]
+    fn write_installer_stub_java(
+        dir: &Path,
+        stdout_lines: &[&str],
+        stderr_lines: &[&str],
+        code: i32,
+    ) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("stub-installer-java.sh");
+        let mut body = String::from("#!/bin/sh\n");
+        for line in stdout_lines {
+            body.push_str(&format!("echo {line}\n"));
+        }
+        for line in stderr_lines {
+            body.push_str(&format!("echo {line} >&2\n"));
+        }
+        body.push_str(&format!("exit {code}\n"));
+        fs::write(&script, body).unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    #[cfg(unix)]
+    fn stub_java_project(java: &Path) -> ProjectConfig {
+        ProjectConfig {
+            java_path: Some(java.to_string_lossy().into_owned()),
+            ..ProjectConfig::default()
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_loader_installer_failure_with_empty_stderr_includes_stdout_tail() {
+        let dir = LauncherDirGuard::acquire("installer_stdout_tail").await;
+        let stdout_lines: Vec<String> = (1..=25).map(|i| format!("stdout-diag-{i:02}")).collect();
+        let stdout_refs: Vec<&str> = stdout_lines.iter().map(String::as_str).collect();
+        let java = write_installer_stub_java(dir.root(), &stdout_refs, &[], 1);
+        let state = stub_java_project(&java);
+
+        let error = run_loader_installer(
+            "Forge",
+            Path::new("unused-installer.jar"),
+            Path::new("unused-vanilla"),
+            &state,
+        )
+        .await
+        .expect_err("инсталлер с кодом 1 должен дать ошибку");
+
+        let loader_error = error
+            .downcast_ref::<LauncherError>()
+            .expect("ошибка должна быть LauncherError");
+        assert!(
+            matches!(loader_error, LauncherError::LoaderSetup(_)),
+            "ожидается LoaderSetup: {loader_error:?}"
+        );
+        let text = loader_error.to_string();
+        assert!(
+            text.contains("stdout-diag-25"),
+            "диагностика из stdout должна попасть в ошибку при пустом stderr: {text}"
+        );
+        assert!(
+            !text.contains("stdout-diag-01"),
+            "начало длинного stdout должно обрезаться до хвоста: {text}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_loader_installer_failure_with_stderr_keeps_stderr_in_error() {
+        let dir = LauncherDirGuard::acquire("installer_stderr_kept").await;
+        let java = write_installer_stub_java(
+            dir.root(),
+            &["stdout-diag-unused"],
+            &["stderr-diag-forge-crash"],
+            1,
+        );
+        let state = stub_java_project(&java);
+
+        let error = run_loader_installer(
+            "Forge",
+            Path::new("unused-installer.jar"),
+            Path::new("unused-vanilla"),
+            &state,
+        )
+        .await
+        .expect_err("инсталлер с кодом 1 должен дать ошибку");
+
+        let loader_error = error
+            .downcast_ref::<LauncherError>()
+            .expect("ошибка должна быть LauncherError");
+        let text = loader_error.to_string();
+        assert!(
+            text.contains("stderr-diag-forge-crash"),
+            "stderr должен остаться источником диагностики: {text}"
+        );
+        assert!(
+            !text.contains("stdout-diag-unused"),
+            "при непустом stderr stdout в ошибку не добавляется: {text}"
         );
     }
 

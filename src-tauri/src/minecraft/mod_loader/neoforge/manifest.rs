@@ -75,11 +75,38 @@ mod tests {
     use super::{group_neoforge_versions, neoforge_installer_url, NEOFORGE, NEOFORGE_CACHE_FILE};
     use crate::minecraft::mod_loader::manifest::{
         current_loader_version, get_loader_index, latest_list_version, transform_loader_manifest,
-        Metadata,
+        LoaderIndex, Metadata,
     };
     use crate::state::dto::ProjectConfig as ConfigProject;
-    use crate::test_support::{loader_metadata, LauncherDirGuard};
-    use mockito::Server;
+    use crate::test_support::{loader_metadata, LauncherDirGuard, MockEnv};
+    use mockito::{Mock, Server};
+
+    async fn mock_maven_index(server: &mut Server, versions: &[&str]) -> Mock {
+        let entries: String = versions
+            .iter()
+            .map(|v| format!("<version>{v}</version>"))
+            .collect();
+        let latest = versions.last().copied().unwrap_or_default();
+        server
+            .mock("GET", "/maven-metadata.xml")
+            .with_status(200)
+            .with_header("content-type", "application/xml")
+            .with_body(format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?><metadata><groupId>net.neoforged</groupId><artifactId>neoforge</artifactId><versioning><latest>{latest}</latest><release>{latest}</release><versions>{entries}</versions></versioning></metadata>"#
+            ))
+            .create_async()
+            .await
+    }
+
+    async fn fetch_neoforge_index(server_url: &str) -> LoaderIndex {
+        get_loader_index(
+            NEOFORGE_CACHE_FILE,
+            &format!("{server_url}/maven-metadata.xml"),
+            group_neoforge_versions,
+        )
+        .await
+        .expect("индекс NeoForge")
+    }
 
     #[test]
     fn groups_patch_zero_under_short_mc_version_key() {
@@ -213,31 +240,14 @@ mod tests {
 
     #[tokio::test]
     async fn real_metadata_fixture_groups_1_21_under_short_key() {
-        let dir = LauncherDirGuard::acquire("neoforge_index").await;
-        let mut server = Server::new_async().await;
-        let body = concat!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
-            "<metadata><groupId>net.neoforged</groupId><artifactId>neoforge</artifactId>",
-            "<versioning><latest>21.1.1</latest><release>21.1.1</release><versions>",
-            "<version>20.6.121</version><version>21.0.0-beta</version><version>21.0.143</version>",
-            "<version>21.1.1</version>",
-            "</versions></versioning></metadata>"
-        );
-        server
-            .mock("GET", "/maven-metadata.xml")
-            .with_status(200)
-            .with_header("content-type", "application/xml")
-            .with_body(body)
-            .create_async()
-            .await;
-
-        let index = get_loader_index(
-            NEOFORGE_CACHE_FILE,
-            &format!("{}/maven-metadata.xml", server.url()),
-            group_neoforge_versions,
+        let MockEnv { dir, mut server } = MockEnv::acquire("neoforge_index").await;
+        mock_maven_index(
+            &mut server,
+            &["20.6.121", "21.0.0-beta", "21.0.143", "21.1.1"],
         )
-        .await
-        .expect("индекс NeoForge");
+        .await;
+
+        let index = fetch_neoforge_index(&server.url()).await;
 
         let cached = std::fs::read_to_string(dir.root().join("manifest").join(NEOFORGE_CACHE_FILE))
             .expect("кэш индекса");
@@ -261,31 +271,17 @@ mod tests {
 
     #[tokio::test]
     async fn modern_scheme_resolves_current_loader_version() {
-        let _dir = LauncherDirGuard::acquire("neoforge_modern_current").await;
-        let mut server = Server::new_async().await;
-        let body = concat!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
-            "<metadata><groupId>net.neoforged</groupId><artifactId>neoforge</artifactId>",
-            "<versioning><latest>26.3.0.76</latest><release>26.3.0.76</release><versions>",
-            "<version>21.1.259</version><version>26.1.2.116</version><version>26.3.0.75-beta</version>",
-            "<version>26.3.0.76</version>",
-            "</versions></versioning></metadata>"
-        );
-        server
-            .mock("GET", "/maven-metadata.xml")
-            .with_status(200)
-            .with_header("content-type", "application/xml")
-            .with_body(body)
-            .create_async()
-            .await;
-
-        let index = get_loader_index(
-            NEOFORGE_CACHE_FILE,
-            &format!("{}/maven-metadata.xml", server.url()),
-            group_neoforge_versions,
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("neoforge_modern_current").await;
+        mock_maven_index(
+            &mut server,
+            &["21.1.259", "26.1.2.116", "26.3.0.75-beta", "26.3.0.76"],
         )
-        .await
-        .expect("индекс NeoForge");
+        .await;
+
+        let index = fetch_neoforge_index(&server.url()).await;
 
         let manifest = transform_loader_manifest(index, neoforge_installer_url);
         let state = ConfigProject {
@@ -321,29 +317,13 @@ mod tests {
         .expect("посев старого кэша");
 
         let mut server = Server::new_async().await;
-        let body = concat!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
-            "<metadata><groupId>net.neoforged</groupId><artifactId>neoforge</artifactId>",
-            "<versioning><latest>26.3.0.76</latest><release>26.3.0.76</release><versions>",
-            "<version>21.1.259</version><version>26.1.2.116</version><version>26.3.0.75-beta</version>",
-            "<version>26.3.0.76</version>",
-            "</versions></versioning></metadata>"
-        );
-        let mock = server
-            .mock("GET", "/maven-metadata.xml")
-            .with_status(200)
-            .with_header("content-type", "application/xml")
-            .with_body(body)
-            .create_async()
-            .await;
-
-        let index = get_loader_index(
-            NEOFORGE_CACHE_FILE,
-            &format!("{}/maven-metadata.xml", server.url()),
-            group_neoforge_versions,
+        let mock = mock_maven_index(
+            &mut server,
+            &["21.1.259", "26.1.2.116", "26.3.0.75-beta", "26.3.0.76"],
         )
-        .await
-        .expect("индекс NeoForge");
+        .await;
+
+        let index = fetch_neoforge_index(&server.url()).await;
 
         mock.assert_async().await;
         assert!(index.contains_key("26.3"));

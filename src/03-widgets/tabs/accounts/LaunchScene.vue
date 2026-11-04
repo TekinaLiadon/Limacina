@@ -150,12 +150,8 @@ const displayName = computed((): string => props.hasSession ? props.username : '
   }
 
   &__name {
-    font-family: var(--font-display);
-    font-size: var(--text-heading-sm);
-    line-height: var(--leading-heading);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-heading);
-    color: var(--login-text-primary);
+    @include mixins.heading-typography;
+
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

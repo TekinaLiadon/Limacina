@@ -247,26 +247,16 @@ const openLoginForm = (): void => {
   }
 
   &__menu-item {
+    @include mixins.ghost-button($color: var(--login-text-secondary));
+
     display: flex;
     align-items: center;
     gap: var(--space-8);
     width: 100%;
     padding: var(--space-8) var(--space-12);
-    border: none;
-    border-radius: var(--radius-button);
-    background: transparent;
-    font-family: inherit;
     font-size: var(--text-body-sm);
     line-height: var(--leading-body-sm);
-    color: var(--login-text-secondary);
     text-align: left;
-    cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
-
-    &:hover:not(:disabled) {
-      background: var(--surface-hover);
-      color: var(--login-text-primary);
-    }
 
     &--active {
       color: var(--login-text-primary);
@@ -283,36 +273,31 @@ const openLoginForm = (): void => {
     font-weight: var(--weight-medium);
   }
 
-  &__menu-check {
+  &__menu-check,
+  &__menu-plus {
     width: var(--menu-action-size);
     height: var(--menu-action-size);
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-circle);
-    background: var(--accent-active-bg);
-    color: var(--accent-text);
     flex-shrink: 0;
   }
 
+  &__menu-check {
+    background: var(--accent-active-bg);
+    color: var(--accent-text);
+  }
+
   &__menu-delete {
+    @include mixins.ghost-button(var(--radius-circle), $hover-bg: var(--delete-bg), $hover-color: var(--delete-text));
+
     width: var(--menu-action-size);
     height: var(--menu-action-size);
     display: flex;
     align-items: center;
     justify-content: center;
-    border: none;
-    border-radius: var(--radius-circle);
-    background: transparent;
-    color: var(--login-text-muted);
-    cursor: pointer;
-    transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
     flex-shrink: 0;
-
-    &:hover:not(:disabled) {
-      background: var(--delete-bg);
-      color: var(--delete-text);
-    }
 
     &:disabled {
       opacity: 0.4;
@@ -321,15 +306,8 @@ const openLoginForm = (): void => {
   }
 
   &__menu-plus {
-    width: var(--menu-action-size);
-    height: var(--menu-action-size);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-circle);
     box-shadow: var(--elevation-inset);
     color: var(--login-text-muted);
-    flex-shrink: 0;
   }
 }
 
