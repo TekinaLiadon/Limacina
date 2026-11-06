@@ -1,0 +1,5 @@
+{
+  "$schema": "./node_modules/knip/schema.json",
+  "entry": ["steiger.config.ts"],
+  "ignore": ["legacy/**"]
+}

@@ -36,11 +36,6 @@ export const VANILLA_POSES = [
   'head_rotation_pitch', 'brush_left', 'brush_right', 'crawling', 'spear_left', 'spear_right',
 ]
 
-export const VANILLA_DYNAMIC_DURATION_POSES: ReadonlySet<string> = new Set([
-  'punch_left', 'punch_right', 'bow_left', 'bow_right', 'crossbow_ch_left', 'crossbow_ch_right',
-  'speaking', 'health', 'hunger', 'air', 'light', 'head_rotation_yaw', 'head_rotation_pitch',
-])
-
 const INTERPOLATORS: CPMAnimationInterpolator[] = [
   'linear_loop', 'linear_single', 'poly_loop', 'poly_single', 'trig_loop', 'trig_single', 'no',
 ]

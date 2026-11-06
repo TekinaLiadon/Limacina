@@ -1,6 +1,6 @@
 import type { StepEvent } from '../types'
 
-export type StepStatus = 'pending' | 'active' | 'done' | 'error'
+type StepStatus = 'pending' | 'active' | 'done' | 'error'
 
 export interface StepProgressItem {
   key: string

@@ -3,7 +3,6 @@ import { readCpmProjectZip } from '../cpm-convert/cpmProjectZip'
 import type { CPMAnimEnc, CPMAnimation, CPMConfig } from '@/05-entities'
 
 export { readCpmProjectZip } from '../cpm-convert/cpmProjectZip'
-export type { CpmProjectZip } from '../cpm-convert/cpmProjectZip'
 
 export interface CpmProject {
   config: CPMConfig

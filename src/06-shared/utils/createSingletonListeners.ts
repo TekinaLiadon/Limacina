@@ -1,8 +1,8 @@
 import { effectScope } from 'vue'
 
-export type ListenerStop = () => void
-export type TrackListenerStop = (stop: ListenerStop) => void
-export type RegisterSingletonListeners = (track: TrackListenerStop) => Promise<void> | void
+type ListenerStop = () => void
+type TrackListenerStop = (stop: ListenerStop) => void
+type RegisterSingletonListeners = (track: TrackListenerStop) => Promise<void> | void
 
 export interface SingletonListeners {
   start: (register: RegisterSingletonListeners) => Promise<void>

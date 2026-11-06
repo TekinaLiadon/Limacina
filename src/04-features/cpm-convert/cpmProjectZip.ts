@@ -38,7 +38,7 @@ function enforceBudget(budget: ZipReadBudget): void {
   if (budget.spentBytes > budget.limitBytes) throw new Error(ZIP_SIZE_MESSAGE)
 }
 
-export async function readZipEntryBytes(budget: ZipReadBudget, file: JSZip.JSZipObject): Promise<Uint8Array> {
+async function readZipEntryBytes(budget: ZipReadBudget, file: JSZip.JSZipObject): Promise<Uint8Array> {
   const declared = declaredEntrySize(file)
   budget.spentBytes += declared
   enforceBudget(budget)

@@ -19,7 +19,62 @@
     "unicorn/no-useless-undefined": "warn",
     "unicorn/catch-error-name": "warn",
     "import/no-named-as-default": "warn",
-    "import/no-named-as-default-member": "warn"
+    "import/no-named-as-default-member": "warn",
+    "eslint/max-statements": ["error", { "max": 50 }],
+    "eslint/complexity": ["error", { "max": 26 }],
+    "eslint/max-depth": ["error", { "max": 4 }],
+    "eslint/max-params": ["error", { "max": 4 }]
   },
+  "overrides": [
+    {
+      "files": ["**/__tests__/**", "src/test-support/**", "scripts/**"],
+      "rules": {
+        "eslint/max-statements": "off",
+        "eslint/complexity": "off",
+        "eslint/max-depth": "off",
+        "eslint/max-params": "off"
+      }
+    },
+    {
+      "files": [
+        "src/04-features/cpm-convert/cpmProjectExporter.ts",
+        "src/04-features/cpm-convert/cpmAnimationWriter.ts",
+        "src/04-features/game-launch/useGameLaunch.ts",
+        "src/04-features/cpm-viewer/cpmModelBuilder.ts"
+      ],
+      "rules": {
+        "eslint/max-statements": "off",
+        "eslint/max-depth": "off"
+      }
+    },
+    {
+      "files": [
+        "src/04-features/cpm-convert/cpmProjectExporter.ts",
+        "src/04-features/cpm-convert/cpmAnimationWriter.ts",
+        "src/04-features/cpm-settings/cpmAnimationParser.ts",
+        "src/04-features/cpm-viewer/cpmModelBuilder.ts",
+        "src/04-features/cpm-viewer/cpmAnimationPlayer.ts"
+      ],
+      "rules": {
+        "eslint/complexity": "off"
+      }
+    },
+    {
+      "files": [
+        "src/04-features/cpm-viewer/cpmModelBuilder.ts",
+        "src/04-features/cpm-viewer/useCpmViewer.ts",
+        "src/04-features/cpm-presets/skinPng.ts",
+        "src/04-features/cpm-presets/skinNormalize.ts",
+        "src/04-features/cpm-presets/presetValidator.ts",
+        "src/04-features/cpm-settings/useCpmSettings.ts",
+        "src/04-features/skin-viewer/useSkinViewer.ts",
+        "src/04-features/cpm-convert/bbmodelAnimations.ts",
+        "src/06-shared/utils/numberStep.ts"
+      ],
+      "rules": {
+        "eslint/max-params": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist/", "node_modules/", "public/", "src-tauri/", "legacy/"]
 }

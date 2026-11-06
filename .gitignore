@@ -30,3 +30,6 @@ target
 
 # Test coverage
 coverage
+
+# Generated QA report
+scripts/contrast-report.md

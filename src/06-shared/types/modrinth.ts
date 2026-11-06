@@ -1,4 +1,4 @@
-export type ModrinthProjectType = 'mod' | 'shader' | 'resourcepack'
+type ModrinthProjectType = 'mod' | 'shader' | 'resourcepack'
 export type ModrinthSide = 'required' | 'optional' | 'unsupported'
 export type ModrinthVersionType = 'release' | 'beta' | 'alpha'
 
@@ -30,13 +30,13 @@ export interface ModrinthSearchResult {
   version_numbers_failed: boolean
 }
 
-export interface ModrinthLicense {
+interface ModrinthLicense {
   id: string
   name: string | null
   url: string | null
 }
 
-export interface ModrinthProject {
+interface ModrinthProject {
   id: string
   slug: string | null
   project_type: ModrinthProjectType
@@ -58,7 +58,7 @@ export interface ModrinthProject {
   discord_url: string | null
 }
 
-export interface ModrinthVersionFile {
+interface ModrinthVersionFile {
   hashes: Record<string, string>
   url: string
   filename: string
@@ -67,7 +67,7 @@ export interface ModrinthVersionFile {
   file_type: string | null
 }
 
-export interface ModrinthDependency {
+interface ModrinthDependency {
   version_id: string | null
   project_id: string | null
   file_name: string | null
@@ -127,7 +127,7 @@ export interface ModrinthExportMod {
   filename?: string | null
 }
 
-export interface ModrinthExportUnresolved {
+interface ModrinthExportUnresolved {
   filename: string
   reason: string
 }

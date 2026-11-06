@@ -4,7 +4,7 @@ import type { AsyncRaceGuard } from './useAsyncRaceGuard'
 import type { ProjectScope } from './captureProjectScope'
 import { reportError } from './reportError'
 
-export interface ScopedActionOptions<T, R> {
+interface ScopedActionOptions<T, R> {
   guard?: AsyncRaceGuard
   scope?: ProjectScope
   isCurrent?: () => boolean

@@ -8,7 +8,7 @@ export const SPEED_MAX = 3
 
 const MODEL_ORIGIN_Y = 24
 
-export interface AnimatedNode {
+interface AnimatedNode {
   group: THREE.Group
   basePos: THREE.Vector3
   baseRot: THREE.Euler

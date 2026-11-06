@@ -1,8 +1,8 @@
-export interface SavedLogin {
+interface SavedLogin {
   username: string
 }
 
-export interface AuthProjectConfig {
+interface AuthProjectConfig {
   logins: SavedLogin[]
 }
 

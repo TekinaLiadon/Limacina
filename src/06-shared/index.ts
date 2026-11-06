@@ -16,12 +16,10 @@ export { default as PopupShell } from './components/PopupShell.vue'
 export * from './api'
 
 export type {
-  InputOptions,
   DropdownOption,
   IconType,
   ViewerControls,
   StepEvent,
-  ModLoaderKind,
 } from './types'
 export { generateIdenticon } from './utils/identicon'
 export { copyToClipboard, joinPath, stripPathSuffix, getPathBaseName } from './utils/utils'
@@ -30,7 +28,6 @@ export { reportError } from './utils/reportError'
 export { DEFAULT_RGB, parseHexColor } from './utils/parseHexColor'
 export { selectFile, fileSizeLimitMessage } from './utils/useFileUpload'
 export { selectDirectory, saveFile } from './utils/dialogs'
-export type { SaveFileOptions } from './utils/dialogs'
 export { openExternalUrl } from './utils/externalUrl'
 export { isAutostartEnabled, enableAutostart, disableAutostart } from './utils/autostart'
 export { isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification } from './utils/notifications'
@@ -45,11 +42,9 @@ export { useDropdownPanel } from './utils/useDropdownPanel'
 export { useDirtySnapshot } from './utils/useDirtySnapshot'
 export { useAsyncRaceGuard } from './utils/useAsyncRaceGuard'
 export type { AsyncRaceGuard } from './utils/useAsyncRaceGuard'
-export type { RovingTabItem } from './utils/useRovingTabs'
 export { useRovingTabs } from './utils/useRovingTabs'
 export { useAsyncAction } from './utils/useAsyncAction'
 export { runScopedAction } from './utils/runScopedAction'
-export type { ScopedActionOptions } from './utils/runScopedAction'
 export { refreshSession } from './utils/refreshSession'
 export { captureProjectScope } from './utils/captureProjectScope'
 export type { ProjectScope } from './utils/captureProjectScope'
@@ -59,6 +54,6 @@ export { createSingletonListeners } from './utils/createSingletonListeners'
 export { isAnimationsEnabled, prefersReducedMotion, cssDurationMs } from './utils/animations'
 export { vFocus } from './directives/focus'
 export { useFileDrop } from './utils/useFileDrop'
-export { formatNumber, formatDate, selectPluralForm, formatCount } from './utils/formatters'
+export { formatNumber, formatDate, formatCount } from './utils/formatters'
 export type { PluralForms } from './utils/formatters'
 export { storeBinding } from './utils/storeBinding'

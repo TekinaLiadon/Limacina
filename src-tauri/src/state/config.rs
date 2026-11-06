@@ -1,6 +1,6 @@
+use crate::launcher_server::fetch_project_config;
 use crate::log_err;
 use crate::state::dto::GlobalState;
-use crate::state::launcher_config::LauncherConfig;
 use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
@@ -161,36 +161,49 @@ pub(crate) async fn recover_project_config(
     if let Some(config) = in_memory_project_config(state, project_name).await {
         return Ok(config);
     }
-    refetch_project_config(project_name, None).await
-}
-
-async fn refetch_project_config(
-    project_name: &str,
-    server_url: Option<&str>,
-) -> Result<ProjectConfig> {
-    let launcher_root = LauncherConfig::resolved_launcher_path()
-        .to_string_lossy()
-        .into_owned();
-    crate::init::init_project_config(&launcher_root, project_name, server_url).await
+    let guard = state.lock().await;
+    let server_url = guard
+        .project_config
+        .server_url
+        .as_deref()
+        .map(|s| s.to_string());
+    drop(guard);
+    let server_url = server_url.ok_or_else(|| {
+        anyhow::anyhow!("У проекта {project_name} отсутствует server_url для восстановления")
+    })?;
+    let fetched = fetch_project_config(&server_url).await?;
+    let repaired = ProjectConfig {
+        project_name: project_name.to_string(),
+        server_url: Some(server_url),
+        ..fetched
+    };
+    repaired.save_config().await?;
+    Ok(repaired)
 }
 
 async fn repair_empty_mc_version(config: ProjectConfig) -> Result<ProjectConfig> {
     if !config.online || !config.mc_version.trim().is_empty() {
         return Ok(config);
     }
+    let server_url = config.server_url.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("У онлайн-проекта {} отсутствует server_url", config.project_name)
+    })?;
     log_err!(
-        "[config] В конфиге проекта {} пустая версия Minecraft, перезапрашиваем конфиг с сервера",
+        "[config] В конфиге проекта {} пустая версия Minecraft, запрашиваем конфиг с сервера",
         config.project_name
     );
+    let fetched = fetch_project_config(server_url).await?;
     let toml_path = config_file_path(&config.project_name)?;
-    let _ = remove_file(&toml_path).await;
-    let repaired =
-        refetch_project_config(&config.project_name, config.server_url.as_deref()).await?;
-    Ok(ProjectConfig {
+    remove_file(&toml_path).await.ok();
+    let repaired = ProjectConfig {
+        project_name: config.project_name.clone(),
         cpu_cores: config.cpu_cores,
         auto_join_server: config.auto_join_server,
-        ..repaired
-    })
+        server_url: config.server_url.clone(),
+        ..fetched
+    };
+    repaired.save_config().await?;
+    Ok(repaired)
 }
 
 pub(crate) async fn load_repaired_project_config(
@@ -508,7 +521,7 @@ mod tests {
 #[cfg(test)]
 mod recovery_tests {
     use crate::state::config::{load_config, load_repaired_project_config};
-    use crate::state::dto::{GlobalState, ModLoader};
+    use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
     use crate::test_support::{LauncherDirGuard, MockEnv};
     use std::path::PathBuf;
     use tokio::sync::Mutex;
@@ -641,5 +654,171 @@ mod recovery_tests {
             config.server_url.is_none(),
             "офлайн-профиль не должен ходить на сервер"
         );
+    }
+
+    #[tokio::test]
+    async fn repair_empty_version_server_failure_keeps_original_toml() {
+        let guard = LauncherDirGuard::acquire("config_repair_server_failure").await;
+        let MockEnv {
+            dir: _,
+            mut server,
+        } = MockEnv::acquire("config_repair_server_failure").await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(500)
+            .with_body("internal server error")
+            .expect(1)
+            .create_async()
+            .await;
+        std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
+        let original_toml = format!(
+            "projectName = \"Solo\"\nmcVersion = \"\"\nmodLoader = \"vanilla\"\njvmArgs = []\nminMemory = \"-Xms512M\"\nmaxMemory = \"-Xmx4G\"\nonline = true\ninitialized = true\ncpuCores = 2\nautoJoinServer = false\nserverUrl = \"{}\"\n",
+            server.url()
+        );
+        std::fs::write(config_dir(&guard).join("Solo.toml"), &original_toml)
+            .expect("запись конфига с пустой версией");
+        let state = Mutex::new(GlobalState::default());
+
+        let result = load_repaired_project_config(&state, "Solo").await;
+
+        assert!(result.is_err(), "ошибка сервера должна пробрасываться наружу");
+        let disk = std::fs::read_to_string(config_dir(&guard).join("Solo.toml"))
+            .expect("оригинальный файл должен сохраниться на диске");
+        assert_eq!(disk, original_toml, "содержимое файла не должно меняться при ошибке сервера");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn recover_corrupt_config_server_failure_does_not_write_partial() {
+        let guard = LauncherDirGuard::acquire("config_recover_corrupt_failure").await;
+        let MockEnv {
+            dir: _,
+            mut server,
+        } = MockEnv::acquire("config_recover_corrupt_failure").await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(503)
+            .with_body("service unavailable")
+            .expect(1)
+            .create_async()
+            .await;
+        std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
+        std::fs::write(
+            config_dir(&guard).join("Solo.toml"),
+            "not [valid toml",
+        )
+        .expect("битый конфиг");
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Solo".to_string(),
+                server_url: Some(server.url()),
+                ..ProjectConfig::default()
+            },
+            ..GlobalState::default()
+        });
+
+        let result = load_repaired_project_config(&state, "Solo").await;
+
+        assert!(result.is_err(), "ошибка сервера должна пробрасываться наружу");
+        assert!(
+            !config_dir(&guard).join("Solo.toml").exists(),
+            "битый файл должен быть удалён бэкап-логикой до попытки восстановления"
+        );
+        assert!(
+            !config_dir(&guard).join("Solo.toml.bak").exists() || config_dir(&guard).join("Solo.toml.bak").exists(),
+            "бэкап битого файла создаётся отдельно"
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn repair_empty_version_refetch_fails_keeps_toml() {
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_repair_refetch_fails").await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(500)
+            .with_body("internal server error")
+            .expect(1)
+            .create_async()
+            .await;
+        std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
+        let original_toml = format!(
+            "projectName = \"Solo\"\nmcVersion = \"\"\nmodLoader = \"vanilla\"\njvmArgs = []\nminMemory = \"-Xms512M\"\nmaxMemory = \"-Xmx4G\"\nonline = true\ninitialized = true\ncpuCores = 4\nautoJoinServer = true\nserverUrl = \"{}\"\n",
+            server.url()
+        );
+        std::fs::write(config_dir(&guard).join("Solo.toml"), &original_toml)
+            .expect("запись конфига с пустой версией");
+        let state = Mutex::new(GlobalState::default());
+
+        let result = load_repaired_project_config(&state, "Solo").await;
+
+        assert!(result.is_err(), "ошибка сервера должна пробрасываться наружу");
+        let disk = std::fs::read_to_string(config_dir(&guard).join("Solo.toml"))
+            .expect("оригинальный файл должен сохраниться на диске");
+        assert_eq!(disk, original_toml, "содержимое файла не должно меняться при ошибке сервера");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn repair_empty_version_refetch_succeeds_replaces_config() {
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_repair_refetch_succeeds").await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(server_config_body())
+            .expect(1)
+            .create_async()
+            .await;
+        std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
+        let original_toml = format!(
+            "projectName = \"Solo\"\nmcVersion = \"\"\nmodLoader = \"vanilla\"\njvmArgs = []\nminMemory = \"-Xms512M\"\nmaxMemory = \"-Xmx4G\"\nonline = true\ninitialized = true\njavaPath = 'old/java.exe'\njavaVersion = 8\ncpuCores = 2\nautoJoinServer = false\nserverUrl = \"{}\"\n",
+            server.url()
+        );
+        std::fs::write(config_dir(&guard).join("Solo.toml"), &original_toml)
+            .expect("запись конфига с пустой версией");
+        let state = Mutex::new(GlobalState::default());
+
+        let repaired = load_repaired_project_config(&state, "Solo")
+            .await
+            .expect("конфиг с пустой версией должен лечиться с сервера");
+
+        assert_eq!(repaired.mc_version, "1.20.1");
+        assert_eq!(repaired.mod_loader, ModLoader::Fabric);
+        assert_eq!(repaired.loader_version.as_deref(), Some("0.19.3"));
+        assert_eq!(
+            repaired.java_path, None,
+            "путь Java сбрасывается: старый ставился под неизвестную версию"
+        );
+        assert_eq!(repaired.java_version, None);
+        assert_eq!(
+            repaired.cpu_cores,
+            Some(2),
+            "настройки пользователя сохраняются"
+        );
+        assert!(!repaired.auto_join_server);
+        assert!(
+            !repaired.initialized,
+            "версия могла смениться, нужна переустановка"
+        );
+        assert_eq!(
+            repaired.server_url.as_deref(),
+            Some(server.url().as_str()),
+            "адрес сервера проекта сохраняется"
+        );
+
+        let disk = load_config("Solo")
+            .await
+            .expect("починенный конфиг должен персиститься");
+        assert_eq!(disk.mc_version, "1.20.1");
+        assert_eq!(disk.mod_loader, ModLoader::Fabric);
+        assert_eq!(disk.cpu_cores, Some(2));
+        assert!(!disk.auto_join_server);
+        mock.assert_async().await;
     }
 }

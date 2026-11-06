@@ -4,6 +4,7 @@ use tauri::State;
 use tokio::fs;
 use tokio::sync::Mutex;
 
+use crate::commands::install_journal::clear_journal;
 use crate::commands::launcher_config::update_launcher_config;
 use crate::launcher_server::fetch_project_config;
 use crate::log_err;
@@ -324,6 +325,10 @@ async fn delete_project_files(project_name: &str) -> Result<()> {
                 log_err!("Не удалось удалить {label} проекта {project_name} ({path:?}): {e}");
             }
         }
+    }
+
+    if let Err(e) = clear_journal(project_name).await {
+        log_err!("Не удалось удалить журнал установки проекта {project_name}: {e:#}");
     }
 
     let project_dir = launcher_path(Some(project_name))?;
@@ -1221,6 +1226,11 @@ mod tests {
         std::fs::write(manifest_dir.join("installed_Test.json"), b"{}")
             .expect("создание манифеста");
 
+        let journal_manifest_dir = guard.root().join("project").join("manifest");
+        std::fs::create_dir_all(&journal_manifest_dir).expect("создание папки журналов");
+        std::fs::write(journal_manifest_dir.join("install_journal_Test.json"), b"{}")
+            .expect("создание журнала установки");
+
         delete_project_files("Test")
             .await
             .expect("удаление файлов проекта");
@@ -1229,6 +1239,7 @@ mod tests {
         assert!(!config_dir.join("Test.toml").exists());
         assert!(!config_dir.join("Test.models.json").exists());
         assert!(!manifest_dir.join("installed_Test.json").exists());
+        assert!(!journal_manifest_dir.join("install_journal_Test.json").exists());
         assert!(config_dir.exists());
         assert!(config_dir.join("Other.toml").exists());
     }

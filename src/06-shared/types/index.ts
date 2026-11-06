@@ -1,8 +1,6 @@
 import type { Ref } from 'vue'
 
 export type {
-  SavedLogin,
-  AuthProjectConfig,
   LauncherConfig,
   AppInitData,
   UpdateInfo,
@@ -18,8 +16,6 @@ export type {
   JavaProbe,
   GameExitInfo,
   IntegrityReport,
-  GameCloudsMode,
-  GameChatVisibility,
   GameOptions,
   GameOptionsData,
   LauncherSettingsPayload,
@@ -27,25 +23,13 @@ export type {
 } from './ipc'
 
 export type {
-  ModrinthProjectType,
-  ModrinthSide,
-  ModrinthVersionType,
-  ModrinthSearchHit,
   ModrinthSearchResult,
-  ModrinthLicense,
-  ModrinthProject,
-  ModrinthVersionFile,
-  ModrinthDependency,
-  ModrinthVersion,
   ModrinthProjectDetails,
   ModrinthInstalledMod,
   ModrinthUpdateCheck,
   ModrinthInstallResult,
   ModrinthExportMod,
-  ModrinthExportUnresolved,
   ModrinthExportReport,
-  ModrinthModsetStatus,
-  ModrinthModsetEntry,
   ModrinthImportPreview,
   ModrinthImportReport,
 } from './modrinth'

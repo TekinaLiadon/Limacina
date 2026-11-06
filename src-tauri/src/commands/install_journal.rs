@@ -154,7 +154,7 @@ pub async fn clear_install_journal(project: String) -> CommandResult<()> {
     Ok(())
 }
 
-async fn clear_journal(project: &str) -> Result<()> {
+pub(crate) async fn clear_journal(project: &str) -> Result<()> {
     let _guard = JOURNAL_WRITE_LOCK.lock().await;
     let path = journal_path(project)?;
     match tokio::fs::remove_file(&path).await {
