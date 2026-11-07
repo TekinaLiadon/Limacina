@@ -10,6 +10,7 @@ export type ProjectDirtyField =
   | 'memoryRange'
   | 'cpuCores'
   | 'autoJoinServer'
+  | 'optionalMods'
 
 type ProjectDirtySnapshot = Pick<ProjectSettingsForm, ProjectDirtyField>
 
@@ -27,6 +28,7 @@ export interface ProjectSettingsForm {
   initialized: boolean
   serverUrl: string | null
   autoJoinServer: boolean
+  optionalMods: string[]
 }
 
 function defaultForm(): ProjectSettingsForm {
@@ -44,6 +46,7 @@ function defaultForm(): ProjectSettingsForm {
     initialized: false,
     serverUrl: null,
     autoJoinServer: false,
+    optionalMods: [],
   }
 }
 
@@ -76,6 +79,7 @@ export function projectSettingsFormFromConfig(config: ProjectConfig): ProjectSet
     initialized: config.initialized,
     serverUrl: config.serverUrl,
     autoJoinServer: config.autoJoinServer,
+    optionalMods: config.optionalMods ?? [],
   }
 }
 
@@ -87,6 +91,7 @@ function pickDirtyFields(form: ProjectSettingsForm): ProjectDirtySnapshot {
     memoryRange: form.memoryRange,
     cpuCores: form.cpuCores,
     autoJoinServer: form.autoJoinServer,
+    optionalMods: form.optionalMods,
   }
 }
 

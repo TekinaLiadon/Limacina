@@ -1,4 +1,5 @@
 export { useAppInit } from './app-init/useAppInit'
+export { useOptionalMods } from './optional-mods/useOptionalMods'
 export { useAppNavigation } from './app-navigation/useAppNavigation'
 export { useAccountsPage } from './accounts/useAccountsPage'
 export { useAuth } from './accounts/useAuth'

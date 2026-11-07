@@ -1,6 +1,6 @@
 import { useCoreStore, useNotificationStore, type StepEvent, type GameExitInfo } from '@/05-entities'
 import { isWindowMinimized, listenLaunchSteps, listenGameExit, listenGameStarted, getNotificationIcon } from '@/06-shared/api'
-import { createSingletonListeners, reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
+import { createSingletonListeners, reportError, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, OPTIONAL_SYNC_STEP_IDS, STEP_IDS, isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification, type NotificationOptions } from '@/06-shared'
 
 const GAME_START_TITLE = 'Игра запущена'
 const gameStartBody = (username: string): string => `Сессия ${username} запущена, лаунчер ждёт в трее`
@@ -91,6 +91,7 @@ export function useSystemNotifications(): {
       }
     }
     if (event.type === 'failed') {
+      if (OPTIONAL_SYNC_STEP_IDS.has(event.id)) return
       void sendSystemNotification('Не удалось запустить игру', event.message)
     }
   }

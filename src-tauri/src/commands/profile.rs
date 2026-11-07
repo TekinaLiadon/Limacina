@@ -1228,8 +1228,11 @@ mod tests {
 
         let journal_manifest_dir = guard.root().join("project").join("manifest");
         std::fs::create_dir_all(&journal_manifest_dir).expect("создание папки журналов");
-        std::fs::write(journal_manifest_dir.join("install_journal_Test.json"), b"{}")
-            .expect("создание журнала установки");
+        std::fs::write(
+            journal_manifest_dir.join("install_journal_Test.json"),
+            b"{}",
+        )
+        .expect("создание журнала установки");
 
         delete_project_files("Test")
             .await
@@ -1239,7 +1242,9 @@ mod tests {
         assert!(!config_dir.join("Test.toml").exists());
         assert!(!config_dir.join("Test.models.json").exists());
         assert!(!manifest_dir.join("installed_Test.json").exists());
-        assert!(!journal_manifest_dir.join("install_journal_Test.json").exists());
+        assert!(!journal_manifest_dir
+            .join("install_journal_Test.json")
+            .exists());
         assert!(config_dir.exists());
         assert!(config_dir.join("Other.toml").exists());
     }

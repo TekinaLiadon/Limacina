@@ -18,6 +18,7 @@ const makeForm = (overrides: Partial<ProjectSettingsForm> = {}): ProjectSettings
   initialized: true,
   serverUrl: 'https://example.com',
   autoJoinServer: false,
+  optionalMods: [],
   ...overrides,
 })
 
@@ -67,6 +68,31 @@ describe('useProjectSettingsStore', () => {
     expect(store.isFieldDirty('jvmArgs')).toBe(false)
 
     store.config.cpuCores = null
+    expect(store.isDirty).toBe(false)
+  })
+
+  it('tracks the optional mods selection as a dirty field', () => {
+    const store = useProjectSettingsStore()
+    store.startLoading('Alpha')
+    store.applyLoaded('Alpha', makeForm())
+
+    store.config.optionalMods = ['optional-mods/opt.jar']
+    expect(store.isDirty).toBe(true)
+    expect(store.isFieldDirty('optionalMods')).toBe(true)
+    expect(store.isFieldDirty('autoJoinServer')).toBe(false)
+
+    store.config.optionalMods = []
+    expect(store.isDirty).toBe(false)
+  })
+
+  it('resets the optional mods selection with the rest of the form on a new load', () => {
+    const store = useProjectSettingsStore()
+    store.startLoading('Alpha')
+    store.applyLoaded('Alpha', makeForm({ optionalMods: ['optional-mods/opt.jar'] }))
+
+    store.startLoading('Beta')
+
+    expect(store.config.optionalMods).toEqual([])
     expect(store.isDirty).toBe(false)
   })
 
@@ -259,5 +285,19 @@ describe('projectSettingsFormFromConfig', () => {
     expect(projectSettingsFormFromConfig(makeConfig()).cpuCores).toBeNull()
     expect(projectSettingsFormFromConfig(makeConfig({ cpuCores: null })).cpuCores).toBeNull()
     expect(projectSettingsFormFromConfig(makeConfig({ cpuCores: 4 })).cpuCores).toBe(4)
+  })
+
+  it('maps the optional mods selection into the form', () => {
+    const form = projectSettingsFormFromConfig(
+      makeConfig({ optionalMods: ['optional-mods/opt.jar', 'optional-mods/other.jar'] }),
+    )
+    expect(form.optionalMods).toEqual(['optional-mods/opt.jar', 'optional-mods/other.jar'])
+  })
+
+  it('maps a config without an optional mods field to an empty selection', () => {
+    const config = makeConfig()
+    delete (config as Partial<ProjectConfig>).optionalMods
+
+    expect(projectSettingsFormFromConfig(config).optionalMods).toEqual([])
   })
 })

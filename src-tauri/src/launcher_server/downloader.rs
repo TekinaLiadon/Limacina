@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex as StdMutex, OnceLock};
 
 use crate::launcher_server::{api_context, with_session_retry};
-use crate::state::dto::GlobalState;
+use crate::state::dto::{GlobalState, ProjectConfig};
 use crate::utils::download_file::{file_sha1, write_stream_to_atomic};
 use crate::utils::env_info::{is_safe_relative_path, launcher_path};
 use crate::utils::http::{read_body_capped, read_error_body_text};
@@ -231,6 +231,18 @@ const MODS_SOURCE: SyncSource = SyncSource {
     item: "мода",
     noun: "модов",
     offline_note: "моды с сервера не скачиваются",
+};
+
+const OPTIONAL_MODS_SOURCE: SyncSource = SyncSource {
+    endpoint: "/v1/launcher/files/optional-mods",
+    list_step_id: "mods.optional.list",
+    list_step_label: "Получение списка необязательных модов",
+    download_step_id: "mods.optional.download",
+    download_step_label: "Синхронизация необязательных модов",
+    log_prefix: "[optional-mods]",
+    item: "мода",
+    noun: "модов",
+    offline_note: "",
 };
 
 async fn fetch_hash_map(
@@ -553,9 +565,9 @@ pub async fn download_mods(
             .await
             .with_context(|| format!("Не удалось создать папку модов {mods_dir:?}"))?;
 
-        let server_mods: HashSet<&str> = mods
+        let server_mods: HashSet<String> = mods
             .keys()
-            .map(|k| k.strip_prefix("mods/").unwrap_or(k))
+            .map(|k| k.strip_prefix("mods/").unwrap_or(k).to_string())
             .collect();
 
         let download_step = StepHandle::start(
@@ -574,10 +586,30 @@ pub async fn download_mods(
         .await
         .context("Не удалось синхронизировать моды с сервером")?;
 
+        let config = state.lock().await.project_config.clone();
+        let cache_dir = launcher_path(Some(&project_name))?.join("optional-mods-cache");
+        let optional_protected = match sync_optional_mods(
+            &ctx,
+            &config,
+            &mods_dir,
+            &cache_dir,
+            &server_mods,
+        )
+        .await
+        {
+            Ok(protected) => protected,
+            Err(e) => {
+                log_err!(
+                    "[optional-mods] Синк необязательных модов не удался, запуск продолжается: {e:#}"
+                );
+                HashSet::new()
+            }
+        };
+
         let clean_step = StepHandle::start("mods.clean", "Очистка лишних модов");
         step_try!(
             clean_step,
-            cleanup_extra_mods(&mods_dir, &server_mods).await
+            cleanup_extra_mods(&mods_dir, &server_mods, &optional_protected).await
         );
         clean_step.finish(false);
         Ok(report)
@@ -587,7 +619,11 @@ pub async fn download_mods(
     LauncherError::classify(result, LauncherError::LauncherServer)
 }
 
-async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Result<()> {
+async fn cleanup_extra_mods(
+    mods_dir: &Path,
+    server_mods: &HashSet<String>,
+    protected: &HashSet<String>,
+) -> Result<()> {
     if server_mods.is_empty() {
         log_info!(
             "[mods] Сервер передал пустой список модов — очистка лишних файлов пропущена, \
@@ -630,6 +666,13 @@ async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Res
         if server_mods.contains(name.as_ref()) {
             continue;
         }
+        if protected.contains(name.as_ref()) {
+            log_info!(
+                "[mods] Мод защищён от очистки (включённый необязательный): {}",
+                name
+            );
+            continue;
+        }
         log_info!("[mods] Удаление лишнего мода: {}", name);
         tokio::fs::remove_file(entry.path()).await.map_err(|e| {
             log_err!("[mods] Не удалось удалить лишний мод {}: {}", name, e);
@@ -637,6 +680,251 @@ async fn cleanup_extra_mods(mods_dir: &Path, server_mods: &HashSet<&str>) -> Res
         })?;
     }
     Ok(())
+}
+
+enum OptionalAction {
+    ToCache,
+    FromCache,
+    Download,
+}
+
+async fn purge_stale_cache(cache_dir: &Path, server_files: &HashMap<String, String>) {
+    let mut entries = match tokio::fs::read_dir(cache_dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            log_err!(
+                "[optional-mods] Не удалось открыть папку кеша {:?}: {}",
+                cache_dir,
+                e
+            );
+            return;
+        }
+    };
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => break,
+            Err(e) => {
+                log_err!("[optional-mods] Не удалось прочитать папку кеша: {}", e);
+                return;
+            }
+        };
+        let is_file = match entry.file_type().await {
+            Ok(file_type) => file_type.is_file(),
+            Err(e) => {
+                log_err!(
+                    "[optional-mods] Не удалось определить тип записи {:?}: {}",
+                    entry.path(),
+                    e
+                );
+                continue;
+            }
+        };
+        if !is_file {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if server_files.contains_key(&name) {
+            continue;
+        }
+        log_info!("[optional-mods] Удаление осиротевшего файла кеша: {}", name);
+        if let Err(e) = tokio::fs::remove_file(entry.path()).await {
+            log_err!(
+                "[optional-mods] Не удалось удалить осиротевший файл кеша {}: {}",
+                name,
+                e
+            );
+        }
+    }
+}
+
+async fn apply_optional_action(
+    ctx: &ApiContext,
+    mods_dir: &Path,
+    cache_dir: &Path,
+    name: &str,
+    hash: &str,
+    action: &OptionalAction,
+) -> Result<()> {
+    let mods_path = mods_dir.join(name);
+    let cache_path = cache_dir.join(name);
+    match action {
+        OptionalAction::ToCache => {
+            tokio::fs::create_dir_all(cache_dir)
+                .await
+                .with_context(|| {
+                    format!("Не удалось создать папку кеша необязательных модов {cache_dir:?}")
+                })?;
+            if cache_path.exists() {
+                tokio::fs::remove_file(&cache_path).await.with_context(|| {
+                    format!(
+                        "Не удалось удалить старую копию кеша {}",
+                        cache_path.display()
+                    )
+                })?;
+            }
+            tokio::fs::rename(&mods_path, &cache_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Не удалось переместить выключенный мод {} в кеш",
+                        mods_path.display()
+                    )
+                })?;
+            log_info!("[optional-mods] Выключенный мод перемещён в кеш: {}", name);
+        }
+        OptionalAction::FromCache => {
+            if mods_path.exists() {
+                tokio::fs::remove_file(&mods_path).await.with_context(|| {
+                    format!("Не удалось удалить устаревший мод {}", mods_path.display())
+                })?;
+            }
+            tokio::fs::rename(&cache_path, &mods_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Не удалось переместить включённый мод из кеша {}",
+                        cache_path.display()
+                    )
+                })?;
+            log_info!("[optional-mods] Включённый мод перемещён из кеша: {}", name);
+        }
+        OptionalAction::Download => {
+            let key = format!("optional-mods/{name}");
+            log_info!("[optional-mods] Докачка необязательного мода: {}", name);
+            download_and_verify(&ctx.client, &mods_path, &key, &ctx.server_url, Some(hash))
+                .await
+                .with_context(|| format!("Не удалось скачать необязательный мод {name}"))?;
+            log_info!("[optional-mods] Необязательный мод скачан: {}", name);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn sync_optional_mods(
+    ctx: &ApiContext,
+    project: &ProjectConfig,
+    mods_dir: &Path,
+    cache_dir: &Path,
+    mandatory_names: &HashSet<String>,
+) -> Result<HashSet<String>> {
+    let list = fetch_hash_map(
+        &ctx.client,
+        &ctx.server_url,
+        &project.project_name,
+        &OPTIONAL_MODS_SOURCE,
+    )
+    .await?;
+
+    if list.is_empty() {
+        log_info!(
+            "[optional-mods] Сервер не передал необязательных модов — синк пропущен, локальные данные не тронуты"
+        );
+        return Ok(HashSet::new());
+    }
+
+    let mut server_files: HashMap<String, String> = HashMap::new();
+    for (key, hash) in &list {
+        if !is_safe_relative_path(key) {
+            log_err!(
+                "[optional-mods] Отклонён небезопасный путь от сервера: {}",
+                key
+            );
+            continue;
+        }
+        let Some(name) = key.strip_prefix("optional-mods/") else {
+            log_err!(
+                "[optional-mods] Неожиданный ключ списка без префикса optional-mods/: {}",
+                key
+            );
+            continue;
+        };
+        server_files.insert(name.to_string(), hash.clone());
+    }
+
+    if server_files.is_empty() {
+        log_err!(
+            "[optional-mods] Сервер передал список без валидных необязательных модов — синк пропущен, локальные данные не тронуты"
+        );
+        return Ok(HashSet::new());
+    }
+
+    let enabled: HashSet<String> = project
+        .optional_mods
+        .iter()
+        .filter(|key| list.contains_key(*key))
+        .filter_map(|key| key.strip_prefix("optional-mods/"))
+        .filter(|name| server_files.contains_key(*name))
+        .map(str::to_string)
+        .collect();
+    let protected: HashSet<String> = enabled.difference(mandatory_names).cloned().collect();
+
+    purge_stale_cache(cache_dir, &server_files).await;
+
+    let mut actions: Vec<(String, String, OptionalAction)> = Vec::new();
+    for (name, hash) in &server_files {
+        if mandatory_names.contains(name) {
+            log_info!(
+                "[optional-mods] Необязательный мод {} совпадает по имени с обязательным — пропущен без перемещений и докачки",
+                name
+            );
+            continue;
+        }
+        let mods_path = mods_dir.join(name);
+        let cache_path = cache_dir.join(name);
+        if enabled.contains(name) {
+            let mods_fresh = mods_path.exists()
+                && matches!(file_sha1(&mods_path).await, Ok(actual) if actual == *hash);
+            if mods_fresh {
+                continue;
+            }
+            let cache_fresh = cache_path.exists()
+                && matches!(file_sha1(&cache_path).await, Ok(actual) if actual == *hash);
+            let action = if cache_fresh {
+                OptionalAction::FromCache
+            } else {
+                OptionalAction::Download
+            };
+            actions.push((name.clone(), hash.clone(), action));
+        } else if mods_path.exists() {
+            actions.push((name.clone(), hash.clone(), OptionalAction::ToCache));
+        }
+    }
+
+    let step = StepHandle::start(
+        OPTIONAL_MODS_SOURCE.download_step_id,
+        OPTIONAL_MODS_SOURCE.download_step_label,
+    );
+    log_info!(
+        "{} Запланировано операций: {}",
+        OPTIONAL_MODS_SOURCE.log_prefix,
+        actions.len()
+    );
+    step.set_total(actions.len() as u64);
+
+    let mut errors: Vec<String> = Vec::new();
+    for (name, hash, action) in &actions {
+        if let Err(e) = apply_optional_action(ctx, mods_dir, cache_dir, name, hash, action).await {
+            log_err!("{} {}", OPTIONAL_MODS_SOURCE.log_prefix, e);
+            errors.push(format!("{name}: {e:#}"));
+        }
+        step.inc();
+    }
+
+    if errors.is_empty() {
+        step.finish(actions.is_empty());
+    } else {
+        let summary = format!(
+            "Не удалось синхронизировать необязательные моды: {} из {}, первая причина: {}",
+            errors.len(),
+            actions.len(),
+            errors[0]
+        );
+        log_err!("{} {}", OPTIONAL_MODS_SOURCE.log_prefix, summary);
+        step.fail(summary.clone());
+    }
+    Ok(protected)
 }
 
 #[cfg(test)]
@@ -649,6 +937,7 @@ mod mock_server_tests {
         rotation_payload, seed_online_project, sha1_hex, step_event_id, LauncherDirGuard, MockEnv,
     };
     use crate::utils::http::http_client;
+    use crate::utils::step_events::StepEvent;
     use mockito::{Matcher, Server};
     use serde_json::json;
 
@@ -869,7 +1158,7 @@ mod mock_server_tests {
         let dir = LauncherDirGuard::acquire("mods_clean_empty_list").await;
         let mods_dir = seed_mods_dir(&dir, &[("a.jar", b"alpha"), ("b.jar", b"beta")]);
 
-        cleanup_extra_mods(&mods_dir, &HashSet::new())
+        cleanup_extra_mods(&mods_dir, &HashSet::new(), &HashSet::new())
             .await
             .expect("очистка с пустым списком сервера");
 
@@ -884,9 +1173,13 @@ mod mock_server_tests {
         let dir = LauncherDirGuard::acquire("mods_clean_nonempty_list").await;
         let mods_dir = seed_mods_dir(&dir, &[("a.jar", b"alpha"), ("extra.jar", b"stale")]);
 
-        cleanup_extra_mods(&mods_dir, &HashSet::from(["a.jar"]))
-            .await
-            .expect("очистка с непустым списком сервера");
+        cleanup_extra_mods(
+            &mods_dir,
+            &HashSet::from(["a.jar".to_string()]),
+            &HashSet::new(),
+        )
+        .await
+        .expect("очистка с непустым списком сервера");
 
         assert!(
             mods_dir.join("a.jar").exists(),
@@ -1350,6 +1643,523 @@ mod mock_server_tests {
 
         let dest = dir.project_dir("Cordelia").join("mods/a.jar");
         assert_eq!(std::fs::read(&dest).unwrap(), b"any bytes");
+    }
+
+    async fn mock_optional_list(server: &mut Server, mods: &[(&str, &str)]) {
+        let body: HashMap<&str, &str> = mods.iter().copied().collect();
+        server
+            .mock("GET", "/v1/launcher/files/optional-mods")
+            .with_status(200)
+            .with_body(json!(body).to_string())
+            .create_async()
+            .await;
+    }
+
+    async fn optional_download_mock(
+        server: &mut Server,
+        key: &str,
+        status: usize,
+        body: &[u8],
+        expect_hits: usize,
+    ) -> mockito::Mock {
+        server
+            .mock("POST", "/v1/launcher/files/download")
+            .match_body(Matcher::PartialJsonString(json!({"url": key}).to_string()))
+            .match_header("authorization", "Bearer test-token")
+            .expect(expect_hits)
+            .with_status(status)
+            .with_body(body)
+            .create_async()
+            .await
+    }
+
+    fn seed_cache_dir(dir: &LauncherDirGuard, files: &[(&str, &[u8])]) -> PathBuf {
+        let cache_dir = dir.project_dir("Cordelia").join("optional-mods-cache");
+        std::fs::create_dir_all(&cache_dir).expect("создание папки кеша");
+        for (name, content) in files {
+            std::fs::write(cache_dir.join(name), content).expect("запись тестового кеша");
+        }
+        cache_dir
+    }
+
+    fn state_with_optional(
+        server_url: &str,
+        access_token: &str,
+        selection: &[&str],
+    ) -> Mutex<GlobalState> {
+        Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "Cordelia".to_string(),
+                server_url: Some(server_url.to_string()),
+                optional_mods: selection.iter().map(|key| key.to_string()).collect(),
+                ..ProjectConfig::default()
+            },
+            session: Some(SessionTokens {
+                access_token: access_token.to_string(),
+                uuid: String::new(),
+                username: "tester".to_string(),
+                project_name: "Cordelia".to_string(),
+            }),
+            ..GlobalState::default()
+        })
+    }
+
+    fn dir_snapshot(dir: &Path) -> HashMap<String, Vec<u8>> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().is_file())
+            .map(|entry| {
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).expect("чтение снимка папки"),
+                )
+            })
+            .collect()
+    }
+
+    fn launch_terminals(id: &str) -> Vec<StepEvent> {
+        use crate::utils::step_events::StepChannel;
+
+        crate::utils::step_events::test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                matches!(channel, StepChannel::Launch)
+                    && matches!(event, StepEvent::Finished { .. } | StepEvent::Failed { .. })
+                    && step_event_id(event) == id
+            })
+            .map(|(_, event)| event)
+            .collect()
+    }
+
+    fn assert_finished(id: &str) {
+        let terminals = launch_terminals(id);
+        assert_eq!(
+            terminals.len(),
+            1,
+            "шаг {id} должен завершиться ровно один раз: {terminals:?}"
+        );
+        assert!(
+            matches!(terminals.first(), Some(StepEvent::Finished { .. })),
+            "шаг {id} должен завершиться успехом: {terminals:?}"
+        );
+    }
+
+    fn assert_failed(id: &str) {
+        let terminals = launch_terminals(id);
+        assert_eq!(
+            terminals.len(),
+            1,
+            "шаг {id} должен завершиться ровно один раз: {terminals:?}"
+        );
+        assert!(
+            matches!(terminals.first(), Some(StepEvent::Failed { .. })),
+            "шаг {id} должен завершиться ошибкой: {terminals:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn optional_sync_downloads_enabled_mod_missing_everywhere() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_download").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let opt = b"optional jar".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(&mut server, &[("optional-mods/opt.jar", &sha1_hex(&opt))]).await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/opt.jar", 200, &opt, 1).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("base.jar", &base)]);
+
+        let state = state_with_optional(&server.url(), "test-token", &["optional-mods/opt.jar"]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк необязательных модов при запуске");
+
+        assert_eq!(
+            std::fs::read(mods_dir.join("opt.jar")).expect("файл opt.jar в mods"),
+            opt,
+            "включённый мод должен быть скачан в mods с проверкой sha1"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("base.jar")).expect("файл base.jar в mods"),
+            base,
+            "обязательный мод должен остаться на месте"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_moves_cached_enabled_mod_without_download() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_cache_hit").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let opt = b"optional jar".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(&mut server, &[("optional-mods/opt.jar", &sha1_hex(&opt))]).await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/opt.jar", 200, &opt, 0).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("base.jar", &base)]);
+        let cache_dir = seed_cache_dir(&dir, &[("opt.jar", &opt)]);
+
+        let state = state_with_optional(&server.url(), "test-token", &["optional-mods/opt.jar"]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк необязательных модов из кеша");
+
+        assert_eq!(
+            std::fs::read(mods_dir.join("opt.jar")).expect("файл opt.jar в mods"),
+            opt,
+            "включённый мод должен перемещаться из кеша в mods без сети"
+        );
+        assert!(
+            !cache_dir.join("opt.jar").exists(),
+            "файл должен исчезнуть из кеша после перемещения"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("base.jar")).expect("файл base.jar в mods"),
+            base,
+            "обязательный мод должен остаться на месте"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_moves_disabled_mod_from_mods_to_cache() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_disable").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let opt = b"optional jar".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(&mut server, &[("optional-mods/opt.jar", &sha1_hex(&opt))]).await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/opt.jar", 200, &opt, 0).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("base.jar", &base), ("opt.jar", &opt)]);
+
+        let state = state_with_optional(&server.url(), "test-token", &[]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк необязательных модов при выключенном выборе");
+
+        assert!(
+            !mods_dir.join("opt.jar").exists(),
+            "выключенный мод должен исчезнуть из mods"
+        );
+        assert_eq!(
+            std::fs::read(
+                dir.project_dir("Cordelia")
+                    .join("optional-mods-cache/opt.jar")
+            )
+            .expect("файл opt.jar в кеше"),
+            opt,
+            "выключенный мод должен переехать в кеш без перекачки"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("base.jar")).expect("файл base.jar в mods"),
+            base,
+            "обязательные моды не должны быть задеты"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_redownloads_enabled_mod_with_stale_hash() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_stale_hash").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let fresh_opt = b"optional jar v2".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(
+            &mut server,
+            &[("optional-mods/opt.jar", &sha1_hex(&fresh_opt))],
+        )
+        .await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/opt.jar", 200, &fresh_opt, 1).await;
+
+        let mods_dir = seed_mods_dir(
+            &dir,
+            &[("base.jar", &base), ("opt.jar", b"optional jar v1")],
+        );
+
+        let state = state_with_optional(&server.url(), "test-token", &["optional-mods/opt.jar"]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк необязательных модов со сменой хеша");
+
+        assert_eq!(
+            std::fs::read(mods_dir.join("opt.jar")).expect("файл opt.jar в mods"),
+            fresh_opt,
+            "мод со старым хешем должен быть перекачан до версии сервера"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("base.jar")).expect("файл base.jar в mods"),
+            base,
+            "обязательный мод должен остаться на месте"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_failure_does_not_break_launch_or_cleanup() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_failure").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let opt = b"optional jar".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(&mut server, &[("optional-mods/opt.jar", &sha1_hex(&opt))]).await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/opt.jar", 500, b"boom", 1).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("base.jar", &base), ("extra.jar", b"stale")]);
+
+        let state = state_with_optional(&server.url(), "test-token", &["optional-mods/opt.jar"]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("сбой синка необязательных модов не должен прерывать запуск");
+
+        assert!(
+            !mods_dir.join("opt.jar").exists(),
+            "нескачанный необязательный мод не должен появиться в mods"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("base.jar")).expect("файл base.jar в mods"),
+            base,
+            "обязательные моды должны остаться на месте при сбое синка"
+        );
+        assert!(
+            !mods_dir.join("extra.jar").exists(),
+            "mods.clean должен отработать несмотря на сбой синка необязательных"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_failed("mods.optional.download");
+        assert_finished("mods.clean");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_empty_list_is_noop() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_empty").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let cached = b"cached optional".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(&mut server, &[]).await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/opt.jar", 200, &cached, 0).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("base.jar", &base)]);
+        let cache_dir = seed_cache_dir(&dir, &[("opt.jar", &cached)]);
+        let mods_before = dir_snapshot(&mods_dir);
+        let cache_before = dir_snapshot(&cache_dir);
+
+        let state = state_with_optional(&server.url(), "test-token", &["optional-mods/opt.jar"]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк с пустым списком необязательных");
+
+        assert_eq!(
+            dir_snapshot(&mods_dir),
+            mods_before,
+            "пустой список не должен менять содержимое mods байт-в-байт"
+        );
+        assert_eq!(
+            dir_snapshot(&cache_dir),
+            cache_before,
+            "пустой список не должен менять содержимое кеша байт-в-байт"
+        );
+
+        assert_finished("mods.optional.list");
+        assert!(
+            launch_terminals("mods.optional.download").is_empty(),
+            "пустой список не должен открывать шаг синка необязательных: {:?}",
+            launch_terminals("mods.optional.download")
+        );
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_purges_mod_missing_from_nonempty_server_list() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_purge_gone").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let base = b"base jar".to_vec();
+        let keep = b"kept optional".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/base.jar", &sha1_hex(&base))]).await;
+        mock_optional_list(&mut server, &[("optional-mods/keep.jar", &sha1_hex(&keep))]).await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/keep.jar", 200, &keep, 0).await;
+
+        let mods_dir = seed_mods_dir(
+            &dir,
+            &[
+                ("base.jar", &base),
+                ("keep.jar", &keep),
+                ("gone.jar", b"gone"),
+            ],
+        );
+        let cache_dir = seed_cache_dir(&dir, &[("gone.jar", b"gone copy")]);
+
+        let state = state_with_optional(
+            &server.url(),
+            "test-token",
+            &["optional-mods/keep.jar", "optional-mods/gone.jar"],
+        );
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк после исчезновения мода с сервера");
+
+        assert!(
+            !mods_dir.join("gone.jar").exists(),
+            "мод, исчезнувший с сервера, должен исчезнуть из mods"
+        );
+        assert!(
+            !cache_dir.join("gone.jar").exists(),
+            "копия исчезнувшего мода должна быть вычищена из кеша"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("keep.jar")).expect("файл keep.jar в mods"),
+            keep,
+            "включённый мод, оставшийся на сервере, должен остаться в mods"
+        );
+        assert_eq!(
+            std::fs::read(mods_dir.join("base.jar")).expect("файл base.jar в mods"),
+            base,
+            "обязательные моды не должны быть задеты"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_name_conflict_keeps_mandatory_mod() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_name_conflict").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let mandatory = b"mandatory clash".to_vec();
+        let optional = b"optional clash".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/clash.jar", &sha1_hex(&mandatory))]).await;
+        mock_optional_list(
+            &mut server,
+            &[("optional-mods/clash.jar", &sha1_hex(&optional))],
+        )
+        .await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/clash.jar", 200, &optional, 0).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("clash.jar", &mandatory)]);
+
+        let state = state_with_optional(&server.url(), "test-token", &["optional-mods/clash.jar"]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк при конфликте имён с обязательным модом");
+
+        assert_eq!(
+            std::fs::read(mods_dir.join("clash.jar")).expect("файл clash.jar в mods"),
+            mandatory,
+            "обязательный мод должен выиграть конфликт имён: хеш основного списка"
+        );
+        assert!(
+            !dir.project_dir("Cordelia")
+                .join("optional-mods-cache/clash.jar")
+                .exists(),
+            "конфликтный файл не должен прятаться в кеш вместо обязательного"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn optional_sync_name_conflict_keeps_mandatory_mod_when_disabled() {
+        use crate::utils::step_events::test_capture;
+
+        let MockEnv { dir, mut server } = MockEnv::acquire("optional_sync_conflict_disabled").await;
+        let _capture = test_capture::CaptureGuard::new();
+
+        let mandatory = b"mandatory clash".to_vec();
+        let optional = b"optional clash".to_vec();
+
+        mock_mods_list(&mut server, &[("mods/clash.jar", &sha1_hex(&mandatory))]).await;
+        mock_optional_list(
+            &mut server,
+            &[("optional-mods/clash.jar", &sha1_hex(&optional))],
+        )
+        .await;
+        let opt_download =
+            optional_download_mock(&mut server, "optional-mods/clash.jar", 200, &optional, 0).await;
+
+        let mods_dir = seed_mods_dir(&dir, &[("clash.jar", &mandatory)]);
+
+        let state = state_with_optional(&server.url(), "test-token", &[]);
+        download_mods("Cordelia".to_string(), &state)
+            .await
+            .expect("синк при выключенном необязательном моде с конфликтом имён");
+
+        assert_eq!(
+            std::fs::read(mods_dir.join("clash.jar")).expect("файл clash.jar в mods"),
+            mandatory,
+            "выключенный конфликтный необязательный мод не должен перемещать обязательный в кеш"
+        );
+        assert!(
+            !dir.project_dir("Cordelia")
+                .join("optional-mods-cache/clash.jar")
+                .exists(),
+            "обязательный мод не должен оказаться в кеше необязательных"
+        );
+
+        assert_finished("mods.optional.list");
+        assert_finished("mods.optional.download");
+        opt_download.assert_async().await;
     }
 }
 

@@ -72,6 +72,11 @@ export interface ConsoleLog {
   session: string | null
 }
 
+export interface OptionalModEntry {
+  path: string
+  hash: string
+}
+
 export interface ProjectConfig {
   projectName: string
   mcVersion: string
@@ -87,6 +92,7 @@ export interface ProjectConfig {
   initialized: boolean
   serverUrl: string | null
   autoJoinServer: boolean
+  optionalMods: string[]
 }
 
 export type ModLoaderKind = 'vanilla' | 'fabric' | 'forge' | 'neoforge'

@@ -4,7 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult, ModrinthExportMod, ModrinthExportReport, ModrinthImportPreview, ModrinthImportReport } from '../types'
+import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, OptionalModEntry, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult, ModrinthExportMod, ModrinthExportReport, ModrinthImportPreview, ModrinthImportReport } from '../types'
 
 export interface CommandErrorPayload {
   code: string
@@ -258,6 +258,10 @@ export async function downloadMinecraft(options: GameOptions | null = null): Pro
 
 export async function downloadServerMods(): Promise<void> {
   return invoke('download_server_mods')
+}
+
+export async function fetchOptionalMods(): Promise<OptionalModEntry[]> {
+  return invoke<OptionalModEntry[]>('fetch_optional_mods')
 }
 
 export async function startMinecraft(): Promise<void> {

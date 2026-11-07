@@ -324,6 +324,7 @@ describe('useProjectSwitch', () => {
       initialized: true,
       serverUrl: null,
       autoJoinServer: false,
+      optionalMods: [],
     })
     settings.config.jvmArgs = '-XX:+UseG1GC'
     expect(settings.isDirty).toBe(true)
@@ -361,6 +362,7 @@ describe('useProjectSwitch', () => {
       initialized: true,
       serverUrl: null,
       autoJoinServer: false,
+      optionalMods: [],
     })
     settings.config.javaPath = '/java/custom'
 
@@ -395,6 +397,7 @@ describe('useProjectSwitch', () => {
       initialized: true,
       serverUrl: null,
       autoJoinServer: false,
+      optionalMods: [],
     })
     settings.config.jvmArgs = '-XX:+UseG1GC'
     const launch = useLaunchStore()

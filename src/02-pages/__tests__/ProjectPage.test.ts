@@ -20,6 +20,7 @@ const config = ref<ProjectSettingsForm>({
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  optionalMods: [],
 })
 
 const canDeleteProject = ref(true)
@@ -123,6 +124,7 @@ beforeEach((): void => {
     initialized: true,
     serverUrl: null,
     autoJoinServer: false,
+    optionalMods: [],
   }
   canDeleteProject.value = true
   for (const handler of [handleSave, handleRefreshManifests, handleClearMinecraftConfig, handleDeleteProject, handleGetConnectUrl, handleCopyConnectUrl, selectJavaFolder]) {

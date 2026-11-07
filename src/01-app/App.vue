@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PushNotification, ConfirmPopup, Preloader } from '@/06-shared'
 import { useCoreStore, useNotificationStore } from '@/05-entities'
-import { useAppInit, useTheme, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen, useAppNavigation } from '@/04-features'
+import { useAppInit, useTheme, useConsoleStream, useLaunchStepsStream, useSystemNotifications, useServerStatus, useServerAvailability, useGameSession, useCpmProjectOpen, useAppNavigation, useOptionalMods } from '@/04-features'
 import { StartupError, ThemeSwitchAnimation } from '@/03-widgets'
 import AppLayout from '@/01-app/AppLayout.vue'
 
@@ -20,6 +20,8 @@ const { startLaunchStepsStream } = useLaunchStepsStream()
 void startLaunchStepsStream()
 const { startSystemNotifications } = useSystemNotifications()
 void startSystemNotifications()
+const { startSyncWarnings } = useOptionalMods()
+void startSyncWarnings()
 const { startServerStatusSync } = useServerStatus()
 void startServerStatusSync()
 const { startServerAvailabilitySync } = useServerAvailability()

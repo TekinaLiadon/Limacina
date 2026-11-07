@@ -28,6 +28,7 @@ export { default as SettingsTabs } from './tabs/settings/SettingsTabs.vue'
 
 export { default as ProjectBuild } from './tabs/settings/project/ProjectBuild.vue'
 export { default as ProjectRun } from './tabs/settings/project/ProjectRun.vue'
+export { default as ProjectMods } from './tabs/settings/project/ProjectMods.vue'
 export { default as ProjectJava } from './tabs/settings/project/ProjectJava.vue'
 export { default as ProjectConnect } from './tabs/settings/project/ProjectConnect.vue'
 export { default as ProjectMaintenance } from './tabs/settings/project/ProjectMaintenance.vue'

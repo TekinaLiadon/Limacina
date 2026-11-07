@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useCoreStore, useNotificationStore, type GameExitInfo, type LauncherConfig } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type GameExitInfo, type LauncherConfig, type StepEvent } from '@/05-entities'
+import { STEP_IDS } from '@/06-shared'
 
 const api = vi.hoisted(() => ({
   listenLaunchSteps: vi.fn(),
@@ -82,6 +83,7 @@ const setVisibility = (state: 'visible' | 'hidden'): void => {
 describe('useSystemNotifications', () => {
   let emitExit: ((info: GameExitInfo) => void) | undefined
   let emitStarted: ((username: string) => void) | undefined
+  let emitStep: ((event: StepEvent) => void) | undefined
 
   beforeEach(() => {
     vi.resetModules()
@@ -90,6 +92,7 @@ describe('useSystemNotifications', () => {
     windowApi.minimized = false
     emitExit = undefined
     emitStarted = undefined
+    emitStep = undefined
     api.listenLaunchSteps.mockReset()
     api.listenGameExit.mockReset()
     api.listenGameStarted.mockReset()
@@ -99,7 +102,10 @@ describe('useSystemNotifications', () => {
     api.requestNotificationPermission.mockReset()
     api.getNotificationIcon.mockResolvedValue(null)
     api.isNotificationPermissionGranted.mockResolvedValue(true)
-    api.listenLaunchSteps.mockResolvedValue(() => {})
+    api.listenLaunchSteps.mockImplementation(async (handler: (event: StepEvent) => void) => {
+      emitStep = handler
+      return () => {}
+    })
     api.listenGameExit.mockImplementation(async (handler: (info: GameExitInfo) => void) => {
       emitExit = handler
       return () => {}
@@ -119,6 +125,56 @@ describe('useSystemNotifications', () => {
     const notifications = await loadNotifications()
     await notifications.startSystemNotifications()
   }
+
+  describe('launch step failures', () => {
+    const flushAsync = async (): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0)
+      })
+    }
+    const failStep = async (event: StepEvent): Promise<void> => {
+      emitStep?.(event)
+      await flushAsync()
+    }
+
+    it('sends the launch-failure notification for a failed mandatory mods step', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await failStep({ type: 'failed', id: STEP_IDS.modsClean, message: 'cleanup failed' })
+
+      expect(api.sendOsNotification).toHaveBeenCalledWith({
+        title: 'Не удалось запустить игру',
+        body: 'cleanup failed',
+      })
+    })
+
+    it('does not send the launch-failure notification for a failed optional list step', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await failStep({ type: 'failed', id: STEP_IDS.modsOptionalList, message: 'optional list 500' })
+
+      expect(api.sendOsNotification).not.toHaveBeenCalled()
+    })
+
+    it('does not send the launch-failure notification for a failed optional download step', async () => {
+      windowApi.minimized = true
+      await start()
+
+      await failStep({ type: 'failed', id: STEP_IDS.modsOptionalDownload, message: 'optional download 500' })
+
+      expect(api.sendOsNotification).not.toHaveBeenCalled()
+    })
+
+    it('does not send the launch-failure notification for an optional step while the window is visible', async () => {
+      await start()
+
+      await failStep({ type: 'failed', id: STEP_IDS.modsOptionalDownload, message: 'optional download 500' })
+
+      expect(api.sendOsNotification).not.toHaveBeenCalled()
+    })
+  })
 
   describe('game exit', () => {
     it('shows the backend reason as a toast', async () => {

@@ -186,7 +186,10 @@ async fn repair_empty_mc_version(config: ProjectConfig) -> Result<ProjectConfig>
         return Ok(config);
     }
     let server_url = config.server_url.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("У онлайн-проекта {} отсутствует server_url", config.project_name)
+        anyhow::anyhow!(
+            "У онлайн-проекта {} отсутствует server_url",
+            config.project_name
+        )
     })?;
     log_err!(
         "[config] В конфиге проекта {} пустая версия Minecraft, запрашиваем конфиг с сервера",
@@ -659,10 +662,7 @@ mod recovery_tests {
     #[tokio::test]
     async fn repair_empty_version_server_failure_keeps_original_toml() {
         let guard = LauncherDirGuard::acquire("config_repair_server_failure").await;
-        let MockEnv {
-            dir: _,
-            mut server,
-        } = MockEnv::acquire("config_repair_server_failure").await;
+        let MockEnv { dir: _, mut server } = MockEnv::acquire("config_repair_server_failure").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")
             .with_status(500)
@@ -681,20 +681,24 @@ mod recovery_tests {
 
         let result = load_repaired_project_config(&state, "Solo").await;
 
-        assert!(result.is_err(), "ошибка сервера должна пробрасываться наружу");
+        assert!(
+            result.is_err(),
+            "ошибка сервера должна пробрасываться наружу"
+        );
         let disk = std::fs::read_to_string(config_dir(&guard).join("Solo.toml"))
             .expect("оригинальный файл должен сохраниться на диске");
-        assert_eq!(disk, original_toml, "содержимое файла не должно меняться при ошибке сервера");
+        assert_eq!(
+            disk, original_toml,
+            "содержимое файла не должно меняться при ошибке сервера"
+        );
         mock.assert_async().await;
     }
 
     #[tokio::test]
     async fn recover_corrupt_config_server_failure_does_not_write_partial() {
         let guard = LauncherDirGuard::acquire("config_recover_corrupt_failure").await;
-        let MockEnv {
-            dir: _,
-            mut server,
-        } = MockEnv::acquire("config_recover_corrupt_failure").await;
+        let MockEnv { dir: _, mut server } =
+            MockEnv::acquire("config_recover_corrupt_failure").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")
             .with_status(503)
@@ -703,11 +707,8 @@ mod recovery_tests {
             .create_async()
             .await;
         std::fs::create_dir_all(config_dir(&guard)).expect("создание config");
-        std::fs::write(
-            config_dir(&guard).join("Solo.toml"),
-            "not [valid toml",
-        )
-        .expect("битый конфиг");
+        std::fs::write(config_dir(&guard).join("Solo.toml"), "not [valid toml")
+            .expect("битый конфиг");
         let state = Mutex::new(GlobalState {
             project_config: ProjectConfig {
                 project_name: "Solo".to_string(),
@@ -719,13 +720,17 @@ mod recovery_tests {
 
         let result = load_repaired_project_config(&state, "Solo").await;
 
-        assert!(result.is_err(), "ошибка сервера должна пробрасываться наружу");
+        assert!(
+            result.is_err(),
+            "ошибка сервера должна пробрасываться наружу"
+        );
         assert!(
             !config_dir(&guard).join("Solo.toml").exists(),
             "битый файл должен быть удалён бэкап-логикой до попытки восстановления"
         );
         assert!(
-            !config_dir(&guard).join("Solo.toml.bak").exists() || config_dir(&guard).join("Solo.toml.bak").exists(),
+            !config_dir(&guard).join("Solo.toml.bak").exists()
+                || config_dir(&guard).join("Solo.toml.bak").exists(),
             "бэкап битого файла создаётся отдельно"
         );
         mock.assert_async().await;
@@ -755,10 +760,16 @@ mod recovery_tests {
 
         let result = load_repaired_project_config(&state, "Solo").await;
 
-        assert!(result.is_err(), "ошибка сервера должна пробрасываться наружу");
+        assert!(
+            result.is_err(),
+            "ошибка сервера должна пробрасываться наружу"
+        );
         let disk = std::fs::read_to_string(config_dir(&guard).join("Solo.toml"))
             .expect("оригинальный файл должен сохраниться на диске");
-        assert_eq!(disk, original_toml, "содержимое файла не должно меняться при ошибке сервера");
+        assert_eq!(
+            disk, original_toml,
+            "содержимое файла не должно меняться при ошибке сервера"
+        );
         mock.assert_async().await;
     }
 

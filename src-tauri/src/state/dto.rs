@@ -37,6 +37,9 @@ pub struct ProjectConfig {
 
     #[serde(default)]
     pub auto_join_server: bool,
+
+    #[serde(default)]
+    pub optional_mods: Vec<String>,
 }
 
 pub(crate) fn default_true() -> bool {
@@ -60,6 +63,7 @@ impl Default for ProjectConfig {
             initialized: false,
             server_url: None,
             auto_join_server: false,
+            optional_mods: Vec::new(),
         }
     }
 }

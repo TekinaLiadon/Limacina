@@ -22,6 +22,8 @@ const SERVER_FILES_STEPS: StepPlanItem[] = stepPlanItems([
 const MODS_STEPS: StepPlanItem[] = stepPlanItems([
   STEP_IDS.modsList,
   STEP_IDS.modsDownload,
+  STEP_IDS.modsOptionalList,
+  STEP_IDS.modsOptionalDownload,
   STEP_IDS.modsClean,
 ])
 

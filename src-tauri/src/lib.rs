@@ -25,6 +25,7 @@ use commands::download::download_java;
 use commands::download::download_minecraft;
 use commands::download::download_server_file;
 use commands::download::download_server_mods;
+use commands::download::fetch_optional_mods;
 use commands::download::get_java_distributions;
 use commands::download::get_java_version;
 use commands::download::open_mods_folder;
@@ -249,6 +250,7 @@ pub fn run() {
             refresh_manifests,
             download_server_file,
             download_server_mods,
+            fetch_optional_mods,
             open_mods_folder,
             check_files_integrity,
             download_minecraft,

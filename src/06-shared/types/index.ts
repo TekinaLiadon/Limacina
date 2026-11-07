@@ -11,6 +11,7 @@ export type {
   SessionInfo,
   ConsoleLog,
   ProjectConfig,
+  OptionalModEntry,
   ModLoaderKind,
   JavaDistribution,
   JavaProbe,

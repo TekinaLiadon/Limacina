@@ -132,6 +132,7 @@ export function useProjectSettings(): {
         maxMemory: store.isFieldDirty('memoryRange') ? `-Xmx${config.value.memoryRange[1]}M` : fresh.maxMemory,
         cpuCores: store.isFieldDirty('cpuCores') ? config.value.cpuCores : fresh.cpuCores,
         autoJoinServer: store.isFieldDirty('autoJoinServer') ? config.value.autoJoinServer : fresh.autoJoinServer,
+        optionalMods: store.isFieldDirty('optionalMods') ? config.value.optionalMods : fresh.optionalMods,
       }
       const saved = await saveSettingsProject(projectConfig)
       if (!scope.isCurrent()) return

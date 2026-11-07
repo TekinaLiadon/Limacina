@@ -15,5 +15,6 @@ export const makeProjectConfig = (overrides: Partial<ProjectConfig> = {}): Proje
   initialized: true,
   serverUrl: null,
   autoJoinServer: false,
+  optionalMods: [],
   ...overrides,
 })

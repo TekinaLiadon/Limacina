@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import {
   useCoreStore,
   useNotificationStore,
+  useOptionalModsStore,
   useProjectSettingsStore,
   useSettingsStore,
   type AppInitData,
@@ -19,6 +20,7 @@ const api = vi.hoisted(() => ({
   getAppInitData: vi.fn(),
   loadSettingsProject: vi.fn(),
   preloadThemeFonts: vi.fn(),
+  fetchOptionalMods: vi.fn(),
 }))
 
 const router = vi.hoisted(() => ({
@@ -32,6 +34,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
   checkUpdate: api.checkUpdate,
   getAppInitData: api.getAppInitData,
   loadSettingsProject: api.loadSettingsProject,
+  fetchOptionalMods: api.fetchOptionalMods,
 }))
 
 vi.mock('@/04-features/theme/preloadThemeFonts', () => ({
@@ -83,6 +86,7 @@ describe('useAppInit', () => {
     api.getAppInitData.mockReset()
     api.loadSettingsProject.mockReset()
     api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj' }))
+    api.fetchOptionalMods.mockReset()
     api.preloadThemeFonts.mockReset()
     api.preloadThemeFonts.mockResolvedValue(undefined)
   })
@@ -378,5 +382,48 @@ describe('useAppInit', () => {
 
     expect(api.getAppInitData).toHaveBeenCalledTimes(1)
     expect(useCoreStore().isLoading).toBe(false)
+  })
+
+  it('pulls the optional mods list after the project config loads', async () => {
+    api.getAppInitData.mockResolvedValue(makeInitData())
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj', modLoader: 'fabric' }))
+    api.fetchOptionalMods.mockResolvedValue([
+      { path: 'optional-mods/b.jar', hash: 'h2' },
+      { path: 'optional-mods/a.jar', hash: 'h1' },
+    ])
+
+    setupApp()
+    await runInit()
+
+    expect(api.fetchOptionalMods).toHaveBeenCalledTimes(1)
+    expect(useOptionalModsStore().list).toEqual([
+      { path: 'optional-mods/b.jar', hash: 'h2' },
+      { path: 'optional-mods/a.jar', hash: 'h1' },
+    ])
+    expect(useCoreStore().isLoading).toBe(false)
+  })
+
+  it('absorbs a failed optional mods list without touching the startup result', async () => {
+    api.getAppInitData.mockResolvedValue(makeInitData())
+    api.loadSettingsProject.mockResolvedValue(makeProjectConfig({ projectName: 'proj', modLoader: 'fabric' }))
+    api.fetchOptionalMods.mockRejectedValue(new Error('optional list 500'))
+
+    const app = setupApp()
+    await runInit()
+
+    expect(api.fetchOptionalMods).toHaveBeenCalledTimes(1)
+    expect(app.startupError()).toBe('')
+    expect(useNotificationStore().visible).toBe(false)
+    expect(useOptionalModsStore().list).toBeNull()
+    expect(useCoreStore().isLoading).toBe(false)
+  })
+
+  it('does not request the optional mods list for an offline build', async () => {
+    api.getAppInitData.mockResolvedValue(makeInitData({ offlineBuild: true }))
+
+    setupApp()
+    await runInit()
+
+    expect(api.fetchOptionalMods).not.toHaveBeenCalled()
   })
 })

@@ -13,6 +13,7 @@ export type {
   StepEvent,
   StepProgressItem,
   ProjectConfig,
+  OptionalModEntry,
   ModLoaderKind,
   ProfileKind,
   ServerProfileForm,
@@ -60,6 +61,8 @@ export { useServerStore } from './server/serverStore'
 
 export { useProjectSettingsStore, projectSettingsFormFromConfig } from './project-settings/projectSettingsStore'
 export type { ProjectSettingsForm } from './project-settings/projectSettingsStore'
+
+export { useOptionalModsStore } from './optional-mods/optionalModsStore'
 
 export type {
   ModrinthSearchHit,

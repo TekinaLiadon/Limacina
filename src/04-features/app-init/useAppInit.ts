@@ -5,6 +5,7 @@ import { captureProjectScope, reportError } from '@/06-shared'
 import { useRouter } from 'vue-router'
 import { preloadThemeFonts } from '@/04-features/theme/preloadThemeFonts'
 import { loadProjectConfig } from '@/04-features/project-settings/loadProjectConfig'
+import { useOptionalMods } from '@/04-features/optional-mods/useOptionalMods'
 
 const STARTUP_ERROR_DURATION = 5000
 
@@ -22,6 +23,8 @@ export function useAppInit() {
     const detail = getErrorMessage(e)
     notification.show(detail ? `${message}: ${detail}` : message, STARTUP_ERROR_DURATION)
   }
+
+  const { loadList } = useOptionalMods()
 
   const loadProject = async (name: string): Promise<void> => {
     const scope = captureProjectScope((): string => coreStore.currentProject)
@@ -98,6 +101,7 @@ export function useAppInit() {
       }
 
       if (targetProject) await loadProject(targetProject)
+      void loadList()
     } catch (e: unknown) {
       reportError('Ошибка инициализации', e)
       startupError.value = getErrorMessage(e)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useProjectSettings } from '@/04-features'
 import { useCoreStore } from '@/05-entities'
-import { ProjectBuild, ProjectRun, ProjectJava, ProjectConnect, ProjectMaintenance, ProjectDanger, SettingsPageShell } from '@/03-widgets'
+import { ProjectBuild, ProjectRun, ProjectMods, ProjectJava, ProjectConnect, ProjectMaintenance, ProjectDanger, SettingsPageShell } from '@/03-widgets'
 
 const coreStore = useCoreStore()
 
@@ -62,6 +62,8 @@ const handleJavaReplaced = (): Promise<void> => loadConfig(coreStore.currentProj
       :jvm-args-error="jvmArgsError"
       :available-cpu-cores="availableCpuCores"
     />
+
+    <ProjectMods v-model:optional-mods="config.optionalMods" />
 
     <ProjectJava
       :java-path="config.javaPath"

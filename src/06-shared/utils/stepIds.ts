@@ -6,6 +6,8 @@ export const STEP_IDS = {
   filesDownload: 'files.download',
   modsList: 'mods.list',
   modsDownload: 'mods.download',
+  modsOptionalList: 'mods.optional.list',
+  modsOptionalDownload: 'mods.optional.download',
   modsClean: 'mods.clean',
   modsCheck: 'mods.check',
   mcManifest: 'mc.manifest',
@@ -31,6 +33,8 @@ export const STEP_CATALOG: Record<StepId, string> = {
   [STEP_IDS.filesDownload]: 'Скачивание файлов',
   [STEP_IDS.modsList]: 'Получение списка модов',
   [STEP_IDS.modsDownload]: 'Проверка и скачивание модов',
+  [STEP_IDS.modsOptionalList]: 'Получение списка необязательных модов',
+  [STEP_IDS.modsOptionalDownload]: 'Синхронизация необязательных модов',
   [STEP_IDS.modsClean]: 'Очистка лишних модов',
   [STEP_IDS.modsCheck]: 'Моды',
   [STEP_IDS.mcManifest]: 'Загрузка манифеста версий',
@@ -64,6 +68,7 @@ const downloadStepIds: readonly StepId[] = [
   STEP_IDS.mcNatives,
   STEP_IDS.loader,
   STEP_IDS.modsDownload,
+  STEP_IDS.modsOptionalDownload,
 ]
 
 const flowEntryStepIds: readonly StepId[] = [STEP_IDS.javaCheck, STEP_IDS.filesList]
@@ -71,3 +76,8 @@ const flowEntryStepIds: readonly StepId[] = [STEP_IDS.javaCheck, STEP_IDS.filesL
 export const DOWNLOAD_STEP_IDS: ReadonlySet<string> = new Set(downloadStepIds)
 
 export const FLOW_ENTRY_STEP_IDS: ReadonlySet<string> = new Set(flowEntryStepIds)
+
+export const OPTIONAL_SYNC_STEP_IDS: ReadonlySet<string> = new Set([
+  STEP_IDS.modsOptionalList,
+  STEP_IDS.modsOptionalDownload,
+])
