@@ -16,6 +16,7 @@ export interface ViewerModelOptions {
   onModelShown: (group: THREE.Group, texture: THREE.Texture, api: ViewerModelApi) => void
   onModelCleared?: () => void
   onTextureError?: (url: string) => void
+  enableZoom?: boolean
 }
 
 export function useViewerModel(
@@ -29,7 +30,10 @@ export function useViewerModel(
   rebuildModel: () => void
   clearModel: () => void
 } {
-  const { scene, camera, getOrbitControls } = useThreeScene(container, { enableZoom: false, autoRotate: false })
+  const { scene, camera, getOrbitControls } = useThreeScene(container, {
+    enableZoom: options.enableZoom ?? false,
+    autoRotate: false,
+  })
   const modelGroup = shallowRef<THREE.Group | null>(null)
   const textureLoader = createManagedTextureLoader(scene)
   let currentTexture: THREE.Texture | null = null

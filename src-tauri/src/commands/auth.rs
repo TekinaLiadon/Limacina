@@ -397,6 +397,12 @@ async fn change_password_flow(
         if project_name != state.project_config.project_name {
             bail!(LauncherError::ProjectNotSelected);
         }
+        if session.project_name != project_name {
+            bail!(LauncherError::SessionMismatch(
+                session.project_name.clone(),
+                project_name.to_string()
+            ));
+        }
         (session.username.clone(), session.access_token.clone())
     };
 
@@ -1019,6 +1025,90 @@ mod account_flow_tests {
             error.downcast_ref::<LauncherError>(),
             Some(LauncherError::ProjectNotSelected)
         ));
+    }
+
+    #[tokio::test]
+    async fn change_password_rejects_session_from_another_project_without_server_call() {
+        let _guard = LauncherDirGuard::acquire("auth_flow_password_foreign_session").await;
+        let mut server = Server::new_async().await;
+        let password_change = server
+            .mock("PATCH", "/v1/common/auth/password")
+            .expect(0)
+            .create_async()
+            .await;
+
+        let state = state_with_session("Steve", "TestProj");
+        state
+            .lock()
+            .await
+            .session
+            .as_mut()
+            .expect("сессия")
+            .project_name = "OtherProj".to_string();
+
+        let error = change_password_flow(&state, "TestProj", "old-pass", "new-pass")
+            .await
+            .expect_err("сессия чужого проекта должна отклоняться");
+
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::SessionMismatch(_, _))
+            ),
+            "ожидается SessionMismatch: {error}"
+        );
+        password_change.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn keyring_save_failure_keeps_fresh_fallback_token_alive() {
+        let MockEnv {
+            dir: _guard,
+            mut server,
+        } = MockEnv::acquire("auth_flow_keyring_save_failure").await;
+        let project = "TestProj";
+        let username = "Steve";
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища перед тестом");
+
+        let refresh = server
+            .mock("POST", "/v1/common/auth/refresh")
+            .match_body(Matcher::PartialJsonString(
+                json!({"refresh_token": "tok-fresh"}).to_string(),
+            ))
+            .with_status(200)
+            .with_body(rotation_payload("access-2", "tok-2"))
+            .expect(1)
+            .create_async()
+            .await;
+
+        seed_online_refresh_token(&server.url(), project, username, "tok-old").await;
+        storage::save_credential(project, username, "refresh_token", "tok-old")
+            .await
+            .expect("сохранение токена в keyring");
+        storage::arm_keyring_save_failure();
+        storage::save_credential(project, username, "refresh_token", "tok-fresh")
+            .await
+            .expect("сохранение при сбое keyring должно уходить в fallback");
+
+        restore_and_persist_session(project, username, None)
+            .await
+            .expect("свежий fallback-токен должен восстанавливать сессию");
+
+        refresh.assert_async().await;
+        assert_eq!(
+            storage::get_credential(project, username, "refresh_token")
+                .await
+                .expect("токен должен остаться"),
+            "tok-2",
+            "валидный fallback-токен не должен затеняться и уничтожаться"
+        );
+
+        wipe_project_credentials(project, &[username.to_string()])
+            .await
+            .expect("очистка хранилища после теста");
     }
 
     #[tokio::test]

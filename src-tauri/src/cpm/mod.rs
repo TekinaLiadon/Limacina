@@ -10,6 +10,27 @@ const PART_SKIN_TYPE: u8 = 11;
 const PART_DEFINITION_LINK: u8 = 4;
 const LINK_MAX_LEN: usize = 255;
 
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelFormat {
+    #[default]
+    Cpm,
+    Bbmodel,
+}
+
+impl<'de> Deserialize<'de> for ModelFormat {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        Ok(match raw.as_str() {
+            Some("bbmodel") => Self::Bbmodel,
+            _ => Self::Cpm,
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CpmModelEntry {
     pub id: Option<i64>,
@@ -18,6 +39,8 @@ pub struct CpmModelEntry {
     pub url: Option<String>,
     pub skin_type: Option<u8>,
     pub offline: bool,
+    #[serde(default)]
+    pub format: Option<ModelFormat>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -244,6 +267,73 @@ mod tests {
         assert!(manifest.models.is_empty());
     }
 
+    fn legacy_entry(format: Option<&str>) -> String {
+        let format = match format {
+            Some(format) => format!(r#","format":"{format}""#),
+            None => String::new(),
+        };
+        format!(
+            r#"{{"id":1,"file":"hero.cpmmodel","name":"Hero","url":null,"skin_type":null,"offline":true{format}}}"#
+        )
+    }
+
+    #[test]
+    fn entry_without_format_field_reads_as_cpm() {
+        let entry: CpmModelEntry = serde_json::from_str(&legacy_entry(None)).unwrap();
+        assert_eq!(entry.format, None);
+        assert_eq!(entry.format.unwrap_or_default(), ModelFormat::Cpm);
+    }
+
+    #[test]
+    fn entry_with_unknown_format_reads_as_cpm() {
+        let entry: CpmModelEntry = serde_json::from_str(&legacy_entry(Some("sketchfab"))).unwrap();
+        assert_eq!(entry.format, Some(ModelFormat::Cpm));
+        let entry: CpmModelEntry = serde_json::from_str(&legacy_entry(Some("CPM"))).unwrap();
+        assert_eq!(entry.format, Some(ModelFormat::Cpm));
+    }
+
+    #[test]
+    fn entry_with_non_string_format_reads_as_cpm() {
+        let json = r#"{"id":1,"file":"hero.cpmmodel","name":"Hero","url":null,"skin_type":null,"offline":true,"format":7}"#;
+        let entry: CpmModelEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.format, Some(ModelFormat::Cpm));
+    }
+
+    #[test]
+    fn entry_format_round_trip_preserves_fields() {
+        let entry = CpmModelEntry {
+            id: Some(4),
+            file: "hero.cpmmodel".to_string(),
+            name: "Hero".to_string(),
+            url: None,
+            skin_type: None,
+            offline: true,
+            format: Some(ModelFormat::Bbmodel),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(
+            json.contains(r#""format":"bbmodel""#),
+            "формат пишется lowercase-строкой: {json}"
+        );
+
+        let restored: CpmModelEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.format, Some(ModelFormat::Bbmodel));
+        assert_eq!(restored.name, "Hero");
+        assert_eq!(restored.file, "hero.cpmmodel");
+        assert!(restored.offline);
+    }
+
+    #[test]
+    fn entry_format_serializes_cpm_lowercase() {
+        let entry: CpmModelEntry = serde_json::from_str(&legacy_entry(Some("cpm"))).unwrap();
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(
+            json.contains(r#""format":"cpm""#),
+            "явный cpm пишется строкой: {json}"
+        );
+    }
+
     #[test]
     fn rebind_keeps_existing_valid_selection() {
         let manifest = two_entry_manifest();
@@ -274,6 +364,26 @@ mod tests {
         assert_eq!(
             rebind_selection(&manifest, None, false, true),
             RebindDecision::Keep
+        );
+    }
+
+    #[test]
+    fn rebind_does_not_depend_on_format() {
+        let mut bbmodel = cpm_model_entry(Some(3), "blockbench.cpmmodel", false);
+        bbmodel.format = Some(ModelFormat::Bbmodel);
+        let mut cpm = cpm_model_entry(Some(4), "plain.cpmmodel", false);
+        cpm.format = Some(ModelFormat::Cpm);
+        let manifest = CpmModelManifest {
+            models: vec![bbmodel, cpm],
+        };
+
+        assert_eq!(
+            rebind_selection(&manifest, Some("blockbench.cpmmodel"), true, false),
+            RebindDecision::Keep
+        );
+        assert_eq!(
+            rebind_selection(&manifest, None, false, true),
+            RebindDecision::Select("plain.cpmmodel".to_string())
         );
     }
 

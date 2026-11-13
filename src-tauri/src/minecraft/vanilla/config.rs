@@ -505,6 +505,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_classpath_rejects_traversal_artifact_path() {
+        let libs: Vec<Library> = serde_json::from_value(serde_json::json!([
+            logging_library(),
+            {
+                "name": "evil:payload:1.0",
+                "downloads": {
+                    "artifact": {
+                        "path": "../../evil.jar",
+                        "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "size": 1,
+                        "url": "https://libraries.minecraft.net/evil/evil.jar"
+                    }
+                }
+            }
+        ]))
+        .unwrap();
+
+        let dir = TempDir::new("classpath_traversal");
+        let config = test_launch_config(&dir.0);
+
+        let error = get_classpath(&libs, &config)
+            .await
+            .expect_err("путь с обходом каталогов должен отклоняться");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("Некорректное значение пути библиотеки в манифесте"),
+            "ошибка должна называть небезопасный путь: {message}"
+        );
+        assert!(
+            message.contains("../../evil.jar"),
+            "ошибка должна показывать сам путь: {message}"
+        );
+
+        drop(dir);
+    }
+
+    #[tokio::test]
     async fn get_classpath_skips_foreign_platform_natives_jars() {
         let libs = lwjgl_1_21_libraries();
         let matching = platform_natives_classifier();

@@ -3,6 +3,7 @@ pub mod auth_offline;
 pub mod cpm_models;
 pub mod download;
 pub mod dto;
+pub mod figura;
 pub mod game_options;
 pub mod init;
 pub mod install_journal;

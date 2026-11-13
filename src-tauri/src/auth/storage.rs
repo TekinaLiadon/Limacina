@@ -63,7 +63,7 @@ fn read_fallback_store(path: &std::path::Path, content: &str) -> CredentialStore
                 backup_path,
                 e
             );
-            let _ = fs::rename(path, &backup_path);
+            let _ = fs::write(&backup_path, content);
             ensure_private_mode(&backup_path);
             CredentialStore::default()
         }
@@ -90,6 +90,10 @@ static TEST_SECRET_UNAVAILABLE: std::sync::atomic::AtomicBool =
 
 #[cfg(test)]
 static TEST_TRANSIENT_READ_FAILURE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+static TEST_KEYRING_SAVE_FAILURE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(test)]
@@ -130,6 +134,11 @@ pub(crate) fn test_keyring_contains(key_name: &str) -> bool {
 #[cfg(test)]
 pub(crate) fn arm_transient_read_failure() {
     TEST_TRANSIENT_READ_FAILURE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub(crate) fn arm_keyring_save_failure() {
+    TEST_KEYRING_SAVE_FAILURE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(test)]
@@ -303,7 +312,10 @@ pub(crate) fn save_fallback(
     save_fallback_key(&keyring_key(project, username, key_suffix), value)
 }
 
-fn find_fallback_key(key_name: &str) -> Result<Option<String>> {
+fn read_fallback_entry(key_name: &str) -> Result<Option<EncryptedEntry>> {
+    let _guard = fallback_store_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let path = fallback_path()?;
     if !path.exists() {
         return Ok(None);
@@ -313,9 +325,12 @@ fn find_fallback_key(key_name: &str) -> Result<Option<String>> {
         fs::read_to_string(&path).with_context(|| format!("Не удалось прочитать {:?}", path))?;
     ensure_private_mode(&path);
     let store = read_fallback_store(&path, &content);
-    let entry = match store.entries.iter().find(|e| e.username == key_name) {
-        Some(entry) => entry,
-        None => return Ok(None),
+    Ok(store.entries.into_iter().find(|e| e.username == key_name))
+}
+
+fn find_fallback_key(key_name: &str) -> Result<Option<String>> {
+    let Some(entry) = read_fallback_entry(key_name)? else {
+        return Ok(None);
     };
 
     let secret = obfuscation_secret();
@@ -325,7 +340,7 @@ fn find_fallback_key(key_name: &str) -> Result<Option<String>> {
         );
     }
 
-    match decrypt_entry_value(entry, secret.as_deref()) {
+    match decrypt_entry_value(&entry, secret.as_deref()) {
         Some(value) => Ok(Some(value)),
         None => {
             log_info!(
@@ -409,6 +424,9 @@ fn open_keyring_entry(key_name: &str) -> Result<keyring::Entry> {
 
 #[cfg(test)]
 fn keyring_save(key_name: &str, _key_suffix: &str, value: &str) -> Result<()> {
+    if TEST_KEYRING_SAVE_FAILURE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        anyhow::bail!("Тестовая заглушка: сбой записи keyring");
+    }
     test_keyring()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -513,6 +531,9 @@ fn save_credential_sync(
         log_err!("Keyring save {}: ошибка {:?}", key_suffix, e);
         ensure_fallback_suffix_allowed(key_suffix)?;
         save_fallback_key(canonical_key, value)?;
+        if let Err(e) = keyring_delete(canonical_key, key_suffix) {
+            log_err!("Keyring delete {}: ошибка {}", key_suffix, e);
+        }
     }
 
     remove_legacy_credentials(canonical_key, &key_names[1..], key_suffix);
@@ -1062,6 +1083,85 @@ mod tests {
         let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
             .expect("битое хранилище должно быть забэкаплено при чтении");
         assert!(backup.contains("broken"));
+    }
+
+    #[tokio::test]
+    async fn corrupt_read_keeps_store_file_in_place() {
+        let dir = LauncherDirGuard::acquire("credentials_corrupt_read_keeps_file").await;
+        write_store(&dir, "{ broken");
+
+        let store = super::read_fallback_store(&store_path(&dir), "{ broken");
+
+        assert!(store.entries.is_empty());
+        assert!(
+            store_path(&dir).exists(),
+            "чтение битого хранилища не должно удалять или переименовывать файл"
+        );
+        let backup = std::fs::read_to_string(dir.root().join("credentials.json.bak"))
+            .expect("битое хранилище должно быть забэкаплено");
+        assert!(backup.contains("broken"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_save_and_corrupt_reads_keep_store_consistent() {
+        let dir = LauncherDirGuard::acquire("credentials_concurrent_corrupt").await;
+        write_store(&dir, "{ broken");
+
+        let writer = tokio::spawn(save_credential(
+            "Cordelia",
+            "Steve",
+            "refresh_token",
+            "token-race",
+        ));
+        let mut readers = Vec::new();
+        for _ in 0..8 {
+            readers.push(tokio::spawn(find_credential(
+                "Cordelia",
+                "Steve",
+                "refresh_token",
+            )));
+        }
+
+        writer
+            .await
+            .expect("задача сохранения")
+            .expect("сохранение credentials");
+        for reader in readers {
+            let _ = reader.await.expect("задача чтения");
+        }
+
+        assert_eq!(
+            find_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .expect("чтение после гонки"),
+            Some("token-race".to_string()),
+            "конкурентное чтение битого хранилища не должно терять свежезаписанный файл"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_keyring_save_does_not_shadow_fallback_value() {
+        let _dir = LauncherDirGuard::acquire("credentials_keyring_save_failure").await;
+
+        save_credential("Cordelia", "Steve", "refresh_token", "token-stale")
+            .await
+            .expect("первое сохранение");
+        super::arm_keyring_save_failure();
+        save_credential("Cordelia", "Steve", "refresh_token", "token-fresh")
+            .await
+            .expect("сохранение при сбое keyring должно уходить в fallback");
+
+        assert_eq!(
+            find_credential("Cordelia", "Steve", "refresh_token")
+                .await
+                .expect("чтение credentials"),
+            Some("token-fresh".to_string()),
+            "свежий fallback-токен не должен затеняться устаревшей keyring-записью"
+        );
+        assert!(
+            !test_keyring_contains("Cordelia_steve_refresh_token"),
+            "затеняющая keyring-запись должна удаляться"
+        );
     }
 
     #[tokio::test]

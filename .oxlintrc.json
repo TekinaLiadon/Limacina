@@ -63,9 +63,6 @@
       "files": [
         "src/04-features/cpm-viewer/cpmModelBuilder.ts",
         "src/04-features/cpm-viewer/useCpmViewer.ts",
-        "src/04-features/cpm-presets/skinPng.ts",
-        "src/04-features/cpm-presets/skinNormalize.ts",
-        "src/04-features/cpm-presets/presetValidator.ts",
         "src/04-features/cpm-settings/useCpmSettings.ts",
         "src/04-features/skin-viewer/useSkinViewer.ts",
         "src/04-features/cpm-convert/bbmodelAnimations.ts",

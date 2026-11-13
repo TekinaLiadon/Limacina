@@ -236,7 +236,14 @@ pub async fn list_models(
     state: State<'_, Mutex<GlobalState>>,
     uuid: String,
 ) -> CommandResult<Vec<UserContentItem>> {
-    let items = user_content::list_models(&state, uuid).await?;
+    let project_name = current_project_config(&state).await?.project_name;
+    let formats = crate::commands::cpm_models::formats_by_server_id(&project_name)
+        .await
+        .unwrap_or_default();
+    let mut items = user_content::list_models(&state, uuid).await?;
+    for item in items.iter_mut() {
+        item.format = item.id.and_then(|id| formats.get(&id).copied());
+    }
     Ok(items)
 }
 

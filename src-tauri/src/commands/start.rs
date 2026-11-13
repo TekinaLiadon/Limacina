@@ -76,16 +76,28 @@ async fn start_minecraft_inner(
     }
 
     let process_step = StepHandle::start("launch.process", "Запуск процесса игры");
+    let spawn_app = app.clone();
+    let authlib_server_url = authlib.server_url().map(str::to_owned);
+    let spawn_username = ctx.username.clone();
+    let spawn_project = ctx.project.clone();
     let process = step_try!(
         process_step,
-        spawn_game_step(
-            &app,
-            game_config,
-            authlib.server_url(),
-            project_config.java_version,
-            project_config.cpu_cores,
-            &ctx,
+        blocking(
+            "Не удалось запустить процесс игры",
+            move || {
+                spawn_game_step(
+                    spawn_app,
+                    game_config,
+                    authlib_server_url,
+                    project_config.java_version,
+                    project_config.cpu_cores,
+                    spawn_username,
+                    spawn_project,
+                )
+            }
         )
+        .await
+        .and_then(|inner| inner)
     );
     process_step.finish(false);
 
@@ -204,24 +216,25 @@ async fn probe_installed_java_major(java_path: &Path) -> Option<u32> {
 }
 
 fn spawn_game_step(
-    app: &AppHandle,
+    app: AppHandle,
     game_config: GameConfig,
-    authlib_server_url: Option<&str>,
+    authlib_server_url: Option<String>,
     java_major: Option<u32>,
     cpu_cores: Option<u16>,
-    ctx: &LaunchContext,
+    username: String,
+    project: String,
 ) -> anyhow::Result<GameProcess> {
     LauncherError::classify(
         spawn_game_process(
-            app.clone(),
+            app,
             game_config,
-            authlib_server_url,
-            ctx.username.clone(),
-            ctx.project.clone(),
+            authlib_server_url.as_deref(),
+            username,
+            project.clone(),
             java_major,
             cpu_cores,
         )
-        .with_context(|| format!("Не удалось запустить Minecraft (проект: {})", ctx.project)),
+        .with_context(|| format!("Не удалось запустить Minecraft (проект: {project})")),
         LauncherError::GameProcess,
     )
 }

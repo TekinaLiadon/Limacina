@@ -1,4 +1,5 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { pushEscapeHandler } from './escapeStack'
 
 export function useDropdownPanel(
   rootRef: Ref<HTMLDivElement | null>,
@@ -51,6 +52,17 @@ export function useDropdownPanel(
     shown.value = false
   }
 
+  let unregisterEscape: (() => void) | null = null
+
+  watch(shown, (isShown: boolean): void => {
+    if (!isShown) {
+      unregisterEscape?.()
+      unregisterEscape = null
+      return
+    }
+    unregisterEscape = pushEscapeHandler(close)
+  })
+
   const open = async (): Promise<void> => {
     if (isDisabled()) return
     shown.value = true
@@ -72,10 +84,6 @@ export function useDropdownPanel(
     if (rootRef.value && !rootRef.value.contains(e.target as Node)) close()
   }
 
-  const handleKeydown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape' && shown.value) close()
-  }
-
   const handleResize = (): void => {
     if (!shown.value) return
     measurePanel()
@@ -84,13 +92,13 @@ export function useDropdownPanel(
 
   onMounted((): void => {
     document.addEventListener('click', handleClickOutside)
-    window.addEventListener('keydown', handleKeydown)
     window.addEventListener('resize', handleResize)
   })
 
   onBeforeUnmount((): void => {
+    unregisterEscape?.()
+    unregisterEscape = null
     document.removeEventListener('click', handleClickOutside)
-    window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('resize', handleResize)
   })
 

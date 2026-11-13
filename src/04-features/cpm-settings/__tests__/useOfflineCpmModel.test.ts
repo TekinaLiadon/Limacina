@@ -51,6 +51,7 @@ describe('useOfflineCpmModel', () => {
     bytes: Uint8Array | null,
     cpmData: CPMData | null,
     skinPng: Uint8Array | null = null,
+    format?: 'cpm' | 'bbmodel',
   ): { offline: ReturnType<typeof useOfflineCpmModel>; errorMessage: Ref<string> } => {
     const { result } = withSetup(() => {
       const errorMessage = ref('')
@@ -60,6 +61,7 @@ describe('useOfflineCpmModel', () => {
         cpmSkinPng: ref(skinPng),
         modelName: computed((): string => 'hero'),
         errorMessage,
+        ...(format === undefined ? {} : { format }),
       })
       return { offline, errorMessage }
     })
@@ -81,6 +83,7 @@ describe('useOfflineCpmModel', () => {
       url: null,
       modelId: null,
       slim: false,
+      format: 'cpm',
       data: new Uint8Array([1, 2, 3]),
     })
     const [, payload] = vi.mocked(savePlayerModel).mock.calls[0]!
@@ -118,6 +121,17 @@ describe('useOfflineCpmModel', () => {
     await offline.handleSaveModelOffline()
 
     expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ slim: true }))
+  })
+
+  it('passes the bbmodel format from the composable option', async () => {
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+    exporter.cpmProjectToBytes.mockResolvedValue(new Uint8Array([1]))
+    useCoreStore().currentProject = 'proj'
+    const { offline } = setupOffline(new Uint8Array(4), makeCpmData('default'), null, 'bbmodel')
+
+    await offline.handleSaveModelOffline()
+
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ format: 'bbmodel' }))
   })
 
   it('surfaces the offline save failure', async () => {

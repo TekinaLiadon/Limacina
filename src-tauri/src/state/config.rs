@@ -661,8 +661,8 @@ mod recovery_tests {
 
     #[tokio::test]
     async fn repair_empty_version_server_failure_keeps_original_toml() {
-        let guard = LauncherDirGuard::acquire("config_repair_server_failure").await;
-        let MockEnv { dir: _, mut server } = MockEnv::acquire("config_repair_server_failure").await;
+        let MockEnv { dir: guard, mut server } =
+            MockEnv::acquire("config_repair_server_failure").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")
             .with_status(500)
@@ -696,8 +696,7 @@ mod recovery_tests {
 
     #[tokio::test]
     async fn recover_corrupt_config_server_failure_does_not_write_partial() {
-        let guard = LauncherDirGuard::acquire("config_recover_corrupt_failure").await;
-        let MockEnv { dir: _, mut server } =
+        let MockEnv { dir: guard, mut server } =
             MockEnv::acquire("config_recover_corrupt_failure").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")

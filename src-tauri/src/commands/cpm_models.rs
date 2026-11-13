@@ -6,12 +6,13 @@ use tokio::sync::Mutex;
 use crate::cpm::{
     build_link_definition, build_player_model_file, local_model_file_name, merge_selected_model,
     model_file_name, parse_cpm_config, rebind_selection, remove_selected_model, CpmModelEntry,
-    CpmModelManifest, RebindDecision, SKIN_TYPE_DEFAULT, SKIN_TYPE_SLIM,
+    CpmModelManifest, ModelFormat, RebindDecision, SKIN_TYPE_DEFAULT, SKIN_TYPE_SLIM,
 };
 use crate::launcher_server::user_content;
 use crate::state::config::{current_project_config, validated_project_name};
 use crate::state::dto::GlobalState;
 use crate::utils::allowlisted_read::{has_extension, AllowlistedRead};
+use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::{read_to_string_opt, write_atomic};
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
@@ -33,6 +34,7 @@ const MODEL_NAME_HEADER: &str = "Model-Name";
 const MODEL_URL_HEADER: &str = "Model-Url";
 const MODEL_ID_HEADER: &str = "Model-Id";
 const MODEL_SLIM_HEADER: &str = "Model-Slim";
+const MODEL_FORMAT_HEADER: &str = "Model-Format";
 
 static MODELS_MANIFEST_LOCK: Mutex<()> = Mutex::const_new(());
 
@@ -79,11 +81,33 @@ async fn read_manifest(project_name: &str) -> Result<CpmModelManifest> {
     let Some(content) = read_to_string_opt(&path).await? else {
         return Ok(CpmModelManifest::default());
     };
-    serde_json::from_str(&content).with_context(|| format!("Повреждён манифест моделей {:?}", path))
+    let mut manifest = match serde_json::from_str::<CpmModelManifest>(&content) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            backup_corrupt_file(&path, "json.bak", &anyhow::Error::from(error))?;
+            CpmModelManifest::default()
+        }
+    };
+    for model in manifest.models.iter_mut() {
+        model.format = Some(model.format.unwrap_or_default());
+    }
+    Ok(manifest)
 }
 
-async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {
-    let path = manifest_path(project_name)?;
+pub(crate) async fn formats_by_server_id(
+    project_name: &str,
+) -> Result<std::collections::HashMap<i64, ModelFormat>> {
+    let manifest = read_manifest(project_name).await?;
+    let mut formats = std::collections::HashMap::new();
+    for entry in manifest.models {
+        if let Some(id) = entry.id {
+            formats.insert(id, entry.format.unwrap_or_default());
+        }
+    }
+    Ok(formats)
+}
+
+async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {    let path = manifest_path(project_name)?;
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -165,6 +189,7 @@ struct PlayerModelRequest {
     url: Option<String>,
     model_id: Option<i64>,
     slim: Option<bool>,
+    format: Option<ModelFormat>,
     data: Option<Vec<u8>>,
 }
 
@@ -245,12 +270,23 @@ fn parse_player_model_request(
         })?),
         None => None,
     };
+    let format = match header_raw(headers, MODEL_FORMAT_HEADER) {
+        Some("cpm") => Some(ModelFormat::Cpm),
+        Some("bbmodel") => Some(ModelFormat::Bbmodel),
+        Some(_) => {
+            return Err(anyhow!(LauncherError::InvalidInput(format!(
+                "Некорректное значение заголовка {MODEL_FORMAT_HEADER}"
+            ))));
+        }
+        None => None,
+    };
     Ok(PlayerModelRequest {
         project_name: required_text_header(headers, PROJECT_NAME_HEADER)?,
         name: required_text_header(headers, MODEL_NAME_HEADER)?,
         url: optional_text_header(headers, MODEL_URL_HEADER)?,
         model_id,
         slim,
+        format,
         data,
     })
 }
@@ -266,6 +302,7 @@ pub async fn save_player_model(request: tauri::ipc::Request<'_>) -> CommandResul
         payload.model_id,
         payload.slim,
         payload.data,
+        payload.format,
     )
     .await?;
     Ok(())
@@ -278,7 +315,9 @@ async fn save_player_model_inner(
     model_id: Option<i64>,
     slim: Option<bool>,
     data: Option<Vec<u8>>,
+    format: Option<ModelFormat>,
 ) -> Result<()> {
+    let format = Some(format.unwrap_or_default());
     let (model_data, entry) = match url {
         Some(url) => {
             let id = model_id.ok_or_else(|| {
@@ -298,6 +337,7 @@ async fn save_player_model_inner(
                 url: Some(url),
                 skin_type: Some(skin_type),
                 offline: false,
+                format,
             };
             (None, entry)
         }
@@ -321,6 +361,7 @@ async fn save_player_model_inner(
                 url: None,
                 skin_type: None,
                 offline: true,
+                format,
             };
             (Some(model_data), entry)
         }
@@ -446,6 +487,7 @@ pub async fn sync_player_models(state: &Mutex<GlobalState>) -> Result<()> {
             url: Some(item.url.clone()),
             skin_type: Some(SKIN_TYPE_DEFAULT),
             offline: false,
+            format: Some(ModelFormat::Cpm),
         };
         write_link_stub(&dir, &entry, &item.url).await?;
         manifest.models.push(entry);
@@ -520,6 +562,7 @@ mod tests {
             url: Some(url.to_string()),
             skin_type: Some(SKIN_TYPE_DEFAULT),
             offline: false,
+            format: None,
         }
     }
 
@@ -570,6 +613,7 @@ mod tests {
             "new".to_string(),
             Some("https://cdn.example.com/m/7v2".to_string()),
             Some(7),
+            None,
             None,
             None,
         )
@@ -633,6 +677,36 @@ mod tests {
             error.downcast_ref::<LauncherError>(),
             Some(LauncherError::NoSession)
         ));
+    }
+
+    #[tokio::test]
+    async fn corrupt_manifest_is_backed_up_and_save_proceeds() {
+        let _guard = LauncherDirGuard::acquire("cpm_manifest_corrupt").await;
+        let path = manifest_path(SYNC_PROJECT).unwrap();
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, "{ broken").await.unwrap();
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "new".to_string(),
+            Some("https://cdn.example.com/m/7v2".to_string()),
+            Some(7),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("битый манифест не должен блокировать сохранение модели");
+
+        let backup = tokio::fs::read_to_string(path.with_extension("json.bak"))
+            .await
+            .expect("битый манифест должен быть забэкаплен");
+        assert!(backup.contains("broken"), "в бэкапе исходное содержимое");
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1, "сохранённая модель в манифесте");
+        assert_eq!(manifest.models[0].id, Some(7));
     }
 
     #[tokio::test]
@@ -777,6 +851,7 @@ mod tests {
             url: None,
             skin_type: None,
             offline: true,
+            format: None,
         };
         seed_manifest(vec![local]).await;
         write_model_file("local.cpmmodel", b"local model").await;
@@ -825,6 +900,7 @@ mod tests {
             Some(7),
             None,
             None,
+            None,
         )
         .await
         .expect("замена записи");
@@ -857,6 +933,7 @@ mod tests {
             Some(9),
             None,
             None,
+            None,
         )
         .await
         .expect("первая загрузка");
@@ -866,6 +943,7 @@ mod tests {
             "Hero".to_string(),
             Some("https://cdn.example.com/m/9v2".to_string()),
             Some(9),
+            None,
             None,
             None,
         )
@@ -896,6 +974,7 @@ mod tests {
             None,
             None,
             Some(data),
+            None,
         )
         .await
         .expect_err("офлайн-данные больше лимита должны быть отклонены");
@@ -927,6 +1006,7 @@ mod tests {
             None,
             None,
             Some(b"model".to_vec()),
+            None,
         )
         .await
         .expect_err("сбой записи файла модели");
@@ -961,6 +1041,7 @@ mod tests {
             None,
             None,
             Some(b"model".to_vec()),
+            None,
         )
         .await
         .expect_err("первое сохранение падает на записи файла");
@@ -974,6 +1055,7 @@ mod tests {
             None,
             None,
             Some(b"model v2".to_vec()),
+            None,
         )
         .await
         .expect("повторное сохранение чинит состояние");
@@ -987,6 +1069,170 @@ mod tests {
             Some(file.as_str()),
             "после повтора выбор указывает на существующий файл"
         );
+    }
+
+    #[tokio::test]
+    async fn save_player_model_writes_bbmodel_format() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_bbmodel").await;
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "Blockbench".to_string(),
+            None,
+            None,
+            None,
+            Some(b"model".to_vec()),
+            Some(ModelFormat::Bbmodel),
+        )
+        .await
+        .expect("сохранение bbmodel-модели");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1);
+        assert_eq!(manifest.models[0].format, Some(ModelFormat::Bbmodel));
+    }
+
+    #[tokio::test]
+    async fn save_player_model_without_format_writes_cpm() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_default_format").await;
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "Plain".to_string(),
+            Some("https://cdn.example.com/m/3".to_string()),
+            Some(3),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("сохранение без формата");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models[0].format, Some(ModelFormat::Cpm));
+    }
+
+    #[tokio::test]
+    async fn save_player_model_reupload_keeps_passed_format() {
+        let _guard = LauncherDirGuard::acquire("cpm_save_format_stable").await;
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "Hero".to_string(),
+            Some("https://cdn.example.com/m/11".to_string()),
+            Some(11),
+            None,
+            None,
+            Some(ModelFormat::Bbmodel),
+        )
+        .await
+        .expect("первая загрузка");
+
+        save_player_model_inner(
+            SYNC_PROJECT,
+            "Hero".to_string(),
+            Some("https://cdn.example.com/m/11v2".to_string()),
+            Some(11),
+            None,
+            None,
+            Some(ModelFormat::Bbmodel),
+        )
+        .await
+        .expect("повторная загрузка");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1);
+        assert_eq!(
+            manifest.models[0].format,
+            Some(ModelFormat::Bbmodel),
+            "повторная отправка той же модели не меняет формат"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_player_models_marks_server_entries_as_cpm() {
+        let MockEnv {
+            dir: _dir,
+            mut server,
+        } = MockEnv::acquire("cpm_sync_format").await;
+        mock_models_endpoint(
+            &mut server,
+            models_mock_body(&[serde_json::json!({
+                "id": 6,
+                "url": "https://cdn.example.com/m/6"
+            })]),
+        )
+        .await;
+        let state = sync_state(&server.url(), true, true);
+
+        sync_player_models(&state).await.expect("синхронизация");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models.len(), 1);
+        assert_eq!(
+            manifest.models[0].format,
+            Some(ModelFormat::Cpm),
+            "серверные записи всегда cpm"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_manifest_normalizes_missing_and_unknown_format_to_cpm() {
+        let _guard = LauncherDirGuard::acquire("cpm_manifest_legacy_format").await;
+        let path = manifest_path(SYNC_PROJECT).unwrap();
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(
+            &path,
+            r#"{"models":[
+                {"id":1,"file":"legacy.cpmmodel","name":"Legacy","url":null,"skin_type":null,"offline":false},
+                {"id":2,"file":"future.cpmmodel","name":"Future","url":null,"skin_type":null,"offline":false,"format":"gltf"},
+                {"id":3,"file":"bb.cpmmodel","name":"Bb","url":null,"skin_type":null,"offline":false,"format":"bbmodel"}
+            ]}"#,
+        )
+        .await
+        .unwrap();
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+
+        assert_eq!(manifest.models[0].format, Some(ModelFormat::Cpm));
+        assert_eq!(manifest.models[1].format, Some(ModelFormat::Cpm));
+        assert_eq!(manifest.models[2].format, Some(ModelFormat::Bbmodel));
+    }
+
+    #[tokio::test]
+    async fn formats_by_server_id_maps_manifest_entries_by_id() {
+        let _guard = LauncherDirGuard::acquire("cpm_formats_by_server_id").await;
+        let path = manifest_path(SYNC_PROJECT).unwrap();
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(
+            &path,
+            r#"{"models":[
+                {"id":11,"file":"a.cpmmodel","name":"A","url":"https://cdn/11","skin_type":1,"offline":false,"format":"bbmodel"},
+                {"id":12,"file":"b.cpmmodel","name":"B","url":"https://cdn/12","skin_type":1,"offline":false},
+                {"id":null,"file":"local.cpmmodel","name":"Local","url":null,"skin_type":null,"offline":true,"format":"bbmodel"}
+            ]}"#,
+        )
+        .await
+        .unwrap();
+
+        let formats = formats_by_server_id(SYNC_PROJECT).await.unwrap();
+
+        assert_eq!(formats.get(&11), Some(&ModelFormat::Bbmodel));
+        assert_eq!(formats.get(&12), Some(&ModelFormat::Cpm));
+        assert_eq!(formats.len(), 2, "локальные записи без id не попадают");
+    }
+
+    #[tokio::test]
+    async fn formats_by_server_id_is_empty_without_manifest() {
+        let _guard = LauncherDirGuard::acquire("cpm_formats_missing_manifest").await;
+
+        let formats = formats_by_server_id(SYNC_PROJECT).await.unwrap();
+
+        assert!(formats.is_empty());
     }
 
     #[cfg(unix)]
@@ -1095,6 +1341,7 @@ mod tests {
                     Some(100 + i64::from(i)),
                     None,
                     None,
+                    None,
                 )
                 .await
                 .expect("сохранение модели");
@@ -1149,6 +1396,7 @@ mod tests {
                     name.clone(),
                     Some("https://cdn.example.com/saved".to_string()),
                     Some(id),
+                    None,
                     None,
                     None,
                 ),
@@ -1226,6 +1474,7 @@ mod tests {
         assert_eq!(payload.url.as_deref(), Some("https://cdn/9.cpm"));
         assert_eq!(payload.model_id, Some(9));
         assert_eq!(payload.slim, Some(true));
+        assert_eq!(payload.format, None);
         assert_eq!(payload.data, Some(vec![0x53, 1, 2, 255]));
     }
 
@@ -1239,6 +1488,7 @@ mod tests {
         assert_eq!(payload.url, None);
         assert_eq!(payload.model_id, None);
         assert_eq!(payload.slim, Some(false));
+        assert_eq!(payload.format, None);
         assert_eq!(payload.data, None);
     }
 
@@ -1287,6 +1537,87 @@ mod tests {
         broken_id.insert("Model-Id", HeaderValue::from_static("9x"));
         let error = parse_player_model_request(&broken_id, &body).unwrap_err();
         assert!(error.to_string().contains("Model-Id"), "ошибка: {error}");
+    }
+
+    #[test]
+    fn parse_player_model_request_reads_model_format_header() {
+        let body = raw_body(Vec::new());
+
+        let mut bbmodel = model_request_headers("proj", "hero", None, None, None);
+        bbmodel.insert("Model-Format", HeaderValue::from_static("bbmodel"));
+        let payload = parse_player_model_request(&bbmodel, &body).unwrap();
+        assert_eq!(payload.format, Some(ModelFormat::Bbmodel));
+
+        let mut cpm = model_request_headers("proj", "hero", None, None, None);
+        cpm.insert("Model-Format", HeaderValue::from_static("cpm"));
+        let payload = parse_player_model_request(&cpm, &body).unwrap();
+        assert_eq!(payload.format, Some(ModelFormat::Cpm));
+    }
+
+    #[test]
+    fn parse_player_model_request_rejects_unknown_model_format_header() {
+        let body = raw_body(Vec::new());
+        let mut headers = model_request_headers("proj", "hero", None, None, None);
+        headers.insert("Model-Format", HeaderValue::from_static("gltf"));
+
+        let error = parse_player_model_request(&headers, &body).unwrap_err();
+
+        assert!(
+            error.to_string().contains("Model-Format"),
+            "ошибка: {error}"
+        );
+        assert!(matches!(
+            error.downcast_ref::<LauncherError>(),
+            Some(LauncherError::InvalidInput(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn save_player_model_writes_bbmodel_format_from_header() {
+        let _guard = LauncherDirGuard::acquire("cpm_header_bbmodel").await;
+
+        let mut headers = model_request_headers("proj", "Hero", None, None, None);
+        headers.insert("Model-Format", HeaderValue::from_static("bbmodel"));
+        let body = raw_body(b"model".to_vec());
+
+        let payload = parse_player_model_request(&headers, &body).unwrap();
+        save_player_model_inner(
+            SYNC_PROJECT,
+            payload.name,
+            payload.url,
+            payload.model_id,
+            payload.slim,
+            payload.data,
+            payload.format,
+        )
+        .await
+        .expect("сохранение bbmodel по заголовку");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models[0].format, Some(ModelFormat::Bbmodel));
+    }
+
+    #[tokio::test]
+    async fn save_player_model_header_absent_writes_cpm() {
+        let _guard = LauncherDirGuard::acquire("cpm_header_default").await;
+        let headers = model_request_headers("proj", "Hero", None, None, None);
+        let body = raw_body(b"model".to_vec());
+
+        let payload = parse_player_model_request(&headers, &body).unwrap();
+        save_player_model_inner(
+            SYNC_PROJECT,
+            payload.name,
+            payload.url,
+            payload.model_id,
+            payload.slim,
+            payload.data,
+            payload.format,
+        )
+        .await
+        .expect("сохранение без заголовка формата");
+
+        let manifest = read_manifest(SYNC_PROJECT).await.unwrap();
+        assert_eq!(manifest.models[0].format, Some(ModelFormat::Cpm));
     }
 
     #[test]

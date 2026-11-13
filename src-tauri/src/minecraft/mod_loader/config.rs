@@ -6,7 +6,8 @@ use crate::{
     minecraft::{
         mod_loader::{
             manifest::{
-                loader_libraries, loader_manifest_path, loader_version_or_err, LoaderDef, Manifest,
+                loader_libraries, loader_version_or_err, read_installer_manifest, LoaderDef,
+                Manifest,
             },
             utils::library_rel_path,
         },
@@ -14,7 +15,7 @@ use crate::{
         vanilla::config::{filter_classpath, strip_classpath_args, ArgumentsMap},
     },
     state::dto::ProjectConfig,
-    utils::{download_file::download_json, env_info::launcher_path},
+    utils::env_info::launcher_path,
 };
 use anyhow::Result;
 
@@ -37,23 +38,16 @@ pub(crate) async fn build_loader_config(
 ) -> Result<GameConfig> {
     log_info!("Сборка classpath {}", def.name);
     let target_version = loader_version_or_err(state)?;
-    let manifest_path = loader_manifest_path(def.manifest_prefix, target_version).map_err(|e| {
-        LauncherError::LoaderSetup(format!(
-            "Не удалось определить путь к файлам лаунчера: {e:#}"
-        ))
-    })?;
-    if !tokio::fs::try_exists(&manifest_path).await.unwrap_or(false) {
-        return Err(LauncherError::LoaderSetup(format!(
-            "Манифест {} для версии {target_version} не найден, запустите установку игры, чтобы скачать файлы лоадера",
-            def.name
-        ))
-        .into());
-    }
-    let mut manifest = download_json::<Manifest>(None, &manifest_path)
-        .await
-        .map_err(|e| {
-            LauncherError::LoaderSetup(format!("Не удалось прочитать манифест {}: {e:#}", def.name))
-        })?;
+    let mut manifest = match read_installer_manifest(def.manifest_prefix, target_version).await? {
+        Some(manifest) => manifest,
+        None => {
+            return Err(LauncherError::LoaderSetup(format!(
+                "Манифест {} для версии {target_version} не найден, запустите установку игры, чтобы скачать файлы лоадера",
+                def.name
+            ))
+            .into())
+        }
+    };
 
     let libraries = if version.library.is_empty() {
         let manifest_libraries = std::mem::take(&mut manifest.libraries);
@@ -310,6 +304,49 @@ mod loader_config_tests {
             ),
             "ожидается типизированный LoaderSetup: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn corrupt_loader_manifest_is_deleted_and_points_to_installation() {
+        let dir = LauncherDirGuard::acquire("loader_config_corrupt_manifest").await;
+        let path = crate::minecraft::mod_loader::manifest::loader_manifest_path("forge", "47.2.0")
+            .expect("путь манифеста");
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, "{ broken").await.unwrap();
+
+        let state = ProjectConfig {
+            project_name: "CfgProj".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("47.2.0".to_string()),
+            ..ProjectConfig::default()
+        };
+        let version = VersionMod {
+            id: "1.20.1-forge-47.2.0".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+            url: String::new(),
+        };
+
+        let error = build_loader_config(
+            &forge_def(),
+            &state,
+            test_game_config(&dir.project_dir("CfgProj")),
+            &version,
+            LoaderConfigOptions {
+                vanilla_client_jar: VanillaClientJar::Keep,
+            },
+        )
+        .await
+        .expect_err("битый манифест должен вести к ошибке установки, а не парсинга");
+
+        let text = error.to_string();
+        assert!(
+            text.contains("запустите установку"),
+            "ошибка должна вести пользователя к установке: {text}"
+        );
+        assert!(!path.exists(), "битый манифест должен удаляться");
     }
 }
 

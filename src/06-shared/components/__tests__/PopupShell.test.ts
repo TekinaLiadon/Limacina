@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, h, type VNode } from 'vue'
+import Dropdown from '../Dropdown.vue'
 import PopupShell from '../PopupShell.vue'
 
 const flushFrames = (): Promise<void> =>
@@ -192,6 +194,43 @@ describe('PopupShell escape stack', () => {
     window.dispatchEvent(consumed)
 
     expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('closes only the dropdown list on Escape inside a popup', async () => {
+    const Host = defineComponent({
+      setup(): () => VNode {
+        return (): VNode =>
+          h(Dropdown, {
+            options: [{ title: 'Вариант', value: 'one' }],
+            modelValue: 'one',
+          })
+      },
+    })
+    const wrapper = mount(PopupShell, {
+      props: { visible: true },
+      slots: { default: Host },
+      attachTo: document.body,
+    })
+    await wrapper.vm.$nextTick()
+
+    document.body.querySelector<HTMLElement>('.select-base__value')?.click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.select-base-options')).not.toBeNull()
+
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.select-base-options')).toBeNull()
+    expect(wrapper.emitted('close')).toBeUndefined()
+
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    )
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+
     wrapper.unmount()
   })
 })

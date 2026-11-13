@@ -22,7 +22,7 @@ use crate::{
     state::dto::ProjectConfig,
     utils::{
         compare_versions,
-        download_file::{download_json, download_xml, write_atomic},
+        download_file::{download_xml, write_atomic},
         env_info::{ensure_safe_relative_path, launcher_path},
     },
 };
@@ -165,14 +165,37 @@ pub fn loader_manifest_path(prefix: &str, version: &str) -> Result<PathBuf> {
         .join(format!("{prefix}_{version}.json")))
 }
 
+pub async fn read_installer_manifest(prefix: &str, version: &str) -> Result<Option<Manifest>> {
+    let path = loader_manifest_path(prefix, version)?;
+    let content = match fs::read_to_string(&path).await {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(LauncherError::DiskIo(format!(
+                "Не удалось прочитать кэш манифеста {path:?}: {e:#}"
+            ))
+            .into())
+        }
+    };
+    match serde_json::from_str::<Manifest>(&content) {
+        Ok(manifest) => Ok(Some(manifest)),
+        Err(e) => {
+            log_err!("Манифест лоадера {path:?} повреждён ({e}), удаляю для переустановки");
+            let _ = fs::remove_file(&path).await;
+            Ok(None)
+        }
+    }
+}
+
 pub async fn modify_loader_manifest(
     prefix: &str,
     version: &str,
     maven_base: &str,
     manifest: &mut [VersionMod],
 ) -> Result<()> {
-    let manifest_path = loader_manifest_path(prefix, version)?;
-    let version_manifest = download_json::<Manifest>(None, &manifest_path).await?;
+    let Some(version_manifest) = read_installer_manifest(prefix, version).await? else {
+        return Ok(());
+    };
     let main_class = version_manifest.main_class.clone();
     let target_id = format!("{}-{}", version_manifest.inherits_from.clone(), version);
     let library = loader_libraries(version_manifest.libraries, maven_base)?;
@@ -748,5 +771,91 @@ mod loader_manifest_apply_tests {
             present[0].main_class,
             "cpw.mods.bootstraplauncher.BootstrapLauncher"
         );
+    }
+}
+
+#[cfg(test)]
+mod read_installer_manifest_tests {
+    use super::loader_manifest_path;
+    use super::read_installer_manifest;
+    use crate::minecraft::mod_loader::forge::manifest::{FORGE_MANIFEST_PREFIX, FORGE_MAVEN_BASE};
+    use crate::test_support::LauncherDirGuard;
+
+    async fn write_manifest_file(version: &str, content: &str) -> std::path::PathBuf {
+        let path = loader_manifest_path(FORGE_MANIFEST_PREFIX, version).expect("путь манифеста");
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await.unwrap();
+        }
+        tokio::fs::write(&path, content).await.unwrap();
+        path
+    }
+
+    fn valid_manifest_json() -> String {
+        serde_json::json!({
+            "id": "1.20.1-forge-47.2.0",
+            "time": "2023-01-01T00:00:00Z",
+            "releaseTime": "2023-01-01T00:00:00Z",
+            "type": "release",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "inheritsFrom": "1.20.1",
+            "libraries": []
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn corrupt_installer_manifest_is_deleted_and_reports_absent() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_corrupt_read").await;
+        let path = write_manifest_file("47.2.0", "{ broken").await;
+
+        let manifest = read_installer_manifest(FORGE_MANIFEST_PREFIX, "47.2.0")
+            .await
+            .expect("битый манифест — отсутствие, а не ошибка парсинга");
+
+        assert!(manifest.is_none());
+        assert!(!path.exists(), "битый манифест должен удаляться");
+    }
+
+    #[tokio::test]
+    async fn valid_installer_manifest_is_parsed_and_kept() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_valid_read").await;
+        let path = write_manifest_file("47.2.0", &valid_manifest_json()).await;
+
+        let manifest = read_installer_manifest(FORGE_MANIFEST_PREFIX, "47.2.0")
+            .await
+            .expect("валидный манифест читается");
+
+        assert!(manifest.is_some());
+        assert!(path.exists(), "валидный манифест не должен удаляться");
+    }
+
+    #[tokio::test]
+    async fn missing_installer_manifest_is_absent_not_error() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_missing_read").await;
+
+        let manifest = read_installer_manifest(FORGE_MANIFEST_PREFIX, "47.2.0")
+            .await
+            .expect("отсутствующий манифест — не ошибка");
+
+        assert!(manifest.is_none());
+    }
+
+    #[tokio::test]
+    async fn modify_loader_manifest_skips_corrupt_manifest_without_changes() {
+        let _guard = LauncherDirGuard::acquire("loader_manifest_corrupt_modify").await;
+        let path = write_manifest_file("47.2.0", "{ broken").await;
+
+        let mut manifest = vec![super::latest_version_tests::version_mod("1.20.1-47.2.0")];
+        super::modify_loader_manifest(
+            FORGE_MANIFEST_PREFIX,
+            "47.2.0",
+            FORGE_MAVEN_BASE,
+            &mut manifest,
+        )
+        .await
+        .expect("битый манифест не должен ломать список версий");
+
+        assert!(manifest[0].main_class.is_empty(), "записи не тронуты");
+        assert!(!path.exists(), "битый манифест должен удаляться");
     }
 }

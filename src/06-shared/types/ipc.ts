@@ -52,11 +52,14 @@ export type StepEvent =
   | { type: 'finished'; id: string; skipped: boolean }
   | { type: 'failed'; id: string; message: string }
 
+export type ModelFormat = 'cpm' | 'bbmodel'
+
 export interface UserContentItem {
   id: number | null
   url: string
   model?: string | null
   active?: boolean
+  format?: ModelFormat
 }
 
 export type SkinModelMode = 'classic' | 'slim'
@@ -189,5 +192,22 @@ export interface SavePlayerModelPayload {
   url: string | null
   modelId: number | null
   slim: boolean
+  format?: ModelFormat
   data: Uint8Array | null
+}
+
+export interface FiguraAvatarEntry {
+  name: string
+  authors: string[]
+  description: string
+  hasModel: boolean
+  hasTexture: boolean
+}
+
+export interface FiguraAvatarData {
+  name: string
+  authors: string[]
+  description: string
+  color: string | null
+  model: Uint8Array
 }

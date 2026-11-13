@@ -21,6 +21,8 @@ export type {
   GameOptionsData,
   LauncherSettingsPayload,
   SavePlayerModelPayload,
+  FiguraAvatarEntry,
+  FiguraAvatarData,
 } from './ipc'
 
 export type {

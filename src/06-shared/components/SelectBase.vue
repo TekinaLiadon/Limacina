@@ -71,6 +71,14 @@ const handleTriggerKeydown = (event: KeyboardEvent): void => {
   action()
 }
 
+const handleFocusout = (event: FocusEvent): void => {
+  if (!shown.value) return
+  const { relatedTarget } = event
+  if (!(relatedTarget instanceof Node)) return
+  if (rootRef.value?.contains(relatedTarget)) return
+  close()
+}
+
 defineExpose({ close })
 </script>
 
@@ -80,6 +88,7 @@ defineExpose({ close })
     class="select-base"
     :class="{ shown, disabled, 'select-base--up': openUp }"
     :style="width !== undefined ? `width: ${width}` : undefined"
+    @focusout="handleFocusout"
   >
     <div
       class="select-base__value"

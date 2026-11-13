@@ -7,6 +7,7 @@ export type {
   ServerStatus,
   StepEvent,
   UserContentItem,
+  ModelFormat,
   SkinModelMode,
   SessionInfo,
   ConsoleLog,
@@ -20,6 +21,8 @@ export type {
   GameOptions,
   GameOptionsData,
   LauncherSettingsPayload,
+  FiguraAvatarEntry,
+  FiguraAvatarData,
 } from '@/06-shared/types/ipc'
 
 export type { StepProgressItem } from '@/06-shared/utils/stepEvents'

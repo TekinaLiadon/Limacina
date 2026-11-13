@@ -197,6 +197,7 @@ pub fn cpm_model_entry(id: Option<i64>, file: &str, offline: bool) -> crate::cpm
         url: None,
         skin_type: None,
         offline,
+        format: None,
     }
 }
 

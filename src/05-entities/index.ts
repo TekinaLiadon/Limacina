@@ -1,5 +1,6 @@
 export { useCoreStore } from './core/coreStore'
 export { SKIN_LAYERS, isSkinLayer, skinLayerMask } from './core/cpmLayers'
+export { filterByFormat } from './core/cpmModelFormat'
 export { MIN_LOGIN_LENGTH, MIN_PASSWORD_LENGTH, minLengthMessage, isPasswordConfirmed, AUTH_LOGIN_TAB, AUTH_REGISTER_TAB } from './core/authPolicy'
 export { LOADER_LABELS } from './core/loaders'
 export type {
@@ -20,6 +21,7 @@ export type {
   OfflineProfileForm,
   IntegrityReport,
   UserContentItem,
+  ModelFormat,
   SessionInfo,
   SkinModelMode,
   JavaDistribution,
@@ -42,6 +44,8 @@ export type {
   GameOptionsData,
   GameCloudsMode,
   GameChatVisibility,
+  FiguraAvatarEntry,
+  FiguraAvatarData,
 } from './core/types'
 
 export { useSettingsStore } from './settings/settingsStore'
@@ -58,6 +62,8 @@ export { useAccountsStore } from './accounts/accountsStore'
 export { useLaunchStore } from './launch/launchStore'
 
 export { useServerStore } from './server/serverStore'
+
+export { useFiguraStore } from './figura/figuraStore'
 
 export { useProjectSettingsStore, projectSettingsFormFromConfig } from './project-settings/projectSettingsStore'
 export type { ProjectSettingsForm } from './project-settings/projectSettingsStore'

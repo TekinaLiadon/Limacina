@@ -13,7 +13,7 @@ use crate::{
             download::library_targets,
             manifest::{
                 installer_artifacts_missing, loader_libraries, loader_manifest_path,
-                loader_version_or_err, Manifest,
+                loader_version_or_err, read_installer_manifest, Manifest,
             },
         },
         structs::{LibraryMod, VersionMod},
@@ -22,7 +22,7 @@ use crate::{
     step_try,
     utils::{
         blocking,
-        download_file::{download_file, download_json, write_atomic},
+        download_file::{download_file, write_atomic},
         env_info::{ensure_safe_relative_path, launcher_path},
         integrity::{
             ensure_files, record_installed_hash, settle_install_step, HashKind, IntegrityTarget,
@@ -327,7 +327,14 @@ pub async fn start_installer(
         );
     }
 
-    download_json::<Manifest>(None, &loader_manifest).await
+    let version_manifest = read_installer_manifest(manifest_prefix, loader_version)
+        .await?
+        .ok_or_else(|| {
+            LauncherError::LoaderSetup(format!(
+                "Инсталлер {loader_name} записал некорректный манифест, файл удалён — повторите установку"
+            ))
+        })?;
+    Ok(version_manifest)
 }
 
 pub(crate) async fn install_loader_files(
@@ -406,13 +413,9 @@ pub async fn setup_loader(
     let target_version = format!("{}-{}", state.mc_version, loader_version);
     let version_info = find_loader_version(manifest, &target_version)?;
     let label = format!("Установка {loader_name}");
-    let loader_manifest_file = loader_manifest_path(manifest_prefix, loader_version)?;
 
-    if tokio::fs::try_exists(&loader_manifest_file)
-        .await
-        .unwrap_or(false)
+    if let Some(version_manifest) = read_installer_manifest(manifest_prefix, loader_version).await?
     {
-        let version_manifest = download_json::<Manifest>(None, &loader_manifest_file).await?;
         if !installer_artifacts_missing(&base_url, &version_manifest.libraries).await? {
             let library = loader_libraries(version_manifest.libraries, maven_base)?;
             install_version_files(state, version_info, &library, label.clone()).await?;
@@ -1205,6 +1208,128 @@ mod loader_install_tests {
                 .to_string()
                 .contains("Манифест лоадера 0.16.9 для игры 1.20.1"),
             "ошибка должна объяснять, что манифест не найден: {error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn setup_loader_reinstalls_installer_when_manifest_is_corrupt() {
+        let MockEnv { dir, mut server } = MockEnv::acquire("loader_setup_corrupt_reinstall").await;
+        let installer_mock = server
+            .mock("GET", "/installer/1.20.1-0.16.9.jar")
+            .with_status(200)
+            .with_body(b"installer bytes".as_slice())
+            .expect(1)
+            .create_async()
+            .await;
+        let maven_base = format!("{}/maven", server.url());
+
+        let manifest_path = dir.root().join("manifest").join("forge_0.16.9.json");
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        fs::write(&manifest_path, "{ broken").unwrap();
+
+        let java = write_installer_stub_java(
+            dir.root(),
+            &["stdout-unused"],
+            &["stderr-installer-crash"],
+            1,
+        );
+        let state = ProjectConfig {
+            java_path: Some(java.to_string_lossy().into_owned()),
+            ..project_config("LoaderProj")
+        };
+        let manifest = vec![VersionMod {
+            url: format!("{}/installer/1.20.1-0.16.9.jar", server.url()),
+            id: "1.20.1-0.16.9".to_string(),
+            main_class: String::new(),
+            library: Vec::new(),
+        }];
+
+        let error = setup_loader("Forge", "forge", &state, &manifest, &maven_base)
+            .await
+            .expect_err("инсталлер-заглушка с кодом 1 должен дать ошибку");
+
+        let text = error.to_string();
+        assert!(
+            !text.contains("Некорректный кэш манифеста"),
+            "битый манифест не должен доходить до парс-ошибки чтения кэша: {text}"
+        );
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::LoaderSetup(_))
+            ),
+            "ожидается LoaderSetup от запущенного инсталлера: {error}"
+        );
+        installer_mock.assert_async().await;
+        assert!(
+            !manifest_path.exists(),
+            "битый манифест должен удаляться перед переустановкой"
+        );
+    }
+
+    #[cfg(unix)]
+    fn write_manifest_writer_stub_java(dir: &Path, base: &Path, manifest_json: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("stub-manifest-writer-java.sh");
+        let target = base.join("versions/1.20.1/1.20.1-forge-0.16.9.json");
+        let body = format!(
+            "#!/bin/sh\nmkdir -p \"{target_dir}\"\nprintf '%s' '{json}' > \"{target}\"\nexit 0\n",
+            target_dir = target.parent().expect("каталог манифеста").display(),
+            json = manifest_json,
+            target = target.display(),
+        );
+        fs::write(&script, body).unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn start_installer_rejects_manifest_without_libraries_and_deletes_it() {
+        let dir = LauncherDirGuard::acquire("installer_bad_manifest_after_rename").await;
+        let base = dir.project_dir("InstallerProj");
+        fs::create_dir_all(&base).unwrap();
+        fs::write(base.join("1.20.1.jar"), b"vanilla jar").unwrap();
+
+        let java = write_manifest_writer_stub_java(
+            dir.root(),
+            &base,
+            r#"{"id": "1.20.1-forge-0.16.9", "inheritsFrom": "1.20.1", "mainClass": "X"}"#,
+        );
+        let state = ProjectConfig {
+            project_name: "InstallerProj".to_string(),
+            mc_version: "1.20.1".to_string(),
+            loader_version: Some("0.16.9".to_string()),
+            java_path: Some(java.to_string_lossy().into_owned()),
+            ..ProjectConfig::default()
+        };
+        let installer_path = base.join("forge-installer.jar");
+        fs::write(&installer_path, b"installer").unwrap();
+
+        let error = start_installer("Forge", "forge", &installer_path, &base, &state)
+            .await
+            .expect_err("манифест без libraries должен отклоняться");
+
+        let text = error.to_string();
+        assert!(
+            matches!(
+                error.downcast_ref::<LauncherError>(),
+                Some(LauncherError::LoaderSetup(_))
+            ),
+            "ожидается LoaderSetup: {error}"
+        );
+        assert!(
+            text.contains("записал некорректный манифест"),
+            "ошибка должна звать на повторную установку: {text}"
+        );
+        let manifest_path =
+            crate::minecraft::mod_loader::manifest::loader_manifest_path("forge", "0.16.9")
+                .expect("путь манифеста");
+        assert!(
+            !manifest_path.exists(),
+            "некорректный манифест должен удаляться сразу после установки"
         );
     }
 }

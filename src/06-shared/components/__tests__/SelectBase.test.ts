@@ -84,6 +84,37 @@ describe('SelectBase', () => {
     expect(wrapper.emitted('select')).toEqual([['a']])
   })
 
+  it('closes the open panel when focus leaves the root', async () => {
+    const wrapper = mountSelect()
+
+    await pressKey(wrapper, 'ArrowDown')
+    expect(wrapper.find('.select-base-options').exists()).toBe(true)
+
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    wrapper.find('.select-base__value').element.dispatchEvent(
+      new FocusEvent('focusout', { relatedTarget: outside, bubbles: true }),
+    )
+    await nextTick()
+
+    expect(wrapper.find('.select-base-options').exists()).toBe(false)
+    outside.remove()
+  })
+
+  it('keeps the panel open on focusout without a related target', async () => {
+    const wrapper = mountSelect()
+
+    await pressKey(wrapper, 'ArrowDown')
+    expect(wrapper.find('.select-base-options').exists()).toBe(true)
+
+    wrapper.find('.select-base__value').element.dispatchEvent(
+      new FocusEvent('focusout', { bubbles: true }),
+    )
+    await nextTick()
+
+    expect(wrapper.find('.select-base-options').exists()).toBe(true)
+  })
+
   it('scrolls the active option into view when arrow navigation moves it', async () => {
     const wrapper = mountSelect()
 

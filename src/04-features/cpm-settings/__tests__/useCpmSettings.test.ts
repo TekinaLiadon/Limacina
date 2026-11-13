@@ -170,8 +170,10 @@ describe('useCpmSettings', () => {
     vi.restoreAllMocks()
   })
 
-  const setupCpm = (): ReturnType<typeof useCpmSettings> => {
-    const { result } = withSetup(() => useCpmSettings())
+  const setupCpm = (format?: 'cpm' | 'bbmodel'): ReturnType<typeof useCpmSettings> => {
+    const { result } = withSetup(() =>
+      useCpmSettings(useModelUserContent(), format === undefined ? {} : { format }),
+    )
     return result
   }
 
@@ -182,6 +184,31 @@ describe('useCpmSettings', () => {
     await vi.waitFor(() => expect(cpm.uploadedModels.value).toHaveLength(1))
 
     expect(cpm.listError.value).toBe('')
+  })
+
+  it('shows only cpm entries in the model list by default', async () => {
+    vi.mocked(listModels).mockResolvedValue([
+      makeModel(1),
+      { ...makeModel(2), format: 'bbmodel' },
+    ])
+    const cpm = setupCpm()
+
+    await vi.waitFor(() => expect(cpm.uploadedModels.value).toHaveLength(1))
+
+    expect(cpm.uploadedModels.value.map((item) => item.id)).toEqual([1])
+  })
+
+  it('shows only bbmodel entries when the format option is bbmodel', async () => {
+    vi.mocked(listModels).mockResolvedValue([
+      makeModel(1),
+      { ...makeModel(2), format: 'bbmodel' },
+      { ...makeModel(3), format: 'bbmodel' },
+    ])
+    const cpm = setupCpm('bbmodel')
+
+    await vi.waitFor(() => expect(cpm.uploadedModels.value).toHaveLength(2))
+
+    expect(cpm.uploadedModels.value.map((item) => item.id)).toEqual([2, 3])
   })
 
   it('uses the injected user content instance', async () => {
@@ -648,10 +675,30 @@ describe('useCpmSettings', () => {
       url: 'https://cdn/9.cpm',
       modelId: 9,
       slim: true,
+      format: 'cpm',
       data: null,
     })
     expect(useNotificationStore().message).toBe('Модель добавлена в игру')
     expect(cpm.isUploading.value).toBe(false)
+  })
+
+  it('passes the bbmodel format option to savePlayerModel on upload', async () => {
+    const bytes = new Uint8Array(8)
+    vi.mocked(readCpmProjectFile).mockResolvedValue(bytes)
+    bbmodel.parseBbmodel.mockReturnValue(makeBbmodelResult())
+    vi.mocked(uploadModel).mockResolvedValue(makeModel(9))
+    vi.mocked(savePlayerModel).mockResolvedValue(undefined)
+    exporter.cpmConfigToLinkBytes.mockReturnValue(new Uint8Array([7]))
+    writer.bytesToBase64.mockReturnValue('bb-base64')
+    const core = useCoreStore()
+    const cpm = setupCpm('bbmodel')
+
+    core.pendingCpmProjectPath = '/models/hero.bbmodel'
+    await vi.waitFor(() => expect(cpm.cpmData.value).not.toBeNull())
+
+    await cpm.handleUploadModel()
+
+    expect(savePlayerModel).toHaveBeenCalledWith('proj', expect.objectContaining({ format: 'bbmodel' }))
   })
 
   it('surfaces the upload failure', async () => {

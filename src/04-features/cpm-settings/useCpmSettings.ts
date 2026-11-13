@@ -1,6 +1,7 @@
 import { ref, computed, shallowRef, watch, onScopeDispose } from 'vue'
 import { captureProjectScope, runScopedAction } from '@/06-shared'
 import {
+  filterByFormat,
   useCoreStore,
   useNotificationStore,
   type CPMAnimEnc,
@@ -10,6 +11,7 @@ import {
   type CPMData,
   type CPMElement,
   type CPMVec3,
+  type ModelFormat,
   type UserContentItem,
 } from '@/05-entities'
 import { readCpmProjectFile, savePlayerModel } from '@/06-shared/api'
@@ -82,9 +84,24 @@ function collectLayers(children: CPMChild[] | undefined, group: string, result: 
   }
 }
 
-export function useCpmSettings(content: ModelUserContent = useModelUserContent()) {
+export interface CpmSettingsOptions {
+  format?: ModelFormat
+  accept?: string
+  extensions?: string[]
+  maxBytes?: number
+}
+
+const DEFAULT_ACCEPT = '.cpmproject,.bbmodel'
+const DEFAULT_EXTENSIONS = ['cpmproject', 'bbmodel']
+const DEFAULT_MAX_BYTES = 4 * 1024 * 1024
+
+export function useCpmSettings(
+  content: ModelUserContent = useModelUserContent(),
+  options: CpmSettingsOptions = {},
+) {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
+  const format: ModelFormat = options.format ?? 'cpm'
 
   const cpmData = shallowRef<CPMData | null>(null)
   const cpmFileBytes = ref<Uint8Array | null>(null)
@@ -197,9 +214,9 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
   }
 
   const { isDragOver, openFileDialog: selectCpmFile, loadFromPath } = useUserContentFile({
-    accept: '.cpmproject,.bbmodel',
-    extensions: ['cpmproject', 'bbmodel'],
-    maxBytes: 4 * 1024 * 1024,
+    accept: options.accept ?? DEFAULT_ACCEPT,
+    extensions: options.extensions ?? DEFAULT_EXTENSIONS,
+    maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
     readFile: readCpmProjectFile,
     processFile: async (bytes: Uint8Array, name: string): Promise<void> => {
       cpmSkinPng.value = null
@@ -283,6 +300,7 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
             url: uploaded.url,
             modelId: uploaded.id ?? null,
             slim: data.config.skinType === 'slim',
+            format,
             data: null,
           })
           return true
@@ -300,6 +318,10 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
   watch((): string => coreStore.currentProject, (): void => {
     resetCpmState()
   })
+
+  const uploadedModels = computed((): UserContentItem[] =>
+    filterByFormat(content.items.value, format),
+  )
 
   void content.loadItems()
 
@@ -324,7 +346,7 @@ export function useCpmSettings(content: ModelUserContent = useModelUserContent()
     setTextureError,
     isUploading,
     isOffline: content.isOffline,
-    uploadedModels: content.items,
+    uploadedModels,
     isListLoading: content.isListLoading,
     listError: content.listError,
     loadList: content.loadItems,

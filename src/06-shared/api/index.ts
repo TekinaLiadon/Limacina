@@ -4,7 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { Color } from '@tauri-apps/api/webview'
 import { reportError } from '../utils/reportError'
-import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, OptionalModEntry, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult, ModrinthExportMod, ModrinthExportReport, ModrinthImportPreview, ModrinthImportReport } from '../types'
+import type { AppInitData, UpdateInfo, LauncherConfig, ProjectConfig, OptionalModEntry, ModLoaderKind, ConsoleLog, StepEvent, UserContentItem, SessionInfo, JavaDistribution, JavaProbe, GameExitInfo, IntegrityReport, ServerStatus, GameOptions, GameOptionsData, SkinModelMode, LauncherSettingsPayload, SavePlayerModelPayload, FiguraAvatarEntry, FiguraAvatarData, ModrinthSearchResult, ModrinthProjectDetails, ModrinthInstalledMod, ModrinthUpdateCheck, ModrinthInstallResult, ModrinthExportMod, ModrinthExportReport, ModrinthImportPreview, ModrinthImportReport } from '../types'
 
 export interface CommandErrorPayload {
   code: string
@@ -415,6 +415,7 @@ export async function savePlayerModel(projectName: string, payload: SavePlayerMo
     'Model-Name': encodeURIComponent(payload.name),
     'Model-Slim': payload.slim ? 'true' : 'false',
   }
+  if (payload.format !== undefined) headers['Model-Format'] = payload.format
   if (payload.url !== null) headers['Model-Url'] = encodeURIComponent(payload.url)
   if (payload.modelId !== null) headers['Model-Id'] = payload.modelId.toString()
   return invoke('save_player_model', payload.data ?? new Uint8Array(0), { headers })
@@ -427,6 +428,23 @@ export async function readCpmProjectFile(path: string): Promise<Uint8Array> {
 
 export async function takeCpmProjectPath(): Promise<string | null> {
   return invoke<string | null>('take_cpm_project_path')
+}
+
+interface FiguraAvatarDataWire {
+  name: string
+  authors: string[]
+  description: string
+  color: string | null
+  model: number[]
+}
+
+export async function listFiguraAvatars(projectName: string): Promise<FiguraAvatarEntry[]> {
+  return invoke<FiguraAvatarEntry[]>('list_figura_avatars', { projectName })
+}
+
+export async function readFiguraAvatar(projectName: string, avatarName: string): Promise<FiguraAvatarData> {
+  const data = await invoke<FiguraAvatarDataWire>('read_figura_avatar', { projectName, avatarName })
+  return { ...data, model: Uint8Array.from(data.model) }
 }
 
 export async function listenCpmProjectOpen(

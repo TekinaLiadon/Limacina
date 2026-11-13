@@ -17,6 +17,8 @@ pub struct UserContentItem {
     pub model: Option<String>,
     #[serde(default)]
     pub active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<crate::cpm::ModelFormat>,
 }
 
 async fn api_get_json<T: serde::de::DeserializeOwned>(url: &str, token: &str) -> Result<T> {

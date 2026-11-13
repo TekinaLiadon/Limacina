@@ -33,6 +33,7 @@ describe('DOWNLOAD_STEP_IDS', () => {
         STEP_IDS.mcNatives,
         STEP_IDS.loader,
         STEP_IDS.modsDownload,
+        STEP_IDS.modsOptionalDownload,
       ].sort(),
     )
   })

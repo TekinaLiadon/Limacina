@@ -6,7 +6,7 @@ import { useCpmViewer } from '../useCpmViewer'
 import type { ActiveCpmAnimation } from '../cpmAnimationPlayer'
 import type { CPMChild, CPMConfig, CPMData } from '@/05-entities'
 import type { ViewerControls } from '@/06-shared'
-import femaleBodyConfigRaw from '../../cpm-presets/assets/female-body.config.json?raw'
+import femaleBodyConfigRaw from './fixtures/female-body.config.json?raw'
 
 const textureLoads = vi.hoisted(() => [] as Array<{
   url: string
@@ -201,7 +201,7 @@ describe('useCpmViewer box UV', () => {
     unmount()
   })
 
-  it('руки пресета female-body семплят фронт и бок своих регионов рук, а не развёрнутые на 180°', async () => {
+  it('руки модели female-body семплят фронт и бок своих регионов рук, а не развёрнутые на 180°', async () => {
     const config = JSON.parse(femaleBodyConfigRaw) as CPMConfig
     const { unmount } = await loadModel(config)
     const meshes = meshesByName()

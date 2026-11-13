@@ -1,5 +1,5 @@
 import { ref, type ComputedRef, type Ref, type ShallowRef } from 'vue'
-import { useCoreStore, useNotificationStore, type CPMData } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type CPMData, type ModelFormat } from '@/05-entities'
 import { captureProjectScope, reportError } from '@/06-shared'
 import { getErrorMessage, savePlayerModel } from '@/06-shared/api'
 import { cpmConfigToBytes, cpmProjectToBytes } from '@/04-features/cpm-convert/cpmProjectExporter'
@@ -10,6 +10,7 @@ export interface OfflineCpmModelSource {
   cpmSkinPng: Ref<Uint8Array | null>
   modelName: ComputedRef<string>
   errorMessage: Ref<string>
+  format?: ModelFormat
 }
 
 export function useOfflineCpmModel(source: OfflineCpmModelSource): {
@@ -36,6 +37,7 @@ export function useOfflineCpmModel(source: OfflineCpmModelSource): {
         url: null,
         modelId: null,
         slim: source.cpmData.value.config.skinType === 'slim',
+        format: source.format ?? 'cpm',
         data: bytes,
       })
       if (!scope.isCurrent()) return
