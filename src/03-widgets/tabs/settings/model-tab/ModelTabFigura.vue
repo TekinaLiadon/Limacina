@@ -2,8 +2,16 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Button, Skeleton } from '@/06-shared'
 import { useCoreStore } from '@/05-entities'
-import { useFiguraAvatars } from '@/04-features'
-import { EMPTY_STATES, ERRORS, MODEL_TAB_TITLES } from './copy'
+import { FIGURA_ARCHIVE_MAX_BYTES, useFiguraAvatarUpload, useFiguraAvatars } from '@/04-features'
+import {
+  EMPTY_STATES,
+  ERRORS,
+  FIGURA_ARCHIVE_HINT,
+  FIGURA_REFRESH_LABEL,
+  FIGURA_UPLOAD_LABEL,
+  FORMAT_HINTS,
+  MODEL_TAB_TITLES,
+} from './copy'
 import FiguraViewer from './FiguraViewer.vue'
 
 const coreStore = useCoreStore()
@@ -20,6 +28,21 @@ const {
   loadList,
   selectAvatar,
 } = useFiguraAvatars()
+
+const refresh = async (): Promise<void> => {
+  await loadList()
+}
+
+const handleArchiveInstalled = async (name: string): Promise<void> => {
+  await refresh()
+  await selectAvatar(name)
+}
+
+const { isInstalling, isDragOver, installError, openArchiveDialog } = useFiguraAvatarUpload({
+  onInstalled: (name: string): void => {
+    void handleArchiveInstalled(name)
+  },
+})
 
 const isViewerTextureFailed = ref<boolean>(false)
 
@@ -38,9 +61,7 @@ const viewerHint = computed((): string => {
   return EMPTY_STATES.figuraNoSelection
 })
 
-const refresh = async (): Promise<void> => {
-  await loadList()
-}
+const archiveHint = computed((): string => FORMAT_HINTS.figura(FIGURA_ARCHIVE_MAX_BYTES))
 
 const select = async (name: string): Promise<void> => {
   await selectAvatar(name)
@@ -65,19 +86,30 @@ onMounted((): void => {
 
 <template>
   <div class="model-tab__figura">
+    <div v-if="isDragOver" class="model-tab__figura-drop">Отпустите архив</div>
+
     <div v-if="listError" class="model-tab__figura-error">{{ listError }}</div>
+    <div v-if="installError" class="model-tab__figura-error">{{ installError }}</div>
     <div v-if="modelError" class="model-tab__figura-error">{{ modelError }}</div>
     <div v-if="textureMessage" class="model-tab__figura-error">{{ textureMessage }}</div>
 
     <div class="model-tab__figura-head">
       <span class="model-tab__figura-title section-label">{{ MODEL_TAB_TITLES.figura }}</span>
       <Button
+        class="btn-secondary model-tab__figura-upload"
+        :is-loading="isInstalling"
+        :is-disabled="isInstalling"
+        @click="openArchiveDialog"
+      >
+        {{ FIGURA_UPLOAD_LABEL }}
+      </Button>
+      <Button
         class="btn-secondary model-tab__figura-refresh"
         :is-loading="isListLoading"
         :is-disabled="isListLoading"
         @click="refresh"
       >
-        Обновить
+        {{ FIGURA_REFRESH_LABEL }}
       </Button>
     </div>
 
@@ -117,6 +149,9 @@ onMounted((): void => {
     <FiguraViewer :source="viewerSource" @texture-error="handleTextureError">
       <template v-if="viewerHint !== ''" #empty>{{ viewerHint }}</template>
     </FiguraViewer>
+
+    <p class="model-tab__figura-hint">{{ archiveHint }}</p>
+    <p class="model-tab__figura-hint">{{ FIGURA_ARCHIVE_HINT }}</p>
   </div>
 </template>
 
@@ -124,9 +159,14 @@ onMounted((): void => {
 @use '@/01-app/assets/mixins';
 
 .model-tab__figura {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--element-gap);
+}
+
+.model-tab__figura-drop {
+  @include mixins.drop-overlay;
 }
 
 .model-tab__figura-error {
@@ -144,8 +184,13 @@ onMounted((): void => {
   min-width: 0;
 }
 
-.model-tab__figura-refresh {
+.model-tab__figura-refresh,
+.model-tab__figura-upload {
   flex-shrink: 0;
+}
+
+.model-tab__figura-hint {
+  @include mixins.caption-hint;
 }
 
 .model-tab__figura-list {

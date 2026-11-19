@@ -86,4 +86,5 @@ export type {
   ModrinthModsetEntry,
   ModrinthImportPreview,
   ModrinthImportReport,
+  ModrinthRemovalFailure,
 } from '@/06-shared/types/modrinth'

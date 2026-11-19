@@ -6,7 +6,12 @@ use std::env::consts;
 use std::path::{Component, PathBuf};
 
 pub fn get_launcher_name() -> String {
-    normalize_launcher_name(&env::var("LAUNCHER_NAME").unwrap_or_else(|_| "Limacina".to_string()))
+    normalize_launcher_name(
+        &env::var("LAUNCHER_NAME")
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .unwrap_or_else(|| "Limacina".to_string()),
+    )
 }
 
 fn normalize_launcher_name(raw: &str) -> String {
@@ -134,7 +139,7 @@ fn split_existing_ancestor(path: PathBuf) -> (PathBuf, Vec<std::ffi::OsString>) 
 }
 
 #[cfg(target_os = "windows")]
-fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+pub(crate) fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
     let text = path.as_os_str().to_string_lossy();
     if let Some(stripped) = text.strip_prefix(r"\\?\UNC\") {
         PathBuf::from(format!(r"\\{stripped}"))
@@ -146,7 +151,7 @@ fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+pub(crate) fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
@@ -206,6 +211,32 @@ mod tests {
         get_launcher_name, is_safe_relative_path, normalize_launcher_name, normalize_server_url,
     };
 
+    static LAUNCHER_NAME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct LauncherNameEnvGuard {
+        original: Option<String>,
+    }
+
+    impl LauncherNameEnvGuard {
+        fn acquire(raw: Option<&str>) -> Self {
+            let original = std::env::var("LAUNCHER_NAME").ok();
+            match raw {
+                Some(value) => std::env::set_var("LAUNCHER_NAME", value),
+                None => std::env::remove_var("LAUNCHER_NAME"),
+            }
+            Self { original }
+        }
+    }
+
+    impl Drop for LauncherNameEnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => std::env::set_var("LAUNCHER_NAME", value),
+                None => std::env::remove_var("LAUNCHER_NAME"),
+            }
+        }
+    }
+
     #[test]
     fn launcher_name_is_normalized_to_capitalized_form() {
         assert_eq!(normalize_launcher_name("limacina"), "Limacina");
@@ -221,10 +252,32 @@ mod tests {
     }
 
     #[test]
+    fn get_launcher_name_treats_blank_env_as_missing() {
+        let _lock = LAUNCHER_NAME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        {
+            let _guard = LauncherNameEnvGuard::acquire(Some(""));
+            assert_eq!(get_launcher_name(), "Limacina");
+        }
+
+        {
+            let _guard = LauncherNameEnvGuard::acquire(Some("   "));
+            assert_eq!(get_launcher_name(), "Limacina");
+        }
+    }
+
+    #[test]
     fn get_launcher_name_falls_back_to_env_or_default() {
+        let _lock = LAUNCHER_NAME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let expected = std::env::var("LAUNCHER_NAME")
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
             .map(|raw| normalize_launcher_name(&raw))
-            .unwrap_or_else(|_| "Limacina".to_string());
+            .unwrap_or_else(|| "Limacina".to_string());
         assert_eq!(get_launcher_name(), expected);
     }
 

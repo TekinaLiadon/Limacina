@@ -72,6 +72,8 @@ pub enum LauncherError {
     GameOptions(String),
     #[error("Модель игрока: {0}")]
     PlayerModel(String),
+    #[error("Аватар Figura «{0}» уже существует")]
+    FiguraAvatarExists(String),
     #[error("Офлайн-режим: {0}")]
     Offline(String),
     #[error("Введите ник")]
@@ -129,6 +131,7 @@ impl LauncherError {
             Self::CredentialsStorage(_) => "auth_storage",
             Self::GameOptions(_) => "game_options",
             Self::PlayerModel(_) => "player_model",
+            Self::FiguraAvatarExists(_) => "figura_avatar_exists",
             Self::Offline(_) => "offline",
             Self::UsernameEmpty => "invalid_username",
             Self::PasswordTooShort | Self::PasswordUnchanged => "invalid_password",
@@ -241,6 +244,10 @@ mod tests {
             ),
             (LauncherError::GameOptions("x".to_string()), "game_options"),
             (LauncherError::PlayerModel("x".to_string()), "player_model"),
+            (
+                LauncherError::FiguraAvatarExists("x".to_string()),
+                "figura_avatar_exists",
+            ),
             (LauncherError::Offline("x".to_string()), "offline"),
             (LauncherError::UsernameEmpty, "invalid_username"),
             (LauncherError::PasswordTooShort, "invalid_password"),

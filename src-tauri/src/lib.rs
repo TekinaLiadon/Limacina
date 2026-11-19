@@ -20,6 +20,7 @@ use commands::auth::{
     auth_login, auth_logins, auth_refresh, auth_register, change_password, delete_account,
 };
 use commands::cpm_models::{read_cpm_project_file, save_player_model, take_cpm_project_path};
+use commands::download::cancel_alternative_java;
 use commands::download::download_alternative_java;
 use commands::download::download_java;
 use commands::download::download_minecraft;
@@ -29,7 +30,9 @@ use commands::download::fetch_optional_mods;
 use commands::download::get_java_distributions;
 use commands::download::get_java_version;
 use commands::download::open_mods_folder;
-use commands::figura::{list_figura_avatars, read_figura_avatar};
+use commands::figura::{
+    install_figura_avatar, list_figura_avatars, read_figura_archive, read_figura_avatar,
+};
 use commands::game_options::{
     get_game_options, import_global_game_options, save_game_options, save_global_game_options,
 };
@@ -257,6 +260,7 @@ pub fn run() {
             download_minecraft,
             download_java,
             download_alternative_java,
+            cancel_alternative_java,
             get_java_distributions,
             get_java_version,
             start_minecraft,
@@ -301,6 +305,8 @@ pub fn run() {
             take_cpm_project_path,
             list_figura_avatars,
             read_figura_avatar,
+            read_figura_archive,
+            install_figura_avatar,
             modrinth_search,
             modrinth_project,
             modrinth_installed,

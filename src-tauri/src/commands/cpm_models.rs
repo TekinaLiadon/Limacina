@@ -16,6 +16,7 @@ use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::{read_to_string_opt, write_atomic};
 use crate::utils::env_info::launcher_path;
 use crate::utils::errors::LauncherError;
+use crate::utils::ipc_headers::{header_raw, optional_text_header, required_text_header};
 use crate::utils::tauri_err::CommandResult;
 use crate::{log_err, log_info};
 
@@ -107,7 +108,8 @@ pub(crate) async fn formats_by_server_id(
     Ok(formats)
 }
 
-async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {    let path = manifest_path(project_name)?;
+async fn save_manifest(project_name: &str, manifest: &CpmModelManifest) -> Result<()> {
+    let path = manifest_path(project_name)?;
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -191,52 +193,6 @@ struct PlayerModelRequest {
     slim: Option<bool>,
     format: Option<ModelFormat>,
     data: Option<Vec<u8>>,
-}
-
-fn header_raw<'a>(headers: &'a tauri::http::HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|value| value.to_str().ok())
-}
-
-fn decode_percent_header(raw: &str, header: &str) -> Result<String> {
-    let bytes = raw.as_bytes();
-    let mut decoded: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] != b'%' {
-            decoded.push(bytes[index]);
-            index += 1;
-            continue;
-        }
-        let hex = bytes
-            .get(index + 1..index + 3)
-            .ok_or_else(|| anyhow!("Некорректное значение заголовка {header}"))?;
-        let hex = std::str::from_utf8(hex)
-            .map_err(|_| anyhow!("Некорректное значение заголовка {header}"))?;
-        if !hex.as_bytes().iter().all(u8::is_ascii_hexdigit) {
-            return Err(anyhow!("Некорректное значение заголовка {header}"));
-        }
-        let byte = u8::from_str_radix(hex, 16)
-            .map_err(|_| anyhow!("Некорректное значение заголовка {header}"))?;
-        decoded.push(byte);
-        index += 3;
-    }
-    String::from_utf8(decoded).with_context(|| format!("Некорректное значение заголовка {header}"))
-}
-
-fn required_text_header(headers: &tauri::http::HeaderMap, name: &str) -> Result<String> {
-    let raw = header_raw(headers, name).ok_or_else(|| {
-        anyhow!(LauncherError::InvalidInput(format!(
-            "Не указан заголовок {name}"
-        )))
-    })?;
-    decode_percent_header(raw, name)
-}
-
-fn optional_text_header(headers: &tauri::http::HeaderMap, name: &str) -> Result<Option<String>> {
-    match header_raw(headers, name) {
-        Some(raw) => Ok(Some(decode_percent_header(raw, name)?)),
-        None => Ok(None),
-    }
 }
 
 fn parse_player_model_request(
@@ -530,6 +486,7 @@ mod tests {
     use super::*;
     use crate::state::dto::online_global_state;
     use crate::test_support::{LauncherDirGuard, MockEnv};
+    use crate::utils::ipc_headers::decode_percent_header;
     use tauri::http::{HeaderMap, HeaderValue};
 
     #[test]

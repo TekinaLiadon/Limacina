@@ -15,9 +15,16 @@ export const MODEL_TAB_TITLES = {
 export const EMPTY_STATES = {
   cpm: 'Загрузите модель, чтобы увидеть её здесь',
   blockbench: 'Загрузите .bbmodel, чтобы сконвертировать модель',
-  figuraNoAvatars: 'Аватары Figura не найдены',
+  figuraNoAvatars: 'Аватары Figura не найдены. Загрузите архив аватара',
   figuraNoSelection: 'Выберите аватар из списка',
 } as const
+
+export const FIGURA_UPLOAD_LABEL: string = 'Загрузить архив'
+
+export const FIGURA_REFRESH_LABEL: string = 'Обновить'
+
+export const FIGURA_ARCHIVE_HINT: string =
+  'Имя папки аватара берётся из имени архива. Внутри должен быть model.bbmodel'
 
 export const LIST_TITLES = {
   cpm: 'Загруженные модели CPM',
@@ -43,4 +50,6 @@ export const FORMAT_HINTS = {
     `Формат: .cpmproject или .bbmodel, не более ${toMegabytes(maxBytes)} МБ`,
   blockbench: (maxBytes: number): string =>
     `Формат: .bbmodel, не более ${toMegabytes(maxBytes)} МБ`,
+  figura: (maxBytes: number): string =>
+    `Формат: .zip с папкой аватара, не более ${toMegabytes(maxBytes)} МБ`,
 } as const

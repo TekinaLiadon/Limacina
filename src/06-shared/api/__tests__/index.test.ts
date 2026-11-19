@@ -47,6 +47,7 @@ import {
   importGlobalGameOptions,
   initializeLauncher,
   initializeProject,
+  installFiguraAvatar,
   killGameProcess,
   listModels,
   listSkins,
@@ -72,6 +73,7 @@ import {
   pingLauncherServer,
   probeJava,
   readCpmProjectFile,
+  readFiguraArchive,
   readSkinFile,
   recordInstallStep,
   refreshManifests,
@@ -330,7 +332,7 @@ const invokeCases: InvokeCase[] = [
   { label: 'modrinthExportPrepare', call: () => modrinthExportPrepare(), command: 'modrinth_export_prepare', args: {} },
   { label: 'modrinthExportSave', call: () => modrinthExportSave('/mods.mrpack', []), command: 'modrinth_export_save', args: { path: '/mods.mrpack', mods: [] } },
   { label: 'modrinthImportPreview', call: () => modrinthImportPreview('zip'), command: 'modrinth_import_preview', args: { content: 'zip' } },
-  { label: 'modrinthImportApply', call: () => modrinthImportApply('zip'), command: 'modrinth_import_apply', args: { content: 'zip' } },
+  { label: 'modrinthImportApply', call: () => modrinthImportApply('zip', true), command: 'modrinth_import_apply', args: { content: 'zip', removeMissing: true } },
   { label: 'openModsFolder', call: () => openModsFolder(), command: 'open_mods_folder', args: {} },
   { label: 'getOfflineSkinModel', call: () => getOfflineSkinModel('proj'), command: 'get_offline_skin_model', args: { projectName: 'proj' } },
   { label: 'deleteOfflineSkin', call: () => deleteOfflineSkin('proj'), command: 'delete_offline_skin', args: { projectName: 'proj' } },
@@ -402,11 +404,41 @@ describe('raw-body wrappers', () => {
     { label: 'readSkinFile', call: () => readSkinFile('/skins/a.png'), command: 'read_skin_file', args: { path: '/skins/a.png' } },
     { label: 'getOfflineSkin', call: () => getOfflineSkin('proj'), command: 'get_offline_skin', args: { projectName: 'proj' } },
     { label: 'readCpmProjectFile', call: () => readCpmProjectFile('/models/a.zip'), command: 'read_cpm_project_file', args: { path: '/models/a.zip' } },
+    { label: 'readFiguraArchive', call: () => readFiguraArchive('/models/Hecate.zip'), command: 'read_figura_archive', args: { path: '/models/Hecate.zip' } },
   ])('$label wraps the ArrayBuffer response into a Uint8Array', async ({ call, command, args }) => {
     invoke.mockResolvedValue(new Uint8Array([1, 2, 3]).buffer)
 
     await expect(call()).resolves.toEqual(new Uint8Array([1, 2, 3]))
     expect(invoke).toHaveBeenCalledWith(command, args, undefined)
+  })
+
+  it('installFiguraAvatar sends the archive as the raw body with avatar headers', async () => {
+    await installFiguraAvatar('proj', 'Геката 100%', true, new Uint8Array([80, 75, 3, 4]))
+
+    expect(invoke).toHaveBeenCalledOnce()
+    const [command, body, options] = invoke.mock.calls[0]!
+    expect(command).toBe('install_figura_avatar')
+    expect(Array.from(body as Uint8Array)).toEqual([80, 75, 3, 4])
+    expect(options).toEqual({
+      headers: {
+        'Project-Name': 'proj',
+        'Avatar-Name': encodeURIComponent('Геката 100%'),
+        'Avatar-Overwrite': 'true',
+      },
+    })
+  })
+
+  it('installFiguraAvatar marks a first install without overwrite', async () => {
+    await installFiguraAvatar('proj', 'Hecate', false, new Uint8Array([1]))
+
+    const [, , options] = invoke.mock.calls[0]!
+    expect(options).toEqual({
+      headers: {
+        'Project-Name': 'proj',
+        'Avatar-Name': 'Hecate',
+        'Avatar-Overwrite': 'false',
+      },
+    })
   })
 
   it('saveOfflineSkin serializes the file bytes into a JSON array', async () => {

@@ -119,6 +119,7 @@ defineExpose({ close })
         }"
         role="option"
         :aria-selected="isSelected?.(option.value) ?? false"
+        @mousedown.prevent
         @click="emit('select', option.value)"
         @mousemove="activeIndex = index"
       >

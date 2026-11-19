@@ -8,14 +8,18 @@ const props = withDefaults(defineProps<{
   distributions: JavaDistribution[]
   isDownloading: boolean
   popupVisible: boolean
+  downloaded?: number
+  total?: number
+  phase?: 'download' | 'extract'
   isDistributionsLoading: boolean
   distributionsError: string
   versionError: string
-} & AlternativeJavaModelProps>(), { ...alternativeJavaModelDefaults })
+} & AlternativeJavaModelProps>(), { ...alternativeJavaModelDefaults, downloaded: 0, total: 0, phase: 'download' })
 
 const emit = defineEmits<{
   'open-popup': []
   download: []
+  cancel: []
   retry: []
   'close-popup': []
   'update:selectedDistribution': [string]
@@ -36,6 +40,9 @@ const { selectedDistribution, replaceDefault, versionInput } = useAlternativeJav
       :visible="popupVisible"
       :distributions="distributions"
       :is-downloading="isDownloading"
+      :downloaded="downloaded ?? 0"
+      :total="total ?? 0"
+      :phase="phase ?? 'download'"
       :is-distributions-loading="isDistributionsLoading"
       :distributions-error="distributionsError"
       :version-error="versionError"
@@ -44,6 +51,7 @@ const { selectedDistribution, replaceDefault, versionInput } = useAlternativeJav
       v-model:version-input="versionInput"
       @close="emit('close-popup')"
       @download="emit('download')"
+      @cancel="emit('cancel')"
       @retry="emit('retry')"
     />
   </div>

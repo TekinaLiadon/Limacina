@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
 use quick_xml::de::from_str;
 use serde::de::DeserializeOwned;
@@ -6,7 +6,7 @@ use sha1::Sha1;
 use std::future::Future;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::fs;
 use walkdir::WalkDir;
 
@@ -18,6 +18,12 @@ use crate::log_info;
 use crate::utils::errors::LauncherError;
 
 static PART_SEQ: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Default)]
+pub struct DownloadHooks<'a> {
+    pub cancel: Option<&'a AtomicBool>,
+    pub on_progress: Option<&'a (dyn Fn(u64, u64) + Sync + 'a)>,
+}
 
 fn part_path(dest: &Path) -> PathBuf {
     let seq = PART_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -153,6 +159,23 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
 }
 
 pub async fn download_file_limited(url: &str, dest: &Path, max_bytes: Option<u64>) -> Result<()> {
+    download_file_inner(url, dest, max_bytes, DownloadHooks::default()).await
+}
+
+pub async fn download_file_with_hooks(
+    url: &str,
+    dest: &Path,
+    hooks: DownloadHooks<'_>,
+) -> Result<()> {
+    download_file_inner(url, dest, None, hooks).await
+}
+
+async fn download_file_inner(
+    url: &str,
+    dest: &Path,
+    max_bytes: Option<u64>,
+    hooks: DownloadHooks<'_>,
+) -> Result<()> {
     if dest.exists() {
         tokio::fs::remove_file(dest).await.map_err(|e| {
             LauncherError::DiskIo(format!(
@@ -162,7 +185,7 @@ pub async fn download_file_limited(url: &str, dest: &Path, max_bytes: Option<u64
     }
 
     let response = fetch_response(url).await?;
-    write_stream_to_atomic_limited(response, dest, url, max_bytes).await?;
+    write_stream_to_atomic_limited(response, dest, url, max_bytes, hooks).await?;
     Ok(())
 }
 
@@ -180,7 +203,7 @@ pub(crate) async fn write_stream_to_atomic(
     dest: &Path,
     url: &str,
 ) -> Result<u64> {
-    write_stream_to_atomic_limited(response, dest, url, None).await
+    write_stream_to_atomic_limited(response, dest, url, None, DownloadHooks::default()).await
 }
 
 pub(crate) async fn write_stream_to_atomic_limited(
@@ -188,6 +211,7 @@ pub(crate) async fn write_stream_to_atomic_limited(
     dest: &Path,
     url: &str,
     max_bytes: Option<u64>,
+    hooks: DownloadHooks<'_>,
 ) -> Result<u64> {
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|e| {
@@ -200,7 +224,8 @@ pub(crate) async fn write_stream_to_atomic_limited(
         let mut file = tokio::fs::File::create(&tmp).await.map_err(|e| {
             LauncherError::DiskIo(format!("Не удалось создать файл во {tmp:?}: {e:#}"))
         })?;
-        let total_bytes = stream_response_to_writer(response, url, max_bytes, &mut file).await?;
+        let total_bytes =
+            stream_response_to_writer(response, url, max_bytes, &mut file, hooks).await?;
         file.sync_all().await.map_err(|e| {
             LauncherError::DiskIo(format!(
                 "Не удалось синхронизировать {tmp:?} с диском: {e:#}"
@@ -234,15 +259,23 @@ async fn stream_response_to_writer<W>(
     url: &str,
     max_bytes: Option<u64>,
     writer: &mut W,
+    hooks: DownloadHooks<'_>,
 ) -> Result<u64>
 where
     W: tokio::io::AsyncWrite + Unpin + Send,
 {
     use tokio::io::AsyncWriteExt;
 
+    let total = response.content_length().unwrap_or(0);
     let mut stream = response.bytes_stream();
     let mut total_bytes: u64 = 0;
     while let Some(item) = stream.next().await {
+        if hooks
+            .cancel
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return Err(anyhow!("Загрузка отменена"));
+        }
         let chunk = item.map_err(|e| {
             LauncherError::Download(format!("Ошибка чтения потока при скачивании {url}: {e:#}"))
         })?;
@@ -258,6 +291,9 @@ where
         writer.write_all(&chunk).await.map_err(|e| {
             LauncherError::DiskIo(format!("Ошибка записи при скачивании {url}: {e:#}"))
         })?;
+        if let Some(on_progress) = hooks.on_progress {
+            on_progress(total_bytes, total);
+        }
     }
     Ok(total_bytes)
 }
@@ -319,7 +355,14 @@ async fn read_body_through_bucket(
     max_bytes: Option<u64>,
 ) -> Result<Vec<u8>> {
     let mut body = Vec::new();
-    stream_response_to_writer(response, url, max_bytes, &mut body).await?;
+    stream_response_to_writer(
+        response,
+        url,
+        max_bytes,
+        &mut body,
+        DownloadHooks::default(),
+    )
+    .await?;
     Ok(body)
 }
 
@@ -640,8 +683,13 @@ mod download_and_verify_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{download_file_limited, write_stream_to_atomic};
-    use crate::test_support::{part_files_in, MockEnv};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    use super::{
+        download_file_limited, download_file_with_hooks, write_stream_to_atomic, DownloadHooks,
+    };
+    use crate::test_support::{lock_bandwidth_tests, part_files_in, MockEnv};
     use crate::utils::http::http_client;
 
     const MAX_SEND_ATTEMPTS: usize = 10;
@@ -807,6 +855,7 @@ mod tests {
 
     #[tokio::test]
     async fn stalled_stream_errors_by_read_timeout() {
+        let _bandwidth_lock = lock_bandwidth_tests().await;
         let MockEnv { dir, mut server } = MockEnv::acquire("stalled_stream").await;
         server
             .mock("GET", "/stalled-file")
@@ -850,6 +899,108 @@ mod tests {
             part_files_in(dest.parent().unwrap()).is_empty(),
             "part-файл должен быть удалён"
         );
+    }
+
+    #[tokio::test]
+    async fn cancel_flag_set_before_start_aborts_stream_and_cleans_part() {
+        let MockEnv { dir, mut server } = MockEnv::acquire("cancel_flag_abort").await;
+        server
+            .mock("GET", "/cancel.bin")
+            .with_status(200)
+            .with_body("downloaded bytes")
+            .create_async()
+            .await;
+
+        let cancel = AtomicBool::new(true);
+        let hooks = DownloadHooks {
+            cancel: Some(&cancel),
+            on_progress: None,
+        };
+
+        let dest = dir.root().join("downloads").join("cancel.bin");
+        let url = format!("{}/cancel.bin", server.url());
+        let result = download_file_with_hooks(&url, &dest, hooks).await;
+
+        let error = result.expect_err("выставленный флаг отмены должен прерывать скачивание");
+        assert!(
+            error.to_string().contains("Загрузка отменена"),
+            "ошибка должна сообщать об отмене: {error}"
+        );
+        assert!(!dest.exists(), "файл назначения не должен появиться");
+        assert!(
+            part_files_in(dest.parent().unwrap()).is_empty(),
+            "part-файл должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_flag_set_by_progress_aborts_mid_stream() {
+        let MockEnv { dir, mut server } = MockEnv::acquire("cancel_mid_stream").await;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let server_flag = Arc::clone(&cancel);
+        server
+            .mock("GET", "/mid-cancel.bin")
+            .with_status(200)
+            .with_chunked_body(move |writer| {
+                writer.write_all(&[7u8; 32])?;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while !server_flag.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                writer.write_all(&[9u8; 32])?;
+                Ok(())
+            })
+            .create_async()
+            .await;
+
+        let progress_set_flag = |downloaded: u64, _total: u64| {
+            if downloaded > 0 {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        };
+        let hooks = DownloadHooks {
+            cancel: Some(cancel.as_ref()),
+            on_progress: Some(&progress_set_flag),
+        };
+
+        let dest = dir.root().join("downloads").join("mid-cancel.bin");
+        let url = format!("{}/mid-cancel.bin", server.url());
+        let result = download_file_with_hooks(&url, &dest, hooks).await;
+
+        let error = result.expect_err("отмена после первого чанка должна прерывать поток");
+        assert!(
+            error.to_string().contains("Загрузка отменена"),
+            "ошибка должна сообщать об отмене: {error}"
+        );
+        assert!(!dest.exists(), "файл назначения не должен появиться");
+        assert!(
+            part_files_in(dest.parent().unwrap()).is_empty(),
+            "part-файл должен быть удалён"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_without_hooks_keeps_previous_behavior() {
+        let MockEnv { dir, mut server } = MockEnv::acquire("no_hooks_ok").await;
+        server
+            .mock("GET", "/plain.bin")
+            .with_status(200)
+            .with_body("plain body")
+            .create_async()
+            .await;
+
+        let dest = dir.root().join("downloads").join("plain.bin");
+        let url = format!("{}/plain.bin", server.url());
+
+        download_file_limited(&url, &dest, None)
+            .await
+            .expect("загрузка без хуков");
+
+        assert_eq!(
+            std::fs::read(&dest).expect("файл назначения"),
+            b"plain body"
+        );
+        assert!(part_files_in(dest.parent().unwrap()).is_empty());
     }
 }
 

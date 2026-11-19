@@ -65,7 +65,14 @@ const makeDetails = (): ModrinthProjectDetails => ({
   versions_failed: false,
 })
 
-type PopupOverrides = Partial<{ isBusyAny: boolean; actionError: string; details: ModrinthProjectDetails }>
+type PopupOverrides = Partial<{
+  isBusy: boolean
+  isBusyAny: boolean
+  isInstalled: boolean
+  actionError: string
+  details: ModrinthProjectDetails
+  installingVersionId: string | null
+}>
 
 const mountPopup = (visible: boolean, overrides: PopupOverrides = {}) =>
   mount(ModrinthProjectPopup, {
@@ -80,6 +87,7 @@ const mountPopup = (visible: boolean, overrides: PopupOverrides = {}) =>
       isBusy: false,
       isBusyAny: false,
       actionError: '',
+      installingVersionId: null,
       ...overrides,
     },
     global: { stubs: { teleport: true } },
@@ -135,6 +143,42 @@ describe('ModrinthProjectPopup', () => {
     await wrapper.setProps({ isBusyAny: false, actionError: 'Версия несовместима с профилем' })
     expect(wrapper.text()).toContain('Версия несовместима с профилем')
     expect(wrapper.find('.modrinth-popup__action-error').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('shows the spinner on the installing version row while other versions stay disabled', () => {
+    const wrapper = mountPopup(true, {
+      isInstalled: true,
+      isBusy: true,
+      isBusyAny: true,
+      installingVersionId: 'v-1',
+    })
+
+    const installButtons = wrapper.findAll('.modrinth-popup__version-install')
+    expect(installButtons).toHaveLength(2)
+    expect(installButtons[0]?.attributes('aria-busy')).toBe('true')
+    expect(installButtons[0]?.find('.btn__spinner').exists()).toBe(true)
+    expect(installButtons[1]?.attributes('aria-busy')).toBe('false')
+    expect(installButtons[1]?.find('.btn__spinner').exists()).toBe(false)
+    expect(installButtons[1]?.attributes('disabled')).toBeDefined()
+
+    wrapper.unmount()
+  })
+
+  it('clears busy state from version rows after the install finishes and keeps emitting ids', async () => {
+    const wrapper = mountPopup(true, { installingVersionId: null })
+
+    const installButtons = wrapper.findAll('.modrinth-popup__version-install')
+    expect(installButtons).toHaveLength(2)
+    for (const button of installButtons) {
+      expect(button.attributes('aria-busy')).toBe('false')
+      expect(button.find('.btn__spinner').exists()).toBe(false)
+      expect(button.attributes('disabled')).toBeUndefined()
+    }
+
+    await installButtons[1]?.trigger('click')
+    expect(wrapper.emitted('install-version')).toEqual([['v-2']])
 
     wrapper.unmount()
   })

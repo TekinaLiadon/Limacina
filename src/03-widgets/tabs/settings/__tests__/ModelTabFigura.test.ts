@@ -4,9 +4,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import * as THREE from 'three'
 import { useCoreStore } from '@/05-entities'
-import { useFiguraAvatars, type FiguraAvatarsApi, type FiguraViewerSource } from '@/04-features'
+import { useFiguraAvatarUpload, useFiguraAvatars, type FiguraAvatarsApi, type FiguraViewerSource } from '@/04-features'
 import ModelTabFigura from '../model-tab/ModelTabFigura.vue'
-import { EMPTY_STATES, ERRORS, MODEL_TAB_TITLES } from '../model-tab/copy'
+import { EMPTY_STATES, ERRORS, FIGURA_UPLOAD_LABEL, MODEL_TAB_TITLES } from '../model-tab/copy'
 
 const onDragDropEvent = vi.hoisted(() => vi.fn(async (): Promise<() => void> => () => {}))
 
@@ -49,6 +49,7 @@ vi.mock('@/06-shared/api', async (importOriginal) => ({
 vi.mock('@/04-features', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/04-features')>()),
   useFiguraAvatars: vi.fn(),
+  useFiguraAvatarUpload: vi.fn(),
 }))
 
 interface AvatarEntry {
@@ -81,6 +82,16 @@ const makeEntry = (name: string, overrides: Partial<AvatarEntry> = {}): AvatarEn
   hasModel: true,
   hasTexture: true,
   ...overrides,
+})
+
+const openArchiveSpy = vi.fn()
+
+const uploadApiOf = (): ReturnType<typeof useFiguraAvatarUpload> => ({
+  isInstalling: ref<boolean>(false),
+  isDragOver: ref<boolean>(false),
+  installError: ref<string>(''),
+  openArchiveDialog: openArchiveSpy,
+  loadFromPath: vi.fn(async (): Promise<void> => {}),
 })
 
 const createState = (): FiguraState => ({
@@ -139,6 +150,8 @@ beforeEach((): void => {
   setActivePinia(createPinia())
   state = createState()
   vi.mocked(useFiguraAvatars).mockImplementation((): FiguraAvatarsApi => apiOf(state))
+  vi.mocked(useFiguraAvatarUpload).mockImplementation((): ReturnType<typeof useFiguraAvatarUpload> => uploadApiOf())
+  openArchiveSpy.mockReset()
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -164,11 +177,19 @@ describe('ModelTabFigura', () => {
     expect(wrapper.text()).not.toContain(EMPTY_STATES.figuraNoAvatars)
   })
 
-  it('records the drop policy: the read-only panel registers no drop listener', async () => {
-    mountPanel()
-    await flushPromises()
+  it('opens the archive dialog from the upload button', async () => {
+    const wrapper = mountPanel()
 
-    expect(onDragDropEvent).not.toHaveBeenCalled()
+    await wrapper.find('.model-tab__figura-upload').trigger('click')
+
+    expect(openArchiveSpy).toHaveBeenCalledOnce()
+  })
+
+  it('labels the upload button and shows the archive hint under the viewer', () => {
+    const wrapper = mountPanel()
+
+    expect(wrapper.find('.model-tab__figura-upload').text()).toBe(FIGURA_UPLOAD_LABEL)
+    expect(wrapper.text()).toContain('model.bbmodel')
   })
 
   it('reloads the catalog when the active project changes', async () => {

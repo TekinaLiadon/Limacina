@@ -4,7 +4,10 @@ use crate::state::dto::GlobalState;
 use crate::utils::backup_corrupt_file;
 use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
-use crate::{state::dto::ProjectConfig, utils::env_info::launcher_path};
+use crate::{
+    state::dto::ProjectConfig,
+    utils::env_info::{launcher_path, normalize_server_url},
+};
 use anyhow::{Context, Result};
 use tokio::fs::{create_dir_all, read_to_string, remove_file};
 use tokio::sync::{Mutex, MutexGuard};
@@ -147,12 +150,75 @@ pub(crate) async fn in_memory_project_config(
     (guard.project_config.project_name == project_name).then(|| guard.project_config.clone())
 }
 
+fn corrupt_config_online_flag(content: &str) -> Option<bool> {
+    let mut flag = None;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, raw)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "online" {
+            continue;
+        }
+        match raw.trim() {
+            "true" => flag = Some(true),
+            "false" => flag = Some(false),
+            _ => {}
+        }
+    }
+    flag
+}
+
+async fn corrupt_online_flag(project_name: &str) -> Option<bool> {
+    let path = config_file_path(project_name).ok()?;
+    let content = read_to_string(&path).await.ok()?;
+    corrupt_config_online_flag(&content)
+}
+
+async fn salvage_server_url_from_broken_toml(project_name: &str) -> Option<String> {
+    let path = config_file_path(project_name).ok()?;
+    let content = read_to_string(&path).await.ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("serverUrl") {
+            continue;
+        }
+        let value = trimmed
+            .split_once('=')
+            .map(|(_, raw)| raw.trim())
+            .unwrap_or_default();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|unquoted| unquoted.strip_suffix('"'))
+            .or_else(|| {
+                value
+                    .strip_prefix('\'')
+                    .and_then(|unquoted| unquoted.strip_suffix('\''))
+            })
+            .unwrap_or(value);
+        if value.trim().is_empty() {
+            continue;
+        }
+        return Some(normalize_server_url(value));
+    }
+    None
+}
+
 pub(crate) async fn recover_project_config(
     state: &Mutex<GlobalState>,
     project_name: &str,
     error: anyhow::Error,
 ) -> Result<ProjectConfig> {
-    if is_corrupt_config(&error) {
+    let corrupt = is_corrupt_config(&error);
+    let salvaged = if corrupt {
+        salvage_server_url_from_broken_toml(project_name).await
+    } else {
+        None
+    };
+    if corrupt {
         backup_corrupt_config(project_name, &error)?;
     }
     log_err!(
@@ -161,14 +227,7 @@ pub(crate) async fn recover_project_config(
     if let Some(config) = in_memory_project_config(state, project_name).await {
         return Ok(config);
     }
-    let guard = state.lock().await;
-    let server_url = guard
-        .project_config
-        .server_url
-        .as_deref()
-        .map(|s| s.to_string());
-    drop(guard);
-    let server_url = server_url.ok_or_else(|| {
+    let server_url = salvaged.ok_or_else(|| {
         anyhow::anyhow!("У проекта {project_name} отсутствует server_url для восстановления")
     })?;
     let fetched = fetch_project_config(&server_url).await?;
@@ -240,8 +299,19 @@ async fn recover_corrupt_config(
     project_name: &str,
     error: &anyhow::Error,
 ) -> Result<ProjectConfig> {
+    let online = corrupt_online_flag(project_name).await.unwrap_or(true);
+    let salvaged = salvage_server_url_from_broken_toml(project_name).await;
     backup_corrupt_config(project_name, error)?;
-    Ok(default_project_config(project_name))
+    let recovered = ProjectConfig {
+        online,
+        server_url: salvaged,
+        ..default_project_config(project_name)
+    };
+    log_err!("[config] Конфиг проекта {project_name} восстановлен дефолтом (online: {online})");
+    if recovered.server_url.is_some() || !recovered.online {
+        recovered.save_config().await?;
+    }
+    Ok(recovered)
 }
 
 #[cfg(test)]
@@ -523,7 +593,7 @@ mod tests {
 }
 #[cfg(test)]
 mod recovery_tests {
-    use crate::state::config::{load_config, load_repaired_project_config};
+    use crate::state::config::{load_config, load_config_or_default, load_repaired_project_config};
     use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
     use crate::test_support::{LauncherDirGuard, MockEnv};
     use std::path::PathBuf;
@@ -661,8 +731,10 @@ mod recovery_tests {
 
     #[tokio::test]
     async fn repair_empty_version_server_failure_keeps_original_toml() {
-        let MockEnv { dir: guard, mut server } =
-            MockEnv::acquire("config_repair_server_failure").await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_repair_server_failure").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")
             .with_status(500)
@@ -696,8 +768,10 @@ mod recovery_tests {
 
     #[tokio::test]
     async fn recover_corrupt_config_server_failure_does_not_write_partial() {
-        let MockEnv { dir: guard, mut server } =
-            MockEnv::acquire("config_recover_corrupt_failure").await;
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_recover_corrupt_failure").await;
         let mock = server
             .mock("GET", "/v1/launcher/config")
             .with_status(503)
@@ -830,5 +904,180 @@ mod recovery_tests {
         assert_eq!(disk.cpu_cores, Some(2));
         assert!(!disk.auto_join_server);
         mock.assert_async().await;
+    }
+
+    fn broken_toml_body(name: &str, server_url: Option<&str>) -> String {
+        let server_line = server_url
+            .map(|url| format!("serverUrl = \"{url}\"\n"))
+            .unwrap_or_default();
+        format!(
+            "projectName = \"{name}\"\nmcVersion = \"1.16.5\"\nonline = true\n{server_line}projectName = \"{name}\" + незакрытая скобка\n"
+        )
+    }
+
+    fn write_broken_toml(guard: &LauncherDirGuard, name: &str, server_url: Option<&str>) {
+        std::fs::create_dir_all(config_dir(guard)).expect("создание config");
+        std::fs::write(
+            config_dir(guard).join(format!("{name}.toml")),
+            broken_toml_body(name, server_url),
+        )
+        .expect("запись битого конфига");
+    }
+
+    fn assert_missing_server_url_error(error: &anyhow::Error, project: &str) {
+        assert!(
+            error.to_string().contains(&format!(
+                "У проекта {project} отсутствует server_url для восстановления"
+            )),
+            "ожидается явная ошибка про server_url: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn recover_corrupt_cold_start_preserves_server_url() {
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_recover_cold_start").await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(server_config_body())
+            .expect(1)
+            .create_async()
+            .await;
+        write_broken_toml(&guard, "Solo", Some(&server.url()));
+        let state = Mutex::new(GlobalState::default());
+
+        let recovered = load_repaired_project_config(&state, "Solo")
+            .await
+            .expect("битый конфиг должен восстановиться с адресом из файла");
+
+        assert_eq!(
+            recovered.server_url.as_deref(),
+            Some(server.url().as_str()),
+            "адрес сервера проекта спасается из битого файла"
+        );
+        let disk = load_config("Solo")
+            .await
+            .expect("восстановленный конфиг должен персиститься");
+        assert_eq!(
+            disk.server_url.as_deref(),
+            Some(server.url().as_str()),
+            "на диске прежний serverUrl"
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn recover_corrupt_without_server_url_fails_clean() {
+        let guard = LauncherDirGuard::acquire("config_recover_no_url").await;
+        write_broken_toml(&guard, "Solo", None);
+        let state = Mutex::new(GlobalState::default());
+
+        let corrupt_error = load_repaired_project_config(&state, "Solo")
+            .await
+            .expect_err("без спасаемого адреса восстановление должно падать");
+        assert_missing_server_url_error(&corrupt_error, "Solo");
+
+        assert!(
+            !config_dir(&guard).join("Solo.toml").exists(),
+            "новый toml не должен появляться"
+        );
+        assert!(
+            config_dir(&guard).join("Solo.toml.bak").exists(),
+            "битый файл должен уехать в .bak"
+        );
+
+        let missing_error = load_repaired_project_config(&state, "Solo")
+            .await
+            .expect_err("потерянный файл должен давать ту же явную ошибку");
+        assert_missing_server_url_error(&missing_error, "Solo");
+        assert!(
+            !config_dir(&guard).join("Solo.toml").exists(),
+            "новый toml не должен появляться и после повторного вызова"
+        );
+    }
+
+    #[tokio::test]
+    async fn recover_does_not_use_foreign_active_project_url() {
+        let MockEnv {
+            dir: guard,
+            mut server,
+        } = MockEnv::acquire("config_recover_foreign_url").await;
+        let mut foreign_server = mockito::Server::new_async().await;
+        let foreign_mock = foreign_server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(server_config_body())
+            .expect(0)
+            .create_async()
+            .await;
+        let mock = server
+            .mock("GET", "/v1/launcher/config")
+            .with_status(200)
+            .with_body(server_config_body())
+            .expect(1)
+            .create_async()
+            .await;
+        write_broken_toml(&guard, "A", Some(&server.url()));
+        let state = Mutex::new(GlobalState {
+            project_config: ProjectConfig {
+                project_name: "B".to_string(),
+                server_url: Some(foreign_server.url()),
+                ..ProjectConfig::default()
+            },
+            ..GlobalState::default()
+        });
+
+        let recovered = load_repaired_project_config(&state, "A")
+            .await
+            .expect("проект A должен восстановиться со своим адресом");
+
+        assert_eq!(
+            recovered.server_url.as_deref(),
+            Some(server.url().as_str()),
+            "адрес берётся из файла проекта A, а не из активного проекта B"
+        );
+        let disk = load_config("A")
+            .await
+            .expect("конфиг A должен персиститься");
+        assert_eq!(disk.server_url.as_deref(), Some(server.url().as_str()));
+        mock.assert_async().await;
+        foreign_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn load_config_or_default_salvages_server_url_transiently() {
+        let guard = LauncherDirGuard::acquire("config_recover_transient_salvage").await;
+        let salvaged_url = "https://project.example.com";
+        write_broken_toml(&guard, "Solo", Some(salvaged_url));
+
+        let config = load_config_or_default("Solo")
+            .await
+            .expect("битый конфиг не должен ломать профиль");
+
+        assert_eq!(
+            config.server_url.as_deref(),
+            Some(salvaged_url),
+            "адрес спасается из битого файла"
+        );
+        assert_eq!(
+            config.resolved_server_url().as_deref(),
+            Some(salvaged_url),
+            "resolved_server_url указывает на прежний сервер"
+        );
+        let disk = load_config("Solo")
+            .await
+            .expect("восстановленный конфиг должен персиститься");
+        assert_eq!(
+            disk.server_url.as_deref(),
+            Some(salvaged_url),
+            "на диске прежний serverUrl"
+        );
+        assert!(
+            config_dir(&guard).join("Solo.toml.bak").exists(),
+            "битый файл должен уезжать в .bak"
+        );
     }
 }

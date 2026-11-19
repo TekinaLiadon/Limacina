@@ -7,7 +7,7 @@ use crate::modrinth::install::{
     check_updates, install_project, sync_installed_from_scan, uninstall_project, InstallContext,
 };
 use crate::modrinth::modset::{
-    self, ensure_modrinth_id, ModsetEntry, ModsetRecord, ModsetUnresolved,
+    self, ensure_modrinth_id, ModsetEntry, ModsetRecord, ModsetRemovalFailure, ModsetUnresolved,
 };
 use crate::modrinth::structs::{ModrinthManifest, ModrinthProject, ModrinthVersion, SearchHit};
 use crate::state::config::current_project_config;
@@ -310,6 +310,10 @@ pub struct ModrinthImportPreview {
 #[derive(Serialize)]
 pub struct ModrinthImportReport {
     pub entries: Vec<ModsetEntry>,
+    pub removed: Vec<String>,
+    pub failed_removals: Vec<ModsetRemovalFailure>,
+    pub cleanup_requested: bool,
+    pub cleanup_skipped: bool,
 }
 
 #[tauri::command]
@@ -343,18 +347,26 @@ pub async fn modrinth_import_preview(content: String) -> CommandResult<ModrinthI
 #[tauri::command]
 pub async fn modrinth_import_apply(
     content: String,
+    remove_missing: Option<bool>,
     state: tauri::State<'_, Mutex<GlobalState>>,
 ) -> CommandResult<ModrinthImportReport> {
     let ctx = install_context(&state).await?;
-    let entries = LauncherError::classify(
-        modset::import_apply(&ctx, &content).await,
+    let outcome = LauncherError::classify(
+        modset::import_apply(&ctx, &content, remove_missing.unwrap_or(false)).await,
         LauncherError::Modrinth,
     )?;
     log_info!(
-        "[modrinth] Импорт набора завершён: {} записей в отчёте",
-        entries.len()
+        "[modrinth] Импорт набора завершён: {} записей в отчёте, удалено файлов: {}",
+        outcome.entries.len(),
+        outcome.removed.len()
     );
-    Ok(ModrinthImportReport { entries })
+    Ok(ModrinthImportReport {
+        entries: outcome.entries,
+        removed: outcome.removed,
+        failed_removals: outcome.failed_removals,
+        cleanup_requested: outcome.cleanup_requested,
+        cleanup_skipped: outcome.cleanup_skipped,
+    })
 }
 
 #[cfg(test)]

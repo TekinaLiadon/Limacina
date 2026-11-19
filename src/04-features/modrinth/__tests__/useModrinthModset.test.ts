@@ -9,7 +9,7 @@ import {
   modrinthImportPreview,
 } from '@/06-shared/api'
 import { saveFile, selectFile } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type ModrinthExportReport, type ModrinthImportPreview, type ModrinthImportReport } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type ModrinthExportReport, type ModrinthImportPreview, type ModrinthImportReport, type ModrinthInstalledMod } from '@/05-entities'
 import { MODSET_ACCEPT, MODSET_FILTER, MODSET_FILE_NAME, MODSET_MAX_BYTES, useModrinthModset } from '../useModrinthModset'
 
 vi.mock('@/06-shared/api', async (importOriginal) => ({
@@ -60,6 +60,21 @@ const makePreview = (): ModrinthImportPreview => ({
 
 const makeImportReport = (): ModrinthImportReport => ({
   entries: makePreview().entries,
+  removed: [],
+  failed_removals: [],
+  cleanup_requested: true,
+  cleanup_skipped: false,
+})
+
+const makeInstalledMod = (overrides: Partial<ModrinthInstalledMod> = {}): ModrinthInstalledMod => ({
+  project_id: 'p-1',
+  slug: 'sodium',
+  title: 'Sodium',
+  icon_url: null,
+  filename: 'sodium-fabric-5.1.2.jar',
+  version_number: '5.1.2',
+  sha1: 'hash-1',
+  ...overrides,
 })
 
 const MODSET_CONTENT = '{"format_version":1,"mods":[]}'
@@ -175,13 +190,114 @@ describe('useModrinthModset', () => {
     expect(modset.view.value).toBe('import-preview')
     expect(modset.importPreview.value).toEqual(preview)
 
-    await modset.confirmPopup()
+    const pending = modset.confirmPopup()
+    useNotificationStore().resolvePopup(true)
+    await pending
 
-    expect(modrinthImportApply).toHaveBeenCalledWith(MODSET_CONTENT)
+    expect(modrinthImportApply).toHaveBeenCalledWith(MODSET_CONTENT, true)
     expect(modset.importReport.value).toEqual(makeImportReport())
     expect(modset.view.value).toBe('import-report')
     expect(modset.importPreview.value).toBeNull()
     expect(onImported).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks for confirmation before deleting extra mods and aborts when declined', async () => {
+    vi.mocked(modrinthImportPreview).mockResolvedValue(makePreview())
+    const notification = useNotificationStore()
+    const confirm = vi.spyOn(notification, 'confirm').mockResolvedValue(false)
+    const modset = useModrinthModset(
+      vi.fn().mockResolvedValue(undefined),
+      (): ModrinthInstalledMod[] => [makeInstalledMod({ project_id: 'p-old', slug: 'old', filename: 'old.jar' })],
+    )
+
+    emitSelectedFile(MODSET_CONTENT)
+    modset.openImport()
+    await flushPromises()
+
+    expect(modset.extraMods.value).toHaveLength(1)
+    expect(modset.removeMissing.value).toBe(true)
+
+    await modset.confirmPopup()
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Удалить из папки моды, которых нет в наборе? Неподходящие версии и моды вне набора исчезнут безвозвратно. Найдено известных: 1 мод.',
+    )
+    expect(modrinthImportApply).not.toHaveBeenCalled()
+  })
+
+  it('skips the confirmation dialog when cleanup is turned off', async () => {
+    vi.mocked(modrinthImportPreview).mockResolvedValue(makePreview())
+    vi.mocked(modrinthImportApply).mockResolvedValue(makeImportReport())
+    const notification = useNotificationStore()
+    const confirm = vi.spyOn(notification, 'confirm')
+    const modset = useModrinthModset(
+      vi.fn().mockResolvedValue(undefined),
+      (): ModrinthInstalledMod[] => [makeInstalledMod({ project_id: 'p-old', slug: 'old' })],
+    )
+
+    emitSelectedFile(MODSET_CONTENT)
+    modset.openImport()
+    await flushPromises()
+    modset.removeMissing.value = false
+
+    await modset.confirmPopup()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(modrinthImportApply).toHaveBeenCalledWith(MODSET_CONTENT, false)
+  })
+
+  it('confirms cleanup even when the frontend knows no extra mods', async () => {
+    vi.mocked(modrinthImportPreview).mockResolvedValue(makePreview())
+    vi.mocked(modrinthImportApply).mockResolvedValue(makeImportReport())
+    const modset = useModrinthModset(vi.fn().mockResolvedValue(undefined))
+
+    emitSelectedFile(MODSET_CONTENT)
+    modset.openImport()
+    await flushPromises()
+    expect(modset.extraMods.value).toHaveLength(0)
+
+    const pending = modset.confirmPopup()
+    useNotificationStore().resolvePopup(true)
+    await pending
+
+    expect(modrinthImportApply).toHaveBeenCalledWith(MODSET_CONTENT, true)
+  })
+
+  it('counts only mods that the set does not contain', async () => {
+    const preview = makePreview()
+    vi.mocked(modrinthImportPreview).mockResolvedValue(preview)
+    const modset = useModrinthModset(
+      vi.fn().mockResolvedValue(undefined),
+      (): ModrinthInstalledMod[] => [
+        makeInstalledMod(),
+        makeInstalledMod({ project_id: 'p-slug', slug: 'Sodium', filename: 'sodium-other.jar' }),
+        makeInstalledMod({ project_id: 'p-old', slug: 'old', filename: 'old.jar' }),
+      ],
+    )
+
+    emitSelectedFile(MODSET_CONTENT)
+    modset.openImport()
+    await flushPromises()
+
+    const extra = modset.extraMods.value
+    expect(extra).toHaveLength(1)
+    expect(extra[0]?.project_id).toBe('p-old')
+  })
+
+  it('resets the cleanup toggle back to on after a project change', async () => {
+    const coreStore = useCoreStore()
+    vi.mocked(modrinthImportPreview).mockResolvedValue(makePreview())
+    const modset = useModrinthModset(vi.fn().mockResolvedValue(undefined))
+
+    emitSelectedFile(MODSET_CONTENT)
+    modset.openImport()
+    await flushPromises()
+    modset.removeMissing.value = false
+
+    coreStore.currentProject = 'другой-профиль'
+    await nextTick()
+
+    expect(modset.removeMissing.value).toBe(true)
   })
 
   it('shows a clear error and never applies when the file cannot be parsed', async () => {

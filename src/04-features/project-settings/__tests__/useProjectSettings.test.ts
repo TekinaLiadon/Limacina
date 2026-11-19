@@ -570,6 +570,77 @@ describe('useProjectSettings', () => {
     expect(api.copyToClipboard).not.toHaveBeenCalled()
   })
 
+  it('discards the connect url response when the project switches during the request', async () => {
+    const core = useCoreStore()
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(getServerConnectUrl).mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = (): void => resolve('https://old.example.com/join')
+        }),
+    )
+
+    const pending = settings.handleGetConnectUrl()
+    core.currentProject = 'beta'
+    release()
+    await pending
+
+    expect(getServerConnectUrl).toHaveBeenCalledTimes(1)
+    expect(settings.serverConnectUrl.value).toBe('')
+  })
+
+  it('blocks the connect url fetch while the project is switching', async () => {
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(loadSettingsProject).mockImplementationOnce(
+      () =>
+        new Promise<ProjectConfig>((_, reject) => {
+          release = (): void => reject(new Error('switch failed'))
+        }),
+    )
+    const { result: switcher } = withSetup(() => useProjectSwitch())
+    const switching = switcher.applyProjectSwitch('beta').catch(() => {})
+    await vi.waitFor(() => expect(switcher.isSwitching.value).toBe(true))
+
+    await settings.handleGetConnectUrl()
+    const blockedMessage = useNotificationStore().message
+    const blockedFetches = vi.mocked(getServerConnectUrl).mock.calls.length
+
+    release()
+    await switching
+
+    expect(blockedFetches).toBe(0)
+    expect(blockedMessage).toBe('Дождитесь завершения смены проекта')
+    expect(switcher.isSwitching.value).toBe(false)
+  })
+
+  it('blocks the connect url copy while the project is switching', async () => {
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(loadSettingsProject).mockImplementationOnce(
+      () =>
+        new Promise<ProjectConfig>((_, reject) => {
+          release = (): void => reject(new Error('switch failed'))
+        }),
+    )
+    const { result: switcher } = withSetup(() => useProjectSwitch())
+    const switching = switcher.applyProjectSwitch('beta').catch(() => {})
+    await vi.waitFor(() => expect(switcher.isSwitching.value).toBe(true))
+
+    settings.serverConnectUrl.value = 'https://example.com/join'
+    await settings.handleCopyConnectUrl()
+    const blockedMessage = useNotificationStore().message
+    const blockedCopies = api.copyToClipboard.mock.calls.length
+
+    release()
+    await switching
+
+    expect(blockedCopies).toBe(0)
+    expect(blockedMessage).toBe('Дождитесь завершения смены проекта')
+    expect(switcher.isSwitching.value).toBe(false)
+  })
+
   it('clears the minecraft config after confirmation', async () => {
     const settings = await loadReady()
     vi.mocked(clearMinecraftConfig).mockResolvedValue('Папка переименована')

@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button, PopupShell } from '@/06-shared'
+import { Button, Checkbox, PopupShell, formatCount } from '@/06-shared'
 import type {
   ModrinthExportMod,
   ModrinthExportReport,
   ModrinthImportPreview,
   ModrinthImportReport,
+  ModrinthInstalledMod,
   ModrinthModsetEntry,
   ModrinthModsetStatus,
+  ModrinthRemovalFailure,
 } from '@/05-entities'
-import type { ModrinthModsetView } from '@/04-features'
+import { MOD_FORMS, type ModrinthModsetView } from '@/04-features'
 
 const props = defineProps<{
   visible: boolean
@@ -18,6 +20,8 @@ const props = defineProps<{
   importPreview: ModrinthImportPreview | null
   importReport: ModrinthImportReport | null
   installedIds: Set<string>
+  extraMods: ModrinthInstalledMod[]
+  removeMissing: boolean
   isBusy: boolean
   actionError: string
 }>()
@@ -25,6 +29,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   confirm: []
+  'update:removeMissing': [value: boolean]
 }>()
 
 const STATUS_LABELS: Record<ModrinthModsetStatus, string> = {
@@ -41,7 +46,30 @@ const title = computed((): string => {
   return 'Отчёт импорта'
 })
 
-const confirmLabel = computed((): string => (props.view === 'export' ? 'Сохранить' : 'Установить'))
+const showCleanupOption = computed((): boolean => props.view === 'import-preview')
+
+const cleanupWarning = computed((): string => {
+  if (props.extraMods.length === 0) {
+    return 'После установки из папки модов будут удалены все jar-файлы, которых нет в наборе и его зависимостях.'
+  }
+  return `В профиле есть ${formatCount(props.extraMods.length, MOD_FORMS)} вне набора. После установки они будут удалены.`
+})
+
+const cleanupActive = computed((): boolean => showCleanupOption.value && props.removeMissing)
+
+const confirmLabel = computed((): string => {
+  if (props.view === 'export') return 'Сохранить'
+  if (cleanupActive.value) return 'Установить и очистить'
+  return 'Установить'
+})
+
+const removedFiles = computed((): string[] => props.importReport?.removed ?? [])
+
+const failedRemovals = computed((): ModrinthRemovalFailure[] => props.importReport?.failed_removals ?? [])
+
+const cleanupSkipped = computed((): boolean => props.importReport?.cleanup_skipped ?? false)
+
+const showRemovedSection = computed((): boolean => props.view === 'import-report' && (props.importReport?.cleanup_requested ?? false))
 
 const showConfirm = computed((): boolean => props.view === 'export' || props.view === 'import-preview')
 
@@ -117,6 +145,34 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
           <span v-if="entry.message" class="modrinth-modset-popup__message">{{ entry.message }}</span>
         </div>
       </div>
+
+      <div v-if="showCleanupOption" class="modrinth-modset-popup__cleanup">
+        <p class="modrinth-modset-popup__cleanup-warning">{{ cleanupWarning }}</p>
+        <Checkbox
+          :model-value="props.removeMissing"
+          label="Удалить моды, которых нет в наборе"
+          @update:model-value="emit('update:removeMissing', $event)"
+        />
+      </div>
+    </div>
+
+    <div v-if="showRemovedSection" class="modrinth-modset-popup__removed">
+      <p v-if="cleanupSkipped" class="modrinth-modset-popup__cleanup-warning">
+        Очистка не выполнялась: в наборе нет модов к установке или не все они установились.
+      </p>
+      <template v-else>
+        <h4 class="modrinth-modset-popup__removed-title">Удалено</h4>
+        <p v-if="removedFiles.length === 0" class="modrinth-modset-popup__removed-row">Лишних модов не было</p>
+        <p v-for="filename in removedFiles" :key="filename" class="modrinth-modset-popup__removed-row">
+          {{ filename }}
+        </p>
+        <div v-if="failedRemovals.length > 0" class="modrinth-modset-popup__unresolved">
+          <h4 class="modrinth-modset-popup__unresolved-title">Не удалось удалить</h4>
+          <p v-for="item in failedRemovals" :key="item.filename" class="modrinth-modset-popup__unresolved-row">
+            {{ item.filename }} — {{ item.reason }}
+          </p>
+        </div>
+      </template>
     </div>
 
     <div v-if="props.actionError" class="modrinth-modset-popup__error">{{ props.actionError }}</div>
@@ -213,6 +269,39 @@ function entryKey(entry: ModrinthExportMod | ModrinthModsetEntry, index: number)
   }
 
   &__unresolved-row {
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--leading-body);
+    color: var(--login-text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  &__cleanup {
+    @include mixins.subtle-card-column;
+
+    flex-shrink: 0;
+  }
+
+  &__cleanup-warning {
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--leading-body);
+    color: var(--error);
+    overflow-wrap: anywhere;
+  }
+
+  &__removed {
+    @include mixins.subtle-card-column;
+
+    flex-shrink: 0;
+  }
+
+  &__removed-title {
+    margin: 0;
+    font-size: var(--text-subheading);
+  }
+
+  &__removed-row {
     margin: 0;
     font-size: var(--text-caption);
     line-height: var(--leading-body);

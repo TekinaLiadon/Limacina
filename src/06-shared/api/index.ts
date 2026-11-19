@@ -304,6 +304,14 @@ export async function listenIntegritySteps(
   })
 }
 
+export async function listenJavaDownloadSteps(
+  callback: (event: StepEvent) => void
+): Promise<UnlistenFn> {
+  return listen<StepEvent>('java-download-steps', (event) => {
+    callback(event.payload)
+  })
+}
+
 export async function listenGameExit(
   callback: (info: GameExitInfo) => void
 ): Promise<UnlistenFn> {
@@ -447,6 +455,26 @@ export async function readFiguraAvatar(projectName: string, avatarName: string):
   return { ...data, model: Uint8Array.from(data.model) }
 }
 
+export async function readFiguraArchive(path: string): Promise<Uint8Array> {
+  const buffer = await invoke<ArrayBuffer>('read_figura_archive', { path })
+  return new Uint8Array(buffer)
+}
+
+export async function installFiguraAvatar(
+  projectName: string,
+  avatarName: string,
+  overwrite: boolean,
+  archive: Uint8Array
+): Promise<void> {
+  return invoke('install_figura_avatar', archive, {
+    headers: {
+      'Project-Name': encodeURIComponent(projectName),
+      'Avatar-Name': encodeURIComponent(avatarName),
+      'Avatar-Overwrite': overwrite ? 'true' : 'false',
+    },
+  })
+}
+
 export async function listenCpmProjectOpen(
   callback: (path: string) => void
 ): Promise<UnlistenFn> {
@@ -469,6 +497,10 @@ export async function downloadAlternativeJava(
   replaceDefault: boolean
 ): Promise<void> {
   return invoke('download_alternative_java', { distribution, javaVersion, replaceDefault })
+}
+
+export async function cancelAlternativeJava(): Promise<boolean> {
+  return invoke<boolean>('cancel_alternative_java')
 }
 
 export async function modrinthSearch(payload: {
@@ -512,8 +544,8 @@ export async function modrinthImportPreview(content: string): Promise<ModrinthIm
   return invoke('modrinth_import_preview', { content })
 }
 
-export async function modrinthImportApply(content: string): Promise<ModrinthImportReport> {
-  return invoke('modrinth_import_apply', { content })
+export async function modrinthImportApply(content: string, removeMissing: boolean): Promise<ModrinthImportReport> {
+  return invoke('modrinth_import_apply', { content, removeMissing })
 }
 
 export async function openModsFolder(): Promise<void> {

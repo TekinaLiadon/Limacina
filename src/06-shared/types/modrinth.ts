@@ -156,6 +156,15 @@ export interface ModrinthImportPreview {
   entries: ModrinthModsetEntry[]
 }
 
+export interface ModrinthRemovalFailure {
+  filename: string
+  reason: string
+}
+
 export interface ModrinthImportReport {
   entries: ModrinthModsetEntry[]
+  removed: string[]
+  failed_removals: ModrinthRemovalFailure[]
+  cleanup_requested: boolean
+  cleanup_skipped: boolean
 }

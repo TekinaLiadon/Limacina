@@ -24,8 +24,12 @@ const {
   isDistributionsLoading,
   distributionsError,
   versionError,
+  downloaded,
+  total,
+  phase,
   openPopup,
   closePopup,
+  cancelDownload,
   startDownload,
 } = useAlternativeJava()
 
@@ -55,6 +59,9 @@ const handleDownload = async (): Promise<void> => {
         :distributions="distributions"
         :is-downloading="isDownloading"
         :popup-visible="isPopupOpen"
+        :downloaded="downloaded"
+        :total="total"
+        :phase="phase"
         :is-distributions-loading="isDistributionsLoading"
         :distributions-error="distributionsError"
         :version-error="versionError"
@@ -63,6 +70,7 @@ const handleDownload = async (): Promise<void> => {
         v-model:version-input="javaVersion"
         @open-popup="handleOpenPopup"
         @download="handleDownload"
+        @cancel="cancelDownload"
         @retry="handleOpenPopup"
         @close-popup="closePopup"
       />

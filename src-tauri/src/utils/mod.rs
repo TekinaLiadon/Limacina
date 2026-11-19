@@ -11,6 +11,7 @@ pub mod http;
 pub mod install_id;
 pub mod install_manifest;
 pub mod integrity;
+pub mod ipc_headers;
 pub mod java;
 pub mod logger_utils;
 pub mod semaphore;

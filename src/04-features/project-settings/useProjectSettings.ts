@@ -148,14 +148,19 @@ export function useProjectSettings(): {
   }
 
   const handleGetConnectUrl = async (): Promise<void> => {
+    if (guardProjectSwitching()) return
+    const scope = captureProjectScope((): string => coreStore.currentProject)
     await connectUrlAction.run(async () => {
-      serverConnectUrl.value = await getServerConnectUrl()
+      const url = await getServerConnectUrl()
+      if (!scope.isCurrent()) return
+      serverConnectUrl.value = url
     })
   }
 
   const copyConnectUrlAction = useAsyncAction(reportAndNotify('Не удалось скопировать ссылку'))
 
   const handleCopyConnectUrl = async (): Promise<void> => {
+    if (guardProjectSwitching()) return
     if (!serverConnectUrl.value) return
     await copyConnectUrlAction.run(async () => {
       await copyToClipboard(serverConnectUrl.value)

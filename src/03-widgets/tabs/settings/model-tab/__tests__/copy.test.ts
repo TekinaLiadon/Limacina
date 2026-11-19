@@ -4,6 +4,9 @@ import {
   BLOCKBENCH_CARD_TITLE,
   EMPTY_STATES,
   ERRORS,
+  FIGURA_ARCHIVE_HINT,
+  FIGURA_REFRESH_LABEL,
+  FIGURA_UPLOAD_LABEL,
   FORMAT_HINTS,
   LIST_TITLES,
   MODEL_TAB_LABELS,
@@ -27,6 +30,10 @@ describe('model tab copy', () => {
       ...Object.values(ERRORS),
       FORMAT_HINTS.cpm(MODEL_MAX_BYTES),
       FORMAT_HINTS.blockbench(MODEL_MAX_BYTES),
+      FORMAT_HINTS.figura(MODEL_MAX_BYTES),
+      FIGURA_ARCHIVE_HINT,
+      FIGURA_REFRESH_LABEL,
+      FIGURA_UPLOAD_LABEL,
     ]
 
     for (const value of strings) {
@@ -98,6 +105,24 @@ describe('model tab copy', () => {
   it('describes the converted blockbench card', () => {
     expect(BLOCKBENCH_CARD_TITLE.trim().length).toBeGreaterThan(0)
     expect(BLOCKBENCH_CARD_HINT).toBe('Модель сконвертирована в CPM, предпросмотр появится в игре')
+  })
+
+  it('hints the zip archive in the figura sub-tab', () => {
+    const hint = FORMAT_HINTS.figura(MODEL_MAX_BYTES)
+
+    expect(hint).toBe('Формат: .zip с папкой аватара, не более 4 МБ')
+    expect(hint).not.toContain('.cpmproject')
+    expect(hint).not.toContain('.bbmodel')
+  })
+
+  it('explains where the archive name goes and what it must contain', () => {
+    expect(FIGURA_ARCHIVE_HINT).toContain('model.bbmodel')
+    expect(FIGURA_ARCHIVE_HINT).toContain('имени архива')
+  })
+
+  it('labels the upload button and keeps it distinct from the refresh button', () => {
+    expect(FIGURA_UPLOAD_LABEL).toBe('Загрузить архив')
+    expect(FIGURA_REFRESH_LABEL).toBe('Обновить')
   })
 })
 

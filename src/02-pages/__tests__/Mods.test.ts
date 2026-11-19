@@ -51,6 +51,8 @@ const modsetImportPreview = ref(null)
 const modsetImportReport = ref(null)
 const modsetIsBusy = ref(false)
 const modsetError = ref('')
+const modsetRemoveMissing = ref(true)
+const modsetExtraMods = ref<ModrinthInstalledMod[]>([])
 const openExport = vi.fn()
 const openImport = vi.fn()
 const confirmModset = vi.fn()
@@ -104,6 +106,8 @@ vi.mock('@/04-features', async (importOriginal) => {
       importReport: modsetImportReport,
       isExporting,
       isConfirming: modsetIsBusy,
+      removeMissing: modsetRemoveMissing,
+      extraMods: modsetExtraMods,
       actionError: modsetError,
       openExport,
       openImport,
@@ -147,6 +151,14 @@ const mountMods = () =>
     global: {
       plugins: [createPinia()],
       stubs: { ModrinthProjectPopup: true, ModrinthModsetPopup: true },
+    },
+  })
+
+const mountModsWithPopup = () =>
+  mount(Mods, {
+    global: {
+      plugins: [createPinia()],
+      stubs: { ModrinthProjectPopup: true, teleport: true },
     },
   })
 
@@ -305,6 +317,25 @@ describe('Mods', () => {
     const importButton = wrapper.findAll('button').find((button) => button.text() === 'Импортировать набор')
     expect(saveButton?.attributes('disabled')).toBeDefined()
     expect(importButton?.attributes('disabled')).toBeDefined()
+
+    wrapper.unmount()
+  })
+
+  it('passes extra mods and the cleanup toggle to the modset popup', async () => {
+    modsetExtraMods.value = [makeInstalled('old-mod')]
+    const wrapper = mountModsWithPopup()
+    modsetPopupVisible.value = true
+    modsetView.value = 'import-preview'
+    await nextTick()
+
+    const popup = wrapper.getComponent({ name: 'ModrinthModsetPopup' })
+    expect(popup.props('extraMods')).toEqual([makeInstalled('old-mod')])
+    expect(popup.props('removeMissing')).toBe(true)
+
+    popup.vm.$emit('update:removeMissing', false)
+    await nextTick()
+
+    expect(modsetRemoveMissing.value).toBe(false)
 
     wrapper.unmount()
   })

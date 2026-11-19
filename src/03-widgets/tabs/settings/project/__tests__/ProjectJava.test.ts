@@ -3,11 +3,17 @@ import { ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import ProjectJava from '../ProjectJava.vue'
 import AlternativeJavaButton from '../../AlternativeJavaButton.vue'
+import AlternativeJavaPopup from '../../AlternativeJavaPopup.vue'
 
 const openPopup = vi.fn().mockResolvedValue(undefined)
 const closePopup = vi.fn()
 const startDownload = vi.fn().mockResolvedValue('downloaded')
+const cancelDownload = vi.fn()
 const isPopupOpen = ref(false)
+const isDownloading = ref(false)
+const downloaded = ref(0)
+const total = ref(0)
+const phase = ref<'download' | 'extract'>('download')
 
 vi.mock('@/04-features', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/04-features')>()
@@ -18,13 +24,17 @@ vi.mock('@/04-features', async (importOriginal) => {
       selectedDistribution: ref(''),
       javaVersion: ref(''),
       replaceDefault: ref(false),
-      isDownloading: ref(false),
+      isDownloading,
       isPopupOpen,
       isDistributionsLoading: ref(false),
       distributionsError: ref(''),
       versionError: ref(''),
+      downloaded,
+      total,
+      phase,
       openPopup,
       closePopup,
+      cancelDownload,
       startDownload,
     }),
   }
@@ -44,6 +54,12 @@ beforeEach((): void => {
   closePopup.mockClear()
   startDownload.mockClear()
   startDownload.mockResolvedValue('downloaded')
+  cancelDownload.mockClear()
+  isPopupOpen.value = false
+  isDownloading.value = false
+  downloaded.value = 0
+  total.value = 0
+  phase.value = 'download'
 })
 
 describe('ProjectJava', () => {
@@ -91,5 +107,43 @@ describe('ProjectJava', () => {
     await flushPromises()
 
     expect(wrapper.emitted('java-replaced')).toBeUndefined()
+  })
+
+  it('forwards download progress to the alternative java popup', async () => {
+    isDownloading.value = true
+    isPopupOpen.value = true
+    downloaded.value = 3145728
+    total.value = 10485760
+    const wrapper = mountJava()
+
+    const popup = wrapper.findComponent(AlternativeJavaPopup)
+    expect(popup.props('isDownloading')).toBe(true)
+    expect(popup.props('downloaded')).toBe(3145728)
+    expect(popup.props('total')).toBe(10485760)
+    expect(popup.props('phase')).toBe('download')
+
+    wrapper.unmount()
+  })
+
+  it('forwards the extract phase to the alternative java popup', async () => {
+    isDownloading.value = true
+    isPopupOpen.value = true
+    phase.value = 'extract'
+    const wrapper = mountJava()
+
+    expect(wrapper.findComponent(AlternativeJavaPopup).props('phase')).toBe('extract')
+
+    wrapper.unmount()
+  })
+
+  it('routes the popup cancel event to cancelDownload', async () => {
+    const wrapper = mountJava()
+
+    wrapper.findComponent(AlternativeJavaPopup).vm.$emit('cancel')
+    await flushPromises()
+
+    expect(cancelDownload).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
   })
 })

@@ -1,7 +1,15 @@
 import { ref } from 'vue'
-import { downloadAlternativeJava, getErrorMessage, getJavaDistributions, getJavaVersion } from '@/06-shared/api'
-import { reportError, useAsyncRaceGuard } from '@/06-shared'
-import { useNotificationStore, type JavaDistribution } from '@/05-entities'
+import {
+  cancelAlternativeJava,
+  downloadAlternativeJava,
+  getErrorMessage,
+  getJavaDistributions,
+  getJavaVersion,
+  listenJavaDownloadSteps,
+  type UnlistenFn,
+} from '@/06-shared/api'
+import { reportError, STEP_IDS, useAsyncRaceGuard } from '@/06-shared'
+import { useNotificationStore, type JavaDistribution, type StepEvent } from '@/05-entities'
 import { useSystemNotifications } from '@/04-features/system-notifications/useSystemNotifications'
 
 export type AlternativeJavaDownloadResult =
@@ -10,6 +18,8 @@ export type AlternativeJavaDownloadResult =
   | 'failed'
   | 'unavailable'
   | 'busy'
+
+type AlternativeJavaPhase = 'download' | 'extract'
 
 export function useAlternativeJava() {
   const notification = useNotificationStore()
@@ -23,6 +33,10 @@ export function useAlternativeJava() {
   const isDistributionsLoading = ref<boolean>(false)
   const distributionsError = ref<string>('')
   const versionError = ref<string>('')
+  const downloaded = ref<number>(0)
+  const total = ref<number>(0)
+  const phase = ref<AlternativeJavaPhase>('download')
+  const downloadRequested = ref<boolean>(false)
 
   const versionGuard = useAsyncRaceGuard()
   const distributionsGuard = useAsyncRaceGuard()
@@ -71,8 +85,32 @@ export function useAlternativeJava() {
     ])
   }
 
+  const resetDownloadProgress = (): void => {
+    downloaded.value = 0
+    total.value = 0
+    phase.value = 'download'
+    downloadRequested.value = false
+  }
+
+  const cancelDownload = async (): Promise<void> => {
+    if (!isDownloading.value) {
+      isPopupOpen.value = false
+      return
+    }
+    downloadRequested.value = true
+    try {
+      await cancelAlternativeJava()
+    } catch (e: unknown) {
+      reportError('Не удалось отменить загрузку Java', e)
+    }
+  }
+
   const closePopup = (): void => {
-    if (!isDownloading.value) isPopupOpen.value = false
+    if (isDownloading.value) {
+      void cancelDownload()
+      return
+    }
+    isPopupOpen.value = false
   }
 
   const startDownload = async (): Promise<AlternativeJavaDownloadResult> => {
@@ -84,7 +122,18 @@ export function useAlternativeJava() {
     }
 
     isDownloading.value = true
+    resetDownloadProgress()
+    let unlistenSteps: UnlistenFn | null = null
     try {
+      unlistenSteps = await listenJavaDownloadSteps((event: StepEvent) => {
+        if (event.id !== STEP_IDS.javaAltDownload && event.id !== STEP_IDS.javaAltExtract) return
+        if (event.type === 'progress') {
+          downloaded.value = event.current
+          total.value = event.total
+          return
+        }
+        if (event.type === 'started' && event.id === STEP_IDS.javaAltExtract) phase.value = 'extract'
+      })
       await downloadAlternativeJava(
         dist.apiParameter,
         javaVersion.value || null,
@@ -94,12 +143,18 @@ export function useAlternativeJava() {
       isPopupOpen.value = false
       return replaceDefault.value ? 'replaced' : 'downloaded'
     } catch (e: unknown) {
+      if (downloadRequested.value) {
+        isPopupOpen.value = false
+        return 'failed'
+      }
       const message = getErrorMessage(e)
       reportError('Не удалось скачать Java', e)
       notification.show(`Ошибка загрузки Java: ${message}`)
       return 'failed'
     } finally {
+      unlistenSteps?.()
       isDownloading.value = false
+      resetDownloadProgress()
     }
   }
 
@@ -113,8 +168,13 @@ export function useAlternativeJava() {
     isDistributionsLoading,
     distributionsError,
     versionError,
+    downloaded,
+    total,
+    phase,
+    downloadRequested,
     openPopup,
     closePopup,
+    cancelDownload,
     startDownload,
   }
 }

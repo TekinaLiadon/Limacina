@@ -145,25 +145,37 @@ pub async fn get_server_status(
     Ok(status)
 }
 
+async fn probe_launcher_server(server_url: &str, timeout: Duration) -> bool {
+    let url = format!("{server_url}/v1/launcher/health");
+    let request = with_launcher_id(crate::utils::http::http_client().get(&url).timeout(timeout));
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(e) => {
+            log_info!("Сервер лаунчера недоступен: {}", e);
+            return false;
+        }
+    };
+    let status = response.status();
+    if !status.is_success() {
+        log_info!("Сервер лаунчера недоступен: HTTP {}", status.as_u16());
+        return false;
+    }
+    match response.bytes().await {
+        Ok(_) => true,
+        Err(e) => {
+            log_info!("Сервер лаунчера недоступен: {}", e);
+            false
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn ping_launcher_server(state: State<'_, Mutex<GlobalState>>) -> CommandResult<bool> {
     let server_url = state.lock().await.project_config.resolved_server_url();
     let Some(server_url) = server_url else {
         return Ok(false);
     };
-    let url = format!("{server_url}/v1/launcher/update/version");
-    let request = with_launcher_id(
-        crate::utils::http::http_client()
-            .get(&url)
-            .timeout(PING_TIMEOUT),
-    );
-    match request.send().await {
-        Ok(_) => Ok(true),
-        Err(e) => {
-            log_info!("Сервер лаунчера недоступен: {}", e);
-            Ok(false)
-        }
-    }
+    Ok(probe_launcher_server(&server_url, PING_TIMEOUT).await)
 }
 
 #[tauri::command]
@@ -325,8 +337,9 @@ mod tests {
 
     use super::{
         begin_apply_update, decide_auto_target, ensure_not_current, ensure_server_release_matches,
-        resolve_target_version, with_timeout, AutoDecision, UpdateApplyGuard,
-        APPLY_CHECK_TIMEOUT_MESSAGE, APPLY_DOWNLOAD_TIMEOUT_MESSAGE, APPLY_UPDATE_IN_PROGRESS,
+        probe_launcher_server, resolve_target_version, with_timeout, AutoDecision,
+        UpdateApplyGuard, APPLY_CHECK_TIMEOUT_MESSAGE, APPLY_DOWNLOAD_TIMEOUT_MESSAGE,
+        APPLY_UPDATE_IN_PROGRESS,
     };
     use crate::updater::UpdateRelease;
     use crate::utils::errors::LauncherError;
@@ -511,6 +524,84 @@ mod tests {
         assert!(
             retried.is_ok(),
             "повторная попытка должна проходить без перезапуска: {retried:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_launcher_server_succeeds_on_200() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/v1/launcher/health")
+            .with_status(200)
+            .with_body("ok")
+            .create_async()
+            .await;
+
+        assert!(
+            probe_launcher_server(&server.url(), Duration::from_secs(5)).await,
+            "2xx-ответ должен считаться доступностью"
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn probe_launcher_server_fails_on_http_error() {
+        let mut not_found = Server::new_async().await;
+        let mock404 = not_found
+            .mock("GET", "/v1/launcher/health")
+            .with_status(404)
+            .create_async()
+            .await;
+        assert!(
+            !probe_launcher_server(&not_found.url(), Duration::from_secs(5)).await,
+            "404 не должен считаться доступностью"
+        );
+        mock404.assert_async().await;
+
+        let mut internal = Server::new_async().await;
+        let mock500 = internal
+            .mock("GET", "/v1/launcher/health")
+            .with_status(500)
+            .create_async()
+            .await;
+        assert!(
+            !probe_launcher_server(&internal.url(), Duration::from_secs(5)).await,
+            "500 не должен считаться доступностью"
+        );
+        mock500.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn probe_launcher_server_fails_on_timeout() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/v1/launcher/health")
+            .with_status(200)
+            .with_chunked_body(|writer| {
+                writer.write_all(b"partial")?;
+                std::thread::sleep(Duration::from_secs(2));
+                Ok(())
+            })
+            .create_async()
+            .await;
+
+        let started = Instant::now();
+        assert!(
+            !probe_launcher_server(&server.url(), Duration::from_millis(300)).await,
+            "зависшее тело должно обрываться по таймауту пробы"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "таймаут пробы должен сработать раньше паузы сервера: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_launcher_server_fails_on_connection_refused() {
+        assert!(
+            !probe_launcher_server("http://127.0.0.1:1", Duration::from_secs(5)).await,
+            "connection refused должен считаться недоступностью"
         );
     }
 

@@ -9,7 +9,7 @@ use crate::commands::game_options::{
     clear_pending_after_install, install_game_options, install_options_for_project, GameOptions,
 };
 use crate::java::alternative_java::{
-    download_alt_java, get_java_distributions_list, JavaDistribution,
+    cancel_alt_java_download, download_alt_java, get_java_distributions_list, JavaDistribution,
 };
 use crate::java::install_java;
 use crate::java::parse_java_major;
@@ -323,6 +323,11 @@ pub async fn download_alternative_java(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_alternative_java() -> CommandResult<bool> {
+    Ok(cancel_alt_java_download())
 }
 
 #[cfg(test)]

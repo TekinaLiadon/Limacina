@@ -1,22 +1,28 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button, Checkbox, Dropdown, Input, PopupShell, Preloader, Skeleton } from '@/06-shared'
+import { Button, Checkbox, Dropdown, Input, PopupShell, Preloader, ProgressBar, Skeleton } from '@/06-shared'
 import type { JavaDistribution } from '@/05-entities'
 import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 import { alternativeJavaModelDefaults, useAlternativeJavaModels, type AlternativeJavaModelProps } from './alternativeJavaModels'
+
+const BYTES_PER_MB = 1024 * 1024
 
 const props = withDefaults(defineProps<{
   visible: boolean
   distributions: JavaDistribution[]
   isDownloading: boolean
+  downloaded?: number
+  total?: number
+  phase?: 'download' | 'extract'
   isDistributionsLoading: boolean
   distributionsError: string
   versionError: string
-} & AlternativeJavaModelProps>(), { ...alternativeJavaModelDefaults })
+} & AlternativeJavaModelProps>(), { ...alternativeJavaModelDefaults, downloaded: 0, total: 0, phase: 'download' })
 
 const emit = defineEmits<{
   close: []
   download: []
+  cancel: []
   retry: []
   'update:selectedDistribution': [string]
   'update:replaceDefault': [boolean]
@@ -28,6 +34,22 @@ const { selectedDistribution, replaceDefault, versionInput } = useAlternativeJav
 const dropdownOptions = computed((): { title: string; value: string }[] =>
   props.distributions.map((d) => ({ title: d.name, value: d.name })),
 )
+
+const downloadProgress = computed((): number => {
+  if (props.total <= 0) return 0
+  return (props.downloaded / props.total) * 100
+})
+
+const isExtractPhase = computed((): boolean => props.phase === 'extract')
+
+const hasTotal = computed((): boolean => props.total > 0)
+
+const formatMegabytes = (bytes: number): string => {
+  const value = (bytes / BYTES_PER_MB).toFixed(1)
+  return value.endsWith('.0') ? value.slice(0, -2) : value
+}
+
+const downloadedLabel = computed((): string => `Скачано: ${formatMegabytes(props.downloaded)} МБ`)
 </script>
 
 <template>
@@ -93,7 +115,27 @@ const dropdownOptions = computed((): { title: string; value: string }[] =>
     </template>
     <template v-else>
       <div class="alt-java-popup__loading">
-        <Preloader local text="Загрузка" />
+        <span v-if="isExtractPhase" class="alt-java-popup__phase">Распаковка…</span>
+        <template v-else>
+          <ProgressBar
+            v-if="hasTotal"
+            :progress="downloadProgress"
+            aria-label="Прогресс загрузки Java"
+          />
+          <div v-else class="alt-java-popup__preloader-area">
+            <Preloader local text="Загрузка" />
+          </div>
+          <span v-if="!hasTotal" class="alt-java-popup__downloaded">{{ downloadedLabel }}</span>
+        </template>
+        <div class="alt-java-popup__actions">
+          <Button
+            v-focus
+            class="btn-quiet alt-java-popup__btn"
+            @click="emit('cancel')"
+          >
+            Отмена
+          </Button>
+        </div>
       </div>
     </template>
   </PopupShell>
@@ -139,8 +181,27 @@ const dropdownOptions = computed((): { title: string; value: string }[] =>
   @include mixins.popup-actions('&__btn');
 
   &__loading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+  }
+
+  &__preloader-area {
     position: relative;
     min-height: var(--skeleton-card-height);
+  }
+
+  &__phase {
+    font-size: var(--text-body-sm);
+    color: var(--login-text-muted);
+    text-align: left;
+  }
+
+  &__downloaded {
+    font-size: var(--text-caption);
+    color: var(--login-text-secondary);
+    font-variant-numeric: tabular-nums;
+    text-align: left;
   }
 }
 </style>

@@ -50,36 +50,30 @@ pub async fn acquire(bytes: u64) {
         return;
     }
 
-    loop {
-        let wait_secs = {
-            let mut guard = BUCKET.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(bucket) = guard.as_mut() else {
-                return;
-            };
-
-            let now = Instant::now();
-            let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
-            if elapsed > 0.0 {
-                bucket.tokens = (bucket.tokens + elapsed * bucket.rate_bytes_per_sec as f64)
-                    .min(bucket.rate_bytes_per_sec as f64);
-                bucket.last_refill = now;
-            }
-
-            if bytes > bucket.rate_bytes_per_sec {
-                bucket.tokens = 0.0;
-                0.0
-            } else if bucket.tokens >= bytes as f64 {
-                bucket.tokens -= bytes as f64;
-                0.0
-            } else {
-                ((bytes as f64 - bucket.tokens) / bucket.rate_bytes_per_sec as f64).max(0.001)
-            }
+    let wait_secs = {
+        let mut guard = BUCKET.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(bucket) = guard.as_mut() else {
+            return;
         };
 
-        if wait_secs == 0.0 {
-            return;
+        let now = Instant::now();
+        let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+        if elapsed > 0.0 {
+            bucket.tokens = (bucket.tokens + elapsed * bucket.rate_bytes_per_sec as f64)
+                .min(bucket.rate_bytes_per_sec as f64);
+            bucket.last_refill = now;
         }
 
+        bucket.tokens -= bytes as f64;
+
+        if bucket.tokens < 0.0 {
+            ((0.0 - bucket.tokens) / bucket.rate_bytes_per_sec as f64).max(0.001)
+        } else {
+            0.0
+        }
+    };
+
+    if wait_secs > 0.0 {
         sleep(Duration::from_secs_f64(wait_secs)).await;
     }
 }
@@ -123,14 +117,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oversized_acquire_does_not_hang() {
+    async fn oversized_acquire_waits_proportionally() {
         let _guard = lock_with_limit(Some(32)).await;
 
         let start = Instant::now();
-        tokio::time::timeout(Duration::from_secs(5), acquire(64 * BYTES_PER_KB))
+        tokio::time::timeout(Duration::from_secs(10), acquire(64 * BYTES_PER_KB))
             .await
             .expect("acquire превысил таймаут");
-        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(start.elapsed() >= Duration::from_millis(900));
+
+        set_limit(None);
+    }
+
+    #[tokio::test]
+    async fn oversized_sequence_throttles_to_rate() {
+        let _guard = lock_with_limit(Some(64)).await;
+
+        let start = Instant::now();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            acquire(64 * BYTES_PER_KB).await;
+            acquire(128 * BYTES_PER_KB).await;
+            acquire(128 * BYTES_PER_KB).await;
+        })
+        .await
+        .expect("acquire превысил таймаут");
+        assert!(start.elapsed() >= Duration::from_millis(3500));
 
         set_limit(None);
     }

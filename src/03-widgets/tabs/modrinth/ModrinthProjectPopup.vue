@@ -17,6 +17,7 @@ const props = defineProps<{
   isBusy: boolean
   isBusyAny: boolean
   actionError: string
+  installingVersionId: string | null
 }>()
 
 const emit = defineEmits<{
@@ -187,6 +188,7 @@ async function handleLink(url: string): Promise<void> {
             <span class="modrinth-popup__version-number">{{ version.version_number }}</span>
             <Button
               class="btn-secondary modrinth-popup__version-install"
+              :is-loading="isBusy && version.id === installingVersionId"
               :is-disabled="isBusyAny"
               @click="emit('install-version', version.id)"
             >

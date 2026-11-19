@@ -5,17 +5,27 @@ import {
   modrinthImportApply,
   modrinthImportPreview,
 } from '@/06-shared/api'
-import { captureProjectScope, runScopedAction, selectFile, saveFile, useAsyncRaceGuard } from '@/06-shared'
-import { useCoreStore, useNotificationStore, type ModrinthExportReport, type ModrinthImportPreview, type ModrinthImportReport } from '@/05-entities'
+import { captureProjectScope, formatCount, runScopedAction, selectFile, saveFile, useAsyncRaceGuard, type PluralForms } from '@/06-shared'
+import { useCoreStore, useNotificationStore, type ModrinthExportReport, type ModrinthImportPreview, type ModrinthImportReport, type ModrinthInstalledMod } from '@/05-entities'
 
 export const MODSET_FILE_NAME = 'limmods.json'
 export const MODSET_ACCEPT = '.limmods.json'
 export const MODSET_FILTER = { name: 'Набор модов Limacina', extensions: ['limmods.json'] }
 export const MODSET_MAX_BYTES = 1_048_576
 
+export const MOD_FORMS: PluralForms = { one: 'мод', few: 'мода', many: 'модов' }
+
 export type ModrinthModsetView = 'export' | 'import-preview' | 'import-report'
 
-export function useModrinthModset(onImported: () => Promise<void>) {
+function cleanupQuestion(extraCount: number): string {
+  const known = extraCount > 0 ? ` Найдено известных: ${formatCount(extraCount, MOD_FORMS)}.` : ''
+  return `Удалить из папки моды, которых нет в наборе? Неподходящие версии и моды вне набора исчезнут безвозвратно.${known}`
+}
+
+export function useModrinthModset(
+  onImported: () => Promise<void>,
+  installed: () => ModrinthInstalledMod[] = () => [],
+) {
   const coreStore = useCoreStore()
   const notification = useNotificationStore()
 
@@ -27,6 +37,7 @@ export function useModrinthModset(onImported: () => Promise<void>) {
   const importContent = ref('')
   const isExporting = ref(false)
   const isConfirming = ref(false)
+  const removeMissing = ref(true)
   const actionError = ref('')
 
   const prepareGuard = useAsyncRaceGuard()
@@ -34,6 +45,23 @@ export function useModrinthModset(onImported: () => Promise<void>) {
   const confirmGuard = useAsyncRaceGuard()
 
   const isBusy = computed((): boolean => isConfirming.value)
+
+  const extraMods = computed((): ModrinthInstalledMod[] => {
+    const preview = importPreview.value
+    if (preview === null) return []
+    const projectIds = new Set<string>()
+    const slugs = new Set<string>()
+    for (const entry of preview.entries) {
+      if (entry.status !== 'ready') continue
+      if (entry.project_id) projectIds.add(entry.project_id)
+      if (entry.slug) slugs.add(entry.slug.toLowerCase())
+    }
+    return installed().filter((mod: ModrinthInstalledMod): boolean => {
+      if (projectIds.has(mod.project_id)) return false
+      if (mod.slug !== null && slugs.has(mod.slug.toLowerCase())) return false
+      return true
+    })
+  })
 
   const closePopup = (): void => {
     isPopupVisible.value = false
@@ -124,14 +152,24 @@ export function useModrinthModset(onImported: () => Promise<void>) {
   const confirmImport = async (): Promise<void> => {
     if (importPreview.value === null || isConfirming.value) return
     const scope = captureProjectScope((): string => coreStore.currentProject)
+    const content = importContent.value
+    const cleanupRequested = removeMissing.value
+    const extraCount = extraMods.value.length
     await runScopedAction({
       guard: confirmGuard,
       scope,
       errorTarget: actionError,
       errorMessage: 'Не удалось импортировать набор модов',
       busyFlag: isConfirming,
-      run: (): Promise<ModrinthImportReport> => modrinthImportApply(importContent.value),
-      apply: async (report: ModrinthImportReport): Promise<void> => {
+      run: async (): Promise<ModrinthImportReport | null> => {
+        if (cleanupRequested) {
+          const confirmed = await notification.confirm(cleanupQuestion(extraCount))
+          if (!confirmed || !scope.isCurrent()) return null
+        }
+        return modrinthImportApply(content, removeMissing.value)
+      },
+      apply: async (report: ModrinthImportReport | null): Promise<void> => {
+        if (report === null) return
         importReport.value = report
         importPreview.value = null
         importContent.value = ''
@@ -153,6 +191,7 @@ export function useModrinthModset(onImported: () => Promise<void>) {
     closePopup()
     isExporting.value = false
     isConfirming.value = false
+    removeMissing.value = true
   }
 
   watch((): string => coreStore.currentProject, (projectName: string): void => {
@@ -169,6 +208,8 @@ export function useModrinthModset(onImported: () => Promise<void>) {
     isExporting,
     isConfirming,
     isBusy,
+    removeMissing,
+    extraMods,
     actionError,
     openExport,
     openImport,

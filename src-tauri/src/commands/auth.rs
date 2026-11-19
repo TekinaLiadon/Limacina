@@ -580,6 +580,7 @@ mod account_flow_tests {
     };
     use crate::auth::generate_offline_uuid;
     use crate::auth::storage;
+    use crate::auth::OFFLINE_ACCESS_TOKEN;
     use crate::state::dto::{GlobalState, ProjectConfig, SessionTokens};
     use crate::state::launcher_config::LauncherConfig;
     use crate::test_support::{
@@ -645,6 +646,41 @@ mod account_flow_tests {
                 .get_logins("OffProj"),
             vec!["Steve".to_string()],
             "логин должен сохраняться при remember_me"
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_offline_config_login_stays_offline() {
+        let dir = LauncherDirGuard::acquire("auth_offline_corrupt_config").await;
+        let _config_guard = ConfigFileGuard::acquire(dir.root(), "config.json");
+        seed_offline_project("OffProj").await;
+        let config_dir = dir.root().join("project").join("config");
+        std::fs::write(
+            config_dir.join("OffProj.toml"),
+            "projectName = \"OffProj\"\nonline = false\nnot [valid toml",
+        )
+        .expect("порча конфига офлайн-проекта");
+        let state = offline_state("OffProj");
+
+        login_account(&state, "OffProj", "  Steve  ", "", true)
+            .await
+            .expect("битый офлайн-конфиг не должен уводить вход в онлайн");
+
+        {
+            let guard = state.lock().await;
+            let session = guard.session.as_ref().expect("сессия");
+            assert_eq!(
+                session.access_token, OFFLINE_ACCESS_TOKEN,
+                "офлайн-вход не должен получать серверный токен"
+            );
+        }
+        assert_trimmed_offline_session(&state).await;
+
+        let recovered = std::fs::read_to_string(config_dir.join("OffProj.toml"))
+            .expect("восстановленный конфиг должен персиститься");
+        assert!(
+            recovered.contains("online = false"),
+            "восстановленный дефолт должен сохранять офлайн-тип: {recovered}"
         );
     }
 

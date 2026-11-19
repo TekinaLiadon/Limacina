@@ -211,4 +211,40 @@ describe('createSingletonListeners', () => {
     listeners.stop()
     expect(stop).toHaveBeenCalledTimes(1)
   })
+
+  it('replaces an interrupted in-flight start when a new start lands before it settles', async () => {
+    let releaseFirstRegistration!: () => void
+    const firstStop = vi.fn()
+    const secondStop = vi.fn()
+    const listeners = createSingletonListeners()
+
+    const interruptedStart = listeners.start(async (track: (stop: () => void) => void): Promise<void> => {
+      track(firstStop)
+      await new Promise<void>((resolve): void => {
+        releaseFirstRegistration = resolve
+      })
+    })
+
+    listeners.stop()
+
+    expect(firstStop).toHaveBeenCalledTimes(1)
+    expect(listeners.isStarted()).toBe(false)
+
+    const secondRegister = vi.fn(async (track: (stop: () => void) => void): Promise<void> => {
+      track(secondStop)
+    })
+    const freshStart = listeners.start(secondRegister)
+
+    releaseFirstRegistration()
+    await Promise.all([interruptedStart, freshStart])
+
+    expect(secondRegister).toHaveBeenCalledTimes(1)
+    expect(listeners.isStarted()).toBe(true)
+    expect(secondStop).not.toHaveBeenCalled()
+
+    listeners.stop()
+
+    expect(secondStop).toHaveBeenCalledTimes(1)
+    expect(listeners.isStarted()).toBe(false)
+  })
 })

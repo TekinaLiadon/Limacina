@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ModrinthCatalogList, ModrinthInstalled, ModrinthModsetPopup, ModrinthPagination, ModrinthProjectPopup, ModrinthSearch, ModrinthViews } from '@/03-widgets'
 import { useModrinth, useModrinthModset } from '@/04-features'
-import { useCoreStore, useNotificationStore, type ModrinthSearchHit } from '@/05-entities'
+import { useCoreStore, useNotificationStore, type ModrinthInstalledMod, type ModrinthSearchHit } from '@/05-entities'
 import type { ModsView } from '@/03-widgets/types'
 
 const coreStore = useCoreStore()
@@ -53,12 +53,17 @@ const {
   importReport: modsetImportReport,
   isExporting,
   isConfirming: isModsetBusy,
+  removeMissing: modsetRemoveMissing,
+  extraMods: modsetExtraMods,
   actionError: modsetError,
   openExport,
   openImport,
   confirmPopup: confirmModset,
   closePopup: closeModset,
-} = useModrinthModset((): Promise<void> => loadInstalled())
+} = useModrinthModset(
+  (): Promise<void> => loadInstalled(),
+  (): ModrinthInstalledMod[] => installed.value,
+)
 
 const activeView = ref<ModsView>('catalog')
 
@@ -82,6 +87,8 @@ const popupIsBusy = computed((): boolean => {
 })
 
 const popupIsBusyAny = computed((): boolean => installingId.value !== null)
+
+const popupInstallingVersionId = ref<string | null>(null)
 
 const handleInstall = async (hit: ModrinthSearchHit): Promise<void> => {
   await install(hit.project_id)
@@ -112,7 +119,9 @@ const handlePopupUpdate = async (): Promise<void> => {
 const handlePopupInstallVersion = async (versionId: string): Promise<void> => {
   const hit = activeHit.value
   if (hit === null) return
+  popupInstallingVersionId.value = versionId
   await install(hit.project_id, versionId)
+  popupInstallingVersionId.value = null
 }
 
 onMounted(() => {
@@ -205,8 +214,11 @@ onMounted(() => {
       :import-preview="modsetImportPreview"
       :import-report="modsetImportReport"
       :installed-ids="installedIds"
+      :extra-mods="modsetExtraMods"
+      :remove-missing="modsetRemoveMissing"
       :is-busy="isModsetBusy"
       :action-error="modsetError"
+      @update:remove-missing="modsetRemoveMissing = $event"
       @confirm="confirmModset"
       @close="closeModset"
     />
@@ -221,6 +233,7 @@ onMounted(() => {
       :update-version="popupUpdateVersion"
       :is-busy="popupIsBusy"
       :is-busy-any="popupIsBusyAny"
+      :installing-version-id="popupInstallingVersionId"
       :action-error="actionError"
       @install="handlePopupInstall"
       @update="handlePopupUpdate"

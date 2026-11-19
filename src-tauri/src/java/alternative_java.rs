@@ -1,13 +1,17 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::fs::create_dir_all;
 
 use crate::java::{install_java_archive, remove_stale_archive, resolve_java_version};
-use crate::log_err;
-use crate::utils::download_file::{download_file, file_sha256, file_sha512};
+use crate::utils::download_file::{
+    download_file_with_hooks, file_sha256, file_sha512, DownloadHooks,
+};
 use crate::utils::env_info::{ensure_safe_relative_path, get_arch, get_current_os, launcher_path};
 use crate::utils::errors::LauncherError;
+use crate::utils::step_events::{StepChannel, StepHandle};
+use crate::{log_err, log_info, step_try};
 
 #[derive(Serialize, Clone)]
 pub struct JavaDistribution {
@@ -240,7 +244,32 @@ fn ensure_distribution_supported(distribution: &str) -> Result<()> {
     Err(LauncherError::InvalidInput(format!("Неизвестный дистрибутив Java: {distribution}")).into())
 }
 
+const JAVA_ALT_DOWNLOAD_STEP: &str = "java.alt.download";
+const JAVA_ALT_EXTRACT_STEP: &str = "java.alt.extract";
+const PROGRESS_EMISSION_STEP: u64 = 1024 * 1024;
+
+static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
+static DOWNLOAD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_alt_java_download() -> bool {
+    let was_active = DOWNLOAD_ACTIVE.load(Ordering::Relaxed);
+    CANCEL_FLAG.store(true, Ordering::Relaxed);
+    was_active
+}
+
 pub async fn download_alt_java(
+    distribution: &str,
+    java_version: Option<&str>,
+    mc_version: &str,
+) -> Result<(PathBuf, String)> {
+    CANCEL_FLAG.store(false, Ordering::Relaxed);
+    DOWNLOAD_ACTIVE.store(true, Ordering::Relaxed);
+    let result = download_alt_java_inner(distribution, java_version, mc_version).await;
+    DOWNLOAD_ACTIVE.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn download_alt_java_inner(
     distribution: &str,
     java_version: Option<&str>,
     mc_version: &str,
@@ -284,21 +313,103 @@ pub async fn download_alt_java(
 
     let base_path = launcher_path(None)?;
     let java_parent = base_path.join("java").join(&version);
-    let archive_path = java_parent.join(format!("archive_{}.{}", distribution, archive_type));
 
-    create_dir_all(&java_parent)
+    let exe = download_and_install_alt_java(
+        &CANCEL_FLAG,
+        &download_url,
+        checksum,
+        &java_parent,
+        distribution,
+        &archive_type,
+    )
+    .await?;
+    Ok((exe, version))
+}
+
+async fn download_and_install_alt_java(
+    cancel: &AtomicBool,
+    download_url: &str,
+    checksum: Option<(String, String)>,
+    java_parent: &Path,
+    distribution: &str,
+    archive_type: &str,
+) -> Result<PathBuf> {
+    let archive_path = java_parent.join(format!("archive_{distribution}.{archive_type}"));
+
+    create_dir_all(java_parent)
         .await
         .with_context(|| format!("Не удалось создать папку Java {java_parent:?}"))?;
-
     remove_stale_archive(&archive_path).await?;
-    download_file(&download_url, &archive_path).await?;
 
-    if let Some((checksum, checksum_type)) = checksum {
-        verify_archive_checksum(&archive_path, &checksum, &checksum_type).await?;
+    log_info!("[java] Скачивание альтернативной Java {distribution}: {download_url}");
+    let download_step =
+        StepHandle::start_channel(StepChannel::Java, JAVA_ALT_DOWNLOAD_STEP, "Скачивание Java");
+    let total_emitted = AtomicBool::new(false);
+    let last_emitted = AtomicU64::new(0);
+    let progress_step = download_step.clone();
+    let emit_progress = move |downloaded: u64, total: u64| {
+        let first = !total_emitted.swap(true, Ordering::Relaxed);
+        if first {
+            progress_step.set_total(total);
+        }
+        let reached_total = total > 0 && downloaded >= total;
+        if !first
+            && !reached_total
+            && downloaded.saturating_sub(last_emitted.load(Ordering::Relaxed))
+                < PROGRESS_EMISSION_STEP
+        {
+            return;
+        }
+        last_emitted.store(downloaded, Ordering::Relaxed);
+        progress_step.set_current(downloaded);
+    };
+    let hooks = DownloadHooks {
+        cancel: Some(cancel),
+        on_progress: Some(&emit_progress),
+    };
+
+    let download_result = download_file_with_hooks(download_url, &archive_path, hooks).await;
+    if let Err(error) = download_result {
+        if cancel.load(Ordering::Relaxed) {
+            log_info!("[java] Скачивание отменено пользователем");
+        } else {
+            log_err!("[java] Не удалось скачать архив Java с {download_url}: {error:#}");
+        }
+        download_step.fail(error.to_string());
+        return Err(error);
     }
 
-    let exe = install_java_archive(&java_parent, &archive_path, distribution).await?;
-    Ok((exe, version))
+    if let Some((checksum, checksum_type)) = checksum {
+        let checksum_result =
+            verify_archive_checksum(&archive_path, &checksum, &checksum_type).await;
+        if let Err(error) = checksum_result {
+            log_err!("[java] Ошибка проверки контрольной суммы Java: {error:#}");
+            download_step.fail(error.to_string());
+            return Err(error);
+        }
+    }
+
+    if cancel.load(Ordering::Relaxed) {
+        let _ = tokio::fs::remove_file(&archive_path).await;
+        log_info!("[java] Скачивание отменено пользователем");
+        download_step.fail("Загрузка отменена");
+        return Err(anyhow!("Загрузка отменена"));
+    }
+
+    download_step.finish(false);
+
+    let extract_step =
+        StepHandle::start_channel(StepChannel::Java, JAVA_ALT_EXTRACT_STEP, "Распаковка Java");
+    let exe = step_try!(
+        extract_step,
+        install_java_archive(java_parent, &archive_path, distribution).await
+    );
+    extract_step.finish(false);
+    log_info!(
+        "[java] Альтернативная Java {distribution} установлена: {:?}",
+        exe
+    );
+    Ok(exe)
 }
 
 #[cfg(test)]
@@ -442,5 +553,337 @@ mod validation_tests {
     fn normal_java_version_is_accepted() {
         assert!(ensure_safe_relative_path("21", "версии Java").is_ok());
         assert!(ensure_safe_relative_path("17.0.9+9", "версии Java").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod download_steps_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use mockito::Server;
+
+    use super::{
+        cancel_alt_java_download, download_and_install_alt_java, CANCEL_FLAG, DOWNLOAD_ACTIVE,
+    };
+    use crate::test_support::{part_files_in, TempDir};
+    use crate::utils::step_events::test_capture::{
+        assert_single_terminal, captured_terminals, CaptureGuard, TerminalExpectation,
+    };
+    use crate::utils::step_events::StepChannel;
+
+    const JAVA_ALT_DOWNLOAD_STEP: &str = super::JAVA_ALT_DOWNLOAD_STEP;
+    const JAVA_ALT_EXTRACT_STEP: &str = super::JAVA_ALT_EXTRACT_STEP;
+
+    fn test_archive_type() -> &'static str {
+        if cfg!(target_os = "windows") {
+            "zip"
+        } else {
+            "tar.gz"
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn test_archive_bytes() -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        use tar::{Builder, Header};
+
+        let buffer = std::io::Cursor::new(Vec::new());
+        let mut builder = Builder::new(buffer);
+
+        let mut dir_header = Header::new_gnu();
+        dir_header.set_size(0);
+        dir_header.set_entry_type(tar::EntryType::Directory);
+        dir_header.set_mode(0o755);
+        dir_header.set_cksum();
+        builder
+            .append_data(&mut dir_header, "jdk-21-test", std::io::empty())
+            .expect("добавление директории в tar");
+
+        let mut bin_header = Header::new_gnu();
+        bin_header.set_size(0);
+        bin_header.set_entry_type(tar::EntryType::Directory);
+        bin_header.set_mode(0o755);
+        bin_header.set_cksum();
+        builder
+            .append_data(&mut bin_header, "jdk-21-test/bin", std::io::empty())
+            .expect("добавление директории bin в tar");
+
+        let mut header = Header::new_gnu();
+        header.set_size(3);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "jdk-21-test/bin/java", &b"elf"[..])
+            .expect("добавление записи в tar");
+
+        let tar_bytes = builder.into_inner().expect("сборка tar").into_inner();
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&tar_bytes).expect("сжатие tar");
+        gz.finish().expect("завершение gz")
+    }
+
+    #[cfg(target_os = "windows")]
+    fn test_archive_bytes() -> Vec<u8> {
+        let dir = TempDir::new("alt_java_zip_src");
+        let path = dir.0.join("jdk.zip");
+        crate::test_support::write_test_zip(
+            &path,
+            &[
+                ("jdk-21-test/bin/java", b"exe"),
+                ("jdk-21-test/release", b"JAVA_HOME"),
+            ],
+        );
+        std::fs::read(&path).expect("чтение тестового zip")
+    }
+
+    #[tokio::test]
+    async fn cancel_before_start_aborts_download_without_part_or_extract() {
+        let dir = TempDir::new("alt_java_cancel");
+        let java_parent = dir.0.join("21");
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/jdk.bin")
+            .with_status(200)
+            .with_body("archive-bytes")
+            .create_async()
+            .await;
+
+        let cancel = AtomicBool::new(true);
+        let _capture = CaptureGuard::new();
+
+        let result = download_and_install_alt_java(
+            &cancel,
+            &format!("{}/jdk.bin", server.url()),
+            None,
+            &java_parent,
+            "zulu",
+            test_archive_type(),
+        )
+        .await;
+
+        let error = result.expect_err("отменённая загрузка должна возвращать ошибку");
+        assert!(
+            error.to_string().contains("Загрузка отменена"),
+            "ошибка должна сообщать об отмене: {error}"
+        );
+        assert!(
+            part_files_in(&java_parent).is_empty(),
+            "part-файл должен быть удалён после отмены"
+        );
+        assert!(
+            !java_parent.join("zulu").exists(),
+            "папка дистрибутива не должна появляться при отмене"
+        );
+        assert!(
+            !java_parent
+                .join(format!("archive_zulu.{}", test_archive_type()))
+                .exists(),
+            "архив не должен оставаться при отмене"
+        );
+        assert_single_terminal(
+            JAVA_ALT_DOWNLOAD_STEP,
+            Some(StepChannel::Java),
+            TerminalExpectation::Failed,
+        );
+        assert!(
+            captured_terminals(JAVA_ALT_EXTRACT_STEP, Some(StepChannel::Java)).is_empty(),
+            "шаг распаковки не должен начинаться при отмене скачивания"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_error_emits_single_failed_terminal() {
+        let dir = TempDir::new("alt_java_dl_err");
+        let java_parent = dir.0.join("21");
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/jdk.bin")
+            .with_status(200)
+            .with_chunked_body(|writer| {
+                writer.write_all(b"partial archive bytes")?;
+                Err(std::io::Error::other("соединение оборвано"))
+            })
+            .create_async()
+            .await;
+
+        let cancel = AtomicBool::new(false);
+        let _capture = CaptureGuard::new();
+
+        let result = download_and_install_alt_java(
+            &cancel,
+            &format!("{}/jdk.bin", server.url()),
+            None,
+            &java_parent,
+            "zulu",
+            test_archive_type(),
+        )
+        .await;
+
+        assert!(result.is_err(), "обрыв потока должен возвращать ошибку");
+        assert!(
+            !java_parent
+                .join(format!("archive_zulu.{}", test_archive_type()))
+                .exists(),
+            "архив не должен оставаться после ошибки"
+        );
+        assert!(
+            part_files_in(&java_parent).is_empty(),
+            "part-файл должен быть удалён после ошибки"
+        );
+        assert!(
+            !java_parent.join("zulu").exists(),
+            "папка дистрибутива не должна появляться после ошибки"
+        );
+        assert_single_terminal(
+            JAVA_ALT_DOWNLOAD_STEP,
+            Some(StepChannel::Java),
+            TerminalExpectation::Failed,
+        );
+    }
+
+    #[tokio::test]
+    async fn checksum_mismatch_emits_single_failed_terminal_and_removes_archive() {
+        let dir = TempDir::new("alt_java_checksum_err");
+        let java_parent = dir.0.join("21");
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/jdk.bin")
+            .with_status(200)
+            .with_body("archive-bytes")
+            .create_async()
+            .await;
+
+        let cancel = AtomicBool::new(false);
+        let _capture = CaptureGuard::new();
+
+        let result = download_and_install_alt_java(
+            &cancel,
+            &format!("{}/jdk.bin", server.url()),
+            Some(("deadbeef".to_string(), "sha256".to_string())),
+            &java_parent,
+            "zulu",
+            test_archive_type(),
+        )
+        .await;
+
+        assert!(result.is_err(), "несовпадение контрольной суммы — ошибка");
+        assert!(
+            !java_parent
+                .join(format!("archive_zulu.{}", test_archive_type()))
+                .exists(),
+            "архив с битой контрольной суммой удаляется"
+        );
+        assert_single_terminal(
+            JAVA_ALT_DOWNLOAD_STEP,
+            Some(StepChannel::Java),
+            TerminalExpectation::Failed,
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_then_reset_download_installs_fully() {
+        let dir = TempDir::new("alt_java_reset");
+        let java_parent = dir.0.join("21");
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/jdk.bin")
+            .with_status(200)
+            .with_body(test_archive_bytes())
+            .expect(2)
+            .create_async()
+            .await;
+
+        let cancel = AtomicBool::new(true);
+        let first_capture = CaptureGuard::new();
+        let first = download_and_install_alt_java(
+            &cancel,
+            &format!("{}/jdk.bin", server.url()),
+            None,
+            &java_parent,
+            "zulu",
+            test_archive_type(),
+        )
+        .await;
+        assert!(
+            first.is_err(),
+            "первая попытка с выставленным флагом отменяется"
+        );
+        assert_single_terminal(
+            JAVA_ALT_DOWNLOAD_STEP,
+            Some(StepChannel::Java),
+            TerminalExpectation::Failed,
+        );
+        drop(first_capture);
+
+        cancel.store(false, Ordering::Relaxed);
+        let second_capture = CaptureGuard::new();
+        let second = download_and_install_alt_java(
+            &cancel,
+            &format!("{}/jdk.bin", server.url()),
+            None,
+            &java_parent,
+            "zulu",
+            test_archive_type(),
+        )
+        .await;
+        let exe = second.expect("повторная загрузка после сброса флага проходит");
+
+        assert_eq!(
+            exe,
+            java_parent.join("zulu").join("bin").join("java"),
+            "Java устанавливается в папку дистрибутива"
+        );
+        assert!(
+            !java_parent
+                .join(format!("archive_zulu.{}", test_archive_type()))
+                .exists(),
+            "архив удаляется после установки"
+        );
+        assert!(
+            !java_parent.join("staging_zulu").exists(),
+            "staging-папка удаляется после установки"
+        );
+        assert_single_terminal(
+            JAVA_ALT_DOWNLOAD_STEP,
+            Some(StepChannel::Java),
+            TerminalExpectation::Finished { skipped: false },
+        );
+        assert_single_terminal(
+            JAVA_ALT_EXTRACT_STEP,
+            Some(StepChannel::Java),
+            TerminalExpectation::Finished { skipped: false },
+        );
+        drop(second_capture);
+    }
+
+    #[test]
+    fn cancel_reports_active_download_and_sets_flag() {
+        CANCEL_FLAG.store(false, Ordering::Relaxed);
+        DOWNLOAD_ACTIVE.store(true, Ordering::Relaxed);
+
+        assert!(
+            cancel_alt_java_download(),
+            "при активной загрузке команда возвращает true"
+        );
+        assert!(
+            CANCEL_FLAG.load(Ordering::Relaxed),
+            "флаг отмены выставляется"
+        );
+
+        DOWNLOAD_ACTIVE.store(false, Ordering::Relaxed);
+        CANCEL_FLAG.store(false, Ordering::Relaxed);
+
+        assert!(
+            !cancel_alt_java_download(),
+            "без активной загрузки команда возвращает false"
+        );
+        assert!(
+            CANCEL_FLAG.load(Ordering::Relaxed),
+            "флаг выставляется и без активной загрузки — сброс произойдёт на старте следующей загрузки"
+        );
+
+        CANCEL_FLAG.store(false, Ordering::Relaxed);
     }
 }

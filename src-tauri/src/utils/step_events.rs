@@ -7,11 +7,13 @@ use crate::utils::logger_utils::global_app_handle;
 
 const STEP_EVENT: &str = "launch-steps";
 const INTEGRITY_EVENT: &str = "integrity-steps";
+const JAVA_EVENT: &str = "java-download-steps";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StepChannel {
     Launch,
     Integrity,
+    Java,
 }
 
 impl StepChannel {
@@ -19,6 +21,7 @@ impl StepChannel {
         match self {
             StepChannel::Launch => STEP_EVENT,
             StepChannel::Integrity => INTEGRITY_EVENT,
+            StepChannel::Java => JAVA_EVENT,
         }
     }
 }
@@ -239,6 +242,25 @@ impl StepHandle {
         );
     }
 
+    pub fn set_current(&self, current: u64) {
+        let _order = self.state.order.lock().unwrap_or_else(|e| e.into_inner());
+        let total = self.state.total.load(Ordering::Relaxed);
+        let current = if total > 0 {
+            current.min(total)
+        } else {
+            current
+        };
+        self.state.current.store(current, Ordering::Relaxed);
+        emit_step_event(
+            self.channel,
+            &StepEvent::Progress {
+                id: self.id.to_string(),
+                current,
+                total,
+            },
+        );
+    }
+
     pub fn finish(self, skipped: bool) {
         emit_step_event(
             self.channel,
@@ -275,7 +297,7 @@ macro_rules! step_try {
 
 #[cfg(test)]
 mod tests {
-    use super::{test_capture, StepEvent, StepHandle};
+    use super::{test_capture, StepChannel, StepEvent, StepHandle};
 
     fn progress_currents(id: &str) -> Vec<u64> {
         test_capture::captured()
@@ -347,6 +369,64 @@ mod tests {
             progress_currents("test.reset"),
             vec![0, 1, 2, 0],
             "set_total должен сбрасывать счётчик текущего прогресса"
+        );
+    }
+
+    #[test]
+    fn java_channel_maps_to_java_download_steps_event() {
+        assert_eq!(StepChannel::Java.event_name(), "java-download-steps");
+    }
+
+    #[test]
+    fn set_current_emits_byte_progress_and_clamps_to_total() {
+        let _capture = test_capture::CaptureGuard::new();
+        let step = StepHandle::start_channel(StepChannel::Java, "test.bytes", "Тест байтов");
+        step.set_total(100);
+        step.set_current(40);
+        step.set_current(150);
+
+        let events: Vec<(u64, u64)> = test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                *channel == StepChannel::Java
+                    && matches!(event, StepEvent::Progress { id, .. } if id == "test.bytes")
+            })
+            .filter_map(|(_, event)| match event {
+                StepEvent::Progress { current, total, .. } => Some((current, total)),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            events,
+            vec![(0, 100), (40, 100), (100, 100)],
+            "set_current должен эмитить байтовый прогресс и клэмпиться к total"
+        );
+    }
+
+    #[test]
+    fn set_current_without_total_keeps_downloaded_bytes() {
+        let _capture = test_capture::CaptureGuard::new();
+        let step = StepHandle::start_channel(StepChannel::Java, "test.no_total", "Тест без total");
+
+        step.set_current(512);
+
+        let events: Vec<(u64, u64)> = test_capture::captured()
+            .into_iter()
+            .filter(|(channel, event)| {
+                *channel == StepChannel::Java
+                    && matches!(event, StepEvent::Progress { id, .. } if id == "test.no_total")
+            })
+            .filter_map(|(_, event)| match event {
+                StepEvent::Progress { current, total, .. } => Some((current, total)),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            events,
+            vec![(512, 0)],
+            "без total скачанные байты не должны клэмпиться в ноль"
         );
     }
 }

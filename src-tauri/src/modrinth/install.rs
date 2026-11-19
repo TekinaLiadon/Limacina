@@ -61,6 +61,13 @@ pub struct InstallContext {
 pub struct InstallReport {
     pub installed: Vec<String>,
     pub skipped: Vec<String>,
+    pub resolved: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct ModCleanupReport {
+    pub removed: Vec<String>,
+    pub failed: Vec<(String, String)>,
 }
 
 pub async fn load_manifest(path: &Path) -> Result<ModrinthManifest> {
@@ -134,7 +141,14 @@ pub async fn install_project(
     let mut report = InstallReport {
         installed: Vec::new(),
         skipped: Vec::new(),
+        resolved: resolved
+            .iter()
+            .map(|version| version.project_id.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect(),
     };
+    report.resolved.sort();
     let mut installed_entries: Vec<ManifestEntry> = Vec::new();
     let mut pending: Vec<PendingModFile> = Vec::new();
 
@@ -796,6 +810,89 @@ pub async fn uninstall_project(ctx: &InstallContext, project_id: &str) -> Result
         entry.version_number
     );
     Ok(())
+}
+
+pub async fn cleanup_mods_outside_set(
+    ctx: &InstallContext,
+    keep_project_ids: &HashSet<String>,
+) -> Result<ModCleanupReport> {
+    let _write_guard = MANIFEST_WRITE_LOCK.lock().await;
+    let mut manifest = load_manifest(&ctx.manifest_path).await?;
+
+    let keep_filenames: HashSet<String> = manifest
+        .mods
+        .values()
+        .filter(|entry| keep_project_ids.contains(&entry.project_id))
+        .map(|entry| entry.filename.clone())
+        .collect();
+
+    if keep_filenames.is_empty() {
+        log_info!(
+            "[modrinth] В наборе нет установленных модов — очистка папки модов пропущена, локальные моды не тронуты"
+        );
+        return Ok(ModCleanupReport::default());
+    }
+
+    let mut report = ModCleanupReport::default();
+    let mut dir_entries = match tokio::fs::read_dir(&ctx.mods_dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(report),
+        Err(e) => {
+            return Err(e)
+                .with_context(|| format!("Не удалось прочитать папку модов {:?}", ctx.mods_dir))
+        }
+    };
+
+    while let Some(entry) = dir_entries.next_entry().await.with_context(|| {
+        format!(
+            "Не удалось прочитать запись в папке модов {:?}",
+            ctx.mods_dir
+        )
+    })? {
+        let is_file = entry
+            .file_type()
+            .await
+            .map(|kind| kind.is_file())
+            .unwrap_or(false);
+        if !is_file {
+            continue;
+        }
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if keep_filenames.contains(&filename) {
+            continue;
+        }
+        if !filename.to_lowercase().ends_with(".jar") {
+            continue;
+        }
+
+        log_info!("[modrinth] Удаление мода вне набора: {}", filename);
+        match tokio::fs::remove_file(entry.path()).await {
+            Ok(()) => report.removed.push(filename),
+            Err(e) => {
+                log_err!(
+                    "[modrinth] Не удалось удалить мод вне набора {}: {e}",
+                    filename
+                );
+                report.failed.push((filename, format!("{e}")));
+            }
+        }
+    }
+
+    report.removed.sort();
+    if report.removed.is_empty() {
+        return Ok(report);
+    }
+
+    let removed: HashSet<String> = report.removed.iter().cloned().collect();
+    manifest
+        .mods
+        .retain(|_, entry| !removed.contains(&entry.filename));
+    save_manifest(&ctx.manifest_path, &manifest).await?;
+    log_info!(
+        "[modrinth] Очистка набора удалила файлов: {}",
+        report.removed.len()
+    );
+    Ok(report)
 }
 
 #[derive(Debug)]
@@ -2361,6 +2458,140 @@ mod tests {
             .expect("чтение манифеста");
         assert!(!manifest.mods.contains_key(removed));
         assert!(manifest.mods.contains_key(kept));
+    }
+
+    async fn seed_cleanup_env(
+        label: &str,
+        keep: &str,
+        extra: &[(&str, &str)],
+    ) -> (ModrinthEnv, InstallContext) {
+        let (env, ctx) = seeded_env(
+            label,
+            vec![(keep, manifest_entry(keep, "hash-keep", "verKeep", "1.0.0"))],
+        )
+        .await;
+        let mods_dir = ctx.mods_dir.clone();
+        tokio::fs::create_dir_all(&mods_dir)
+            .await
+            .expect("создание папки модов");
+        tokio::fs::write(mods_dir.join(format!("{keep}.jar")), b"kept mod")
+            .await
+            .expect("запись мода из набора");
+        for (filename, content) in extra {
+            tokio::fs::write(mods_dir.join(filename), content.as_bytes())
+                .await
+                .expect("запись файла в папку модов");
+        }
+        (env, ctx)
+    }
+
+    fn keep_set(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn cleanup_removes_only_jars_outside_the_keep_set() {
+        let (_env, ctx) = seed_cleanup_env(
+            "modrinth_cleanup_keep",
+            "Keep",
+            &[
+                ("Old.jar", "old mod"),
+                ("Disabled.JAR", "upper case extension"),
+                ("notes.txt", "user notes"),
+                ("download.jar.part", "staging"),
+            ],
+        )
+        .await;
+        tokio::fs::create_dir_all(ctx.mods_dir.join("nested"))
+            .await
+            .expect("подпапка");
+
+        let report = cleanup_mods_outside_set(&ctx, &keep_set(&["Keep"]))
+            .await
+            .expect("очистка папки модов");
+
+        assert_eq!(
+            report.removed,
+            vec!["Disabled.JAR".to_string(), "Old.jar".to_string()]
+        );
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert!(ctx.mods_dir.join("Keep.jar").exists());
+        assert!(!ctx.mods_dir.join("Old.jar").exists());
+        assert!(!ctx.mods_dir.join("Disabled.JAR").exists());
+        assert!(ctx.mods_dir.join("notes.txt").exists());
+        assert!(ctx.mods_dir.join("download.jar.part").exists());
+        assert!(ctx.mods_dir.join("nested").is_dir());
+    }
+
+    #[tokio::test]
+    async fn cleanup_skips_when_no_keep_filenames_resolve() {
+        let (_env, ctx) = seed_cleanup_env(
+            "modrinth_cleanup_empty_keep",
+            "Keep",
+            &[("Old.jar", "old mod")],
+        )
+        .await;
+
+        let report = cleanup_mods_outside_set(&ctx, &keep_set(&["Unknown"]))
+            .await
+            .expect("очистка без известных проектов");
+
+        assert!(report.removed.is_empty());
+        assert!(
+            ctx.mods_dir.join("Old.jar").exists(),
+            "папка не должна вычищаться"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_reports_files_it_could_not_remove() {
+        let (_env, ctx) =
+            seed_cleanup_env("modrinth_cleanup_busy", "Keep", &[("Busy.jar", "busy mod")]).await;
+        set_dir_permissions(&ctx.mods_dir, 0o555);
+
+        let report = cleanup_mods_outside_set(&ctx, &keep_set(&["Keep"]))
+            .await
+            .expect("ошибки удаления не должны валить очистку");
+        set_dir_permissions(&ctx.mods_dir, 0o755);
+
+        assert!(report.removed.is_empty());
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(report.failed[0].0, "Busy.jar");
+        assert!(ctx.mods_dir.join("Busy.jar").exists());
+    }
+
+    #[tokio::test]
+    async fn cleanup_drops_manifest_entries_of_removed_files() {
+        let (_env, ctx) = seeded_env(
+            "modrinth_cleanup_manifest",
+            vec![
+                (
+                    "Keep",
+                    manifest_entry("Keep", "hash-keep", "verKeep", "1.0.0"),
+                ),
+                ("Old", manifest_entry("Old", "hash-old", "verOld", "0.1.0")),
+            ],
+        )
+        .await;
+        tokio::fs::create_dir_all(&ctx.mods_dir)
+            .await
+            .expect("создание папки модов");
+        tokio::fs::write(ctx.mods_dir.join("Keep.jar"), b"kept mod")
+            .await
+            .expect("запись мода из набора");
+        tokio::fs::write(ctx.mods_dir.join("Old.jar"), b"old mod")
+            .await
+            .expect("запись лишнего мода");
+
+        cleanup_mods_outside_set(&ctx, &keep_set(&["Keep"]))
+            .await
+            .expect("очистка папки модов");
+
+        let manifest = load_manifest(&ctx.manifest_path)
+            .await
+            .expect("чтение манифеста");
+        assert!(manifest.mods.contains_key("Keep"));
+        assert!(!manifest.mods.contains_key("Old"));
     }
 
     #[tokio::test]

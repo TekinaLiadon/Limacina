@@ -115,6 +115,24 @@ describe('SelectBase', () => {
     expect(wrapper.find('.select-base-options').exists()).toBe(true)
   })
 
+  it('prevents the mousedown focus shift on an option so the click still selects', async () => {
+    const wrapper = mountSelect()
+
+    await pressKey(wrapper, 'ArrowDown')
+    const [, option] = wrapper.findAll('.select-base-options__item')
+    expect(option).toBeDefined()
+
+    const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    option?.element.dispatchEvent(mousedown)
+    await nextTick()
+
+    expect(mousedown.defaultPrevented).toBe(true)
+    expect(wrapper.find('.select-base-options').exists()).toBe(true)
+
+    await option?.trigger('click')
+    expect(wrapper.emitted('select')).toEqual([['b']])
+  })
+
   it('scrolls the active option into view when arrow navigation moves it', async () => {
     const wrapper = mountSelect()
 

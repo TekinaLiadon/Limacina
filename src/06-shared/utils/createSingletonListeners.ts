@@ -4,6 +4,10 @@ type ListenerStop = () => void
 type TrackListenerStop = (stop: ListenerStop) => void
 type RegisterSingletonListeners = (track: TrackListenerStop) => Promise<void> | void
 
+type RegistrationRun = {
+  interrupted: boolean
+}
+
 export interface SingletonListeners {
   start: (register: RegisterSingletonListeners) => Promise<void>
   stop: () => void
@@ -13,7 +17,7 @@ export interface SingletonListeners {
 export function createSingletonListeners(): SingletonListeners {
   let started = false
   let starting: Promise<void> | null = null
-  let stopRequested = false
+  let currentRun: RegistrationRun | null = null
   let stops: ListenerStop[] = []
   let scope = effectScope(true)
 
@@ -24,37 +28,45 @@ export function createSingletonListeners(): SingletonListeners {
     scope = effectScope(true)
   }
 
-  const runRegister = async (register: RegisterSingletonListeners): Promise<void> => {
+  const runRegister = async (register: RegisterSingletonListeners, run: RegistrationRun): Promise<void> => {
     try {
       await scope.run(async (): Promise<void> => {
         await register((stop: ListenerStop): void => {
           stops.push(stop)
         })
       })
-      if (stopRequested) {
+      if (currentRun !== run) return
+      if (run.interrupted) {
         releaseTracked()
         return
       }
       started = true
     } catch (e: unknown) {
-      releaseTracked()
+      if (currentRun === run) releaseTracked()
       throw e
     }
   }
 
+  const launchRegistration = (register: RegisterSingletonListeners): Promise<void> => {
+    const run: RegistrationRun = { interrupted: false }
+    currentRun = run
+    const pending = runRegister(register, run).finally((): void => {
+      if (starting === pending) starting = null
+      if (currentRun === run) currentRun = null
+    })
+    starting = pending
+    return pending
+  }
+
   const start = async (register: RegisterSingletonListeners): Promise<void> => {
     if (started) return
-    if (starting !== null) return starting
-    stopRequested = false
-    starting = runRegister(register).finally((): void => {
-      starting = null
-    })
-    return starting
+    if (starting !== null && (currentRun === null || !currentRun.interrupted)) return starting
+    return launchRegistration(register)
   }
 
   const stop = (): void => {
-    if (starting !== null) {
-      stopRequested = true
+    if (starting !== null && currentRun !== null) {
+      currentRun.interrupted = true
       releaseTracked()
       return
     }
