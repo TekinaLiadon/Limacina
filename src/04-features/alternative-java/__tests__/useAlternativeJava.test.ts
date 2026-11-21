@@ -303,7 +303,7 @@ describe('useAlternativeJava', () => {
     vi.mocked(downloadAlternativeJava).mockImplementationOnce(
       () =>
         new Promise<void>((_resolve, reject) => {
-          releaseDownload = (): void => reject(new Error('Загрузка отменена'))
+          releaseDownload = (): void => reject({ code: 'cancelled', message: 'Загрузка отменена' })
         }),
     )
     const java = useAlternativeJava()
@@ -380,7 +380,7 @@ describe('useAlternativeJava', () => {
     vi.mocked(downloadAlternativeJava).mockImplementationOnce(
       () =>
         new Promise<void>((_resolve, reject) => {
-          releaseDownload = (): void => reject(new Error('Загрузка отменена'))
+          releaseDownload = (): void => reject({ code: 'cancelled', message: 'Загрузка отменена' })
         }),
     )
     const java = useAlternativeJava()
@@ -403,6 +403,54 @@ describe('useAlternativeJava', () => {
     expect(java.isDownloading.value).toBe(false)
     expect(useNotificationStore().message).not.toContain('Ошибка загрузки Java')
     expect(reportError).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a real error raised after a cancel request', async () => {
+    const failure = new Error('распаковка сломалась')
+    let releaseDownload: () => void = () => {}
+    vi.mocked(getJavaDistributions).mockResolvedValue([makeDistribution('temurin')])
+    vi.mocked(getJavaVersion).mockResolvedValue('17')
+    vi.mocked(downloadAlternativeJava).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          releaseDownload = (): void => reject(failure)
+        }),
+    )
+    const java = useAlternativeJava()
+    await java.openPopup('1.20.1')
+
+    const pending = java.startDownload()
+    await flushSubscription()
+
+    await java.cancelDownload()
+    releaseDownload()
+    const result = await pending
+
+    expect(result).toBe('failed')
+    expect(reportError).toHaveBeenCalledWith('Не удалось скачать Java', failure)
+    expect(useNotificationStore().message).toBe('Ошибка загрузки Java: распаковка сломалась')
+    expect(java.isDownloading.value).toBe(false)
+    expect(unlistenJavaSteps).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports busy without an error toast when the backend rejects a parallel download', async () => {
+    vi.mocked(getJavaDistributions).mockResolvedValue([makeDistribution('temurin')])
+    vi.mocked(getJavaVersion).mockResolvedValue('17')
+    vi.mocked(downloadAlternativeJava).mockRejectedValueOnce({
+      code: 'launch_in_progress',
+      message: 'Установка или запуск уже выполняются, дождитесь завершения',
+    })
+    const java = useAlternativeJava()
+    await java.openPopup('1.20.1')
+
+    const result = await java.startDownload()
+
+    expect(result).toBe('busy')
+    expect(reportError).not.toHaveBeenCalled()
+    expect(useNotificationStore().message).not.toContain('Ошибка загрузки Java')
+    expect(java.isDownloading.value).toBe(false)
+    expect(java.isPopupOpen.value).toBe(true)
+    expect(unlistenJavaSteps).toHaveBeenCalledTimes(1)
   })
 
   it('drops the stale distributions response when the list is loaded twice', async () => {

@@ -69,6 +69,7 @@ const {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .account-settings {
   display: flex;
   flex-direction: column;

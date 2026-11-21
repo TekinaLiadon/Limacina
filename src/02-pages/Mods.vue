@@ -202,6 +202,7 @@ onMounted(() => {
         @check-updates="checkForUpdates"
         @export-modset="openExport"
         @import-modset="openImport"
+        @retry-installed="loadInstalled"
         @update="handleUpdate"
         @uninstall="handleUninstall"
       />

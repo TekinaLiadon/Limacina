@@ -541,6 +541,7 @@ describe('useProjectSettings', () => {
     vi.mocked(getServerConnectUrl).mockResolvedValue('https://example.com/join')
 
     await settings.handleGetConnectUrl()
+    expect(getServerConnectUrl).toHaveBeenCalledWith('proj')
     expect(settings.serverConnectUrl.value).toBe('https://example.com/join')
 
     api.copyToClipboard.mockResolvedValueOnce(undefined)
@@ -587,7 +588,40 @@ describe('useProjectSettings', () => {
     await pending
 
     expect(getServerConnectUrl).toHaveBeenCalledTimes(1)
+    expect(getServerConnectUrl).toHaveBeenCalledWith('proj')
     expect(settings.serverConnectUrl.value).toBe('')
+  })
+
+  it('lands the scoped connect url response when a failed switch leaves the project unchanged', async () => {
+    const settings = await loadReady()
+    let release: () => void = () => {}
+    vi.mocked(getServerConnectUrl).mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = (): void => resolve('https://proj.example.com/join')
+        }),
+    )
+    let failSwitch: (error: Error) => void = () => {}
+    vi.mocked(loadSettingsProject).mockImplementationOnce(
+      () =>
+        new Promise<ProjectConfig>((_, reject) => {
+          failSwitch = (error): void => reject(error)
+        }),
+    )
+    const { result: switcher } = withSetup(() => useProjectSwitch())
+
+    const pending = settings.handleGetConnectUrl()
+    const switching = switcher.applyProjectSwitch('beta').catch(() => {})
+    await vi.waitFor(() => expect(switcher.isSwitching.value).toBe(true))
+    failSwitch(new Error('switch failed'))
+    await vi.waitFor(() => expect(switcher.isSwitching.value).toBe(false))
+    release()
+    await pending
+    await switching
+
+    expect(getServerConnectUrl).toHaveBeenCalledWith('proj')
+    expect(useCoreStore().currentProject).toBe('proj')
+    expect(settings.serverConnectUrl.value).toBe('https://proj.example.com/join')
   })
 
   it('blocks the connect url fetch while the project is switching', async () => {

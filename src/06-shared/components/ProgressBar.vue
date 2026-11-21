@@ -84,7 +84,9 @@ onBeforeUnmount(() => {
     height: 100%;
     transform: scaleX(0);
     transform-origin: left;
+
     @include mixins.accent-gradient;
+
     border-radius: var(--radius-pill);
     overflow: hidden;
 

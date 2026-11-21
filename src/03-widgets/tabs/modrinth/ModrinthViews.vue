@@ -70,6 +70,7 @@ const { handleKeydown } = useRovingTabs<ModsView>({
     font-size: var(--text-body-sm);
     font-weight: var(--weight-medium);
     cursor: pointer;
+
     @include mixins.interactive-transition;
   }
 

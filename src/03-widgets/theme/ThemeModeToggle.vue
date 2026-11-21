@@ -72,6 +72,7 @@ const modes: ModeOption[] = [
     border: none;
     font-family: inherit;
     cursor: pointer;
+
     @include mixins.interactive-transition;
   }
 

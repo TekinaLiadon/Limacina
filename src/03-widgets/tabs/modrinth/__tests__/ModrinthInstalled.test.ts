@@ -102,19 +102,19 @@ describe('ModrinthInstalled', () => {
     wrapper.unmount()
   })
 
-  it('surfaces the action and installed-list errors', () => {
+  it('surfaces the action error as text and the load error with a retry', () => {
     const wrapper = mountInstalled({
       actionError: 'Не удалось удалить мод',
       installedError: 'Не удалось загрузить список установленных модов',
     })
 
-    const errors = wrapper.findAll('.modrinth-installed__error').map((node) => node.text())
-    expect(errors).toEqual(['Не удалось удалить мод', 'Не удалось загрузить список установленных модов'])
+    expect(wrapper.findAll('.modrinth-installed__error').map((node) => node.text())).toEqual(['Не удалось удалить мод'])
+    expect(wrapper.get('.load-error-row').text()).toContain('Не удалось загрузить список установленных модов')
 
     wrapper.unmount()
   })
 
-  it('prints the same error from two sources only once', () => {
+  it('prints the same error from two sources only once, through the retry row', () => {
     const message = 'моды Modrinth требуют загрузчик модов: выберите Fabric, Forge или NeoForge для профиля'
     const wrapper = mountInstalled({
       mods: [makeInstalled('sodium')],
@@ -122,8 +122,59 @@ describe('ModrinthInstalled', () => {
       installedError: message,
     })
 
-    const errors = wrapper.findAll('.modrinth-installed__error').map((node) => node.text())
-    expect(errors).toEqual([message])
+    expect(wrapper.findAll('.modrinth-installed__error')).toHaveLength(0)
+    expect(wrapper.findAll('.load-error-row')).toHaveLength(1)
+    expect(wrapper.get('.load-error-row__text').text()).toBe(message)
+
+    wrapper.unmount()
+  })
+
+  it('shows the load error with a retry action instead of the empty state', () => {
+    const wrapper = mountInstalled({
+      installedError: 'Не удалось загрузить список установленных модов',
+    })
+
+    expect(wrapper.get('.load-error-row__text').text()).toBe('Не удалось загрузить список установленных модов')
+    expect(wrapper.find('.modrinth-installed__empty').exists()).toBe(false)
+    expect(wrapper.find('.modrinth-installed__list').exists()).toBe(false)
+    expect(wrapper.findAllComponents(ModrinthRow)).toHaveLength(0)
+
+    wrapper.unmount()
+  })
+
+  it('keeps the retry row next to the stale list when the reload fails with mods installed', () => {
+    const wrapper = mountInstalled({
+      mods: [makeInstalled('sodium')],
+      installedError: 'Не удалось загрузить список установленных модов',
+    })
+
+    expect(wrapper.find('.load-error-row').exists()).toBe(true)
+    expect(wrapper.findAllComponents(ModrinthRow)).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('hands the retry action up', async () => {
+    const wrapper = mountInstalled({
+      installedError: 'Не удалось загрузить список установленных модов',
+    })
+
+    await button(wrapper, 'Повторить')?.trigger('click')
+    expect(wrapper.emitted('retry-installed')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('swaps the error row for skeletons while the retry reloads', async () => {
+    const wrapper = mountInstalled({
+      installedError: 'Не удалось загрузить список установленных модов',
+    })
+
+    await wrapper.setProps({ installedError: '', isLoading: true })
+
+    expect(wrapper.find('.load-error-row').exists()).toBe(false)
+    expect(wrapper.find('.modrinth-installed__error').exists()).toBe(false)
+    expect(wrapper.findAll('.modrinth-row')).toHaveLength(5)
 
     wrapper.unmount()
   })

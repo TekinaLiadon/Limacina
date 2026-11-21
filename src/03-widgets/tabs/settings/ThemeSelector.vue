@@ -95,6 +95,7 @@ const handleKeydown = (event: KeyboardEvent): void => {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .theme-selector {
   display: flex;
   flex-direction: column;

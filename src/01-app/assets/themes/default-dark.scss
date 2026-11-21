@@ -1,77 +1,67 @@
 [data-theme="default-dark"] {
-  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", roboto, sans-serif;
   --font-display: "Onest", "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-mono: "JetBrains Mono", "Cascadia Code", consolas, monospace;
   --font-eyebrow: var(--font-mono);
   --weight-display: 500;
   --tracking-body: -0.01em;
   --tracking-heading: normal;
   --tracking-eyebrow: 0.1em;
-
   --radius-button: var(--radius-pill);
   --radius-card: 16px;
   --radius-modal: 16px;
   --radius-input: 6px;
   --radius-badge: 6px;
-
   --login-bg-primary: #05060f;
   --login-bg-secondary: #0b0e1c;
   --app-bg:
     conic-gradient(
       at 50% -5%,
       transparent 45%,
-      rgba(124, 145, 182, 0.18) 49%,
-      rgba(124, 145, 182, 0.3) 50%,
-      rgba(124, 145, 182, 0.18) 51%,
+      rgb(124 145 182 / 18%) 49%,
+      rgb(124 145 182 / 30%) 50%,
+      rgb(124 145 182 / 18%) 51%,
       transparent 55%
     ),
-    radial-gradient(120% 90% at 50% -20%, rgba(124, 145, 182, 0.22) 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% -20%, rgb(124 145 182 / 22%) 0%, transparent 60%),
     linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-primary) 100%);
   --html-bg: #05060f;
-
-  --login-bg-form: rgba(5, 6, 15, 0.97);
-
+  --login-bg-form: rgb(5 6 15 / 97%);
   --login-text-primary: #d8ecf8;
   --login-text-secondary: #c7d3ea;
   --login-text-muted: #9da7ba;
-
   --login-accent: #663af3;
   --login-accent-hover: #7c55f5;
-  --text-on-accent: #ffffff;
+  --text-on-accent: #fff;
   --accent-fill: var(--login-accent);
   --text-on-accent-fill: var(--text-on-accent);
-  --accent-subtle: rgba(102, 58, 243, 0.1);
-  --accent-active-bg: rgba(102, 58, 243, 0.26);
+  --accent-subtle: rgb(102 58 243 / 10%);
+  --accent-active-bg: rgb(102 58 243 / 26%);
   --accent-text: #a08cfa;
-
-  --surface-subtle: rgba(186, 214, 247, 0.03);
-  --surface-light: rgba(186, 214, 247, 0.06);
-  --surface-input: rgba(199, 211, 234, 0.06);
-  --surface-hover: rgba(186, 214, 247, 0.1);
-  --surface-active: rgba(199, 211, 234, 0.12);
-  --overlay: rgba(5, 6, 15, 0.72);
-
-  --border-subtle: rgba(186, 215, 247, 0.12);
-  --elevation-inset: inset 0 0 0 1px rgba(186, 215, 247, 0.12);
-  --elevation-inset-strong: inset 0 0 0 1px rgba(186, 214, 247, 0.24);
-
+  --surface-subtle: rgb(186 214 247 / 3%);
+  --surface-light: rgb(186 214 247 / 6%);
+  --surface-input: rgb(199 211 234 / 6%);
+  --surface-hover: rgb(186 214 247 / 10%);
+  --surface-active: rgb(199 211 234 / 12%);
+  --overlay: rgb(5 6 15 / 72%);
+  --border-subtle: rgb(186 215 247 / 12%);
+  --elevation-inset: inset 0 0 0 1px rgb(186 215 247 / 12%);
+  --elevation-inset-strong: inset 0 0 0 1px rgb(186 214 247 / 24%);
   --elevation-card:
-    inset 0 1px 1px rgba(199, 211, 234, 0.12),
-    inset 0 24px 48px rgba(199, 211, 234, 0.05),
-    0 24px 32px rgba(6, 6, 14, 0.7);
+    inset 0 1px 1px rgb(199 211 234 / 12%),
+    inset 0 24px 48px rgb(199 211 234 / 5%),
+    0 24px 32px rgb(6 6 14 / 70%);
   --elevation-modal:
-    inset 0 1px 1px rgba(216, 236, 248, 0.2),
-    inset 0 24px 48px rgba(168, 216, 245, 0.06),
-    0 16px 32px rgba(0, 0, 0, 0.3);
-  --elevation-glow: 0 0 6px rgba(186, 207, 247, 0.32), 0 0 12px rgba(238, 186, 247, 0.24);
-
+    inset 0 1px 1px rgb(216 236 248 / 20%),
+    inset 0 24px 48px rgb(168 216 245 / 6%),
+    0 16px 32px rgb(0 0 0 / 30%);
+  --elevation-glow: 0 0 6px rgb(186 207 247 / 32%), 0 0 12px rgb(238 186 247 / 24%);
   --error: #e46d4c;
-  --error-bg: rgba(228, 109, 76, 0.12);
-  --error-border: rgba(228, 109, 76, 0.32);
-  --delete-bg: rgba(228, 109, 76, 0.12);
-  --delete-border: rgba(228, 109, 76, 0.4);
+  --error-bg: rgb(228 109 76 / 12%);
+  --error-border: rgb(228 109 76 / 32%);
+  --delete-bg: rgb(228 109 76 / 12%);
+  --delete-border: rgb(228 109 76 / 40%);
   --delete-text: #e46d4c;
-
-  --grid-line: rgba(186, 215, 247, 0.06);
+  --grid-line: rgb(186 215 247 / 6%);
   --heading-gradient: linear-gradient(180deg, #d8ecf8 0%, #98c0ef 100%);
 }

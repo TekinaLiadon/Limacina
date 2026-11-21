@@ -151,7 +151,7 @@ export function useProjectSettings(): {
     if (guardProjectSwitching()) return
     const scope = captureProjectScope((): string => coreStore.currentProject)
     await connectUrlAction.run(async () => {
-      const url = await getServerConnectUrl()
+      const url = await getServerConnectUrl(scope.project)
       if (!scope.isCurrent()) return
       serverConnectUrl.value = url
     })

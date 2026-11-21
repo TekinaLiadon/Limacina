@@ -65,15 +65,18 @@ defineProps<{
     opacity: 0;
     animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
+
   15% {
     transform: scale(1) translateY(0);
     opacity: 1;
   }
+
   80% {
     transform: scale(1) translateY(0);
     opacity: 1;
     animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
   }
+
   100% {
     transform: scale(1.2) translateY(calc(-1 * var(--switch-girl-rise)));
     opacity: 0;

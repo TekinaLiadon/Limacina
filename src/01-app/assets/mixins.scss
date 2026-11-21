@@ -6,7 +6,7 @@
   color: var(--error);
   font-size: var(--text-body-sm);
   text-align: left;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 @mixin caption-hint($align: center) {
@@ -38,7 +38,7 @@
   color: var(--login-text-muted);
 
   @if $hover-exclude-active {
-    &:hover:not(:disabled):not(.disabled):not(&--active) {
+    &:hover:not(:disabled, .disabled, &--active) {
       color: var(--login-text-primary);
 
       @if $hover-bg {
@@ -46,7 +46,7 @@
       }
     }
   } @else {
-    &:hover:not(:disabled):not(.disabled) {
+    &:hover:not(:disabled, .disabled) {
       color: var(--login-text-primary);
 
       @if $hover-bg {
@@ -61,9 +61,10 @@
 
   &:disabled,
   &.disabled {
-    @if $disabled-opacity != null {
+    @if $disabled-opacity {
       opacity: $disabled-opacity;
     }
+
     cursor: not-allowed;
   }
 }
@@ -131,6 +132,7 @@
   justify-content: center;
   width: var(--control-height-sm);
   height: var(--control-height-sm);
+
   @include ghost-button($color: var(--login-text-secondary));
 
   transition: background-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out);
@@ -416,7 +418,9 @@
   position: absolute;
   top: 0;
   height: 100%;
+
   @include accent-gradient;
+
   border-radius: var(--radius-pill);
   pointer-events: none;
 }
@@ -438,14 +442,15 @@
   left: 0;
   width: 100%;
   height: var(--slider-input-height);
-  -webkit-appearance: none;
   appearance: none;
   background: transparent;
   cursor: pointer;
 
   &::-webkit-slider-thumb {
-    -webkit-appearance: none;
+    appearance: none;
+
     @include slider-thumb-core;
+
     transition: transform var(--duration-fast) var(--ease-out);
 
     &:hover {
@@ -467,7 +472,6 @@
     linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
   background-size: var(--grid-cell-size) var(--grid-cell-size);
   mask-image: $mask;
-  -webkit-mask-image: $mask;
   pointer-events: none;
 }
 
@@ -678,8 +682,8 @@
   content: '';
   width: var(--space-8);
   height: var(--space-8);
-  border-top: 1px solid currentColor;
-  border-left: 1px solid currentColor;
+  border-top: 1px solid currentcolor;
+  border-left: 1px solid currentcolor;
 
   @if $direction == up {
     margin-top: var(--space-2);

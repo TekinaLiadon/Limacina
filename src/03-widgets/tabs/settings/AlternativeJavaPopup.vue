@@ -175,7 +175,7 @@ const downloadedLabel = computed((): string => `Скачано: ${formatMegabyte
     font-size: var(--text-caption);
     color: var(--error);
     text-align: left;
-    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   @include mixins.popup-actions('&__btn');

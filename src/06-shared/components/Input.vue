@@ -334,11 +334,10 @@ $input-row-container: 420px;
 
     &[type='number'] {
       appearance: textfield;
-      -moz-appearance: textfield;
 
       &::-webkit-outer-spin-button,
       &::-webkit-inner-spin-button {
-        -webkit-appearance: none;
+        appearance: none;
         margin: 0;
       }
     }

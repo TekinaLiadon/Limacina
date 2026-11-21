@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -262,8 +262,13 @@ pub async fn download_alt_java(
     java_version: Option<&str>,
     mc_version: &str,
 ) -> Result<(PathBuf, String)> {
+    if DOWNLOAD_ACTIVE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err(LauncherError::LaunchInProgress.into());
+    }
     CANCEL_FLAG.store(false, Ordering::Relaxed);
-    DOWNLOAD_ACTIVE.store(true, Ordering::Relaxed);
     let result = download_alt_java_inner(distribution, java_version, mc_version).await;
     DOWNLOAD_ACTIVE.store(false, Ordering::Relaxed);
     result
@@ -393,7 +398,7 @@ async fn download_and_install_alt_java(
         let _ = tokio::fs::remove_file(&archive_path).await;
         log_info!("[java] Скачивание отменено пользователем");
         download_step.fail("Загрузка отменена");
-        return Err(anyhow!("Загрузка отменена"));
+        return Err(LauncherError::Cancelled.into());
     }
 
     download_step.finish(false);
@@ -402,7 +407,7 @@ async fn download_and_install_alt_java(
         StepHandle::start_channel(StepChannel::Java, JAVA_ALT_EXTRACT_STEP, "Распаковка Java");
     let exe = step_try!(
         extract_step,
-        install_java_archive(java_parent, &archive_path, distribution).await
+        install_java_archive(java_parent, &archive_path, distribution, Some(cancel)).await
     );
     extract_step.finish(false);
     log_info!(
@@ -563,7 +568,8 @@ mod download_steps_tests {
     use mockito::Server;
 
     use super::{
-        cancel_alt_java_download, download_and_install_alt_java, CANCEL_FLAG, DOWNLOAD_ACTIVE,
+        cancel_alt_java_download, download_alt_java, download_and_install_alt_java, CANCEL_FLAG,
+        DOWNLOAD_ACTIVE,
     };
     use crate::test_support::{part_files_in, TempDir};
     use crate::utils::step_events::test_capture::{
@@ -858,8 +864,11 @@ mod download_steps_tests {
         drop(second_capture);
     }
 
-    #[test]
-    fn cancel_reports_active_download_and_sets_flag() {
+    static GLOBAL_STATE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    #[tokio::test]
+    async fn cancel_reports_active_download_and_sets_flag() {
+        let _state_lock = GLOBAL_STATE_TEST_LOCK.lock().await;
         CANCEL_FLAG.store(false, Ordering::Relaxed);
         DOWNLOAD_ACTIVE.store(true, Ordering::Relaxed);
 
@@ -885,5 +894,63 @@ mod download_steps_tests {
         );
 
         CANCEL_FLAG.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn concurrent_download_is_rejected_without_resetting_cancel_flag() {
+        let _state_lock = GLOBAL_STATE_TEST_LOCK.lock().await;
+        DOWNLOAD_ACTIVE.store(true, Ordering::Relaxed);
+        CANCEL_FLAG.store(true, Ordering::Relaxed);
+
+        let result = download_alt_java("zulu", None, "1.20.1").await;
+
+        let error = result.expect_err("второй запуск при активной загрузке отклоняется");
+        assert!(
+            error.to_string().contains("уже выполняются"),
+            "ошибка должна сообщать о выполняющейся операции: {error}"
+        );
+        assert!(
+            DOWNLOAD_ACTIVE.load(Ordering::Relaxed),
+            "активная загрузка первой операции не сбрасывается"
+        );
+        assert!(
+            CANCEL_FLAG.load(Ordering::Relaxed),
+            "отклонённый запуск не должен сбрасывать флаг отмены активной загрузки"
+        );
+
+        DOWNLOAD_ACTIVE.store(false, Ordering::Relaxed);
+        CANCEL_FLAG.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn cancel_during_extract_removes_staging_and_archive() {
+        use crate::java::install_java_archive;
+
+        let dir = TempDir::new("alt_java_cancel_extract");
+        let java_parent = dir.0.join("21");
+        std::fs::create_dir_all(&java_parent).expect("создание папки Java");
+        let archive_path = java_parent.join(format!("archive_zulu.{}", test_archive_type()));
+        std::fs::write(&archive_path, test_archive_bytes()).expect("запись архива");
+
+        let cancel = AtomicBool::new(true);
+        let result = install_java_archive(&java_parent, &archive_path, "zulu", Some(&cancel)).await;
+
+        let error = result.expect_err("отмена в фазе распаковки должна прерывать установку");
+        assert!(
+            error.to_string().contains("Загрузка отменена"),
+            "ошибка должна сообщать об отмене: {error}"
+        );
+        assert!(
+            !java_parent.join("staging_zulu").exists(),
+            "staging-папка удаляется после отмены распаковки"
+        );
+        assert!(
+            !java_parent.join("zulu").exists(),
+            "папка дистрибутива не появляется после отмены распаковки"
+        );
+        assert!(
+            !archive_path.exists(),
+            "архив удаляется после отмены распаковки"
+        );
     }
 }

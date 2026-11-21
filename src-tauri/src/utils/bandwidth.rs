@@ -141,7 +141,7 @@ mod tests {
         })
         .await
         .expect("acquire превысил таймаут");
-        assert!(start.elapsed() >= Duration::from_millis(3500));
+        assert!(start.elapsed() >= Duration::from_millis(3900));
 
         set_limit(None);
     }

@@ -172,6 +172,7 @@ const subLabel = (step: StepProgressItem): string => {
       opacity: 1;
     }
   }
+
   &__indicator {
     width: var(--step-indicator-size);
     height: var(--step-indicator-size);
@@ -233,7 +234,7 @@ const subLabel = (step: StepProgressItem): string => {
     font-size: var(--text-caption);
     line-height: var(--leading-caption);
     color: var(--login-text-muted);
-    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   &__item--active &__label,

@@ -247,6 +247,26 @@ describe('Mods', () => {
     wrapper.unmount()
   })
 
+  it('retries the installed list load from the error row without leaving the page', async () => {
+    installedError.value = 'Не удалось загрузить список установленных модов'
+    installed.value = []
+    const wrapper = mountMods()
+    await viewTab(wrapper, 'Установленные')?.trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('.modrinth-installed__empty').exists()).toBe(false)
+    expect(wrapper.find('.load-error-row').exists()).toBe(true)
+
+    loadInstalled.mockClear()
+    const retry = wrapper.findAll('button').find((node) => node.text() === 'Повторить')
+    expect(retry).toBeDefined()
+    await retry?.trigger('click')
+
+    expect(loadInstalled).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+  })
+
   it('opens the details popup for the catalog row', async () => {
     const wrapper = mountMods()
 

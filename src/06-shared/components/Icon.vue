@@ -34,7 +34,7 @@ defineProps<{
   display: inline-block;
   width: 1em;
   height: 1em;
-  fill: currentColor;
+  fill: currentcolor;
   flex-shrink: 0;
 }
 </style>

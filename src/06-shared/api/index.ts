@@ -166,8 +166,8 @@ export async function createServerProfile(serverUrl: string): Promise<ProjectCon
   return invoke<ProjectConfig>('create_server_profile', { serverUrl })
 }
 
-export async function getServerConnectUrl(): Promise<string> {
-  return invoke<string>('get_server_connect_url')
+export async function getServerConnectUrl(projectName: string): Promise<string> {
+  return invoke<string>('get_server_connect_url', { projectName })
 }
 
 export async function createOfflineProfile(

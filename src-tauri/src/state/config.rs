@@ -112,7 +112,7 @@ pub async fn load_config(project_name: &str) -> Result<ProjectConfig> {
 pub async fn load_config_or_default(project_name: &str) -> Result<ProjectConfig> {
     match load_config(project_name).await {
         Ok(config) => Ok(config),
-        Err(e) if is_missing_config(&e) => Ok(default_project_config(project_name)),
+        Err(e) if is_missing_config(&e) => Err(missing_server_url_error(project_name)),
         Err(e) if is_corrupt_config(&e) => recover_corrupt_config(project_name, &e).await,
         Err(e) => Err(e),
     }
@@ -140,6 +140,10 @@ pub(crate) fn is_missing_config(e: &anyhow::Error) -> bool {
 
 pub(crate) fn is_corrupt_config(e: &anyhow::Error) -> bool {
     e.chain().any(|cause| cause.is::<toml::de::Error>())
+}
+
+fn missing_server_url_error(project_name: &str) -> anyhow::Error {
+    anyhow::anyhow!("У проекта {project_name} отсутствует server_url для восстановления")
 }
 
 pub(crate) async fn in_memory_project_config(
@@ -227,9 +231,7 @@ pub(crate) async fn recover_project_config(
     if let Some(config) = in_memory_project_config(state, project_name).await {
         return Ok(config);
     }
-    let server_url = salvaged.ok_or_else(|| {
-        anyhow::anyhow!("У проекта {project_name} отсутствует server_url для восстановления")
-    })?;
+    let server_url = salvaged.ok_or_else(|| missing_server_url_error(project_name))?;
     let fetched = fetch_project_config(&server_url).await?;
     let repaired = ProjectConfig {
         project_name: project_name.to_string(),
@@ -302,15 +304,16 @@ async fn recover_corrupt_config(
     let online = corrupt_online_flag(project_name).await.unwrap_or(true);
     let salvaged = salvage_server_url_from_broken_toml(project_name).await;
     backup_corrupt_config(project_name, error)?;
+    if online && salvaged.is_none() {
+        return Err(missing_server_url_error(project_name));
+    }
     let recovered = ProjectConfig {
         online,
         server_url: salvaged,
         ..default_project_config(project_name)
     };
     log_err!("[config] Конфиг проекта {project_name} восстановлен дефолтом (online: {online})");
-    if recovered.server_url.is_some() || !recovered.online {
-        recovered.save_config().await?;
-    }
+    recovered.save_config().await?;
     Ok(recovered)
 }
 
@@ -465,15 +468,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn corrupt_toml_is_backed_up_and_profile_falls_back_to_default() {
+    async fn corrupt_toml_without_identity_fails_with_explicit_error() {
         let (_guard, config_dir) = seed_broken_project_config("Broken").await;
         let toml_path = config_dir.join("Broken.toml");
 
-        let config = load_config_or_default("Broken")
+        let error = load_config_or_default("Broken")
             .await
-            .expect("битый конфиг не должен ломать профиль");
-        assert_eq!(config.project_name, "Broken");
-        assert!(!config.initialized, "профиль уходит в повторную настройку");
+            .expect_err("битый конфиг без опознаваемых полей не должен восстанавливаться молча");
+        assert_missing_server_url_message(&error, "Broken");
 
         assert!(!toml_path.exists(), "битый файл убран с пути конфига");
         assert!(
@@ -481,10 +483,42 @@ mod tests {
             "битый файл сохранён в бэкап"
         );
 
-        let again = load_config_or_default("Broken")
+        let repeat_error = load_config_or_default("Broken").await.expect_err(
+            "повторный вызов после бэкапа не должен отдавать дефолт после явной ошибки",
+        );
+        assert_missing_server_url_message(&repeat_error, "Broken");
+        assert!(
+            !config_dir.join("Broken.toml").exists(),
+            "новый toml не должен появляться и после повторного вызова"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_config_load_fails_without_silent_default() {
+        let guard = LauncherDirGuard::acquire("config_load_missing_explicit").await;
+
+        let error = load_config_or_default("Ghost")
             .await
-            .expect("повторная загрузка после восстановления стабильна");
-        assert_eq!(again.project_name, "Broken");
+            .expect_err("отсутствующий конфиг не должен молча становиться онлайн-дефолтом");
+        assert_missing_server_url_message(&error, "Ghost");
+        assert!(
+            !guard
+                .root()
+                .join("project")
+                .join("config")
+                .join("Ghost.toml")
+                .exists(),
+            "никакой toml не должен записываться при неудачной загрузке"
+        );
+    }
+
+    fn assert_missing_server_url_message(error: &anyhow::Error, project: &str) {
+        assert!(
+            error.to_string().contains(&format!(
+                "У проекта {project} отсутствует server_url для восстановления"
+            )),
+            "ожидается явная ошибка про server_url: {error}"
+        );
     }
 
     fn sample_config(name: &str) -> ProjectConfig {
@@ -801,10 +835,15 @@ mod recovery_tests {
             !config_dir(&guard).join("Solo.toml").exists(),
             "битый файл должен быть удалён бэкап-логикой до попытки восстановления"
         );
+        let backup_path = config_dir(&guard).join("Solo.toml.bak");
         assert!(
-            !config_dir(&guard).join("Solo.toml.bak").exists()
-                || config_dir(&guard).join("Solo.toml.bak").exists(),
-            "бэкап битого файла создаётся отдельно"
+            backup_path.exists(),
+            "бэкап битого файла создаётся до попытки восстановления"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&backup_path).expect("чтение бэкапа"),
+            "not [valid toml",
+            "в бэкапе сохраняется содержимое битого файла"
         );
         mock.assert_async().await;
     }

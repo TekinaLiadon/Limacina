@@ -59,6 +59,7 @@ const { selectedDistribution, replaceDefault, versionInput } = useAlternativeJav
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .alt-java-button {
   @include mixins.settings-row-body;
 }

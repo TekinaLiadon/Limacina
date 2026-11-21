@@ -53,7 +53,6 @@ const emit = defineEmits<{
     height: 1px;
     opacity: 0;
     overflow: hidden;
-    clip: rect(0 0 0 0);
     clip-path: inset(50%);
     white-space: nowrap;
   }

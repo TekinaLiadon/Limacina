@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
 };
 use walkdir::WalkDir;
 
@@ -60,7 +61,7 @@ pub async fn install_java(config: &ProjectConfig) -> Result<(PathBuf, String)> {
     let extract_step = StepHandle::start("java.extract", "Распаковка Java");
     let executable_path = step_try!(
         extract_step,
-        install_java_archive(&java_dir, &archive_path, "eclipse").await
+        install_java_archive(&java_dir, &archive_path, "eclipse", None).await
     );
     extract_step.finish(false);
 
@@ -158,12 +159,17 @@ pub(crate) async fn resolve_java_version(mc_version: &str) -> String {
     }
 }
 
+fn is_extract_cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
+}
+
 pub(crate) async fn install_java_archive(
     java_parent: &Path,
     archive_path: &Path,
     vendor: &str,
+    cancel: Option<&AtomicBool>,
 ) -> Result<PathBuf> {
-    let result = install_java_archive_inner(java_parent, archive_path, vendor).await;
+    let result = install_java_archive_inner(java_parent, archive_path, vendor, cancel).await;
     if result.is_err() {
         remove_archive_best_effort(archive_path).await;
     }
@@ -174,6 +180,7 @@ async fn install_java_archive_inner(
     java_parent: &Path,
     archive_path: &Path,
     vendor: &str,
+    cancel: Option<&AtomicBool>,
 ) -> Result<PathBuf> {
     let staging_dir = java_parent.join(format!("staging_{vendor}"));
     cleanup_staging_dir(&staging_dir).await?;
@@ -181,11 +188,21 @@ async fn install_java_archive_inner(
         format!("Не удалось создать временную папку распаковки Java {staging_dir:?}")
     })?;
 
+    if is_extract_cancelled(cancel) {
+        cleanup_staging_dir(&staging_dir).await?;
+        return Err(LauncherError::Cancelled.into());
+    }
+
     let staging_extract = staging_dir.clone();
     let archive_extract = archive_path.to_path_buf();
     task::spawn_blocking(move || extract_archive(&archive_extract, &staging_extract))
         .await
         .context("Не удалось распаковать архив Java")??;
+
+    if is_extract_cancelled(cancel) {
+        cleanup_staging_dir(&staging_dir).await?;
+        return Err(LauncherError::Cancelled.into());
+    }
 
     let staging_for_root = staging_dir.clone();
     let source_root = task::spawn_blocking(move || staging_root(&staging_for_root))
@@ -495,7 +512,7 @@ mod tests {
         async fn extracts_into_staging_then_moves_to_vendor_dir() {
             let (_dir, java_parent, archive_path) = staged_java_env("java_stage_ok");
 
-            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse", None)
                 .await
                 .expect("установка Java через staging");
 
@@ -525,7 +542,7 @@ mod tests {
                 "частичная распаковка и чужие поставки не считаются установленной Java"
             );
 
-            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse", None)
                 .await
                 .expect("повторная установка после обрыва");
 
@@ -568,7 +585,7 @@ mod tests {
             std::fs::create_dir_all(&broken).expect("создание битой установки");
             std::fs::write(broken.join("junk"), b"old").expect("запись мусора");
 
-            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse", None)
                 .await
                 .expect("переустановка поверх битой Java");
 
@@ -586,7 +603,7 @@ mod tests {
             bytes.truncate(20);
             std::fs::write(&archive_path, &bytes).expect("запись обрезанного архива");
 
-            let result = install_java_archive(&java_parent, &archive_path, "eclipse").await;
+            let result = install_java_archive(&java_parent, &archive_path, "eclipse", None).await;
 
             assert!(result.is_err(), "обрезанный архив должен ломать установку");
             assert!(
@@ -595,7 +612,7 @@ mod tests {
             );
 
             write_default_jdk_archive(&archive_path);
-            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse", None)
                 .await
                 .expect("повторная установка после перекачки");
             assert_staged_install(&java_parent, &exe);
@@ -615,7 +632,7 @@ mod tests {
                 ],
             );
 
-            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse", None)
                 .await
                 .expect("корень с bin/java должен выбираться независимо от имени");
 
@@ -634,7 +651,7 @@ mod tests {
                 &[("jdk/bin/readme", b"no java"), ("jdk/release", b"JDK")],
             );
 
-            let result = install_java_archive(&java_parent, &archive_path, "eclipse").await;
+            let result = install_java_archive(&java_parent, &archive_path, "eclipse", None).await;
 
             assert!(result.is_err(), "архив без bin/java не должен ставиться");
             assert_eq!(
@@ -682,7 +699,7 @@ mod tests {
                 ],
             );
 
-            let exe = install_java_archive(&java_parent, &archive_path, "eclipse")
+            let exe = install_java_archive(&java_parent, &archive_path, "eclipse", None)
                 .await
                 .expect("установка Java через staging");
 

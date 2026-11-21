@@ -139,6 +139,7 @@ const { handleKeydown: handleTabsKeydown } = useRovingTabs<AuthSubTab>({
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .auth-tabs {
   width: 100%;
   display: flex;

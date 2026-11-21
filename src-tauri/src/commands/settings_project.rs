@@ -314,10 +314,20 @@ mod load_settings_tests {
             config_dir.join("Solo.toml.bak").exists(),
             "битый файл сохраняется в бэкап"
         );
+        assert_eq!(
+            config.server_url.as_deref(),
+            Some("https://per-project.example.com"),
+            "адрес проекта сохраняется при восстановлении из памяти"
+        );
         let restored = load_config("Solo")
             .await
             .expect("конфиг перезаписан рабочим");
         assert!(!restored.online);
+        assert_eq!(
+            restored.server_url.as_deref(),
+            Some("https://per-project.example.com"),
+            "на диске должен остаться адрес проекта"
+        );
     }
 
     #[cfg(unix)]

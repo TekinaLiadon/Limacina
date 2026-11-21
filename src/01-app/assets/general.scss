@@ -1,5 +1,5 @@
-@use "@/01-app/assets/breakpoints.scss";
-@use "@/01-app/assets/mixins.scss";
+@use "@/01-app/assets/breakpoints";
+@use "@/01-app/assets/mixins";
 
 * {
   box-sizing: border-box;
@@ -113,7 +113,6 @@ a {
   font-weight: var(--weight-display);
   letter-spacing: var(--tracking-heading);
   background: var(--heading-gradient);
-  -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: var(--login-text-primary);

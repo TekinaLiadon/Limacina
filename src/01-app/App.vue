@@ -71,7 +71,7 @@ const goSetupFromError = (): void => {
 </template>
 
 <style lang="scss">
-@use '@/01-app/assets/main.scss';
+@use '@/01-app/assets/main';
 @use '@/01-app/assets/mixins';
 
 .app {

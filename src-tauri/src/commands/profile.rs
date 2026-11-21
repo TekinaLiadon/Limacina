@@ -18,9 +18,8 @@ use crate::minecraft::structs::{
 };
 use crate::minecraft::vanilla::structs::VanillaVersionsManifest;
 use crate::state::config::{
-    backup_corrupt_config, current_project_config, is_corrupt_config, load_config,
-    load_config_or_default, project_config_write_lock, set_project_config, validate_project_name,
-    validated_project_name,
+    backup_corrupt_config, is_corrupt_config, load_config, load_config_or_default,
+    project_config_write_lock, set_project_config, validate_project_name, validated_project_name,
 };
 use crate::state::dto::{GlobalState, ModLoader, ProjectConfig};
 use crate::state::launcher_config::LauncherConfig;
@@ -253,8 +252,10 @@ pub async fn create_server_profile(
 }
 
 #[tauri::command]
-pub async fn get_server_connect_url(state: State<'_, Mutex<GlobalState>>) -> CommandResult<String> {
-    let config = current_project_config(state.inner()).await?;
+pub async fn get_server_connect_url(project_name: String) -> CommandResult<String> {
+    let config = load_config(&project_name)
+        .await
+        .with_context(|| format!("Не удалось прочитать конфиг проекта {project_name}"))?;
     if !config.online {
         return Err(LauncherError::OfflineProfile(
             "ссылка для подключения доступна только в серверных профилях".to_string(),
@@ -601,7 +602,8 @@ mod tests {
 
     use super::{
         activate_project, add_offline_profile, add_server_profile, delete_named_project,
-        delete_project_files, persist_new_project, register_project_or_rollback,
+        delete_project_files, get_server_connect_url, persist_new_project,
+        register_project_or_rollback,
     };
 
     fn empty_state() -> Mutex<GlobalState> {
@@ -1383,6 +1385,91 @@ mod tests {
                 .expect("конфиг лаунчера")
                 .has_project("Gamey"),
             "проект снимается с регистрации"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_url_resolves_the_named_project_config() {
+        let _guard = LauncherDirGuard::acquire("connect_url_named").await;
+        ProjectConfig {
+            project_name: "Cordelia".to_string(),
+            server_url: Some("launcher.example.com".to_string()),
+            ..ProjectConfig::default()
+        }
+        .save_config()
+        .await
+        .expect("сохранение конфига проекта");
+
+        let url = get_server_connect_url("Cordelia".to_string())
+            .await
+            .expect("ссылка подключения резолвится из конфига названного проекта");
+
+        assert_eq!(url, "https://launcher.example.com");
+    }
+
+    #[tokio::test]
+    async fn connect_url_reads_the_named_project_not_another_one_on_disk() {
+        let _guard = LauncherDirGuard::acquire("connect_url_named_choice").await;
+        ProjectConfig {
+            project_name: "Beta".to_string(),
+            server_url: Some("https://beta.example.com".to_string()),
+            ..ProjectConfig::default()
+        }
+        .save_config()
+        .await
+        .expect("сохранение конфига Beta");
+        ProjectConfig {
+            project_name: "Alpha".to_string(),
+            server_url: Some("https://alpha.example.com".to_string()),
+            ..ProjectConfig::default()
+        }
+        .save_config()
+        .await
+        .expect("сохранение конфига Alpha");
+
+        let url = get_server_connect_url("Alpha".to_string())
+            .await
+            .expect("ссылка резолвится для названного проекта");
+
+        assert_eq!(url, "https://alpha.example.com");
+    }
+
+    #[tokio::test]
+    async fn connect_url_rejects_offline_profile() {
+        let _guard = LauncherDirGuard::acquire("connect_url_offline").await;
+        ProjectConfig {
+            project_name: "Solo".to_string(),
+            online: false,
+            ..ProjectConfig::default()
+        }
+        .save_config()
+        .await
+        .expect("сохранение конфига проекта");
+
+        let error = get_server_connect_url("Solo".to_string())
+            .await
+            .expect_err("офлайн-профиль должен отклонять ссылку подключения");
+
+        assert_eq!(error.code, "offline_profile");
+        assert!(
+            error.message.contains("серверных профилях"),
+            "ошибка должна объяснять ограничение: {}",
+            error.message
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_url_errors_for_missing_project_config() {
+        let _guard = LauncherDirGuard::acquire("connect_url_missing").await;
+
+        let error = get_server_connect_url("Ghost".to_string())
+            .await
+            .expect_err("отсутствующий конфиг должен отклонять ссылку подключения");
+
+        assert!(
+            error.message.contains("Ghost"),
+            "ошибка должна называть проект: {}",
+            error.message
         );
     }
 }

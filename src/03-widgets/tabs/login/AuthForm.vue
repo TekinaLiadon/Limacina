@@ -83,6 +83,7 @@ const handleSubmit = (): void => {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .auth-form {
   width: 100%;
   display: flex;

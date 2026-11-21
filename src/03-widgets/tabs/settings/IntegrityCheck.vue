@@ -89,6 +89,7 @@ const isPopupVisible = computed((): boolean => !props.isPopupHidden && (props.is
 
 .integrity-popup {
   @include mixins.popup-card;
+
   max-height: var(--integrity-popup-max-height);
   overflow-y: auto;
   display: flex;

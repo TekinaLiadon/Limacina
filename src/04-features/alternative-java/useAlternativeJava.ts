@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import {
   cancelAlternativeJava,
   downloadAlternativeJava,
+  getCommandError,
   getErrorMessage,
   getJavaDistributions,
   getJavaVersion,
@@ -20,6 +21,9 @@ export type AlternativeJavaDownloadResult =
   | 'busy'
 
 type AlternativeJavaPhase = 'download' | 'extract'
+
+const CANCELLED_ERROR_CODE = 'cancelled'
+const LAUNCH_IN_PROGRESS_ERROR_CODE = 'launch_in_progress'
 
 export function useAlternativeJava() {
   const notification = useNotificationStore()
@@ -143,11 +147,14 @@ export function useAlternativeJava() {
       isPopupOpen.value = false
       return replaceDefault.value ? 'replaced' : 'downloaded'
     } catch (e: unknown) {
-      if (downloadRequested.value) {
+      const { code, message } = getCommandError(e)
+      if (code === CANCELLED_ERROR_CODE) {
         isPopupOpen.value = false
         return 'failed'
       }
-      const message = getErrorMessage(e)
+      if (code === LAUNCH_IN_PROGRESS_ERROR_CODE) {
+        return 'busy'
+      }
       reportError('Не удалось скачать Java', e)
       notification.show(`Ошибка загрузки Java: ${message}`)
       return 'failed'

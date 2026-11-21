@@ -62,7 +62,7 @@ const emit = defineEmits<{
   font-size: var(--text-body-sm);
   line-height: var(--leading-body-sm);
   color: var(--error);
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .startup-error__actions {

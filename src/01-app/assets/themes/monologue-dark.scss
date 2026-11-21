@@ -1,68 +1,58 @@
 [data-theme="monologue-dark"] {
-  --font-body: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-body: "JetBrains Mono", "Cascadia Code", consolas, monospace;
   --font-display: "Jost", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-mono: "JetBrains Mono", "Cascadia Code", consolas, monospace;
   --font-eyebrow: var(--font-mono);
   --weight-display: 400;
   --tracking-body: normal;
   --tracking-heading: -0.018em;
   --tracking-eyebrow: 0.06em;
-
   --radius-button: var(--radius-pill);
   --radius-card: 18px;
   --radius-modal: 24px;
   --radius-input: 8px;
   --radius-badge: var(--radius-pill);
-
-  --login-bg-primary: #000000;
+  --login-bg-primary: #000;
   --login-bg-secondary: #010101;
   --app-bg:
-    radial-gradient(120% 90% at 50% -20%, rgba(25, 208, 232, 0.07) 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% -20%, rgb(25 208 232 / 7%) 0%, transparent 60%),
     linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-primary) 100%);
-  --html-bg: #000000;
-
+  --html-bg: #000;
   --login-bg-form: #191919;
-
-  --login-text-primary: #ffffff;
+  --login-text-primary: #fff;
   --login-text-secondary: #c0c0c0;
   --login-text-muted: #8f8f8f;
-
   --login-accent: #19d0e8;
-  --login-accent-hover: #44ccff;
+  --login-accent-hover: #4cf;
   --text-on-accent: #062f34;
-  --accent-fill: #ffffff;
-  --text-on-accent-fill: #000000;
-  --accent-subtle: rgba(25, 208, 232, 0.08);
-  --accent-active-bg: rgba(25, 208, 232, 0.18);
+  --accent-fill: #fff;
+  --text-on-accent-fill: #000;
+  --accent-subtle: rgb(25 208 232 / 8%);
+  --accent-active-bg: rgb(25 208 232 / 18%);
   --accent-text: #19d0e8;
-
-  --surface-subtle: rgba(255, 255, 255, 0.03);
-  --surface-light: rgba(255, 255, 255, 0.06);
-  --surface-input: rgba(255, 255, 255, 0.06);
-  --surface-hover: rgba(255, 255, 255, 0.09);
-  --surface-active: rgba(255, 255, 255, 0.13);
-  --overlay: rgba(0, 0, 0, 0.78);
-
-  --border-subtle: rgba(255, 255, 255, 0.12);
-  --elevation-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  --elevation-inset-strong: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
-
+  --surface-subtle: rgb(255 255 255 / 3%);
+  --surface-light: rgb(255 255 255 / 6%);
+  --surface-input: rgb(255 255 255 / 6%);
+  --surface-hover: rgb(255 255 255 / 9%);
+  --surface-active: rgb(255 255 255 / 13%);
+  --overlay: rgb(0 0 0 / 78%);
+  --border-subtle: rgb(255 255 255 / 12%);
+  --elevation-inset: inset 0 0 0 1px rgb(255 255 255 / 12%);
+  --elevation-inset-strong: inset 0 0 0 1px rgb(255 255 255 / 24%);
   --elevation-card:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
-    inset 0 1px 0 0 rgba(25, 208, 232, 0.2);
+    inset 0 0 0 1px rgb(255 255 255 / 12%),
+    inset 0 1px 0 0 rgb(25 208 232 / 20%);
   --elevation-modal:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
-    inset 0 1px 0 0 rgba(25, 208, 232, 0.2),
-    0 0 24px rgba(0, 0, 0, 0.6);
-  --elevation-glow: 0 0 8px rgba(25, 208, 232, 0.4);
-
+    inset 0 0 0 1px rgb(255 255 255 / 12%),
+    inset 0 1px 0 0 rgb(25 208 232 / 20%),
+    0 0 24px rgb(0 0 0 / 60%);
+  --elevation-glow: 0 0 8px rgb(25 208 232 / 40%);
   --error: #ff6b5b;
-  --error-bg: rgba(255, 107, 91, 0.1);
-  --error-border: rgba(255, 107, 91, 0.32);
-  --delete-bg: rgba(255, 107, 91, 0.1);
-  --delete-border: rgba(255, 107, 91, 0.4);
+  --error-bg: rgb(255 107 91 / 10%);
+  --error-border: rgb(255 107 91 / 32%);
+  --delete-bg: rgb(255 107 91 / 10%);
+  --delete-border: rgb(255 107 91 / 40%);
   --delete-text: #ff6b5b;
-
-  --grid-line: rgba(255, 255, 255, 0.05);
-  --heading-gradient: linear-gradient(180deg, #ffffff 0%, #c0c0c0 100%);
+  --grid-line: rgb(255 255 255 / 5%);
+  --heading-gradient: linear-gradient(180deg, #fff 0%, #c0c0c0 100%);
 }

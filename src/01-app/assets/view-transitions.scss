@@ -15,7 +15,6 @@
   animation: var(--switch-name) var(--switch-duration);
   animation-timing-function: cubic-bezier(0.7, 0, 0.84, 0);
   animation-fill-mode: both;
-  -webkit-mask: url('@/01-app/assets/shigure-ui-smol.webp') 50%/0 no-repeat;
   mask: url('@/01-app/assets/shigure-ui-smol.webp') 50%/0 no-repeat;
 }
 
@@ -27,19 +26,18 @@
 
 @keyframes scale {
   0% {
-    -webkit-mask-size: 0;
     mask-size: 0;
   }
+
   10% {
-    -webkit-mask-size: 25vmax;
     mask-size: 25vmax;
   }
+
   90% {
-    -webkit-mask-size: 25vmax;
     mask-size: 25vmax;
   }
-  to {
-    -webkit-mask-size: 750vmax;
+
+  100% {
     mask-size: 750vmax;
   }
 }

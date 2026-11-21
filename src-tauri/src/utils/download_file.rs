@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use futures::StreamExt;
 use quick_xml::de::from_str;
 use serde::de::DeserializeOwned;
@@ -274,7 +274,7 @@ where
             .cancel
             .is_some_and(|flag| flag.load(Ordering::Relaxed))
         {
-            return Err(anyhow!("Загрузка отменена"));
+            return Err(LauncherError::Cancelled.into());
         }
         let chunk = item.map_err(|e| {
             LauncherError::Download(format!("Ошибка чтения потока при скачивании {url}: {e:#}"))

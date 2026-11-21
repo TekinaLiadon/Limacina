@@ -139,6 +139,7 @@ const toggleAutoRotate = (): void => {
 
 <style lang="scss">
 @use '@/01-app/assets/mixins';
+
 .viewer-toolbar {
   @include mixins.tool-panel;
 

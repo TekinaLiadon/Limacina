@@ -1,66 +1,56 @@
 [data-theme="lime-dark"] {
-  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", roboto, sans-serif;
   --font-display: "Inter Tight", "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Mono", Consolas, monospace;
+  --font-mono: "JetBrains Mono", "Fira Mono", consolas, monospace;
   --font-eyebrow: var(--font-body);
   --weight-display: 500;
   --tracking-body: -0.024em;
   --tracking-heading: -0.012em;
   --tracking-eyebrow: 0.05em;
-
   --radius-button: 12px;
   --radius-card: 8px;
   --radius-modal: 12px;
   --radius-input: 8px;
   --radius-badge: 8px;
-
-  --login-bg-primary: #000000;
+  --login-bg-primary: #000;
   --login-bg-secondary: #0a0d09;
   --app-bg:
-    radial-gradient(100% 70% at 50% -10%, rgba(127, 238, 100, 0.1) 0%, transparent 55%),
+    radial-gradient(100% 70% at 50% -10%, rgb(127 238 100 / 10%) 0%, transparent 55%),
     linear-gradient(180deg, var(--login-bg-primary) 0%, var(--login-bg-primary) 100%);
-  --html-bg: #000000;
-
+  --html-bg: #000;
   --login-bg-form: #181818;
-
   --login-text-primary: #ddffdc;
   --login-text-secondary: #8cab87;
   --login-text-muted: #859984;
-
   --login-accent: #7fee64;
   --login-accent-hover: #96f47f;
   --text-on-accent: #10180d;
   --accent-fill: var(--login-accent);
   --text-on-accent-fill: var(--text-on-accent);
-  --accent-subtle: rgba(127, 238, 100, 0.08);
-  --accent-active-bg: rgba(127, 238, 100, 0.18);
+  --accent-subtle: rgb(127 238 100 / 8%);
+  --accent-active-bg: rgb(127 238 100 / 18%);
   --accent-text: var(--login-accent);
-
-  --surface-subtle: rgba(221, 255, 220, 0.03);
-  --surface-light: rgba(221, 255, 220, 0.05);
-  --surface-input: rgba(221, 255, 220, 0.05);
-  --surface-hover: rgba(221, 255, 220, 0.09);
-  --surface-active: rgba(221, 255, 220, 0.13);
-  --overlay: rgba(0, 0, 0, 0.78);
-
-  --border-subtle: rgba(72, 83, 70, 0.9);
-  --elevation-inset: inset 0 0 0 1px rgba(72, 83, 70, 0.9);
-  --elevation-inset-strong: inset 0 0 0 1px rgba(156, 191, 147, 0.6);
-
-  --elevation-card: inset 0 0 0 1px rgba(72, 83, 70, 0.9);
+  --surface-subtle: rgb(221 255 220 / 3%);
+  --surface-light: rgb(221 255 220 / 5%);
+  --surface-input: rgb(221 255 220 / 5%);
+  --surface-hover: rgb(221 255 220 / 9%);
+  --surface-active: rgb(221 255 220 / 13%);
+  --overlay: rgb(0 0 0 / 78%);
+  --border-subtle: rgb(72 83 70 / 90%);
+  --elevation-inset: inset 0 0 0 1px rgb(72 83 70 / 90%);
+  --elevation-inset-strong: inset 0 0 0 1px rgb(156 191 147 / 60%);
+  --elevation-card: inset 0 0 0 1px rgb(72 83 70 / 90%);
   --elevation-modal:
-    inset 0 0 0 1px rgba(72, 83, 70, 0.9),
-    0 10px 15px -3px rgba(0, 0, 0, 0.5),
-    0 4px 6px -4px rgba(0, 0, 0, 0.5);
-  --elevation-glow: 0 0 8px rgba(127, 238, 100, 0.45);
-
+    inset 0 0 0 1px rgb(72 83 70 / 90%),
+    0 10px 15px -3px rgb(0 0 0 / 50%),
+    0 4px 6px -4px rgb(0 0 0 / 50%);
+  --elevation-glow: 0 0 8px rgb(127 238 100 / 45%);
   --error: #ff7b6b;
-  --error-bg: rgba(255, 123, 107, 0.1);
-  --error-border: rgba(255, 123, 107, 0.32);
-  --delete-bg: rgba(255, 123, 107, 0.1);
-  --delete-border: rgba(255, 123, 107, 0.4);
+  --error-bg: rgb(255 123 107 / 10%);
+  --error-border: rgb(255 123 107 / 32%);
+  --delete-bg: rgb(255 123 107 / 10%);
+  --delete-border: rgb(255 123 107 / 40%);
   --delete-text: #ff7b6b;
-
-  --grid-line: rgba(72, 83, 70, 0.35);
+  --grid-line: rgb(72 83 70 / 35%);
   --heading-gradient: linear-gradient(180deg, #ddffdc 0%, #9cbf93 100%);
 }

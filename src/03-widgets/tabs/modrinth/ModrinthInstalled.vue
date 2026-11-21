@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Button, Skeleton } from '@/06-shared'
 import type { ModrinthInstalledMod } from '@/05-entities'
+import LoadErrorRow from '@/03-widgets/common/LoadErrorRow.vue'
 import ModrinthRow from './ModrinthRow.vue'
 
 const props = defineProps<{
@@ -21,13 +22,14 @@ const emit = defineEmits<{
   'check-updates': []
   'export-modset': []
   'import-modset': []
+  'retry-installed': []
   update: [projectId: string]
   uninstall: [projectId: string]
 }>()
 
-const errorTexts = computed((): string[] => {
-  const texts = [props.actionError, props.installedError]
-  return Array.from(new Set(texts.filter((text: string): boolean => text !== '')))
+const actionErrorTexts = computed((): string[] => {
+  if (props.actionError === '' || props.actionError === props.installedError) return []
+  return [props.actionError]
 })
 </script>
 
@@ -63,7 +65,12 @@ const errorTexts = computed((): string[] => {
       </Button>
     </div>
 
-    <div v-for="text in errorTexts" :key="text" class="modrinth-installed__error">{{ text }}</div>
+    <LoadErrorRow
+      :message="props.installedError"
+      :is-loading="props.isLoading"
+      @retry="emit('retry-installed')"
+    />
+    <div v-for="text in actionErrorTexts" :key="text" class="modrinth-installed__error">{{ text }}</div>
 
     <div v-if="props.isLoading" class="modrinth-installed__list" aria-hidden="true">
       <div v-for="index in 5" :key="index" class="modrinth-row">
@@ -73,7 +80,7 @@ const errorTexts = computed((): string[] => {
     <p v-else-if="props.mods.length === 0 && !props.installedError" class="modrinth-installed__empty">
       Пока ничего не установлено, найдите моды в каталоге
     </p>
-    <div v-else class="modrinth-installed__list">
+    <div v-else-if="props.mods.length > 0" class="modrinth-installed__list">
       <ModrinthRow
         v-for="mod in props.mods"
         :key="mod.project_id"
