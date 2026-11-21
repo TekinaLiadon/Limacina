@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Ref } from 'vue'
 import type { CPMAnimation, CPMAnimationInterpolator, CPMVec3 } from '@/05-entities'
+import { booleanUserData, numberUserData } from '@/06-shared'
 import { computeMeshVisible } from './meshVisibility'
 
 export const SPEED_MIN = 0.25
@@ -43,7 +44,7 @@ export function indexModelNodes(modelGroup: THREE.Group): NodeIndex {
       })
     }
 
-    const baseVisible = (object.userData.defaultVisible as boolean | undefined) !== false
+    const baseVisible = booleanUserData(object, 'defaultVisible') !== false
 
     index.set(storeId, {
       group: object,
@@ -189,32 +190,33 @@ function createPolynomialSampler(values: number[], loop: boolean): StepSampler {
   return createNaturalSpline(x, y)
 }
 
+const INTERPOLATOR_SAMPLERS: Record<CPMAnimationInterpolator, (values: number[]) => StepSampler> = {
+  linear_loop: (values) => createLoopSampler(values, lerp),
+  linear_single: (values) => createSingleSampler(values, lerp),
+  trig_loop: (values) => createLoopSampler(values, trigInt),
+  trig_single: (values) => createSingleSampler(values, trigInt),
+  poly_loop: (values) => createPolynomialSampler(values, true),
+  poly_single: (values) => createPolynomialSampler(values, false),
+  no: (values) => createStepSampler(values),
+}
+
 export function createChannelSampler(values: number[], interpolator: CPMAnimationInterpolator): StepSampler {
   if (values.length === 0) return () => 0
   if (values.length === 1) {
     const only = values[0] ?? 0
     return () => only
   }
-  switch (interpolator) {
-    case 'linear_loop':
-      return createLoopSampler(values, lerp)
-    case 'linear_single':
-      return createSingleSampler(values, lerp)
-    case 'trig_loop':
-      return createLoopSampler(values, trigInt)
-    case 'trig_single':
-      return createSingleSampler(values, trigInt)
-    case 'poly_loop':
-      return createPolynomialSampler(values, true)
-    case 'poly_single':
-      return createPolynomialSampler(values, false)
-    case 'no':
-      return createStepSampler(values)
-  }
+  return INTERPOLATOR_SAMPLERS[interpolator](values)
 }
 
 type AxisTracks = [number[], number[], number[]]
 type AxisSamplers = [StepSampler, StepSampler, StepSampler]
+
+const mapAxes = <T>(axes: AxisTracks, map: (values: number[]) => T): [T, T, T] => [
+  map(axes[0]),
+  map(axes[1]),
+  map(axes[2]),
+]
 
 interface RawChannelTrack {
   storeId: number
@@ -315,14 +317,14 @@ function buildTracks(animation: CPMAnimation, index: NodeIndex): ChannelTrack[] 
   const samplerFor = (values: number[]): StepSampler => createChannelSampler(values, animation.interpolator)
 
   return [...tracks.values()].map((track) => {
-    const rot = track.rot.map(unwrapChannel) as AxisTracks
+    const rot = mapAxes(track.rot, unwrapChannel)
     return {
       ...track,
       rot,
       samplers: {
-        pos: track.pos.map(samplerFor) as AxisSamplers,
-        rot: rot.map(samplerFor) as AxisSamplers,
-        scale: track.scale.map(samplerFor) as AxisSamplers,
+        pos: mapAxes(track.pos, samplerFor),
+        rot: mapAxes(rot, samplerFor),
+        scale: mapAxes(track.scale, samplerFor),
         show: createStepSampler(track.show),
       },
     }
@@ -507,7 +509,7 @@ export class CpmAnimationPlayer {
       node.group.scale.copy(node.baseScale)
       node.group.visible = node.baseVisible
       node.meshes.forEach((mesh) => {
-        const layerId = mesh.userData.layerId as number | undefined
+        const layerId = numberUserData(mesh, 'layerId')
         mesh.userData.animVisible = mesh.userData.defaultVisible !== false
         mesh.visible = computeMeshVisible(
           mesh.userData.animVisible,
@@ -592,7 +594,7 @@ export class CpmAnimationPlayer {
         node.group.visible = visible
         node.meshes.forEach((mesh) => {
           mesh.userData.animVisible = visible
-          const layerId = mesh.userData.layerId as number | undefined
+          const layerId = numberUserData(mesh, 'layerId')
           mesh.visible = computeMeshVisible(
             visible,
             layerId,

@@ -3,7 +3,7 @@ import { nextTick, ref } from 'vue'
 import { useFocusTrap } from '../useFocusTrap'
 import { withSetup } from '@/test-support/withSetup'
 
-const unmountFns: Array<() => void> = []
+const unmountFns: (() => void)[] = []
 
 const buildTrap = (isActive: () => boolean): void => {
   const container = document.createElement('div')

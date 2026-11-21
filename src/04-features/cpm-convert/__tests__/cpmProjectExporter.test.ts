@@ -201,7 +201,7 @@ function makePng(w: number, h: number): Uint8Array {
   return bytes
 }
 
-function containsSequence(bytes: Uint8Array, sequence: Array<number>): boolean {
+function containsSequence(bytes: Uint8Array, sequence: number[]): boolean {
   return bytes.some((_, index) =>
     sequence.every((expected, offset) => bytes[index + offset] === expected),
   )

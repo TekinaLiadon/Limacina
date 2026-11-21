@@ -11,5 +11,5 @@ export async function requestNotificationPermission(): Promise<'granted' | 'deni
 }
 
 export async function sendOsNotification(options: NotificationOptions): Promise<void> {
-  await sendNotification(options)
+  sendNotification(options)
 }

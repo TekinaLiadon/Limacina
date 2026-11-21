@@ -7,10 +7,14 @@ const formatErrorDetail = (error: unknown): string => {
   if (error === undefined) return ''
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
+  if (typeof error === 'symbol') return error.toString()
+  if (typeof error === 'number' || typeof error === 'boolean' || typeof error === 'bigint') return String(error)
+  if (typeof error === 'function') return '[function]'
+  if (error === null) return 'null'
   try {
-    return JSON.stringify(error) ?? String(error)
+    return JSON.stringify(error)
   } catch {
-    return String(error)
+    return Object.prototype.toString.call(error)
   }
 }
 

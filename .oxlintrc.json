@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["import", "vue"],
+  "plugins": ["import", "vue", "typescript"],
   "categories": {
     "correctness": "error",
     "suspicious": "error"
@@ -8,8 +8,10 @@
   "rules": {
     "eslint/no-control-regex": "off",
     "eslint/no-underscore-dangle": ["error", { "allow": ["__TAURI_INTERNALS__"] }],
-    "typescript/consistent-type-imports": ["warn", { "prefer": "inline-type-imports" }],
+    "typescript/consistent-type-imports": ["warn", { "prefer": "type-imports", "fixStyle": "inline-type-imports" }],
     "typescript/array-type": "warn",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unsafe-type-assertion": "error",
     "eslint/prefer-destructuring": "warn",
     "eslint/no-duplicate-imports": "warn",
     "eslint/prefer-template": "warn",
@@ -32,7 +34,13 @@
         "eslint/max-statements": "off",
         "eslint/complexity": "off",
         "eslint/max-depth": "off",
-        "eslint/max-params": "off"
+        "eslint/max-params": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-floating-promises": "off",
+        "typescript/await-thenable": "off",
+        "typescript/unbound-method": "off",
+        "typescript/consistent-type-imports": ["warn", { "prefer": "type-imports", "fixStyle": "inline-type-imports", "disallowTypeAnnotations": false }]
       }
     },
     {
@@ -70,6 +78,17 @@
       ],
       "rules": {
         "eslint/max-params": "off"
+      }
+    },
+    {
+      "files": [
+        "src/04-features/launcher-settings/useLauncherSettings.ts",
+        "src/06-shared/utils/useDirtySnapshot.ts",
+        "src/06-shared/utils/utils.ts"
+      ],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-unnecessary-type-parameters": "off"
       }
     }
   ],

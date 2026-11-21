@@ -76,10 +76,10 @@ const sideText = computed((): string => {
   return `Клиент: ${sideLabel(project.client_side)} · Сервер: ${sideLabel(project.server_side)}`
 })
 
-const links = computed((): Array<{ label: string; url: string }> => {
+const links = computed((): { label: string; url: string }[] => {
   const project = props.details?.project
   if (!project) return []
-  const result: Array<{ label: string; url: string }> = []
+  const result: { label: string; url: string }[] = []
   if (project.source_url) result.push({ label: 'Исходный код', url: project.source_url })
   if (project.issues_url) result.push({ label: 'Сообщить об ошибке', url: project.issues_url })
   if (project.wiki_url) result.push({ label: 'Вики', url: project.wiki_url })

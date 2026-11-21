@@ -1,6 +1,6 @@
 import { watch, type Ref } from 'vue'
 import * as THREE from 'three'
-import { setFaceQuad, type ViewerControls } from '@/06-shared'
+import { setFaceQuad, uvAttributeOf, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitToView } from '@/04-features/viewer/useViewerCamera'
 
@@ -9,7 +9,7 @@ interface BodyPart {
   h: number
   d: number
   pos: [number, number, number]
-  faces: Array<[number, number]>
+  faces: [number, number][]
   overlayDelta: [number, number]
   inflate: number
 }
@@ -17,10 +17,10 @@ interface BodyPart {
 function createParts(slim: boolean): BodyPart[] {
   const armW = slim ? 3 : 4
   const armX = slim ? 5.5 : 6
-  const rightArmFaces: Array<[number, number]> = slim
+  const rightArmFaces: [number, number][] = slim
     ? [[47, 20], [40, 20], [44, 16], [47, 16], [44, 20], [51, 20]]
     : [[48, 20], [40, 20], [44, 16], [48, 16], [44, 20], [52, 20]]
-  const leftArmFaces: Array<[number, number]> = slim
+  const leftArmFaces: [number, number][] = slim
     ? [[39, 52], [32, 52], [36, 48], [39, 48], [36, 52], [43, 52]]
     : [[40, 52], [32, 52], [36, 48], [40, 48], [36, 52], [44, 52]]
 
@@ -80,9 +80,9 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
       part.h + inflate * 2,
       part.d + inflate * 2,
     )
-    const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+    const uvAttr = uvAttributeOf(geo)
 
-    const faceDims: Array<[number, number]> = [
+    const faceDims: [number, number][] = [
       [part.d, part.h],
       [part.d, part.h],
       [part.w, part.d],
@@ -111,7 +111,7 @@ function buildPlayerModel(texture: THREE.Texture, slim: boolean): THREE.Group {
       const uLeft = flipU ? u1 : u0
       const uRight = flipU ? u0 : u1
 
-      const quad: Array<[number, number]> = i === 2 || i === 3
+      const quad: [number, number][] = i === 2 || i === 3
         ? [[uLeft, v1], [uRight, v1], [uLeft, v0], [uRight, v0]]
         : [[uLeft, v0], [uRight, v0], [uLeft, v1], [uRight, v1]]
       setFaceQuad(uvAttr, base, quad)

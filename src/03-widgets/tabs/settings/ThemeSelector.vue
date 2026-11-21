@@ -14,7 +14,7 @@ const {
 const tabId = (familyId: string): string => `theme-family-${familyId}`
 
 const { handleKeydown: handleRovingKeydown, move } = useRovingTabs<string>({
-  tabs: (): Array<{ key: string }> => families.map((family) => ({ key: family.id })),
+  tabs: (): { key: string }[] => families.map((family) => ({ key: family.id })),
   isActive: (familyId: string): boolean => currentFamily.value === familyId,
   tabId,
   select: selectFamily,

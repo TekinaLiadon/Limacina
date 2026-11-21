@@ -5,11 +5,11 @@ import { withSetup } from '@/test-support/withSetup'
 import { useViewerModel } from '../useViewerModel'
 import type { ViewerControls } from '@/06-shared'
 
-const textureLoads = vi.hoisted(() => [] as Array<{
+const textureLoads = vi.hoisted(() => [] as {
   url: string
   resolve: (texture: THREE.Texture) => void
   fail: (error: unknown) => void
-}>)
+}[])
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()

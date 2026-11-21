@@ -1,5 +1,5 @@
 import { onBeforeUnmount, shallowRef, watch, type Ref, type ShallowRef } from 'vue'
-import * as THREE from 'three'
+import type * as THREE from 'three'
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createManagedTextureLoader, removeGroupFromScene, useThreeScene, type ViewerControls } from '@/06-shared'
 import { useViewerCamera } from './useViewerCamera'

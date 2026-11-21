@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { setFaceQuad } from '@/06-shared'
+import { setFaceQuad, uvAttributeOf } from '@/06-shared'
 import type {
   FiguraCubeFace,
   FiguraCubeNode,
@@ -17,7 +17,7 @@ const MIN_UV_SIZE = 1
 const MAX_COORD = 1_000_000
 const DEFAULT_UV_SIZE = 16
 
-type Quad = Array<[number, number]>
+type Quad = [number, number][]
 
 interface CubeBox {
   width: number
@@ -164,7 +164,7 @@ function faceRectOf(node: FiguraCubeNode, direction: string, face: FiguraCubeFac
 }
 
 function applyCubeUvs(geo: THREE.BoxGeometry, node: FiguraCubeNode, context: BuildContext): void {
-  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+  const uvAttr = uvAttributeOf(geo)
   CUBE_FACE_ORDER.forEach((direction, faceIndex) => {
     const face = node.faces[direction]
     if (face === undefined) return

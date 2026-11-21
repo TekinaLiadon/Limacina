@@ -12,13 +12,13 @@ const emit = defineEmits<{
   'update:activeView': [view: ModsView]
 }>()
 
-const viewTabs: Array<{ key: ModsView; label: string }> = [
+const viewTabs: { key: ModsView; label: string }[] = [
   { key: 'catalog', label: 'Каталог' },
   { key: 'installed', label: 'Установленные' },
 ]
 
 const { handleKeydown } = useRovingTabs<ModsView>({
-  tabs: (): Array<{ key: ModsView; label: string }> => viewTabs,
+  tabs: (): { key: ModsView; label: string }[] => viewTabs,
   isActive: (key: ModsView): boolean => props.activeView === key,
   tabId: (key: ModsView): string => `modrinth-view-${key}`,
   select: (key: ModsView): void => {

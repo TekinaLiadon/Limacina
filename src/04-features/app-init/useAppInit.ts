@@ -96,7 +96,7 @@ export function useAppInit() {
       }
 
       if (!coreStore.launcherConfig) {
-        router.replace('/setup')
+        void router.replace('/setup')
         return
       }
 
@@ -123,7 +123,7 @@ export function useAppInit() {
   }
 
   onBeforeMount(() => {
-    init()
+    void init()
   })
 
   return {

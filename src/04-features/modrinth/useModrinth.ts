@@ -31,7 +31,7 @@ export const MODRINTH_DOWNLOAD_FORMS: PluralForms = { one: 'загрузка', f
 
 export const MODRINTH_FOLLOW_FORMS: PluralForms = { one: 'подписчик', few: 'подписчика', many: 'подписчиков' }
 
-export const MODRINTH_SORTS: Array<{ value: string; label: string }> = [
+export const MODRINTH_SORTS: { value: string; label: string }[] = [
   { value: 'relevance', label: 'По релевантности' },
   { value: 'downloads', label: 'По загрузкам' },
   { value: 'follows', label: 'По подпискам' },

@@ -198,7 +198,8 @@ function parseCube(cube: CubeNode, refOrigin: CPMVec3, state: BbmodelParserState
   return child
 }
 
-function childrenOf(nodes: unknown[], state: BbmodelParserState, parentOrigin: CPMVec3): CPMChild[] {
+function childrenOf(nodes: unknown, state: BbmodelParserState, parentOrigin: CPMVec3): CPMChild[] {
+  if (!Array.isArray(nodes)) return []
   const children: CPMChild[] = []
   for (const node of nodes) {
     if (typeof node === 'string') {
@@ -230,7 +231,7 @@ function parseGroup(node: CubeNode, state: BbmodelParserState, parentOrigin: CPM
     rotation: rotationOf(data.rotation),
     scale: { ...ONE },
     storeID: storeId,
-    children: childrenOf(node.children as unknown[], state, origin),
+    children: childrenOf(node.children, state, origin),
   }
   registerAnimator(state, node.uuid, storeId, false)
   return child
@@ -244,7 +245,7 @@ function parseRootGroup(
   const data = groupDataOf(node, state)
   const name = nameOf(data, 'group')
   const origin = vec3Of(data.origin, `origin группы "${name}"`)
-  const children = childrenOf(node.children as unknown[], state, origin)
+  const children = childrenOf(node.children, state, origin)
   if (children.length === 0) return null
 
   const partId = matchVanillaPart(name)

@@ -1,4 +1,4 @@
-import JSZip from 'jszip'
+import type JSZip from 'jszip'
 import { readZipEntryText, type ZipReadBudget } from '../cpm-convert/cpmProjectZip'
 import { reportError } from '@/06-shared'
 import {

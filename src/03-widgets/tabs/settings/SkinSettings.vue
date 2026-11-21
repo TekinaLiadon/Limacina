@@ -28,7 +28,7 @@ const {
   resetSkin,
 } = useOfflineSkinSettings()
 
-const modelModes: Array<{ value: typeof modelMode.value; label: string }> = [
+const modelModes: { value: typeof modelMode.value; label: string }[] = [
   { value: 'classic', label: 'Классик' },
   { value: 'slim', label: 'Слим' },
 ]

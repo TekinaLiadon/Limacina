@@ -1,6 +1,6 @@
 import { watch, onBeforeUnmount, type Ref } from 'vue'
 import * as THREE from 'three'
-import type { ViewerControls } from '@/06-shared'
+import { numberUserData, type ViewerControls } from '@/06-shared'
 import { useViewerModel } from '@/04-features/viewer/useViewerModel'
 import { fitToView } from '@/04-features/viewer/useViewerCamera'
 import type { CPMData } from '@/05-entities'
@@ -74,7 +74,7 @@ export function useCpmViewer(
 
     modelGroup.value.traverse((object) => {
       if (object instanceof THREE.Mesh) {
-        const layerId = object.userData.layerId as number | undefined
+        const layerId = numberUserData(object, 'layerId')
         const animVisible = object.userData.animVisible !== false
         object.visible = computeMeshVisible(
           animVisible,

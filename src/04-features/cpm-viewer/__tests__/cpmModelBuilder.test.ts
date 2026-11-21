@@ -53,10 +53,10 @@ function faceAtlasRect(mesh: THREE.Mesh, face: FaceName): number[] {
   )
 }
 
-function faceUvCorners(mesh: THREE.Mesh, face: FaceName): Array<[number, number]> {
+function faceUvCorners(mesh: THREE.Mesh, face: FaceName): [number, number][] {
   const uv = mesh.geometry.getAttribute('uv') as THREE.BufferAttribute
   const base = FACES.indexOf(face) * 4
-  const corners: Array<[number, number]> = []
+  const corners: [number, number][] = []
   for (let i = 0; i < 4; i++) {
     corners.push([uv.getX(base + i), uv.getY(base + i)])
   }

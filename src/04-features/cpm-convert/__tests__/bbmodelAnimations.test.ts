@@ -12,7 +12,7 @@ const vec = (x: unknown, y: unknown, z: unknown): Record<string, unknown> => ({ 
 const keyframe = (
   channel: string,
   time: unknown,
-  points: Array<Record<string, unknown>>,
+  points: Record<string, unknown>[],
   interpolation?: string,
 ): Record<string, unknown> => ({
   channel,

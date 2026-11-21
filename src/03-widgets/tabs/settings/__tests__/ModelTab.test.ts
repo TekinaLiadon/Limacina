@@ -20,7 +20,7 @@ beforeEach((): void => {
   setActivePinia(createPinia())
 })
 
-const PANELS: Array<{ name: string; component: Component }> = [
+const PANELS: { name: string; component: Component }[] = [
   { name: 'ModelTabCpm', component: ModelTabCpm },
   { name: 'ModelTabBbmodel', component: ModelTabBbmodel },
   { name: 'ModelTabFigura', component: ModelTabFigura },

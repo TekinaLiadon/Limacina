@@ -386,7 +386,7 @@ describe('useAccountsPage', () => {
   })
 
   it('ignores a parallel second launch while the session check is pending', async () => {
-    const resolveSessionChecks: Array<(usernames: string[]) => void> = []
+    const resolveSessionChecks: ((usernames: string[]) => void)[] = []
     vi.mocked(getGameState).mockImplementation(
       () =>
         new Promise<string[]>((resolve) => {

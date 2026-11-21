@@ -23,9 +23,6 @@ const mountPopup = (distributions: JavaDistribution[], overrides: Record<string,
     attachTo: document.body,
   })
 
-const query = <T extends Element>(selector: string): T | null =>
-  document.body.querySelector<T>(selector)
-
 describe('AlternativeJavaPopup', () => {
   it('maps distributions to dropdown options and follows prop updates', async () => {
     const wrapper = mountPopup(makeDistributions(['Adoptium', 'Azul']))
@@ -50,13 +47,13 @@ describe('AlternativeJavaPopup', () => {
     })
     await wrapper.vm.$nextTick()
 
-    const bar = query('.progress-bar')
+    const bar = document.body.querySelector('.progress-bar')
     expect(bar).not.toBeNull()
     expect(bar?.querySelector('.progress-bar__fill')).not.toBeNull()
     expect(bar?.textContent).toContain('25%')
     expect(bar?.getAttribute('aria-label')).toBe('Прогресс загрузки Java')
-    expect(query('.preloader')).toBeNull()
-    expect(query('.alt-java-popup__downloaded')).toBeNull()
+    expect(document.body.querySelector('.preloader')).toBeNull()
+    expect(document.body.querySelector('.alt-java-popup__downloaded')).toBeNull()
 
     wrapper.unmount()
   })
@@ -69,9 +66,9 @@ describe('AlternativeJavaPopup', () => {
     })
     await wrapper.vm.$nextTick()
 
-    expect(query('.progress-bar')).toBeNull()
-    expect(query('.preloader')).not.toBeNull()
-    expect(query('.alt-java-popup__downloaded')?.textContent).toBe('Скачано: 1.5 МБ')
+    expect(document.body.querySelector('.progress-bar')).toBeNull()
+    expect(document.body.querySelector('.preloader')).not.toBeNull()
+    expect(document.body.querySelector('.alt-java-popup__downloaded')?.textContent).toBe('Скачано: 1.5 МБ')
 
     wrapper.unmount()
   })
@@ -85,10 +82,10 @@ describe('AlternativeJavaPopup', () => {
     })
     await wrapper.vm.$nextTick()
 
-    expect(query('.alt-java-popup__phase')?.textContent).toContain('Распаковка')
-    expect(query('.progress-bar')).toBeNull()
-    expect(query('.preloader')).toBeNull()
-    expect(query('.alt-java-popup__downloaded')).toBeNull()
+    expect(document.body.querySelector('.alt-java-popup__phase')?.textContent).toContain('Распаковка')
+    expect(document.body.querySelector('.progress-bar')).toBeNull()
+    expect(document.body.querySelector('.preloader')).toBeNull()
+    expect(document.body.querySelector('.alt-java-popup__downloaded')).toBeNull()
 
     wrapper.unmount()
   })
@@ -97,7 +94,7 @@ describe('AlternativeJavaPopup', () => {
     const wrapper = mountPopup([], { isDownloading: true })
     await wrapper.vm.$nextTick()
 
-    query<HTMLElement>('.alt-java-popup__btn')?.click()
+    document.body.querySelector<HTMLElement>('.alt-java-popup__btn')?.click()
 
     expect(wrapper.emitted('cancel')).toHaveLength(1)
 

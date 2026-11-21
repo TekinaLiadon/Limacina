@@ -173,7 +173,7 @@ function flatten(config: CPMConfig): FlatModel {
   const walk = (elements: (CPMElement | CPMChild)[], parentId: number): void => {
     for (const el of elements) {
       if ('id' in el) {
-        const root = el as CPMElement
+        const root = el
         if (root.customPart === true || root.dup === true) {
           const fakeId = pushPivotCube(root, CUSTOM_PART_ORDINAL)
           walk(root.children ?? [], fakeId)
@@ -190,7 +190,7 @@ function flatten(config: CPMConfig): FlatModel {
         walk(root.children ?? [], ordinal)
         continue
       }
-      const child = el as CPMChild
+      const child = el
       const id = nextId++
       elementIds.set(child, id)
       if (typeof child.storeID === 'number') {
@@ -379,10 +379,11 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null, sou
         w.writeVarInt(id)
       })
     }
-    if (child.faceUV && Object.keys(child.faceUV).length > 0) {
+    const { faceUV } = child
+    if (faceUV && Object.keys(faceUV).length > 0) {
       renderEffect(RE.PER_FACE_UV, (w) => {
         w.writeVarInt(id)
-        writeFaceUVs(w, child.faceUV as Record<string, CPMFaceUV>)
+        writeFaceUVs(w, faceUV)
       })
     }
     if ((child.u ?? 0) > 255 || (child.v ?? 0) > 255) {
@@ -397,10 +398,10 @@ function buildDefinitionBytes(config: CPMConfig, skinPng: Uint8Array | null, sou
   const walkEffects = (elements: (CPMElement | CPMChild)[]): void => {
     for (const el of elements) {
       if ('id' in el) {
-        const root = el as CPMElement
+        const root = el
         walkEffects(root.children ?? [])
       } else {
-        const child = el as CPMChild
+        const child = el
         writeChildEffects(child)
         walkEffects(child.children ?? [])
       }

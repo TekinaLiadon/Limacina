@@ -12,12 +12,12 @@ vi.mock('@/04-features', async () => {
   return {
     useDebugConsole: (): Record<string, unknown> => ({
       logs: ref<string[]>([]),
-      sessionTabs: ref<Array<{ name: string; isLive: boolean }>>([]),
+      sessionTabs: ref<{ name: string; isLive: boolean }[]>([]),
       activeSession: ref<string | null>(null),
-      activeLogs: ref<Array<{ line: string; isError: boolean; session: string | null }>>([
+      activeLogs: ref<{ line: string; isError: boolean; session: string | null }[]>([
         { line: 'log line', isError: false, session: null },
       ]),
-      filteredLogs: ref<Array<{ line: string; isError: boolean; session: string | null }>>([
+      filteredLogs: ref<{ line: string; isError: boolean; session: string | null }[]>([
         { line: 'log line', isError: false, session: null },
       ]),
       searchQuery: ref(''),

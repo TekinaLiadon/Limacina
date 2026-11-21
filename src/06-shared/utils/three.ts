@@ -3,10 +3,28 @@ import type { Ref } from 'vue'
 import { useAsyncRaceGuard } from './useAsyncRaceGuard'
 import { reportError } from './reportError'
 
-export function setFaceQuad(uvAttr: THREE.BufferAttribute, base: number, quad: Array<[number, number]>): void {
+export function setFaceQuad(uvAttr: THREE.BufferAttribute, base: number, quad: [number, number][]): void {
   quad.forEach(([u, v], i) => {
     uvAttr.setXY(base + i, u, v)
   })
+}
+
+export function uvAttributeOf(geo: THREE.BufferGeometry): THREE.BufferAttribute {
+  const attribute = geo.getAttribute('uv')
+  if (!(attribute instanceof THREE.BufferAttribute)) {
+    throw new Error('У геометрии нет UV-атрибута BufferAttribute')
+  }
+  return attribute
+}
+
+export function numberUserData(object: THREE.Object3D, key: string): number | undefined {
+  const value: unknown = object.userData[key]
+  return typeof value === 'number' ? value : undefined
+}
+
+export function booleanUserData(object: THREE.Object3D, key: string): boolean | undefined {
+  const value: unknown = object.userData[key]
+  return typeof value === 'boolean' ? value : undefined
 }
 
 function configurePixelTexture(texture: THREE.Texture): THREE.Texture {

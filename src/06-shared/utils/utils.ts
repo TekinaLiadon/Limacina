@@ -26,3 +26,7 @@ export function matchesExtension(name: string, accept: readonly string[]): boole
     return lowerName.endsWith(`.${extension}`) || lowerName === extension
   })
 }
+
+export function objectKeys<T extends object>(data: T): (keyof T)[] {
+  return Object.keys(data) as (keyof T)[]
+}

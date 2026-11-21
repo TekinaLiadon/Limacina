@@ -14,7 +14,7 @@ export function startOfflineSetupRedirect(): void {
 
   watch((): boolean => coreStore.needsOfflineSetup, (needed: boolean): void => {
     if (needed && route.name !== 'Setup') {
-      router.replace({ name: 'Setup' })
+      void router.replace({ name: 'Setup' })
     }
   })
 }
@@ -35,7 +35,7 @@ export function useOfflineSetup(): {
       return
     }
     if (!needsProfile.value) {
-      router.replace('/')
+      void router.replace('/')
       return
     }
     step.value = 2

@@ -12,7 +12,7 @@ import {
   getLoaderVersions,
   getMinecraftVersions,
 } from '@/06-shared/api'
-import { runScopedAction, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
+import { objectKeys, runScopedAction, useAsyncRaceGuard, type DropdownOption } from '@/06-shared'
 import { applyCreatedProfile } from './applyCreatedProfile'
 import { isProfileCreationBlocked } from './isProfileCreationBlocked'
 
@@ -21,7 +21,7 @@ const loaderOption = (value: ModLoaderKind): DropdownOption => ({
   title: value === 'vanilla' ? 'Без загрузчика (Vanilla)' : LOADER_LABELS[value],
 })
 
-const LOADER_OPTIONS: DropdownOption[] = (Object.keys(LOADER_LABELS) as ModLoaderKind[]).map(
+const LOADER_OPTIONS: DropdownOption[] = objectKeys(LOADER_LABELS).map(
   loaderOption,
 )
 

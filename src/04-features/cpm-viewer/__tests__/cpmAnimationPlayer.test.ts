@@ -128,7 +128,7 @@ describe('game interpolation', () => {
     ['no', [0, 0, 0, 10, 4, 7, 7]],
     ['poly_loop', [0, 1.8419378221649483, 5.0125644329896915, 7.634987113402062, 6.823735502577319, 2.9500644329896915, -0.013577688144328803]],
     ['poly_single', [0, 2.602497009569378, 5.766148325358851, 7.690789473684211, 5.853917464114834, 7.676435406698565, 7.018036473684209]],
-  ] as Array<[CPMAnimationInterpolator, number[]]>)('%s matches the game value vectors', (interpolator, expected) => {
+  ] as [CPMAnimationInterpolator, number[]][])('%s matches the game value vectors', (interpolator, expected) => {
     const sampler = createChannelSampler(INTERPOLATOR_VALUES, interpolator)
     INTERPOLATOR_STEPS.forEach((step, index) => {
       expect(sampler(step)).toBeCloseTo(expected[index]!, 10)

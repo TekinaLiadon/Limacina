@@ -45,7 +45,11 @@ export function useUserContentFile(options: UserContentFileOptions) {
       },
       onLoad: async (file: File, result: string | ArrayBuffer): Promise<void> => {
         try {
-          const bytes = new Uint8Array(result as ArrayBuffer)
+          if (typeof result === 'string') {
+            options.errorMessage.value = 'Файл прочитан в неверном формате'
+            return
+          }
+          const bytes = new Uint8Array(result)
           const invalidMessage = options.validateBytes?.(bytes, file.name) ?? null
           if (invalidMessage !== null) {
             options.errorMessage.value = invalidMessage

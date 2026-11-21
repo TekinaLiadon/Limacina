@@ -15,13 +15,14 @@ const INTERNAL_ERROR_CODE = 'internal'
 
 export const AUTH_NO_SAVED_CREDENTIALS_CODE = 'auth_no_saved_credentials'
 
+function isCommandErrorPayload(value: unknown): value is CommandErrorPayload {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('code' in value) || !('message' in value)) return false
+  return typeof value.code === 'string' && typeof value.message === 'string'
+}
+
 export function getCommandError(e: unknown): CommandErrorPayload {
-  if (typeof e === 'object' && e !== null && 'code' in e && 'message' in e) {
-    const payload = e as { code: unknown; message: unknown }
-    if (typeof payload.code === 'string' && typeof payload.message === 'string') {
-      return { code: payload.code, message: payload.message }
-    }
-  }
+  if (isCommandErrorPayload(e)) return { code: e.code, message: e.message }
   if (typeof e === 'string') return { code: INTERNAL_ERROR_CODE, message: e }
   if (e instanceof Error) return { code: INTERNAL_ERROR_CODE, message: e.message }
   return { code: INTERNAL_ERROR_CODE, message: String(e) }

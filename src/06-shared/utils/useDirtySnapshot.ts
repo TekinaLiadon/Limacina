@@ -1,17 +1,18 @@
 import { computed, ref, type ComputedRef } from 'vue'
+import { objectKeys } from './utils'
 
 type DirtyBaseline<T extends object> = Record<keyof T, string>
 
 function captureDirtyBaseline<T extends object>(data: T): DirtyBaseline<T> {
   const snapshot = {} as DirtyBaseline<T>
-  for (const key of Object.keys(data) as (keyof T)[]) {
+  for (const key of objectKeys(data)) {
     snapshot[key] = JSON.stringify(data[key])
   }
   return snapshot
 }
 
 function hasDirtyFields<T extends object>(baseline: DirtyBaseline<T>, data: T): boolean {
-  return (Object.keys(data) as (keyof T)[]).some(
+  return objectKeys(data).some(
     (key) => baseline[key] !== JSON.stringify(data[key]),
   )
 }
@@ -52,7 +53,7 @@ export function useDirtySnapshot<T extends object>(source: () => T): DirtySnapsh
       return
     }
     const patched = { ...snapshot }
-    for (const key of Object.keys(partial) as (keyof T)[]) {
+    for (const key of objectKeys(partial)) {
       const value = partial[key]
       if (value !== undefined) patched[key] = JSON.stringify(value)
     }

@@ -1,7 +1,9 @@
 import * as THREE from 'three'
-import { DEFAULT_RGB, parseHexColor, setFaceQuad } from '@/06-shared'
-import type { CPMConfig, CPMFaceUV, CPMChild, CPMElement } from '@/05-entities'
+import { DEFAULT_RGB, parseHexColor, setFaceQuad, uvAttributeOf } from '@/06-shared'
+import type { CPMConfig, CPMFaceUV, CPMChild, CPMElement, CPMVec3 } from '@/05-entities'
 import { PLAYER_PART_ORDINALS, ROOT_PIVOTS } from './playerParts'
+
+const ZERO_PIVOT: CPMVec3 = { x: 0, y: 0, z: 0 }
 
 const FACE_MAP: Record<string, number> = {
   east: 0,
@@ -13,7 +15,7 @@ const FACE_MAP: Record<string, number> = {
 }
 
 function applyFaceUVs(geo: THREE.BoxGeometry, faceUV: Record<string, CPMFaceUV>, skinW: number, skinH: number): void {
-  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+  const uvAttr = uvAttributeOf(geo)
 
   Object.entries(faceUV).forEach(([face, uv]) => {
     const faceIndex = FACE_MAP[face]
@@ -25,7 +27,7 @@ function applyFaceUVs(geo: THREE.BoxGeometry, faceUV: Record<string, CPMFaceUV>,
     const u1 = uv.ex / skinW
     const v1 = 1 - uv.ey / skinH
 
-    let quad: Array<[number, number]>
+    let quad: [number, number][]
     switch (uv.rot || '0') {
       case '90':
         quad = [[u0, v1], [u0, v0], [u1, v1], [u1, v0]]
@@ -55,7 +57,7 @@ function applyBoxUVs(
     singleTex: boolean,
     mirror: boolean,
 ): void {
-  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute
+  const uvAttr = uvAttributeOf(geo)
   const ts = Math.abs(texSize)
   const dx = Math.ceil(w * ts)
   const dy = Math.ceil(h * ts)
@@ -65,7 +67,7 @@ function applyBoxUVs(
 
   const s = (px: number, py: number): [number, number] => [px / skinW, 1 - py / skinH]
 
-  let faces: Array<[number, number, number, number]>
+  let faces: [number, number, number, number][]
   if (singleTex) {
     const side = Math.max(dx, dy, dz)
     faces = Array.from({ length: 6 }, () => [tu, tv, tu + side, tv + side])
@@ -115,7 +117,7 @@ function pushQuad(
     positions: number[],
     normals: number[],
     uvs: number[],
-    corners: Array<[number, number, number, number, number]>,
+    corners: [number, number, number, number, number][],
     normal: [number, number, number],
 ): void {
   const indices = [0, 1, 2, 0, 2, 3]
@@ -214,10 +216,7 @@ export function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.
   const skinW = config.skinSize.x
   const skinH = config.skinSize.y
 
-  function buildNode(node: CPMElement | CPMChild, isRoot: boolean, rootId?: string): THREE.Group {
-    const group = new THREE.Group()
-
-    const pivot = isRoot ? (ROOT_PIVOTS[rootId as string] ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 }
+  function applyNodeTransform(group: THREE.Group, node: CPMElement | CPMChild, pivot: CPMVec3): void {
     group.position.set(
         pivot.x + (node.pos?.x || 0),
         pivot.y - (node.pos?.y || 0),
@@ -233,106 +232,114 @@ export function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.
       )
     }
 
-    if (!isRoot) {
-      const renderScale = (node as CPMChild).rscale
-      if (renderScale) group.scale.set(renderScale.x, renderScale.y, renderScale.z)
-    }
     group.name = 'id' in node ? node.id : node.name
+  }
 
-    if (isRoot) {
-      const element = node as CPMElement
-      const isVanillaRoot = element.customPart !== true && element.dup !== true
-      group.userData.storeID = isVanillaRoot
-        ? (PLAYER_PART_ORDINALS[element.id] ?? element.storeID)
-        : element.storeID
-      group.userData.isRoot = true
-      group.userData.isVanillaPart = isVanillaRoot
-      if (!isVanillaRoot) {
-        const defaultVisible = element.show !== false
-        group.visible = defaultVisible
-        group.userData.defaultVisible = defaultVisible
-      }
-    } else {
-      const child = node as CPMChild
-      group.userData.storeID = child.storeID
-      const defaultVisible = child.hidden !== true && child.show !== false
+  function addChildren(group: THREE.Group, children: CPMChild[] | undefined): void {
+    if (!children || !Array.isArray(children)) return
+    children.forEach((childNode) => {
+      group.add(buildChildNode(childNode))
+    })
+  }
+
+  function buildRootNode(element: CPMElement, rootId: string): THREE.Group {
+    const group = new THREE.Group()
+    applyNodeTransform(group, element, ROOT_PIVOTS[rootId] ?? ZERO_PIVOT)
+
+    const isVanillaRoot = element.customPart !== true && element.dup !== true
+    group.userData.storeID = isVanillaRoot
+      ? (PLAYER_PART_ORDINALS[element.id] ?? element.storeID)
+      : element.storeID
+    group.userData.isRoot = true
+    group.userData.isVanillaPart = isVanillaRoot
+    if (!isVanillaRoot) {
+      const defaultVisible = element.show !== false
       group.visible = defaultVisible
       group.userData.defaultVisible = defaultVisible
+    }
+    addChildren(group, element.children)
+    return group
+  }
 
-      const {size} = child
-      const hasSize = size && (size.x > 0 || size.y > 0 || size.z > 0)
+  function buildChildNode(child: CPMChild): THREE.Group {
+    const group = new THREE.Group()
+    applyNodeTransform(group, child, ZERO_PIVOT)
 
-      if (hasSize) {
-        const mcScale = child.mcScale || 0
-        const meshScale = child.scale || { x: 1, y: 1, z: 1 }
-        const geo = new THREE.BoxGeometry(
-            size.x * meshScale.x + mcScale * 2,
-            size.y * meshScale.y + mcScale * 2,
-            size.z * meshScale.z + mcScale * 2,
-        )
-        const position = new THREE.Vector3(
-            child.offset.x + size.x * meshScale.x / 2,
-            -child.offset.y - size.y * meshScale.y / 2,
-            -child.offset.z - size.z * meshScale.z / 2
-        )
+    const renderScale = child.rscale
+    if (renderScale) group.scale.set(renderScale.x, renderScale.y, renderScale.z)
 
-        let mat: THREE.MeshLambertMaterial
-        let mesh: THREE.Mesh
-        if (child.texture === false) {
-          const rgb = parseHexColor(child.color)
-          mat = new THREE.MeshLambertMaterial({
-            color: rgb ?? DEFAULT_RGB,
-            side: THREE.DoubleSide,
-          })
-          mesh = new THREE.Mesh(geo, mat)
+    group.userData.storeID = child.storeID
+    const defaultVisible = child.hidden !== true && child.show !== false
+    group.visible = defaultVisible
+    group.userData.defaultVisible = defaultVisible
+
+    const {size} = child
+    const hasSize = size && (size.x > 0 || size.y > 0 || size.z > 0)
+
+    if (hasSize) {
+      const mcScale = child.mcScale || 0
+      const meshScale = child.scale || { x: 1, y: 1, z: 1 }
+      const geo = new THREE.BoxGeometry(
+          size.x * meshScale.x + mcScale * 2,
+          size.y * meshScale.y + mcScale * 2,
+          size.z * meshScale.z + mcScale * 2,
+      )
+      const position = new THREE.Vector3(
+          child.offset.x + size.x * meshScale.x / 2,
+          -child.offset.y - size.y * meshScale.y / 2,
+          -child.offset.z - size.z * meshScale.z / 2
+      )
+
+      let mesh: THREE.Mesh
+      if (child.texture === false) {
+        const rgb = parseHexColor(child.color)
+        const mat = new THREE.MeshLambertMaterial({
+          color: rgb ?? DEFAULT_RGB,
+          side: THREE.DoubleSide,
+        })
+        mesh = new THREE.Mesh(geo, mat)
+      } else {
+        const texSize = child.textureSize ?? 1
+        const singleTex = !!child.singleTex
+        let meshGeo: THREE.BufferGeometry = geo
+        if (!singleTex && child.extrude) {
+          meshGeo = buildExtrudedGeometry(child, mcScale, skinW, skinH)
+          geo.dispose()
         } else {
-          const texSize = child.textureSize ?? 1
-          const singleTex = !!child.singleTex
-          let meshGeo: THREE.BufferGeometry = geo
-          if (!singleTex && child.extrude) {
-            meshGeo = buildExtrudedGeometry(child, mcScale, skinW, skinH)
-            geo.dispose()
+          const effTexSize = child.mirror ? -Math.abs(texSize) : texSize
+          if (!singleTex && child.faceUV && Object.keys(child.faceUV).length > 0) {
+            applyFaceUVs(geo, child.faceUV, skinW, skinH)
           } else {
-            const effTexSize = child.mirror ? -Math.abs(texSize) : texSize
-            if (!singleTex && child.faceUV && Object.keys(child.faceUV).length > 0) {
-              applyFaceUVs(geo, child.faceUV, skinW, skinH)
-            } else {
-              applyBoxUVs(
-                  geo,
-                  child.u || 0, child.v || 0,
-                  size.x, size.y, size.z,
-                  effTexSize,
-                  skinW, skinH,
-                  singleTex,
-                  !!child.mirror,
-              )
-            }
+            applyBoxUVs(
+                geo,
+                child.u || 0, child.v || 0,
+                size.x, size.y, size.z,
+                effTexSize,
+                skinW, skinH,
+                singleTex,
+                !!child.mirror,
+            )
           }
-
-          mat = new THREE.MeshLambertMaterial({
-            map: texture,
-            transparent: true,
-            alphaTest: 0.3,
-            side: THREE.DoubleSide,
-          })
-          mesh = new THREE.Mesh(meshGeo, mat)
         }
 
-        mesh.position.copy(position)
-        mesh.userData.layerId = child.storeID
-        mesh.userData.defaultVisible = defaultVisible
-        mesh.userData.animVisible = defaultVisible
-
-        group.add(mesh)
+        const mat = new THREE.MeshLambertMaterial({
+          map: texture,
+          transparent: true,
+          alphaTest: 0.3,
+          side: THREE.DoubleSide,
+        })
+        mesh = new THREE.Mesh(meshGeo, mat)
       }
+
+      mesh.position.copy(position)
+      mesh.userData.layerId = child.storeID
+      mesh.userData.defaultVisible = defaultVisible
+      mesh.userData.animVisible = defaultVisible
+
+      group.add(mesh)
     }
 
-    if (node.children && Array.isArray(node.children)) {
-      node.children.forEach((childNode) => {
-        group.add(buildNode(childNode, false))
-      })
-    }
-
+    addChildren(group, child.children)
     return group
   }
 
@@ -346,14 +353,14 @@ export function buildCpmModel(config: CPMConfig, texture: THREE.Texture): THREE.
   const dupIndex: Record<string, number> = {}
   config.elements.forEach((element) => {
     if (element.customPart) {
-      rootGroup.add(buildNode(element, true, element.id))
+      rootGroup.add(buildRootNode(element, element.id))
       return
     }
     if (element.dup) {
       dupIndex[element.id] = (dupIndex[element.id] ?? 0) + 1
       if (seenVanilla.has(element.id) || (dupIndex[element.id] ?? 0) > 1) return
     }
-    rootGroup.add(buildNode(element, true, element.id))
+    rootGroup.add(buildRootNode(element, element.id))
   })
 
   const scale = config.scaling || 1

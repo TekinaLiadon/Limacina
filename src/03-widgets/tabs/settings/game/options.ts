@@ -42,6 +42,21 @@ const guiScaleOptions: DropdownOption[] = [
   { title: '4', value: '4' },
 ]
 
+const CLOUDS_MODES: GameCloudsMode[] = ['true', 'fast', 'false']
+const CHAT_VISIBILITIES: GameChatVisibility[] = ['full', 'system', 'hidden']
+
+const isCloudsMode = (value: string): value is GameCloudsMode =>
+  CLOUDS_MODES.some((mode) => mode === value)
+
+const isChatVisibility = (value: string): value is GameChatVisibility =>
+  CHAT_VISIBILITIES.some((mode) => mode === value)
+
+const cloudsModeOf = (value: string): GameCloudsMode =>
+  isCloudsMode(value) ? value : 'true'
+
+const chatVisibilityOf = (value: string): GameChatVisibility =>
+  isChatVisibility(value) ? value : 'full'
+
 type NumberGameKey = { [K in keyof GameOptions]-?: GameOptions[K] extends number ? K : never }[keyof GameOptions]
 type BooleanGameKey = { [K in keyof GameOptions]-?: GameOptions[K] extends boolean ? K : never }[keyof GameOptions]
 
@@ -50,11 +65,11 @@ export type GameOptionField =
   | { kind: 'checkbox'; key: BooleanGameKey; label: string }
   | { kind: 'dropdown'; key: keyof GameOptions; label: string; options: DropdownOption[]; read: (options: GameOptions) => string; write: (value: string) => GameOptions[keyof GameOptions] }
 
-function sliderField<K extends NumberGameKey>(field: { key: K; label: string; min: number; max: number; step?: number }): GameOptionField {
+function sliderField(field: { key: NumberGameKey; label: string; min: number; max: number; step?: number }): GameOptionField {
   return { kind: 'slider', ...field }
 }
 
-function checkboxField<K extends BooleanGameKey>(field: { key: K; label: string }): GameOptionField {
+function checkboxField(field: { key: BooleanGameKey; label: string }): GameOptionField {
   return { kind: 'checkbox', ...field }
 }
 
@@ -71,7 +86,7 @@ export const graphicsOptionFields: GameOptionField[] = [
   dropdownField({ key: 'graphicsMode', label: 'Графика', options: graphicsModeOptions, read: (options) => String(options.graphicsMode), write: (value) => Number(value) }),
   dropdownField({ key: 'mipmapLevels', label: 'Детализация текстур (mipmap)', options: mipmapOptions, read: (options) => String(options.mipmapLevels), write: (value) => Number(value) }),
   dropdownField({ key: 'particles', label: 'Частицы', options: particlesOptions, read: (options) => String(options.particles), write: (value) => Number(value) }),
-  dropdownField({ key: 'renderClouds', label: 'Облака', options: cloudsOptions, read: (options) => options.renderClouds, write: (value) => value as GameCloudsMode }),
+  dropdownField({ key: 'renderClouds', label: 'Облака', options: cloudsOptions, read: (options) => options.renderClouds, write: cloudsModeOf }),
   dropdownField({ key: 'guiScale', label: 'Масштаб интерфейса', options: guiScaleOptions, read: (options) => String(options.guiScale), write: (value) => Number(value) }),
   checkboxField({ key: 'enableVsync', label: 'Вертикальная синхронизация' }),
   checkboxField({ key: 'entityShadows', label: 'Тени существ' }),
@@ -93,7 +108,7 @@ export const soundOptionFields: GameOptionField[] = [
 ]
 
 export const chatOptionFields: GameOptionField[] = [
-  dropdownField({ key: 'chatVisibility', label: 'Видимость чата', options: chatVisibilityOptions, read: (options) => options.chatVisibility, write: (value) => value as GameChatVisibility }),
+  dropdownField({ key: 'chatVisibility', label: 'Видимость чата', options: chatVisibilityOptions, read: (options) => options.chatVisibility, write: chatVisibilityOf }),
   sliderField({ key: 'chatScale', label: 'Масштаб чата', min: 0, max: 1, step: 0.05 }),
   sliderField({ key: 'chatWidth', label: 'Ширина чата', min: 0, max: 1, step: 0.05 }),
   sliderField({ key: 'chatOpacity', label: 'Прозрачность фона', min: 0, max: 1, step: 0.05 }),

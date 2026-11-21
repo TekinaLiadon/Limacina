@@ -138,19 +138,18 @@ export function useCpmSettings(
   )
 
   const layerPanelData = computed((): CpmLayerPanelData => {
-    const data: CpmLayerPanelData = { tabs: [] }
+    const grouped = new Map<string, CpmLayerTabItem[]>()
     for (const layer of displayLayers.value) {
       const tab = layer.group || 'Без группы'
-      let items = data[tab] as CpmLayerTabItem[] | undefined
-      if (!items) {
-        items = []
-        data[tab] = items
-        data.tabs.push(tab)
-      }
+      const items = grouped.get(tab) ?? []
+      if (items.length === 0) grouped.set(tab, items)
       const id = layer.storeId === null ? `${tab}:${items.length}` : String(layer.storeId)
       items.push({ id, label: layer.name, disabled: layer.storeId === null })
     }
-    return data
+    return {
+      tabs: [...grouped.keys()],
+      ...Object.fromEntries(grouped),
+    }
   })
 
   const visibleLayerKeys = computed((): string[] =>

@@ -20,13 +20,11 @@ const ZIP_SIZE_MESSAGE = 'Файл проекта слишком большой 
 
 const MAX_UNCOMPRESSED_PROJECT_BYTES = 32 * 1024 * 1024
 
-interface ZipEntrySizeMeta {
-  uncompressedSize?: unknown
-}
-
 function declaredEntrySize(file: JSZip.JSZipObject): number {
-  const meta = file as unknown as Record<string, ZipEntrySizeMeta | undefined>
-  const declared = meta['_data']?.uncompressedSize
+  if (!isRecord(file)) return 0
+  const data = file['_data']
+  if (!isRecord(data)) return 0
+  const declared = data.uncompressedSize
   return typeof declared === 'number' && Number.isFinite(declared) && declared > 0 ? declared : 0
 }
 

@@ -8,11 +8,11 @@ import type { CPMChild, CPMConfig, CPMData } from '@/05-entities'
 import type { ViewerControls } from '@/06-shared'
 import femaleBodyConfigRaw from './fixtures/female-body.config.json?raw'
 
-const textureLoads = vi.hoisted(() => [] as Array<{
+const textureLoads = vi.hoisted(() => [] as {
   url: string
   resolve: (texture: THREE.Texture) => void
   fail: (error: unknown) => void
-}>)
+}[])
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()

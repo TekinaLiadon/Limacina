@@ -7,7 +7,7 @@ export interface ContentConfirmTexts {
 
 export interface ConfirmedContentActions {
   runReset: (reset: () => void | Promise<void>) => Promise<void>
-  runDelete: (id: number, afterDelete?: (() => Promise<void>) | undefined) => Promise<void>
+  runDelete: (id: number, afterDelete?: () => Promise<void>) => Promise<void>
 }
 
 export function createConfirmedContentActions(
@@ -17,7 +17,7 @@ export function createConfirmedContentActions(
 ): ConfirmedContentActions {
   return {
     runReset: (reset: () => void | Promise<void>): Promise<void> => notification.runConfirmed(texts.reset, reset),
-    runDelete: (id: number, afterDelete?: (() => Promise<void>) | undefined): Promise<void> =>
+    runDelete: (id: number, afterDelete?: () => Promise<void>): Promise<void> =>
       notification.runConfirmed(texts.delete, async (): Promise<void> => {
         await content.handleDelete(id)
         await afterDelete?.()

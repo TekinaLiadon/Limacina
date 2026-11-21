@@ -30,12 +30,12 @@ export function useDropdownPanel(
     const panel = panelRef.value
     if (!panel) return
 
-    const firstItem = panel.firstElementChild as HTMLElement | null
+    const firstItem = panel.firstElementChild
     const style = getComputedStyle(panel)
     const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
     const gap = Number.parseFloat(style.rowGap) || 0
     const visible = Math.min(maxVisible(), panel.children.length)
-    const itemHeight = firstItem?.offsetHeight ?? 0
+    const itemHeight = firstItem instanceof HTMLElement ? firstItem.offsetHeight : 0
     measuredHeight.value =
       visible * itemHeight + padding + gap * Math.max(visible - 1, 0)
   }
@@ -81,7 +81,7 @@ export function useDropdownPanel(
   }
 
   const handleClickOutside = (e: MouseEvent): void => {
-    if (rootRef.value && !rootRef.value.contains(e.target as Node)) close()
+    if (e.target instanceof Node && rootRef.value && !rootRef.value.contains(e.target)) close()
   }
 
   const handleResize = (): void => {

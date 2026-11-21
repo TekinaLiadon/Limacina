@@ -37,13 +37,13 @@ const {
   submitOffline,
 } = useOfflineProfileForm({ isSubmitting, errorMessage })
 
-const kindTabs: Array<{ key: ProfileKind; label: string }> = [
+const kindTabs: { key: ProfileKind; label: string }[] = [
   { key: 'server', label: 'Сервер' },
   { key: 'offline', label: 'Одиночная игра' },
 ]
 
 const { handleKeydown: handleKindKeydown } = useRovingTabs<ProfileKind>({
-  tabs: (): Array<{ key: ProfileKind; label: string }> => kindTabs,
+  tabs: (): { key: ProfileKind; label: string }[] => kindTabs,
   isActive: (key: ProfileKind): boolean => kind.value === key,
   tabId: (key: ProfileKind): string => `add-profile-kind-${key}`,
   select: (key: ProfileKind): void => {

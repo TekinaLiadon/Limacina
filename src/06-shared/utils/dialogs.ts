@@ -12,7 +12,7 @@ export async function selectDirectory(): Promise<string | null> {
 
 interface SaveFileOptions {
   defaultPath: string
-  filters: Array<{ name: string; extensions: string[] }>
+  filters: { name: string; extensions: string[] }[]
 }
 
 export async function saveFile(options: SaveFileOptions): Promise<string | null> {

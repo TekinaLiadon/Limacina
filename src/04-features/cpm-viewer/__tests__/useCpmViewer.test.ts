@@ -10,13 +10,13 @@ const seq = (...animations: CPMAnimation[]): ActiveCpmAnimation[] =>
   animations.map((animation) => ({ animation, startDelayMs: 0 }))
 import { DEFAULT_RGB, type ViewerControls } from '@/06-shared'
 
-const textureLoads = vi.hoisted(() => [] as Array<{
+const textureLoads = vi.hoisted(() => [] as {
   url: string
   resolve: (texture: THREE.Texture) => void
   fail: (error: unknown) => void
-}>)
+}[])
 
-const boxGeometryState = vi.hoisted(() => ({ created: [] as Array<{ disposed: boolean }> }))
+const boxGeometryState = vi.hoisted(() => ({ created: [] as { disposed: boolean }[] }))
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>()
@@ -43,7 +43,7 @@ const mountedScene = vi.hoisted(() => ({
 }))
 const playerState = vi.hoisted(() => ({
   disposed: 0,
-  instances: [] as Array<{ calls: string[] }>,
+  instances: [] as { calls: string[] }[],
 }))
 
 vi.mock('@/06-shared', async (importOriginal) => {

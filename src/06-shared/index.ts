@@ -22,7 +22,7 @@ export type {
   StepEvent,
 } from './types'
 export { generateIdenticon } from './utils/identicon'
-export { copyToClipboard, joinPath, stripPathSuffix, getPathBaseName } from './utils/utils'
+export { copyToClipboard, joinPath, stripPathSuffix, getPathBaseName, objectKeys } from './utils/utils'
 export { hasPngSignature } from './utils/png'
 export { reportError } from './utils/reportError'
 export { DEFAULT_RGB, parseHexColor } from './utils/parseHexColor'
@@ -33,7 +33,7 @@ export { isAutostartEnabled, enableAutostart, disableAutostart } from './utils/a
 export { isNotificationPermissionGranted, requestNotificationPermission, sendOsNotification } from './utils/notifications'
 export type { NotificationOptions } from './utils/notifications'
 export { useThreeScene } from './utils/useThreeScene'
-export { createManagedTextureLoader, removeGroupFromScene, setFaceQuad } from './utils/three'
+export { createManagedTextureLoader, removeGroupFromScene, setFaceQuad, uvAttributeOf, numberUserData, booleanUserData } from './utils/three'
 export { applyStepEvent, computeStepProgress, createStepItem } from './utils/stepEvents'
 export type { StepProgressItem } from './utils/stepEvents'
 export { STEP_IDS, DOWNLOAD_STEP_IDS, FLOW_ENTRY_STEP_IDS, OPTIONAL_SYNC_STEP_IDS, stepPlanItems } from './utils/stepIds'

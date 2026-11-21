@@ -22,6 +22,7 @@ import {
   useDirtySnapshot,
   useAsyncAction,
   runScopedAction,
+  objectKeys,
 } from '@/06-shared'
 
 type LauncherFormField = keyof LauncherBehaviorForm
@@ -73,7 +74,7 @@ const LAUNCHER_FIELD_TRANSFERS: LauncherFieldTransfers = {
 }
 
 const launcherFormFieldKeys = (): LauncherFormField[] =>
-  Object.keys(LAUNCHER_FIELD_TRANSFERS) as LauncherFormField[]
+  objectKeys(LAUNCHER_FIELD_TRANSFERS)
 
 const writeFormFieldFromConfig = <K extends LauncherFormField>(
   form: LauncherBehaviorForm,

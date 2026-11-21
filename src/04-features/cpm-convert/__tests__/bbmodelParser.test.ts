@@ -501,7 +501,7 @@ describe('parseBbmodel: формат 5.0 и анимации', () => {
   })
 
   it('назначает storeID от 100 без конфликтов с ординалами и мапит аниматоров на узлы', () => {
-    const track = (keyframes: Array<Record<string, unknown>>): Record<string, unknown> => ({ channels: ['rotation'], keyframes })
+    const track = (keyframes: Record<string, unknown>[]): Record<string, unknown> => ({ channels: ['rotation'], keyframes })
     const animation = {
       uuid: 'anim-all',
       name: 'All',
@@ -549,13 +549,13 @@ describe('parseBbmodel: формат 5.0 и анимации', () => {
     expect(loose?.storeID).toBeUndefined()
 
     const storeIds: number[] = []
-    const walkStoreIds = (nodes: Array<{ storeID?: number, children?: unknown[] }>): void => {
+    const walkStoreIds = (nodes: { storeID?: number, children?: unknown[] }[]): void => {
       for (const node of nodes) {
         if (typeof node.storeID === 'number') storeIds.push(node.storeID)
-        walkStoreIds((node.children ?? []) as Array<{ storeID?: number, children?: unknown[] }>)
+        walkStoreIds((node.children ?? []) as { storeID?: number, children?: unknown[] }[])
       }
     }
-    walkStoreIds(config.elements as unknown as Array<{ storeID?: number, children?: unknown[] }>)
+    walkStoreIds(config.elements as unknown as { storeID?: number, children?: unknown[] }[])
     expect(storeIds.length).toBe(new Set(storeIds).size)
     for (const storeId of storeIds) {
       expect(storeId).toBeGreaterThanOrEqual(100)

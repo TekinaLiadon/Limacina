@@ -60,8 +60,8 @@ export function useAccounts() {
   }
 
   onMounted(() => {
-    loadAccounts()
-    checkSession()
+    void loadAccounts()
+    void checkSession()
   })
 
   return {

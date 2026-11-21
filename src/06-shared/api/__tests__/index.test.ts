@@ -463,7 +463,7 @@ describe('event wrappers', () => {
     eventApi.listen.mockResolvedValue(unlisten)
   })
 
-  const listenCases: Array<[string, string, (callback: (payload: unknown) => void) => Promise<unknown>]> = [
+  const listenCases: [string, string, (callback: (payload: unknown) => void) => Promise<unknown>][] = [
     ['listenGameConsole', 'game-console', listenGameConsole],
     ['listenLaunchSteps', 'launch-steps', listenLaunchSteps],
     ['listenIntegritySteps', 'integrity-steps', listenIntegritySteps],

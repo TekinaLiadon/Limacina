@@ -14,13 +14,13 @@ export function useAppNavigation(): { isDebugTabVisible: ComputedRef<boolean> } 
 
   watch((): boolean => coreStore.isOfflineProject, (offline) => {
     if (!offline && route.name === 'Mods') {
-      router.push({ name: 'Accounts' })
+      void router.push({ name: 'Accounts' })
     }
   }, { immediate: true })
 
   watch(isDebugTabVisible, (visible: boolean): void => {
     if (!visible && route.name === 'Debug') {
-      router.push({ name: 'Accounts' })
+      void router.push({ name: 'Accounts' })
     }
   }, { immediate: true })
 
